@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Grand Club & Club École")
+st.title("🏒 Analyseur Fantrax : Contrôle Budgétaire 2025")
 
 # --- Configuration des plafonds salariaux ---
 col_cap1, col_cap2 = st.columns(2)
@@ -85,24 +85,28 @@ if fichiers_telecharges:
     if all_players:
         df_final = pd.concat(all_players)
 
-        # --- RÉSUMÉ GLOBAL : AFFICHE SEULEMENT LES TOTAUS BRUTS ---
-        st.write("### 📊 Résumé des Masses Salariales Brutes")
+        # --- RÉSUMÉ GLOBAL ---
+        st.write("### 📊 Résumé des Masses Salariales")
         summary = df_final.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         
         for c in ['Grand Club', 'Club École']:
             if c not in summary.columns: summary[c] = 0
 
-        # On renomme simplement les colonnes existantes pour l'affichage final
-        summary = summary.rename(columns={
-            'Grand Club': 'Masse Salariale Grand Club',
-            'Club École': 'Masse Salariale Club École'
-        })
-        
+        # Fonctions de style pour le tableau
+        def color_grand_club(val):
+            color = 'red' if val > CAP_GRAND_CLUB else 'green'
+            return f'color: {color}; font-weight: bold'
+
+        def color_club_ecole(val):
+            color = 'red' if val > CAP_CLUB_ECOLE else 'green'
+            return f'color: {color}; font-weight: bold'
+
         st.dataframe(
-            summary[['Propriétaire', 'Masse Salariale Grand Club', 'Masse Salariale Club École']].style.format({
-                'Masse Salariale Grand Club': format_currency, 
-                'Masse Salariale Club École': format_currency,
-            }),
+            summary.style.format({
+                'Grand Club': format_currency, 
+                'Club École': format_currency,
+            }).applymap(color_grand_club, subset=['Grand Club'])
+              .applymap(color_club_ecole, subset=['Club École']),
             use_container_width=True, hide_index=True
         )
 
@@ -121,10 +125,20 @@ if fichiers_telecharges:
                     st.subheader("⭐ Grand Club")
                     df_gc = df_eq[df_eq['Statut'] == 'Grand Club'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_gc[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_gc['Salaire'].apply(format_currency)))
-                    st.metric("Masse Grand Club", format_currency(df_gc['Salaire'].sum()))
+                    
+                    total_gc = df_gc['Salaire'].sum()
+                    diff_gc = CAP_GRAND_CLUB - total_gc
+                    st.metric("Total Grand Club", format_currency(total_gc), 
+                              delta=f"{format_currency(diff_gc)} disponible", 
+                              delta_color="normal" if diff_gc >= 0 else "inverse")
 
                 with col_ecole:
                     st.subheader("🎓 Club École")
                     df_ce = df_eq[df_eq['Statut'] == 'Club École'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_ce[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_ce['Salaire'].apply(format_currency)))
-                    st.metric("Masse Club École", format_currency(df_ce['Salaire'].sum()))
+                    
+                    total_ce = df_ce['Salaire'].sum()
+                    diff_ce = CAP_CLUB_ECOLE - total_ce
+                    st.metric("Total Club École", format_currency(total_ce), 
+                              delta=f"{format_currency(diff_ce)} disponible", 
+                              delta_color="normal" if diff_ce >= 0 else "inverse")
