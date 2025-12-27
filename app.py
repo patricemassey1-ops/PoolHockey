@@ -19,6 +19,13 @@ fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", typ
 def format_currency(val):
     return f"{val:,.0f}".replace(",", " ") + " $"
 
+# Logique de tri pour les positions (F=0, D=1, G=2)
+def pos_sort_order(pos_text):
+    pos = str(pos_text).upper()
+    if 'G' in pos: return 2
+    if 'D' in pos: return 1
+    return 0  # F ou autres attaquants (LW, RW, C)
+
 if fichiers_telecharges:
     all_players = []
 
@@ -43,10 +50,8 @@ if fichiers_telecharges:
                 if header_line_index == -1: return pd.DataFrame()
 
                 raw_data_lines = lines[header_line_index:]
-                # Moteur python + on_bad_lines='skip' pour ignorer l'erreur de la ligne 43
                 df = pd.read_csv(io.StringIO("\n".join(raw_data_lines)), sep=None, engine='python', on_bad_lines='skip')
                 
-                # Filtrer pour ne garder que les lignes avec un ID de joueur valide
                 if 'ID' in df.columns:
                     df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
                 return df
@@ -59,7 +64,7 @@ if fichiers_telecharges:
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return found[0]
+                    if found: return found[0] # Correction : retourne l'index 0 directement
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -68,10 +73,7 @@ if fichiers_telecharges:
             c_pos    = find_col_safe(['Eligible', 'Pos'])
 
             if c_status and c_salary and c_player:
-                # Nettoyage Salaire
                 df[c_salary] = pd.to_numeric(df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
-                
-                # Attribution des catégories demandées
                 df['Catégorie'] = df[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
                 res = pd.DataFrame({
@@ -81,6 +83,8 @@ if fichiers_telecharges:
                     'Pos': df[c_pos] if c_pos else "N/A",
                     'Propriétaire': fichier.name.replace('.csv', '')
                 })
+                # Ajouter l'ordre de tri pour la position
+                res['pos_order'] = res['Pos'].apply(pos_sort_order)
                 all_players.append(res)
         except Exception as e:
             st.error(f"Erreur avec {fichier.name}: {e}")
@@ -92,19 +96,20 @@ if fichiers_telecharges:
         st.write("### 📊 Résumé des Équipes")
         summary = df_final.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         
-        # Sécurité colonnes
         for c in ['Grand Club', 'Club École']:
             if c not in summary.columns: summary[c] = 0
 
-        summary['Espace Grand Club'] = CAP_GRAND_CLUB - summary['Grand Club']
-        summary['Espace Club École'] = CAP_CLUB_ECOLE - summary['Club École']
+        summary['Total Grand Club'] = CAP_GRAND_CLUB - summary['Grand Club']
+        summary['Total Club École'] = CAP_CLUB_ECOLE - summary['Club École']
 
         st.dataframe(
             summary.style.format({
-                'Grand Club': format_currency, 'Club École': format_currency,
-                'Espace Grand Club': format_currency, 'Espace Club École': format_currency,
+                'Grand Club': format_currency, 
+                'Club École': format_currency,
+                'Total Grand Club': format_currency, 
+                'Total Club École': format_currency,
             }).applymap(lambda v: 'color: red;' if v < 0 else 'color: #00FF00;', 
-                        subset=['Espace Grand Club', 'Espace Club École']),
+                        subset=['Total Grand Club', 'Total Club École']),
             use_container_width=True, hide_index=True
         )
 
@@ -112,7 +117,6 @@ if fichiers_telecharges:
 
         # --- DÉTAILS PAR ÉQUIPE ---
         st.write("### 👤 Détails des Effectifs par Propriétaire")
-        
         equipes = sorted(df_final['Propriétaire'].unique())
         
         for eq in equipes:
@@ -122,16 +126,18 @@ if fichiers_telecharges:
                 
                 with col_grand:
                     st.subheader("⭐ Grand Club")
-                    df_gc = df_eq[df_eq['Statut'] == 'Grand Club'].sort_values('Salaire', ascending=False)
+                    # Tri par pos_order (F, D, G) puis par Salaire décroissant
+                    df_gc = df_eq[df_eq['Statut'] == 'Grand Club'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_gc[['Joueur', 'Pos', 'Salaire']].assign(
                         Salaire=df_gc['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Total Grand Club", format_currency(df_gc['Salaire'].sum()))
+                    st.metric("Total Masse Grand Club", format_currency(df_gc['Salaire'].sum()))
 
                 with col_ecole:
                     st.subheader("🎓 Club École")
-                    df_ce = df_eq[df_eq['Statut'] == 'Club École'].sort_values('Salaire', ascending=False)
+                    # Tri par pos_order (F, D, G) puis par Salaire décroissant
+                    df_ce = df_eq[df_eq['Statut'] == 'Club École'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_ce[['Joueur', 'Pos', 'Salaire']].assign(
                         Salaire=df_ce['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Total Club École", format_currency(df_ce['Salaire'].sum()))
+                    st.metric("Total Masse Club École", format_currency(df_ce['Salaire'].sum()))
