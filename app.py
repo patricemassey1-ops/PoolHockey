@@ -2,9 +2,15 @@ import streamlit as st
 import pandas as pd
 import io
 
+# Définition des plafonds salariaux
+CAP_ACTIF = 95500000
+CAP_MINORS = 47750000
+
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Scan exhaustif (Skaters + Goalies)")
+st.title("🏒 Analyseur Fantrax : Plafonds Salariaux Appliqués")
+
+st.markdown(f"Plafond Actif défini à **{CAP_ACTIF:,.0f} $** et Mineur à **{CAP_MINORS:,.0f} $**.")
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
@@ -17,7 +23,6 @@ if fichiers_telecharges:
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
-            # Function to extract a data frame by finding the *actual* header line after a keyword
             def extract_table(lines, section_keyword):
                 start_line_index = -1
                 for i, line in enumerate(lines):
@@ -25,8 +30,7 @@ if fichiers_telecharges:
                         start_line_index = i
                         break
                 
-                if start_line_index == -1:
-                    return pd.DataFrame()
+                if start_line_index == -1: return pd.DataFrame()
 
                 header_line_index = -1
                 for i in range(start_line_index + 1, len(lines)):
@@ -34,8 +38,7 @@ if fichiers_telecharges:
                         header_line_index = i
                         break
                 
-                if header_line_index == -1:
-                    return pd.DataFrame()
+                if header_line_index == -1: return pd.DataFrame()
 
                 raw_data_lines = lines[header_line_index:]
                 
@@ -52,23 +55,15 @@ if fichiers_telecharges:
 
                 return df.head(70)
 
-            # --- Process Skaters ---
             df_skaters = extract_table(lines, 'Skaters')
-            
-            # --- Process Goalies (Look for the second header) ---
             df_goalies = extract_table(lines, 'Goalies')
-
-            # Combine them.
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
-            
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: 
-                        return found
+                    if found: return found
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -80,13 +75,11 @@ if fichiers_telecharges:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}.")
                 continue
 
-            # 5. Nettoyage et conversion des salaires
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
-            # 6. Scan de la position (F, D, G)
             def scan_pos(val):
                 text = str(val).upper().strip()
                 if 'G' in text: return 'G'
@@ -95,7 +88,6 @@ if fichiers_telecharges:
 
             df['P'] = df[c_pos].apply(scan_pos)
 
-            # 7. Catégorisation Statut (Act vs Min)
             def categorize_status(val):
                 val = str(val).strip()
                 if "Min" in val: return "Min"
@@ -103,13 +95,10 @@ if fichiers_telecharges:
                 return "Autre"
 
             df['Catégorie'] = df[c_status].apply(categorize_status)
-            
-            # Filtrage des lignes valides (Act ou Min uniquement)
             df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
 
             nom_proprio = fichier.name.replace('.csv', '')
             
-            # 8. Compilation du DataFrame résultat
             res = pd.DataFrame({
                 'P': df_filtered['P'],
                 'Joueur': df_filtered[c_player],
@@ -126,24 +115,38 @@ if fichiers_telecharges:
     if all_players:
         df_final = pd.concat(all_players)
 
-        # Affichage de l'interface
-        tab1, tab2 = st.tabs(["📊 Masse Salariale", "👤 Détails Joueurs"])
+        tab1, tab2 = st.tabs(["📊 Masse Salariale & Cap Space", "👤 Détails Joueurs"])
 
         with tab1:
             st.write("### Résumé par Équipe")
             summary = df_final.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0).reset_index()
             
-            # --- NOUVEAU CODE ICI : Calcul du total ---
-            # S'assurer que les colonnes 'Act' et 'Min' existent avant de faire la somme
-            if 'Act' in summary.columns and 'Min' in summary.columns:
-                summary['Total'] = summary['Act'] + summary['Min']
+            # --- NOUVEAU CODE ICI : Calcul du total et de l'espace restant ---
+            if 'Act' in summary.columns:
+                summary['Total Actif'] = summary['Act']
+                summary['Cap Space Actif'] = CAP_ACTIF - summary['Total Actif']
+                del summary['Act'] # Renomme/Réorganise pour plus de clarté
+            
+            if 'Min' in summary.columns:
+                summary['Total Mineur'] = summary['Min']
+                summary['Cap Space Mineur'] = CAP_MINORS - summary['Total Mineur']
+                del summary['Min'] # Renomme/Réorganise
 
-            # Mise en forme pour l'affichage (inclut 'Total' si elle existe)
+            # Calcul du total global et de l'espace restant global
+            if 'Total Actif' in summary.columns and 'Total Mineur' in summary.columns:
+                 summary['Total Global'] = summary['Total Actif'] + summary['Total Mineur']
+                 summary['Cap Space Global'] = (CAP_ACTIF + CAP_MINORS) - summary['Total Global']
+
+
+            # Formatage pour l'affichage
             st.dataframe(
                 summary.style.format({
-                    'Act': '{:,.0f} $', 
-                    'Min': '{:,.0f} $',
-                    'Total': '{:,.0f} $' # Formatage de la nouvelle colonne
+                    'Total Actif': '{:,.0f} $', 
+                    'Cap Space Actif': '{:,.0f} $',
+                    'Total Mineur': '{:,.0f} $',
+                    'Cap Space Mineur': '{:,.0f} $',
+                    'Total Global': '{:,.0f} $',
+                    'Cap Space Global': '{:,.0f} $'
                 }), 
                 use_container_width=True, 
                 hide_index=True
@@ -174,6 +177,5 @@ if fichiers_telecharges:
                 draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées, et les totaux calculés.")
+        st.success(f"Analyse terminée. Les totaux et l'espace salarial restant sont affichés.")
 
-Voulez-vous maintenant **calculer l'espace disponible sous le plafond salarial** en ajoutant un champ de saisie pour définir le plafond total de la ligue ?
