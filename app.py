@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import traceback # Importation pour un débogage avancé
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
@@ -38,7 +39,8 @@ if fichiers_telecharges:
                 
                 # If there's an 'ID' column right at the start, drop the fluff rows above the real data
                 if 'ID' in df.columns:
-                    df = df[df['ID'].astype(str).str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
+                    # Filter rows where the ID column looks like a valid ID
+                    df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
 
                 # Cap at 70 entries to avoid weird summary totals at the very end of files
                 return df.head(70)
@@ -55,27 +57,28 @@ if fichiers_telecharges:
             # Remove any totally empty rows that might remain
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes (CORRECTION APPLIQUÉE)
+            # 4. Identification sécurisée des colonnes (CORRECTION APPLIQUÉE ET VÉRIFIÉE)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    # BUG FIX: Ensure we return only the string name of the column (e.g. "Player" not "['Player']")
-                    if found: return found[0] 
-                return None
+                    # BUG FIX: Ensure we return the *first* matching string name if found
+                    if found: 
+                        return found[0] 
+                return None # Retourne None si rien n'est trouvé
 
             c_player = find_col_safe(['Player', 'Joueur'])
             c_status = find_col_safe(['Status', 'Statut'])
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
-            # BUG FIX: Corrected shape access and column indexing
+            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (E)
+            # Correction de la logique de fallback
             if not c_pos and df.shape[1] >= 5:
                 c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
-                # Cette erreur ne devrait plus apparaître si les mots clés existent dans le fichier
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Vérifiez les en-têtes exacts.")
+                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Impossible de trouver 'Player', 'Status' ou 'Salary'.")
+                st.write("Colonnes trouvées dans le fichier :", list(df.columns))
                 continue
 
             # 5. Nettoyage et conversion des salaires
@@ -84,6 +87,7 @@ if fichiers_telecharges:
                 errors='coerce'
             ).fillna(0)
 
+            # ... (Reste du code identique) ...
             # 6. Scan de la position (F, D, G)
             def scan_pos(val):
                 text = str(val).upper().strip()
@@ -119,7 +123,8 @@ if fichiers_telecharges:
             all_players.append(res)
 
         except Exception as e:
-            st.error(f"💥 Erreur avec {fichier.name} : {e}")
+            st.error(f"💥 Erreur inattendue avec {fichier.name} : {e}")
+            st.code(traceback.format_exc()) # Affiche la pile d'erreur complète pour le débogage
 
     if all_players:
         df_final = pd.concat(all_players)
