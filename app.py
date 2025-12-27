@@ -17,10 +17,11 @@ def charger_historique():
 def sauvegarder_historique(df):
     df.to_csv(DB_FILE, index=False)
 
+# Initialisation de la session
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
-st.title("🏒 Analyseur Fantrax : Grand Club & Club École")
+st.title("🏒 Analyseur Fantrax : Historique par Date & Heure")
 
 # --- CONFIGURATION DES PLAFONDS ---
 col_cap1, col_cap2 = st.columns(2)
@@ -29,6 +30,7 @@ with col_cap1:
 with col_cap2:
     CAP_CLUB_ECOLE = st.number_input("Plafond Club École ($)", min_value=0, value=47750000, step=100000)
 
+# --- IMPORTATION ---
 fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
 
 def format_currency(val):
@@ -39,10 +41,11 @@ def pos_sort_order(pos_text):
     pos = str(pos_text).upper()
     if 'G' in pos: return 2
     if 'D' in pos: return 1
-    return 0
+    return 0 # F
 
 if fichiers_telecharges:
     dfs_a_ajouter = []
+    # Générer le suffixe de date et heure une seule fois pour cette importation
     horodatage = datetime.now().strftime("%d-%m %H:%M")
     
     for fichier in fichiers_telecharges:
@@ -68,19 +71,18 @@ if fichiers_telecharges:
             c_pos = next((c for c in df_merged.columns if 'pos' in c.lower() or 'eligible' in c.lower()), None)
 
             if c_status and c_salary and c_player:
-                # Calcul Salaire +000
-                salary_val = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
+                df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
+                df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
-                nom_base = fichier.name.replace('.csv', '')
-                nom_unique = f"{nom_base} ({horodatage})"
+                # Nom de l'équipe unique avec date et heure
+                nom_equipe_unique = f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 
                 temp_df = pd.DataFrame({
                     'Joueur': df_merged[c_player], 
-                    'Salaire': salary_val, 
-                    'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
+                    'Salaire': df_merged[c_salary], 
+                    'Statut': df_merged['Catégorie'],
                     'Pos': df_merged[c_pos] if c_pos else "N/A", 
-                    'Propriétaire': nom_unique,
-                    'Nom_Affichage': nom_base, # Colonne pour le résumé sans date
+                    'Propriétaire': nom_equipe_unique,
                     'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
                 })
                 dfs_a_ajouter.append(temp_df)
@@ -88,23 +90,25 @@ if fichiers_telecharges:
             st.error(f"Erreur avec {fichier.name}: {e}")
 
     if dfs_a_ajouter:
-        st.session_state['historique'] = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
+        df_new = pd.concat(dfs_a_ajouter)
+        st.session_state['historique'] = pd.concat([st.session_state['historique'], df_new], ignore_index=True)
         sauvegarder_historique(st.session_state['historique'])
-        st.rerun()
+        st.success(f"Importation réussie à {horodatage}")
 
 # --- GESTION DE L'HISTORIQUE (SIDEBAR) ---
 st.sidebar.header("⚙️ Gestion des données")
 if not st.session_state['historique'].empty:
+    # On trie pour avoir les plus récents en haut dans la sidebar
     equipes_dispo = sorted(st.session_state['historique']['Propriétaire'].unique(), reverse=True)
-    eq_suppr = st.sidebar.selectbox("Supprimer une version", ["-- Choisir --"] + equipes_dispo)
+    eq_suppr = st.sidebar.selectbox("Supprimer une version spécifique", ["-- Choisir --"] + equipes_dispo)
     
-    if st.sidebar.button("❌ Supprimer"):
+    if st.sidebar.button("❌ Supprimer définitivement"):
         if eq_suppr != "-- Choisir --":
             st.session_state['historique'] = st.session_state['historique'][st.session_state['historique']['Propriétaire'] != eq_suppr]
             sauvegarder_historique(st.session_state['historique'])
             st.rerun()
     
-    if st.sidebar.button("⚠️ Tout effacer"):
+    if st.sidebar.button("⚠️ Effacer tout l'historique"):
         st.session_state['historique'] = pd.DataFrame()
         sauvegarder_historique(st.session_state['historique'])
         st.rerun()
@@ -113,27 +117,22 @@ if not st.session_state['historique'].empty:
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
 
-    # 1. RÉSUMÉ GLOBAL (Sans date et heure)
-    st.header("📊 Résumé des Masses Salariales")
-    
-    # On groupe par l'ID unique mais on affiche le nom propre
-    summary = df_f.groupby(['Propriétaire', 'Nom_Affichage', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
-    
+    # 1. RÉSUMÉ GLOBAL
+    st.header("📊 Résumé des Importations")
+    summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
     for col in ['Grand Club', 'Club École']:
         if col not in summary.columns: summary[col] = 0
 
-    # On ne garde que Nom_Affichage pour le tableau final
-    res_tab = summary[['Nom_Affichage', 'Grand Club', 'Club École']].rename(columns={'Nom_Affichage': 'Équipe'})
-
     st.dataframe(
-        res_tab.style.format({'Grand Club': format_currency, 'Club École': format_currency})
-        .applymap(lambda v: 'color: #00FF00;' if v <= CAP_GRAND_CLUB else 'color: red;', subset=['Grand Club'])
-        .applymap(lambda v: 'color: #00FF00;' if v <= CAP_CLUB_ECOLE else 'color: red;', subset=['Club École']),
+        summary.style.format({'Grand Club': format_currency, 'Club École': format_currency})
+        .applymap(lambda v: 'color: red;' if v > CAP_GRAND_CLUB else 'color: #00FF00;', subset=['Grand Club'])
+        .applymap(lambda v: 'color: red;' if v > CAP_CLUB_ECOLE else 'color: #00FF00;', subset=['Club École']),
         use_container_width=True, hide_index=True
     )
 
-    # 2. DÉTAILS PAR ÉQUIPE (Avec date pour différencier les versions)
+    # 2. DÉTAILS PAR ÉQUIPE
     st.header("👤 Détails des Effectifs")
+    # Affichage par ordre alphabétique inverse pour voir les plus récents en premier
     for eq in sorted(df_f['Propriétaire'].unique(), reverse=True):
         with st.expander(f"📂 {eq}"):
             c1, c2 = st.columns(2)
@@ -153,4 +152,4 @@ if not st.session_state['historique'].empty:
                 m_c = df_c['Salaire'].sum()
                 st.metric("Masse", format_currency(m_c), delta=format_currency(CAP_CLUB_ECOLE - m_c), delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse")
 else:
-    st.info("Aucun historique détecté.")
+    st.info("Aucun historique détecté. Importez vos fichiers CSV pour commencer.")
