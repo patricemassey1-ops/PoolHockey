@@ -24,23 +24,25 @@ if fichiers_telecharges:
                     start_line = i
                     break
             
-            # 3. FUSION DU CODE : Filtrage des lignes vides ou composées uniquement de virgules
-            # On prend tout à partir du header identifié
+            # 3. FILTRAGE ET CONTINUATION : Ignore les lignes vides et continue jusqu'à la fin
+            # On récupère toutes les lignes après le header
             raw_data_lines = lines[start_line:]
             
-            # Cette liste filtrée imite le comportement de "if any(field.strip() for field in row)"
+            # Filtrage : On garde la ligne SI elle n'est pas vide ET SI elle contient 
+            # au moins un caractère qui n'est pas une virgule ou un espace.
             filtered_lines = [
                 line for line in raw_data_lines 
                 if line.strip() and any(cell.strip() for cell in line.split(','))
             ]
             
-            # Reconstruction du contenu propre pour Pandas
+            # Reconstruction du contenu pour Pandas
             clean_content = "\n".join(filtered_lines)
             
-            # Lecture par Pandas du contenu nettoyé
+            # Lecture du flux nettoyé par Pandas
             df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
             
-            # On limite le scan aux 70 premières lignes REELLES pour éviter les totaux de fin de fichier
+            # On limite le scan aux 70 premières lignes réelles de données 
+            # pour éviter les totaux de fin de fichier tout en ignorant les trous.
             df = df.head(70)
 
             # 4. Identification sécurisée des colonnes
@@ -141,4 +143,4 @@ if fichiers_telecharges:
                 draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. Les lignes vides ont été ignorées.")
+        st.success(f"Analyse terminée. Les lignes vides ont été supprimées et le scan a continué.")
