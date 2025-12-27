@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Scan exhaustif (Toutes les lignes)")
+st.title("🏒 Analyseur Fantrax : Scan exhaustif (Skaters + Goalies)")
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
@@ -17,32 +17,46 @@ if fichiers_telecharges:
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
-            # 2. Localisation de l'en-tête (Header)
-            start_line = 0
-            for i, line in enumerate(lines):
-                if any(kw in line for kw in ["Status", "Salary", "Player"]):
-                    start_line = i
-                    break
-            
-            # 3. FILTRAGE ET CONTINUATION : Ignore les lignes vides et continue jusqu'à la fin
-            # On récupère toutes les lignes après le header
-            raw_data_lines = lines[start_line:]
-            
-            # Filtrage : On garde la ligne SI elle n'est pas vide ET SI elle contient 
-            # au moins un caractère qui n'est pas une virgule ou un espace.
-            filtered_lines = [
-                line for line in raw_data_lines 
-                if line.strip() and any(cell.strip() for cell in line.split(','))
-            ]
-            
-            # Reconstruction du contenu pour Pandas
-            clean_content = "\n".join(filtered_lines)
-            
-            # Lecture du flux nettoyé par Pandas (reads all valid data without head(70) limit)
-            df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
-            
-            # Note: The line df = df.head(70) has been removed here to ensure ALL data is captured.
+            # Function to extract a data frame given a starting keyword
+            def extract_table(lines, start_keyword, end_keyword=None):
+                start_line = 0
+                for i, line in enumerate(lines):
+                    if start_keyword in line:
+                        start_line = i
+                        break
+                
+                # Take lines from the header start
+                raw_data_lines = lines[start_line:]
+                
+                # Filter out blank/comma-only lines
+                filtered_lines = [
+                    line for line in raw_data_lines 
+                    if line.strip() and any(cell.strip() for cell in line.split(','))
+                ]
+                
+                clean_content = "\n".join(filtered_lines)
+                df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
+                
+                # If there's an 'ID' column right at the start, drop the fluff rows above the real data
+                if 'ID' in df.columns:
+                    df = df[df['ID'].astype(str).str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
 
+                # Cap at 70 entries to avoid weird summary totals at the very end of files
+                return df.head(70)
+
+            # --- Process Skaters ---
+            df_skaters = extract_table(lines, 'Skaters')
+            
+            # --- Process Goalies (Look for the second header) ---
+            # We search specifically for the "Goalies" keyword to find the second table start line
+            df_goalies = extract_table(lines, 'Goalies')
+
+            # Combine them. Concat handles cases where one might be empty if not found.
+            df = pd.concat([df_skaters, df_goalies], ignore_index=True)
+            
+            # Remove any totally empty rows that might remain
+            df.dropna(how='all', inplace=True)
+            
             # 4. Identification sécurisée des colonnes
             def find_col_safe(keywords):
                 for k in keywords:
@@ -55,10 +69,7 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
-            if not c_pos and df.shape[1] >= 5:
-                c_pos = df.columns[4]
-
+            # Security check
             if not c_status or not c_salary or not c_player:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}")
                 continue
@@ -130,7 +141,7 @@ if fichiers_telecharges:
                         "Salaire": st.column_config.NumberColumn(format="$%d"),
                         "P": st.column_config.TextColumn("Pos", width="small")
                     },
-                    use_container_width=True, hide_index=True
+                    use_container_container=True, hide_index=True
                 )
                 st.metric(f"Total {title}", f"{df_sub['Salaire'].sum():,.0f} $")
 
@@ -141,5 +152,4 @@ if fichiers_telecharges:
                 draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. Les lignes vides ont été supprimées et le scan a continué sur l'intégralité du fichier.")
-
+        st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées.")
