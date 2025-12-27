@@ -3,14 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
-
-st.title("🏒 Analyseur de Salaires Fantrax (Forcé sur point-virgule)")
-
-# On définit les noms de colonnes standards de Fantrax pour plus de sécurité
-COL_PLAYER = 1
-COL_NHL_TEAM = 2
-COL_STATUS = 5
-COL_SALARY = 6
+st.title("🏒 Analyseur de Salaires Fantrax (Mode Ultra-Compatible)")
 
 fichiers_telecharges = st.file_uploader("Importez vos CSV", type="csv", accept_multiple_files=True)
 
@@ -19,66 +12,86 @@ if fichiers_telecharges:
 
     for fichier in fichiers_telecharges:
         try:
-            content = fichier.getvalue().decode('utf-8-sig') 
+            # 1. Lire le contenu brut
+            bytes_data = fichier.getvalue()
+            content = bytes_data.decode('utf-8-sig')
+            lines = content.splitlines()
+
+            # 2. Trouver la ligne d'en-tête (Header)
+            # Fantrax contient souvent "Player" ou "Status" dans ses en-têtes
+            skip_rows = 0
+            for i, line in enumerate(lines):
+                if "Status" in line or "Salary" in line or "Player" in line:
+                    skip_rows = i
+                    break
             
-            # --- MODIFICATION CLÉ ---
-            # On force le séparateur à ";" (point-virgule), typique des exports Excel FR
+            # 3. Essayer la lecture avec détection de séparateur
+            # On utilise le contenu à partir de la ligne d'en-tête trouvée
+            clean_content = "\n".join(lines[skip_rows:])
+            
             df = pd.read_csv(
-                io.StringIO(content), 
-                sep=';',  # Changement ici
-                engine='python', 
-                on_bad_lines='skip' 
+                io.StringIO(clean_content),
+                sep=None, # Détection automatique (virgule, point-virgule, etc.)
+                engine='python',
+                on_bad_lines='skip'
             )
 
-            # ÉTAPE 2 : Vérification du nombre de colonnes
-            # Le fichier standard Fantrax a 21 colonnes
-            if df.shape[1] < 20: 
-                st.error(f"❌ {fichier.name} semble toujours mal formaté ou utilise un autre séparateur. Détecté: {df.shape[1]} colonnes.")
+            # 4. Identification dynamique des colonnes par nom
+            # Car les index changent si le fichier est mal lu
+            def find_col(possible_names):
+                for name in possible_names:
+                    match = [c for c in df.columns if name.lower() in c.lower()]
+                    if match: return match[0]
+                return None
+
+            col_status = find_col(['Status', 'Statut'])
+            col_salary = find_col(['Salary', 'Salaire'])
+            col_player = find_col(['Player', 'Joueur'])
+            col_nhl = find_col(['Team', 'Équipe'])
+
+            if not col_status or not col_salary:
+                st.error(f"❌ Impossible de trouver les colonnes 'Status' ou 'Salary' dans {fichier.name}")
                 continue
 
-            # ... (Le reste du code reste identique) ...
-            
-            # Nettoyage et conversion des salaires
-            df.iloc[:, COL_SALARY] = pd.to_numeric(
-                df.iloc[:, COL_SALARY].astype(str).replace(r'[\$,\s]', '', regex=True), 
+            # 5. Nettoyage et Filtrage
+            df[col_salary] = pd.to_numeric(
+                df[col_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
-            # Filtrage "Min"
-            mask_min = df.iloc[:, COL_STATUS].astype(str).str.contains("Min", na=False, case=False)
+            mask_min = df[col_status].astype(str).str.contains("Min", na=False, case=False)
             df_min = df[mask_min].copy()
             
-            df_min['Équipe Ligue'] = fichier.name.replace('.csv', '')
-            
+            # 6. Consolidation
             res = pd.DataFrame({
-                'Joueur': df_min.iloc[:, COL_PLAYER],
-                'Équipe NHL': df_min.iloc[:, COL_NHL_TEAM],
-                'Salaire': df_min.iloc[:, COL_SALARY],
-                'Équipe Ligue': df_min['Équipe Ligue']
+                'Joueur': df_min[col_player] if col_player else "Inconnu",
+                'Équipe NHL': df_min[col_nhl] if col_nhl else "N/A",
+                'Salaire': df_min[col_salary],
+                'Propriétaire': fichier.name.replace('.csv', '')
             })
             
             all_data.append(res)
             
         except Exception as e:
-            st.error(f"💥 Erreur critique avec {fichier.name} : {e}")
+            st.error(f"💥 Erreur avec {fichier.name} : {e}")
 
     if all_data:
         df_final = pd.concat(all_data)
         
-        # Affichage des totaux par équipe
+        # Totaux
         st.write("### 💰 Totaux par Équipe (Contrats Min)")
-        total_par_equipe = df_final.groupby('Équipe Ligue')['Salaire'].sum().reset_index()
+        total_par_equipe = df_final.groupby('Propriétaire')['Salaire'].sum().reset_index()
         
         m_cols = st.columns(len(total_par_equipe))
         for i, row in total_par_equipe.iterrows():
-            m_cols[i].metric(row['Équipe Ligue'], f"{row['Salaire']:,.0f} $")
+            m_cols[i].metric(row['Propriétaire'], f"{row['Salaire']:,.0f} $")
 
         st.divider()
 
-        # Tableau détaillé
+        # Tableau
         st.write("### 📋 Détail des joueurs")
         st.dataframe(
-            df_final,
+            df_final.sort_values(['Propriétaire', 'Salaire'], ascending=[True, False]),
             column_config={"Salaire": st.column_config.NumberColumn(format="$%d")},
             use_container_width=True,
             hide_index=True
