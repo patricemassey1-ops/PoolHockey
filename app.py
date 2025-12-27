@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Scan Intégral & Détection G")
+st.title("🏒 Analyseur Fantrax : Scan exhaustif des 70 lignes")
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
@@ -13,26 +13,29 @@ if fichiers_telecharges:
 
     for fichier in fichiers_telecharges:
         try:
-            # 1. Lecture brute du fichier complet
+            # 1. Lecture brute pour localiser les données
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
-            # 2. Localisation dynamique de l'en-tête
+            # 2. Localisation de l'en-tête (Header)
             start_line = 0
             for i, line in enumerate(lines):
                 if any(kw in line for kw in ["Status", "Salary", "Player"]):
                     start_line = i
                     break
             
-            # On traite tout le contenu à partir de l'en-tête, sans s'arrêter aux lignes vides
+            # 3. Lecture forcée de 70 lignes après l'en-tête
             clean_content = "\n".join(lines[start_line:])
             df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
+            
+            # On limite le scan aux 70 premières lignes de données pour éviter les totaux de fin de fichier
+            df = df.head(70)
 
-            # 3. Identification sécurisée des colonnes (Correction 'arg must be a list')
+            # 4. Identification sécurisée des colonnes (Correction arg list error)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return str(found[0]) # Force le retour du nom exact (string)
+                    if found: return str(found[0]) # Force le retour d'une chaîne unique
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -40,32 +43,30 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé par nom, on force la Colonne E (index 4)
+            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (E)
             if not c_pos and df.shape[1] >= 5:
                 c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Données manquantes dans {fichier.name}")
+                st.error(f"❌ Colonnes manquantes dans {fichier.name}")
                 continue
 
-            # 4. Nettoyage du Salaire
+            # 5. Nettoyage et conversion des salaires
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
-            # 5. SCAN CONTINU DE TOUTES LES LIGNES POUR 'G'
-            # Cette fonction scanne la cellule même s'il y a des cassures ou du texte complexe
-            def scan_for_g(val):
+            # 6. Scan de la position (F, D, G)
+            def scan_pos(val):
                 text = str(val).upper().strip()
-                if not text or text == "NAN": return "F" 
                 if 'G' in text: return 'G'
                 if 'D' in text: return 'D'
                 return 'F'
 
-            df['P_Detected'] = df[c_pos].apply(scan_for_g)
+            df['P'] = df[c_pos].apply(scan_pos)
 
-            # 6. Catégorisation Statut (Act vs Min)
+            # 7. Catégorisation Statut (Act vs Min)
             def categorize_status(val):
                 val = str(val).strip()
                 if "Min" in val: return "Min"
@@ -74,19 +75,19 @@ if fichiers_telecharges:
 
             df['Catégorie'] = df[c_status].apply(categorize_status)
             
-            # Filtrage des joueurs Actifs et Minors (on garde tout le reste du scan)
+            # Filtrage des lignes valides (Act ou Min uniquement)
             df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
 
             nom_proprio = fichier.name.replace('.csv', '')
             
-            # 7. Compilation des résultats
+            # 8. Compilation du DataFrame résultat
             res = pd.DataFrame({
-                'P': df_filtered['P_Detected'],
+                'P': df_filtered['P'],
                 'Joueur': df_filtered[c_player],
                 'Salaire': df_filtered[c_salary],
                 'Statut': df_filtered['Catégorie'],
                 'Propriétaire': nom_proprio,
-                'Info_Pos': df_filtered[c_pos] # Permet de vérifier la source du scan
+                'Info_Pos': df_filtered[c_pos]
             })
             all_players.append(res)
 
@@ -96,21 +97,21 @@ if fichiers_telecharges:
     if all_players:
         df_final = pd.concat(all_players)
 
-        # Affichage par onglets
-        tab1, tab2 = st.tabs(["📊 Masse Salariale", "👤 Détails Joueurs (F, D, G)"])
+        # Affichage de l'interface
+        tab1, tab2 = st.tabs(["📊 Masse Salariale", "👤 Détails Joueurs"])
 
         with tab1:
-            st.write("### Résumé par Équipe")
+            st.write("### Résumé par Équipe (Scan 70 lignes)")
             summary = df_final.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0).reset_index()
             st.dataframe(summary.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}), use_container_width=True, hide_index=True)
 
         with tab2:
-            st.write("### Scan complet des effectifs")
-            col_left, col_right = st.columns(2)
+            st.write("### Liste des joueurs détectés (Tri par Position)")
+            col_act, col_min = st.columns(2)
 
-            def draw_category_table(df_sub, title):
+            def draw_table(df_sub, title):
                 st.subheader(title)
-                # Tri : Équipe -> Position (F, D, G) -> Salaire
+                # Tri : Équipe -> Position (F, D, G) -> Salaire décroissant
                 df_sorted = df_sub.sort_values(['Propriétaire', 'P', 'Salaire'], ascending=[True, True, False])
                 st.dataframe(
                     df_sorted[['P', 'Joueur', 'Salaire', 'Propriétaire', 'Info_Pos']],
@@ -122,11 +123,11 @@ if fichiers_telecharges:
                 )
                 st.metric(f"Total {title}", f"{df_sub['Salaire'].sum():,.0f} $")
 
-            with col_left:
-                draw_category_table(df_final[df_final['Statut'] == 'Act'], "ACTIFS")
+            with col_act:
+                draw_table(df_final[df_final['Statut'] == 'Act'], "ACTIFS")
 
-            with col_right:
-                draw_category_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
+            with col_min:
+                draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. {len(df_final)} joueurs traités pour 2025.")
+        st.success(f"Analyse terminée. Scan complet effectué sur 70 lignes par fichier.")
