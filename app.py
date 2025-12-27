@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur de Salaires Fantrax (Act vs Min)")
+st.title("🏒 Analyseur de Salaires Fantrax (Version Finale)")
 
 # Liste officielle des équipes
 EQUIPES_OFFICIELLES = [
@@ -33,19 +33,22 @@ if fichiers_telecharges:
             clean_content = "\n".join(lines[start_line:])
             df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
 
-            # 3. Identification des colonnes
-            def get_col(keywords):
+            # 3. Identification des colonnes - CORRECTION APPLIQUÉE
+            def get_col_name(keywords):
+                """Renvoie le nom de la première colonne correspondante trouvée, ou None."""
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return found
+                    if found: 
+                        return found[0] # <-- Extraction du premier nom de colonne de la liste
                 return None
 
-            c_player = get_col(['Player', 'Joueur'])
-            c_status = get_col(['Status', 'Statut'])
-            c_salary = get_col(['Salary', 'Salaire'])
-            c_nhl    = get_col(['Team', 'Équipe'])
+            c_player = get_col_name(['Player', 'Joueur'])
+            c_status = get_col_name(['Status', 'Statut'])
+            c_salary = get_col_name(['Salary', 'Salaire'])
+            c_nhl    = get_col_name(['Team', 'Équipe'])
 
             if not c_status or not c_salary:
+                st.error(f"❌ Colonnes manquantes dans {fichier.name}")
                 continue
 
             # 4. Nettoyage des données
@@ -55,7 +58,6 @@ if fichiers_telecharges:
             ).fillna(0)
 
             # 5. Normalisation du Statut (Act ou Min)
-            # On simplifie pour ne garder que "Act" ou "Min"
             def clean_status(val):
                 val = str(val).strip()
                 if "Min" in val: return "Min"
@@ -63,13 +65,12 @@ if fichiers_telecharges:
                 return "Autre"
 
             df['Status_Clean'] = df[c_status].apply(clean_status)
-            
-            # Filtrage pour ne garder que Act et Min
             df_filtered = df[df['Status_Clean'].isin(['Act', 'Min'])].copy()
 
             # Identification du propriétaire
             nom_proprio = fichier.name.replace('.csv', '')
             
+            # 6. Extraction du DataFrame FINAL (qui utilise maintenant des noms de colonne uniques)
             res = pd.DataFrame({
                 'Joueur': df_filtered[c_player] if c_player else "Inconnu",
                 'Équipe NHL': df_filtered[c_nhl] if c_nhl else "N/A",
@@ -80,17 +81,17 @@ if fichiers_telecharges:
             all_players.append(res)
 
         except Exception as e:
-            st.error(f"Erreur avec {fichier.name} : {e}")
+            st.error(f"💥 Erreur avec {fichier.name} : {e}")
+            st.exception(e) # Affiche le détail complet de l'erreur pour débogage
 
     if all_players:
         df_final = pd.concat(all_players)
 
-        # --- ONGLES POUR NAVIGATION ---
+        # ... (Le reste de l'affichage avec les onglets reste inchangé) ...
         tab1, tab2 = st.tabs(["📊 Résumé par Équipe", "👤 Détails par Joueur"])
 
         with tab1:
             st.write("### Masse Salariale par Catégorie")
-            # Pivot table pour voir Act et Min côte à côte par équipe
             summary_pivot = df_final.pivot_table(
                 index='Propriétaire', 
                 columns='Statut', 
@@ -98,27 +99,14 @@ if fichiers_telecharges:
                 aggfunc='sum', 
                 fill_value=0
             ).reset_index()
-            
-            # Affichage stylisé
-            st.dataframe(
-                summary_pivot.style.format({
-                    'Act': '{:,.0f} $',
-                    'Min': '{:,.0f} $'
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(summary_pivot.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}), use_container_width=True, hide_index=True)
 
         with tab2:
             st.write("### Liste des Joueurs")
-            
-            # Filtre interactif
             choix_statut = st.multiselect("Filtrer par Statut", ["Act", "Min"], default=["Act", "Min"])
             choix_equipe = st.multiselect("Filtrer par Propriétaire", df_final['Propriétaire'].unique())
-
             filtered_df = df_final[df_final['Statut'].isin(choix_statut)]
-            if choix_equipe:
-                filtered_df = filtered_df[filtered_df['Propriétaire'].isin(choix_equipe)]
+            if choix_equipe: filtered_df = filtered_df[filtered_df['Propriétaire'].isin(choix_equipe)]
 
             st.dataframe(
                 filtered_df.sort_values(by=['Propriétaire', 'Statut', 'Salaire'], ascending=[True, True, False]),
@@ -126,12 +114,10 @@ if fichiers_telecharges:
                 use_container_width=True,
                 hide_index=True
             )
-
-        # Totaux Généraux
+        
         st.divider()
         c1, c2 = st.columns(2)
         total_act = df_final[df_final['Statut'] == 'Act']['Salaire'].sum()
         total_min = df_final[df_final['Statut'] == 'Min']['Salaire'].sum()
-        
         c1.metric("TOTAL SALAIRES ACTIFS (ACT)", f"{total_act:,.0f} $")
         c2.metric("TOTAL SALAIRES MINIMUM (MIN)", f"{total_min:,.0f} $")
