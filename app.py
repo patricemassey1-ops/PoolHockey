@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import glob
 from datetime import datetime
-import pytz  # Bibliothèque pour la gestion des fuseaux horaires
+import pytz
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Gestionnaire Masse Salariale - Montréal 2025", layout="wide")
@@ -11,9 +11,9 @@ st.set_page_config(page_title="Gestionnaire Masse Salariale - Montréal 2025", l
 # --- CONFIGURATION DES FICHIERS ---
 SAVE_FILE = "historique_masse_salariale.csv"
 DOWNLOAD_PATH = os.path.expanduser("~/Downloads")
-TIMEZONE = pytz.timezone("America/Toronto") # Fuseau horaire de Montréal
+TIMEZONE = pytz.timezone("America/Toronto") 
 
-# --- 1. CHARGEMENT / SAUVEGARDE DES DONNÉES PERMANENTES ---
+# --- 1. CHARGEMENT / SAUVEGARDE ---
 def charger_donnees():
     if os.path.exists(SAVE_FILE):
         return pd.read_csv(SAVE_FILE, encoding='utf-8-sig').to_dict('records')
@@ -24,10 +24,8 @@ def sauvegarder_donnees(donnees):
     df.to_csv(SAVE_FILE, index=False, encoding='utf-8-sig')
 
 def obtenir_heure_montreal():
-    """Retourne l'heure actuelle à Montréal au format texte."""
     return datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M")
 
-# Initialisation de la session
 if 'historique_salaires' not in st.session_state:
     st.session_state['historique_salaires'] = charger_donnees()
 
@@ -39,7 +37,6 @@ equipes = [
     "Prédateurs Nashville", "Red Wings Détroit", "Whalers Hartford"
 ]
 
-# --- 2. FONCTION DE CALCUL ROBUSTE ---
 def calculer_salaire(file_source):
     try:
         df = None
@@ -63,9 +60,9 @@ def calculer_salaire(file_source):
             return pd.to_numeric(col_h, errors='coerce').fillna(0).sum()
     except: return None
 
-# --- 3. INTERFACE UTILISATEUR ---
+# --- INTERFACE ---
 st.header("🏒 Gestionnaire de la Masse Salariale du club école")
-st.caption(f"Heure de Montréal : {obtenir_heure_montreal()} | Salaires en Millions | Ligne 2+")
+st.caption(f"Heure de Montréal : {obtenir_heure_montreal()} | Salaires en Millions")
 
 tab1, tab2 = st.tabs(["⚡ Scan Dossier Downloads", "📂 Importation Individuelle"])
 
@@ -85,7 +82,8 @@ with tab1:
 
 with tab2:
     for nom in equipes:
-        c1, c2 = st.columns()
+        # CORRECTION : Ajout de [1, 1] pour définir les colonnes
+        c1, c2 = st.columns([1, 1])
         c1.write(f"**{nom}**")
         up_file = c2.file_uploader(f"Uploader {nom}", type="csv", key=f"up_{nom}", label_visibility="collapsed")
         if up_file:
@@ -98,30 +96,27 @@ with tab2:
                     sauvegarder_donnees(st.session_state['historique_salaires'])
                     st.rerun()
 
-# --- 4. AFFICHAGE ET HISTORIQUE ---
 st.divider()
+
 if st.session_state['historique_salaires']:
     df_histo = pd.DataFrame(st.session_state['historique_salaires'])
-    
     st.subheader("📊 État Actuel des Mineurs")
     derniers = df_histo.drop_duplicates(subset='Équipe', keep='last')
+    
+    # CORRECTION : Ajout de 3 colonnes pour les métriques
     m_cols = st.columns(3)
     for i, (_, row) in enumerate(derniers.iterrows()):
         m_cols[i % 3].metric(label=row['Équipe'], value=f"{row['Salaire (Millions)']} M$", delta=row['Date'])
 
     st.divider()
 
-    col_t, col_e = st.columns()
+    # CORRECTION : Ajout de [3, 1] pour l'exportation
+    col_t, col_e = st.columns([3, 1])
     with col_t:
         st.subheader("📜 Historique des Calculs")
     with col_e:
         csv_export = df_histo.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-        st.download_button(
-            label="📥 Télécharger l'historique",
-            data=csv_export,
-            file_name=f"masse_salariale_mtl.csv",
-            mime='text/csv',
-        )
+        st.download_button(label="📥 Télécharger", data=csv_export, file_name="masse_mtl.csv", mime='text/csv')
 
     df_ed = df_histo.copy()
     df_ed['Supprimer'] = False
