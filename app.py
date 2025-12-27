@@ -4,52 +4,54 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Scan exhaustif (Nettoyage lignes vides)")
+st.title("🏒 Analyseur Fantrax : Nettoyage & Scan Exhaustif")
 
-fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
+# --- ÉTAPE 1 : BOUTON D'IMPORTATION ---
+st.write("### 1. Importez vos fichiers pour nettoyage et calcul")
+fichiers_telecharges = st.file_uploader("Choisir les fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
 if fichiers_telecharges:
     all_players = []
 
     for fichier in fichiers_telecharges:
         try:
-            # 1. Lecture brute du fichier
+            # --- ÉTAPE 2 : SUPPRESSION DES LIGNES VIDES ---
+            # Lecture brute du contenu
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
-            # 2. Localisation de l'en-tête (Header)
+            # On détecte l'en-tête pour savoir où commencer
             start_line = 0
             for i, line in enumerate(lines):
                 if any(kw in line for kw in ["Status", "Salary", "Player"]):
                     start_line = i
                     break
             
-            # 3. FILTRAGE ET CONTINUATION : Ignore les lignes vides et continue jusqu'à la fin
-            # On récupère toutes les lignes après le header
+            # Filtrage : On garde la ligne SI elle n'est pas vide ET SI elle contient des données
             raw_data_lines = lines[start_line:]
-            
-            # Filtrage : On garde la ligne SI elle n'est pas vide ET SI elle contient 
-            # au moins un caractère qui n'est pas une virgule ou un espace.
             filtered_lines = [
                 line for line in raw_data_lines 
                 if line.strip() and any(cell.strip() for cell in line.split(','))
             ]
             
-            # Reconstruction du contenu pour Pandas
+            if not filtered_lines:
+                st.warning(f"Le fichier {fichier.name} semble vide après nettoyage.")
+                continue
+
+            # Reconstruction pour Pandas
             clean_content = "\n".join(filtered_lines)
             
-            # Lecture du flux nettoyé par Pandas
+            # --- ÉTAPE 3 : ANALYSE DES DONNÉES ---
             df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
             
-            # On limite le scan aux 70 premières lignes réelles de données 
-            # pour éviter les totaux de fin de fichier tout en ignorant les trous.
+            # On prend les 70 premières lignes réelles (sans les trous)
             df = df.head(70)
 
-            # 4. Identification sécurisée des colonnes
+            # Identification sécurisée des colonnes
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return str(found[0])
+                    if found: return str(found[0]) # Extraction du nom exact
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -57,21 +59,21 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
+            # Sécurité Colonne E (index 4)
             if not c_pos and df.shape[1] >= 5:
                 c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}")
+                st.error(f"❌ Colonnes manquantes dans {fichier.name}")
                 continue
 
-            # 5. Nettoyage et conversion des salaires
+            # Nettoyage Salaire
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
-            # 6. Scan de la position (F, D, G)
+            # Scan Position (F, D, G)
             def scan_pos(val):
                 text = str(val).upper().strip()
                 if 'G' in text: return 'G'
@@ -80,7 +82,7 @@ if fichiers_telecharges:
 
             df['P'] = df[c_pos].apply(scan_pos)
 
-            # 7. Catégorisation Statut (Act vs Min)
+            # Catégorisation Statut
             def categorize_status(val):
                 val = str(val).strip()
                 if "Min" in val: return "Min"
@@ -88,13 +90,11 @@ if fichiers_telecharges:
                 return "Autre"
 
             df['Catégorie'] = df[c_status].apply(categorize_status)
-            
-            # Filtrage des lignes valides (Act ou Min uniquement)
             df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
 
             nom_proprio = fichier.name.replace('.csv', '')
             
-            # 8. Compilation du DataFrame résultat
+            # Compilation
             res = pd.DataFrame({
                 'P': df_filtered['P'],
                 'Joueur': df_filtered[c_player],
@@ -106,12 +106,12 @@ if fichiers_telecharges:
             all_players.append(res)
 
         except Exception as e:
-            st.error(f"💥 Erreur avec {fichier.name} : {e}")
+            st.error(f"💥 Erreur critique avec {fichier.name} : {e}")
 
+    # --- ÉTAPE 4 : AFFICHAGE DES RÉSULTATS ---
     if all_players:
         df_final = pd.concat(all_players)
 
-        # Affichage de l'interface
         tab1, tab2 = st.tabs(["📊 Masse Salariale", "👤 Détails Joueurs"])
 
         with tab1:
@@ -120,11 +120,12 @@ if fichiers_telecharges:
             st.dataframe(summary.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}), use_container_width=True, hide_index=True)
 
         with tab2:
-            st.write("### Liste des joueurs (Tri par Position)")
+            st.write("### Liste des joueurs (Positions F, D, G détectées)")
             col_act, col_min = st.columns(2)
 
             def draw_table(df_sub, title):
                 st.subheader(title)
+                # Tri : Équipe -> Position -> Salaire
                 df_sorted = df_sub.sort_values(['Propriétaire', 'P', 'Salaire'], ascending=[True, True, False])
                 st.dataframe(
                     df_sorted[['P', 'Joueur', 'Salaire', 'Propriétaire', 'Info_Pos']],
@@ -143,4 +144,4 @@ if fichiers_telecharges:
                 draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. Les lignes vides ont été supprimées et le scan a continué.")
+        st.success("Nettoyage et analyse terminés. Les lignes vides ont été ignorées.")
