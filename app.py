@@ -57,12 +57,13 @@ def calculer_salaire(file_source):
             df.iloc[:, 5] = df.iloc[:, 5].astype(str).str.strip()
             mask = df.iloc[:, 5].str.contains("Min", case=False, na=False)
             col_h = df.loc[mask].iloc[:, 7].astype(str).str.replace(r'[ \$]', '', regex=True).str.replace(',', '.')
+            # On garde la valeur brute (ex: 1.55) pour la base de données
             return pd.to_numeric(col_h, errors='coerce').fillna(0).sum()
     except: return None
 
 # --- INTERFACE ---
 st.header("🏒 Gestionnaire de la Masse Salariale du club école")
-st.caption(f"Heure de Montréal : {obtenir_heure_montreal()} | Salaires en Millions")
+st.caption(f"Heure de Montréal : {obtenir_heure_montreal()} | Format : 1 550 000$")
 
 tab1, tab2 = st.tabs(["⚡ Scan Dossier Downloads", "📂 Importation Individuelle"])
 
@@ -76,14 +77,13 @@ with tab1:
             if f_trouve:
                 val = calculer_salaire(f_trouve)
                 if val is not None:
-                    st.session_state['historique_salaires'].append({"Date": date_mtl, "Équipe": nom, "Salaire (Millions)": val})
+                    st.session_state['historique_salaires'].append({"Date": date_mtl, "Équipe": nom, "Salaire Brut": val})
         sauvegarder_donnees(st.session_state['historique_salaires'])
         st.rerun()
 
 with tab2:
     for nom in equipes:
-        # CORRECTION : Ajout de [1, 1] pour définir les colonnes
-        c1, c2 = st.columns([1, 1])
+        c1, c2 = st.columns(2)
         c1.write(f"**{nom}**")
         up_file = c2.file_uploader(f"Uploader {nom}", type="csv", key=f"up_{nom}", label_visibility="collapsed")
         if up_file:
@@ -91,7 +91,7 @@ with tab2:
             if st.session_state['last_uploaded_files'].get(nom) != file_id:
                 val = calculer_salaire(up_file)
                 if val is not None:
-                    st.session_state['historique_salaires'].append({"Date": obtenir_heure_montreal(), "Équipe": nom, "Salaire (Millions)": val})
+                    st.session_state['historique_salaires'].append({"Date": obtenir_heure_montreal(), "Équipe": nom, "Salaire Brut": val})
                     st.session_state['last_uploaded_files'][nom] = file_id
                     sauvegarder_donnees(st.session_state['historique_salaires'])
                     st.rerun()
@@ -103,29 +103,31 @@ if st.session_state['historique_salaires']:
     st.subheader("📊 État Actuel des Mineurs")
     derniers = df_histo.drop_duplicates(subset='Équipe', keep='last')
     
-    # CORRECTION : Ajout de 3 colonnes pour les métriques
     m_cols = st.columns(3)
     for i, (_, row) in enumerate(derniers.iterrows()):
-        m_cols[i % 3].metric(label=row['Équipe'], value=f"{row['Salaire (Millions)']} M$", delta=row['Date'])
+        # AFFICHAGE FORMATÉ : 1 550 000$
+        salaire_formate = f"{int(row['Salaire Brut'] * 1_000_000):,}".replace(",", " ") + "$"
+        m_cols[i % 3].metric(label=row['Équipe'], value=salaire_formate, delta=row['Date'])
 
     st.divider()
 
-    # CORRECTION : Ajout de [3, 1] pour l'exportation
-    col_t, col_e = st.columns([3, 1])
+    col_t, col_e = st.columns(2)
     with col_t:
         st.subheader("📜 Historique des Calculs")
     with col_e:
         csv_export = df_histo.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-        st.download_button(label="📥 Télécharger", data=csv_export, file_name="masse_mtl.csv", mime='text/csv')
+        st.download_button(label="📥 Télécharger l'historique", data=csv_export, file_name="masse_salariale.csv", mime='text/csv')
 
     df_ed = df_histo.copy()
     df_ed['Supprimer'] = False
-    df_ed['Salaire (Millions)'] = df_ed['Salaire (Millions)'].apply(lambda x: f"{x} M$")
+    # AFFICHAGE TABLEAU : 1 550 000$
+    df_ed['Salaire Brut'] = df_ed['Salaire Brut'].apply(lambda x: f"{int(x * 1_000_000):,}".replace(",", " ") + "$")
+    df_ed = df_ed.rename(columns={"Salaire Brut": "Salaire Mineur"})
 
     edited_df = st.data_editor(
         df_ed, 
         column_config={"Supprimer": st.column_config.CheckboxColumn("❌")}, 
-        disabled=["Date", "Équipe", "Salaire (Millions)"], 
+        disabled=["Date", "Équipe", "Salaire Mineur"], 
         hide_index=True, use_container_width=True, key="editor_final"
     )
 
