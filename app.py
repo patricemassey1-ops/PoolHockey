@@ -4,11 +4,13 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur de Salaires Fantrax")
+st.title("🏒 Analyseur de Salaires Fantrax (Forcé sur point-virgule)")
 
 # On définit les noms de colonnes standards de Fantrax pour plus de sécurité
-# Si les index (0,1,2...) échouent, on peut essayer par noms
-TARGET_COLUMNS = ['Player', 'Team', 'Status', 'Salary']
+COL_PLAYER = 1
+COL_NHL_TEAM = 2
+COL_STATUS = 5
+COL_SALARY = 6
 
 fichiers_telecharges = st.file_uploader("Importez vos CSV", type="csv", accept_multiple_files=True)
 
@@ -17,51 +19,41 @@ if fichiers_telecharges:
 
     for fichier in fichiers_telecharges:
         try:
-            # ÉTAPE 1 : Détection du séparateur et lecture robuste
-            # On lit d'abord une petite partie pour tester
-            content = fichier.getvalue().decode('utf-8-sig') # gère aussi le format UTF-8 avec BOM
+            content = fichier.getvalue().decode('utf-8-sig') 
             
-            # On essaie de lire avec détection automatique du séparateur (sep=None)
+            # --- MODIFICATION CLÉ ---
+            # On force le séparateur à ";" (point-virgule), typique des exports Excel FR
             df = pd.read_csv(
                 io.StringIO(content), 
-                sep=None, 
+                sep=';',  # Changement ici
                 engine='python', 
-                on_bad_lines='skip' # Saute la ligne 45 si elle est corrompue
+                on_bad_lines='skip' 
             )
 
             # ÉTAPE 2 : Vérification du nombre de colonnes
-            if df.shape[1] < 5:
-                st.error(f"❌ {fichier.name} semble mal formaté (seulement {df.shape[1]} colonne détectée).")
+            # Le fichier standard Fantrax a 21 colonnes
+            if df.shape[1] < 20: 
+                st.error(f"❌ {fichier.name} semble toujours mal formaté ou utilise un autre séparateur. Détecté: {df.shape[1]} colonnes.")
                 continue
 
-            # ÉTAPE 3 : Extraction dynamique des colonnes
-            # On cherche les colonnes Salaire et Statut par index ou par nom
-            # Fantrax standard: Index 1=Joueur, 2=Équipe, 5=Statut, 6=Salaire
-            idx_status = 5 if df.shape[1] > 5 else -1
-            idx_salary = 6 if df.shape[1] > 6 else -1
+            # ... (Le reste du code reste identique) ...
             
-            if idx_status == -1 or idx_salary == -1:
-                st.warning(f"⚠️ Colonnes manquantes dans {fichier.name}")
-                continue
-
-            # Nettoyage du Salaire
-            df.iloc[:, idx_salary] = pd.to_numeric(
-                df.iloc[:, idx_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
+            # Nettoyage et conversion des salaires
+            df.iloc[:, COL_SALARY] = pd.to_numeric(
+                df.iloc[:, COL_SALARY].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
             # Filtrage "Min"
-            mask_min = df.iloc[:, idx_status].astype(str).str.contains("Min", na=False, case=False)
+            mask_min = df.iloc[:, COL_STATUS].astype(str).str.contains("Min", na=False, case=False)
             df_min = df[mask_min].copy()
             
-            # Nettoyage des noms (enlever les positions comme 'LW, RW')
             df_min['Équipe Ligue'] = fichier.name.replace('.csv', '')
             
-            # On ne garde que les colonnes essentielles pour éviter les erreurs d'index
             res = pd.DataFrame({
-                'Joueur': df_min.iloc[:, 1],
-                'Équipe NHL': df_min.iloc[:, 2],
-                'Salaire': df_min.iloc[:, idx_salary],
+                'Joueur': df_min.iloc[:, COL_PLAYER],
+                'Équipe NHL': df_min.iloc[:, COL_NHL_TEAM],
+                'Salaire': df_min.iloc[:, COL_SALARY],
                 'Équipe Ligue': df_min['Équipe Ligue']
             })
             
