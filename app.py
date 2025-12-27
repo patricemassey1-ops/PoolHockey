@@ -26,9 +26,8 @@ if fichiers_telecharges:
                         break
                 
                 if start_line_index == -1:
-                    return pd.DataFrame() # Section non trouvée, retourne un DataFrame vide
+                    return pd.DataFrame()
 
-                # 2. Recherche de la ligne d'en-tête réelle (celle avec ID, Player, etc.) après le titre de section
                 header_line_index = -1
                 for i in range(start_line_index + 1, len(lines)):
                     if any(kw in lines[i] for kw in ["ID", "Player", "Status", "Salary"]):
@@ -40,7 +39,6 @@ if fichiers_telecharges:
 
                 raw_data_lines = lines[header_line_index:]
                 
-                # Filtrage des lignes vides/comma-only
                 filtered_lines = [
                     line for line in raw_data_lines 
                     if line.strip() and any(cell.strip() for cell in line.split(','))
@@ -49,7 +47,6 @@ if fichiers_telecharges:
                 clean_content = "\n".join(filtered_lines)
                 df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
                 
-                # Si la colonne ID existe, on filtre les lignes de données non valides
                 if 'ID' in df.columns:
                     df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
 
@@ -64,16 +61,14 @@ if fichiers_telecharges:
             # Combine them.
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
             
-            # Remove any totally empty rows that might remain
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes (CORRECTION DÉFINITIVE APPLIQUÉE)
+            # 4. Identification sécurisée des colonnes
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    # FIX CRITIQUE: Retourne le premier élément de la liste trouvée (la chaîne de caractères)
                     if found: 
-                        return found[0] 
+                        return found
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -81,14 +76,8 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
-            # Correction de la logique de fallback
-            if not c_pos and df.shape[1] >= 5: # Utilise df.shape[1] pour le nombre de colonnes
-                c_pos = df.columns[4]
-
             if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Impossible de trouver 'Player', 'Status' ou 'Salary'.")
-                st.write("Colonnes trouvées dans le DataFrame final :", list(df.columns))
+                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}.")
                 continue
 
             # 5. Nettoyage et conversion des salaires
@@ -143,7 +132,23 @@ if fichiers_telecharges:
         with tab1:
             st.write("### Résumé par Équipe")
             summary = df_final.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0).reset_index()
-            st.dataframe(summary.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}), use_container_width=True, hide_index=True)
+            
+            # --- NOUVEAU CODE ICI : Calcul du total ---
+            # S'assurer que les colonnes 'Act' et 'Min' existent avant de faire la somme
+            if 'Act' in summary.columns and 'Min' in summary.columns:
+                summary['Total'] = summary['Act'] + summary['Min']
+
+            # Mise en forme pour l'affichage (inclut 'Total' si elle existe)
+            st.dataframe(
+                summary.style.format({
+                    'Act': '{:,.0f} $', 
+                    'Min': '{:,.0f} $',
+                    'Total': '{:,.0f} $' # Formatage de la nouvelle colonne
+                }), 
+                use_container_width=True, 
+                hide_index=True
+            )
+            # ----------------------------------------
 
         with tab2:
             st.write("### Liste des joueurs (Tri par Position)")
@@ -169,4 +174,6 @@ if fichiers_telecharges:
                 draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
 
         st.divider()
-        st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées.")
+        st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées, et les totaux calculés.")
+
+Voulez-vous maintenant **calculer l'espace disponible sous le plafond salarial** en ajoutant un champ de saisie pour définir le plafond total de la ligue ?
