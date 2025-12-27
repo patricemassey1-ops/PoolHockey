@@ -11,7 +11,10 @@ DB_FILE = "historique_fantrax_v2.csv"
 # --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
 def charger_historique():
     if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
+        try:
+            return pd.read_csv(DB_FILE)
+        except:
+            return pd.DataFrame()
     return pd.DataFrame()
 
 def sauvegarder_historique(df):
@@ -45,8 +48,9 @@ def pos_sort_order(pos_text):
 
 if fichiers_telecharges:
     dfs_a_ajouter = []
-    # Générer le suffixe de date et heure une seule fois pour cette importation
-    horodatage = datetime.now().strftime("%d-%m %H:%M")
+    now = datetime.now()
+    horodatage = now.strftime("%d-%m %H:%M:%S")
+    timestamp_tri = now.timestamp() # Pour un tri technique précis
     
     for fichier in fichiers_telecharges:
         try:
@@ -71,18 +75,16 @@ if fichiers_telecharges:
             c_pos = next((c for c in df_merged.columns if 'pos' in c.lower() or 'eligible' in c.lower()), None)
 
             if c_status and c_salary and c_player:
-                df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
-                df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
-                
-                # Nom de l'équipe unique avec date et heure
+                salary_clean = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
                 nom_equipe_unique = f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 
                 temp_df = pd.DataFrame({
                     'Joueur': df_merged[c_player], 
-                    'Salaire': df_merged[c_salary], 
-                    'Statut': df_merged['Catégorie'],
+                    'Salaire': salary_clean, 
+                    'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
                     'Pos': df_merged[c_pos] if c_pos else "N/A", 
                     'Propriétaire': nom_equipe_unique,
+                    'Timestamp': timestamp_tri,
                     'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
                 })
                 dfs_a_ajouter.append(temp_df)
@@ -93,13 +95,15 @@ if fichiers_telecharges:
         df_new = pd.concat(dfs_a_ajouter)
         st.session_state['historique'] = pd.concat([st.session_state['historique'], df_new], ignore_index=True)
         sauvegarder_historique(st.session_state['historique'])
-        st.success(f"Importation réussie à {horodatage}")
+        st.rerun()
 
 # --- GESTION DE L'HISTORIQUE (SIDEBAR) ---
 st.sidebar.header("⚙️ Gestion des données")
 if not st.session_state['historique'].empty:
-    # On trie pour avoir les plus récents en haut dans la sidebar
-    equipes_dispo = sorted(st.session_state['historique']['Propriétaire'].unique(), reverse=True)
+    # Tri par timestamp inverse pour la sélection
+    df_tri = st.session_state['historique'].sort_values('Timestamp', ascending=False)
+    equipes_dispo = df_tri['Propriétaire'].unique().tolist()
+    
     eq_suppr = st.sidebar.selectbox("Supprimer une version spécifique", ["-- Choisir --"] + equipes_dispo)
     
     if st.sidebar.button("❌ Supprimer définitivement"):
@@ -119,6 +123,7 @@ if not st.session_state['historique'].empty:
 
     # 1. RÉSUMÉ GLOBAL
     st.header("📊 Résumé des Importations")
+    # Groupement par Propriétaire pour garder les dates distinctes dans le résumé
     summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
     for col in ['Grand Club', 'Club École']:
         if col not in summary.columns: summary[col] = 0
@@ -132,8 +137,10 @@ if not st.session_state['historique'].empty:
 
     # 2. DÉTAILS PAR ÉQUIPE
     st.header("👤 Détails des Effectifs")
-    # Affichage par ordre alphabétique inverse pour voir les plus récents en premier
-    for eq in sorted(df_f['Propriétaire'].unique(), reverse=True):
+    # Tri par timestamp descendant pour l'affichage
+    versions_ordonnees = df_f.sort_values('Timestamp', ascending=False)['Propriétaire'].unique()
+    
+    for eq in versions_ordonnees:
         with st.expander(f"📂 {eq}"):
             c1, c2 = st.columns(2)
             df_e = df_f[df_f['Propriétaire'] == eq]
@@ -143,13 +150,20 @@ if not st.session_state['historique'].empty:
                 df_g = df_e[df_e['Statut'] == "Grand Club"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                 st.table(df_g[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_g['Salaire'].apply(format_currency)))
                 m_g = df_g['Salaire'].sum()
-                st.metric("Masse", format_currency(m_g), delta=format_currency(CAP_GRAND_CLUB - m_g), delta_color="normal" if m_g <= CAP_GRAND_CLUB else "inverse")
+                # Ajout d'une clé unique pour éviter DuplicateElementId
+                st.metric("Masse", format_currency(m_g), 
+                          delta=format_currency(CAP_GRAND_CLUB - m_g), 
+                          delta_color="normal" if m_g <= CAP_GRAND_CLUB else "inverse",
+                          key=f"metric_gc_{eq}")
 
             with c2:
                 st.markdown("🎓 **Club École**")
                 df_c = df_e[df_e['Statut'] == "Club École"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                 st.table(df_c[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_c['Salaire'].apply(format_currency)))
                 m_c = df_c['Salaire'].sum()
-                st.metric("Masse", format_currency(m_c), delta=format_currency(CAP_CLUB_ECOLE - m_c), delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse")
+                st.metric("Masse", format_currency(m_c), 
+                          delta=format_currency(CAP_CLUB_ECOLE - m_c), 
+                          delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse",
+                          key=f"metric_ce_{eq}")
 else:
     st.info("Aucun historique détecté. Importez vos fichiers CSV pour commencer.")
