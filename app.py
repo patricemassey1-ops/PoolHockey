@@ -11,10 +11,7 @@ DB_FILE = "historique_fantrax_v2.csv"
 # --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
 def charger_historique():
     if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE)
-        except:
-            return pd.DataFrame()
+        return pd.read_csv(DB_FILE)
     return pd.DataFrame()
 
 def sauvegarder_historique(df):
@@ -44,12 +41,12 @@ def pos_sort_order(pos_text):
     pos = str(pos_text).upper()
     if 'G' in pos: return 2
     if 'D' in pos: return 1
-    return 0 
+    return 0 # F
 
 if fichiers_telecharges:
     dfs_a_ajouter = []
-    # Horodatage avec secondes pour garantir l'unicité des IDs Streamlit
-    horodatage = datetime.now().strftime("%d-%m %H:%M:%S")
+    # Générer le suffixe de date et heure une seule fois pour cette importation
+    horodatage = datetime.now().strftime("%d-%m %H:%M")
     
     for fichier in fichiers_telecharges:
         try:
@@ -74,10 +71,10 @@ if fichiers_telecharges:
             c_pos = next((c for c in df_merged.columns if 'pos' in c.lower() or 'eligible' in c.lower()), None)
 
             if c_status and c_salary and c_player:
-                # Calcul Salaire +000
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
                 df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
+                # Nom de l'équipe unique avec date et heure
                 nom_equipe_unique = f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 
                 temp_df = pd.DataFrame({
@@ -96,11 +93,12 @@ if fichiers_telecharges:
         df_new = pd.concat(dfs_a_ajouter)
         st.session_state['historique'] = pd.concat([st.session_state['historique'], df_new], ignore_index=True)
         sauvegarder_historique(st.session_state['historique'])
-        st.rerun()
+        st.success(f"Importation réussie à {horodatage}")
 
 # --- GESTION DE L'HISTORIQUE (SIDEBAR) ---
 st.sidebar.header("⚙️ Gestion des données")
 if not st.session_state['historique'].empty:
+    # On trie pour avoir les plus récents en haut dans la sidebar
     equipes_dispo = sorted(st.session_state['historique']['Propriétaire'].unique(), reverse=True)
     eq_suppr = st.sidebar.selectbox("Supprimer une version spécifique", ["-- Choisir --"] + equipes_dispo)
     
@@ -134,6 +132,7 @@ if not st.session_state['historique'].empty:
 
     # 2. DÉTAILS PAR ÉQUIPE
     st.header("👤 Détails des Effectifs")
+    # Affichage par ordre alphabétique inverse pour voir les plus récents en premier
     for eq in sorted(df_f['Propriétaire'].unique(), reverse=True):
         with st.expander(f"📂 {eq}"):
             c1, c2 = st.columns(2)
@@ -144,21 +143,13 @@ if not st.session_state['historique'].empty:
                 df_g = df_e[df_e['Statut'] == "Grand Club"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                 st.table(df_g[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_g['Salaire'].apply(format_currency)))
                 m_g = df_g['Salaire'].sum()
-                # FIX: Ajout d'une 'key' unique pour éviter DuplicateElementId
-                st.metric("Masse", format_currency(m_g), 
-                          delta=format_currency(CAP_GRAND_CLUB - m_g), 
-                          delta_color="normal" if m_g <= CAP_GRAND_CLUB else "inverse",
-                          key=f"metric_gc_{eq}")
+                st.metric("Masse", format_currency(m_g), delta=format_currency(CAP_GRAND_CLUB - m_g), delta_color="normal" if m_g <= CAP_GRAND_CLUB else "inverse")
 
             with c2:
                 st.markdown("🎓 **Club École**")
                 df_c = df_e[df_e['Statut'] == "Club École"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                 st.table(df_c[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_c['Salaire'].apply(format_currency)))
                 m_c = df_c['Salaire'].sum()
-                # FIX: Ajout d'une 'key' unique pour éviter DuplicateElementId
-                st.metric("Masse", format_currency(m_c), 
-                          delta=format_currency(CAP_CLUB_ECOLE - m_c), 
-                          delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse",
-                          key=f"metric_ce_{eq}")
+                st.metric("Masse", format_currency(m_c), delta=format_currency(CAP_CLUB_ECOLE - m_c), delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse")
 else:
     st.info("Aucun historique détecté. Importez vos fichiers CSV pour commencer.")
