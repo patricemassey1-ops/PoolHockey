@@ -15,16 +15,19 @@ with col_cap2:
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
-# Fonction de formatage : 1 500 000 $
+# FONCTION DE FORMATAGE : 1 500 000 $
 def format_currency(val):
-    return f"{val:,.0f}".replace(",", " ") + " $"
+    if pd.isna(val):
+        return "0 $"
+    # Formatage avec espace comme séparateur de milliers et $ à la fin
+    return f"{int(val):,}".replace(",", " ") + " $"
 
 # Logique de tri pour les positions (F=0, D=1, G=2)
 def pos_sort_order(pos_text):
     pos = str(pos_text).upper()
     if 'G' in pos: return 2
     if 'D' in pos: return 1
-    return 0  # F ou autres attaquants (LW, RW, C)
+    return 0  # Attaquants (F, LW, RW, C)
 
 if fichiers_telecharges:
     all_players = []
@@ -64,7 +67,7 @@ if fichiers_telecharges:
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return found[0] # Correction : retourne l'index 0 directement
+                    if found: return found[0]
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -73,7 +76,12 @@ if fichiers_telecharges:
             c_pos    = find_col_safe(['Eligible', 'Pos'])
 
             if c_status and c_salary and c_player:
-                df[c_salary] = pd.to_numeric(df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
+                # Nettoyage et multiplication par 1000 pour ajouter "000"
+                df[c_salary] = pd.to_numeric(
+                    df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
+                    errors='coerce'
+                ).fillna(0) * 1000
+
                 df['Catégorie'] = df[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
                 res = pd.DataFrame({
@@ -83,7 +91,6 @@ if fichiers_telecharges:
                     'Pos': df[c_pos] if c_pos else "N/A",
                     'Propriétaire': fichier.name.replace('.csv', '')
                 })
-                # Ajouter l'ordre de tri pour la position
                 res['pos_order'] = res['Pos'].apply(pos_sort_order)
                 all_players.append(res)
         except Exception as e:
@@ -92,7 +99,7 @@ if fichiers_telecharges:
     if all_players:
         df_final = pd.concat(all_players)
 
-        # --- RÉSUMÉ GLOBAL ---
+        # --- TABLEAU RÉSUMÉ ---
         st.write("### 📊 Résumé des Équipes")
         summary = df_final.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         
@@ -126,18 +133,18 @@ if fichiers_telecharges:
                 
                 with col_grand:
                     st.subheader("⭐ Grand Club")
-                    # Tri par pos_order (F, D, G) puis par Salaire décroissant
+                    # Tri F, D, G puis Salaire
                     df_gc = df_eq[df_eq['Statut'] == 'Grand Club'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_gc[['Joueur', 'Pos', 'Salaire']].assign(
                         Salaire=df_gc['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Total Masse Grand Club", format_currency(df_gc['Salaire'].sum()))
+                    st.metric("Masse Grand Club", format_currency(df_gc['Salaire'].sum()))
 
                 with col_ecole:
                     st.subheader("🎓 Club École")
-                    # Tri par pos_order (F, D, G) puis par Salaire décroissant
+                    # Tri F, D, G puis Salaire
                     df_ce = df_eq[df_eq['Statut'] == 'Club École'].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
                     st.table(df_ce[['Joueur', 'Pos', 'Salaire']].assign(
                         Salaire=df_ce['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Total Masse Club École", format_currency(df_ce['Salaire'].sum()))
+                    st.metric("Masse Club École", format_currency(df_ce['Salaire'].sum()))
