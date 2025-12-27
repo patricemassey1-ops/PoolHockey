@@ -4,17 +4,18 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Détails par Équipe")
+st.title("🏒 Analyseur Fantrax : Grand Club & Club École")
 
-# --- Configuration des plafonds ---
+# --- Configuration des plafonds salariaux ---
 col_cap1, col_cap2 = st.columns(2)
 with col_cap1:
-    CAP_ACTIF = st.number_input("Plafond Salarial Actif ($)", min_value=0, value=95500000, step=1000000)
+    CAP_GRAND_CLUB = st.number_input("Plafond Grand Club ($)", min_value=0, value=95500000, step=1000000)
 with col_cap2:
-    CAP_MINORS = st.number_input("Plafond Salarial Mineur ($)", min_value=0, value=47750000, step=100000)
+    CAP_CLUB_ECOLE = st.number_input("Plafond Club École ($)", min_value=0, value=47750000, step=100000)
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
+# Fonction de formatage : 1 500 000 $
 def format_currency(val):
     return f"{val:,.0f}".replace(",", " ") + " $"
 
@@ -42,16 +43,19 @@ if fichiers_telecharges:
                 if header_line_index == -1: return pd.DataFrame()
 
                 raw_data_lines = lines[header_line_index:]
+                # Moteur python + on_bad_lines='skip' pour ignorer l'erreur de la ligne 43
                 df = pd.read_csv(io.StringIO("\n".join(raw_data_lines)), sep=None, engine='python', on_bad_lines='skip')
                 
+                # Filtrer pour ne garder que les lignes avec un ID de joueur valide
                 if 'ID' in df.columns:
                     df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
                 return df
 
+            # Extraction Skaters + Goalies
             df_skaters = extract_table(lines, 'Skaters')
             df_goalies = extract_table(lines, 'Goalies')
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
-            
+
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
@@ -64,8 +68,11 @@ if fichiers_telecharges:
             c_pos    = find_col_safe(['Eligible', 'Pos'])
 
             if c_status and c_salary and c_player:
+                # Nettoyage Salaire
                 df[c_salary] = pd.to_numeric(df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
-                df['Catégorie'] = df[c_status].apply(lambda x: "Min" if "MIN" in str(x).upper() else "Act")
+                
+                # Attribution des catégories demandées
+                df['Catégorie'] = df[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
                 res = pd.DataFrame({
                     'Joueur': df[c_player],
@@ -81,53 +88,50 @@ if fichiers_telecharges:
     if all_players:
         df_final = pd.concat(all_players)
 
-        # --- TABLEAU RÉSUMÉ GLOBAL ---
-        st.write("### 📊 Résumé des Masses Salariales")
+        # --- RÉSUMÉ GLOBAL ---
+        st.write("### 📊 Résumé des Équipes")
         summary = df_final.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
-        for c in ['Act', 'Min']:
+        
+        # Sécurité colonnes
+        for c in ['Grand Club', 'Club École']:
             if c not in summary.columns: summary[c] = 0
 
-        summary['Space Actif'] = CAP_ACTIF - summary['Act']
-        summary['Space Mineur'] = CAP_MINORS - summary['Min']
+        summary['Espace Grand Club'] = CAP_GRAND_CLUB - summary['Grand Club']
+        summary['Espace Club École'] = CAP_CLUB_ECOLE - summary['Club École']
 
         st.dataframe(
             summary.style.format({
-                'Act': format_currency, 'Min': format_currency,
-                'Space Actif': format_currency, 'Space Mineur': format_currency,
+                'Grand Club': format_currency, 'Club École': format_currency,
+                'Espace Grand Club': format_currency, 'Espace Club École': format_currency,
             }).applymap(lambda v: 'color: red;' if v < 0 else 'color: #00FF00;', 
-                        subset=['Space Actif', 'Space Mineur']),
+                        subset=['Espace Grand Club', 'Espace Club École']),
             use_container_width=True, hide_index=True
         )
 
         st.divider()
 
         # --- DÉTAILS PAR ÉQUIPE ---
-        st.write("### 👤 Détails des Effectifs par Équipe")
+        st.write("### 👤 Détails des Effectifs par Propriétaire")
         
-        # On boucle sur chaque équipe unique
         equipes = sorted(df_final['Propriétaire'].unique())
         
         for eq in equipes:
             with st.expander(f"📂 Équipe : {eq}"):
-                col_act, col_min = st.columns(2)
+                col_grand, col_ecole = st.columns(2)
+                df_eq = df_final[df_final['Propriétaire'] == eq]
                 
-                df_equipe = df_final[df_final['Propriétaire'] == eq]
-                
-                with col_act:
-                    st.markdown("**🏒 Joueurs Actifs**")
-                    df_act = df_equipe[df_equipe['Statut'] == 'Act'].sort_values('Salaire', ascending=False)
-                    # Affichage avec formatage
-                    st.table(df_act[['Joueur', 'Pos', 'Salaire']].assign(
-                        Salaire=df_act['Salaire'].apply(format_currency)
+                with col_grand:
+                    st.subheader("⭐ Grand Club")
+                    df_gc = df_eq[df_eq['Statut'] == 'Grand Club'].sort_values('Salaire', ascending=False)
+                    st.table(df_gc[['Joueur', 'Pos', 'Salaire']].assign(
+                        Salaire=df_gc['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Sous-total Actif", format_currency(df_act['Salaire'].sum()))
+                    st.metric("Total Grand Club", format_currency(df_gc['Salaire'].sum()))
 
-                with col_min:
-                    st.markdown("**👶 Joueurs Mineurs**")
-                    df_min = df_equipe[df_equipe['Statut'] == 'Min'].sort_values('Salaire', ascending=False)
-                    st.table(df_min[['Joueur', 'Pos', 'Salaire']].assign(
-                        Salaire=df_min['Salaire'].apply(format_currency)
+                with col_ecole:
+                    st.subheader("🎓 Club École")
+                    df_ce = df_eq[df_eq['Statut'] == 'Club École'].sort_values('Salaire', ascending=False)
+                    st.table(df_ce[['Joueur', 'Pos', 'Salaire']].assign(
+                        Salaire=df_ce['Salaire'].apply(format_currency)
                     ))
-                    st.metric("Sous-total Mineur", format_currency(df_min['Salaire'].sum()))
-
-        st.success("Analyse terminée. Les totaux par équipe sont calculés séparément.")
+                    st.metric("Total Club École", format_currency(df_ce['Salaire'].sum()))
