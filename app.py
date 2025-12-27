@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import io
-import traceback # Importation pour un débogage avancé
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
@@ -63,7 +62,7 @@ if fichiers_telecharges:
                     found = [c for c in df.columns if k.lower() in c.lower()]
                     # BUG FIX: Ensure we return the *first* matching string name if found
                     if found: 
-                        return found[0] 
+                        return found[0] # Renvoie 'Player' au lieu de ['Player']
                 return None # Retourne None si rien n'est trouvé
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -71,14 +70,12 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (E)
-            # Correction de la logique de fallback
-            if not c_pos and df.shape[1] >= 5:
+            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
+            if not c_pos and df.shape[1] >= 5: # Utilise df.shape[1] pour le nombre de colonnes
                 c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Impossible de trouver 'Player', 'Status' ou 'Salary'.")
-                st.write("Colonnes trouvées dans le fichier :", list(df.columns))
+                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Impossible de trouver 'Player', 'Status' ou 'Salary' dans les en-têtes suivants : {list(df.columns)}")
                 continue
 
             # 5. Nettoyage et conversion des salaires
@@ -87,7 +84,6 @@ if fichiers_telecharges:
                 errors='coerce'
             ).fillna(0)
 
-            # ... (Reste du code identique) ...
             # 6. Scan de la position (F, D, G)
             def scan_pos(val):
                 text = str(val).upper().strip()
@@ -124,7 +120,6 @@ if fichiers_telecharges:
 
         except Exception as e:
             st.error(f"💥 Erreur inattendue avec {fichier.name} : {e}")
-            st.code(traceback.format_exc()) # Affiche la pile d'erreur complète pour le débogage
 
     if all_players:
         df_final = pd.concat(all_players)
