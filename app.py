@@ -4,15 +4,14 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Plafonds Salariaux Modifiables")
+st.title("🏒 Analyseur Fantrax : Format 1 500 000 $")
 
-# --- NOUVEAU CODE ICI : Champs de saisie pour les plafonds ---
+# --- Champs de saisie ---
 col_cap1, col_cap2 = st.columns(2)
 with col_cap1:
-    CAP_ACTIF = st.number_input("Plafond Salarial Actif ($)", min_value=0, value=95500000, step=1000000)
+    CAP_ACTIF = st.number_input("Plafond Salarial Actif ($)", min_value=0, value=95500000, step=500000)
 with col_cap2:
     CAP_MINORS = st.number_input("Plafond Salarial Mineur ($)", min_value=0, value=47750000, step=100000)
-# -----------------------------------------------------------
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
@@ -21,163 +20,78 @@ if fichiers_telecharges:
 
     for fichier in fichiers_telecharges:
         try:
-            # 1. Lecture brute du fichier
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
             def extract_table(lines, section_keyword):
-                start_line_index = -1
-                for i, line in enumerate(lines):
-                    if section_keyword in line:
-                        start_line_index = i
-                        break
-                
-                if start_line_index == -1: return pd.DataFrame()
+                start_idx = next((i for i, line in enumerate(lines) if section_keyword in line), -1)
+                if start_idx == -1: return pd.DataFrame()
+                header_idx = next((i for i in range(start_idx, len(lines)) if any(k in lines[i] for k in ["Player", "Salary", "Status"])), -1)
+                if header_idx == -1: return pd.DataFrame()
+                raw_data = [l for l in lines[header_idx:] if "," in l and len(l.strip()) > 0]
+                return pd.read_csv(io.StringIO("\n".join(raw_data)))
 
-                header_line_index = -1
-                for i in range(start_line_index + 1, len(lines)):
-                    if any(kw in lines[i] for kw in ["ID", "Player", "Status", "Salary"]):
-                        header_line_index = i
-                        break
-                
-                if header_line_index == -1: return pd.DataFrame()
-
-                raw_data_lines = lines[header_line_index:]
-                
-                filtered_lines = [
-                    line for line in raw_data_lines 
-                    if line.strip() and any(cell.strip() for cell in line.split(','))
-                ]
-                
-                clean_content = "\n".join(filtered_lines)
-                df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
-                
-                if 'ID' in df.columns:
-                    df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
-
-                return df.head(70)
-
-            df_skaters = extract_table(lines, 'Skaters')
-            df_goalies = extract_table(lines, 'Goalies')
-            df = pd.concat([df_skaters, df_goalies], ignore_index=True)
-            df.dropna(how='all', inplace=True)
+            df = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
             
-            # 4. Identification sécurisée des colonnes (CORRECTION DÉFINITIVE APPLIQUÉE)
-            def find_col_safe(keywords):
-                for k in keywords:
-                    found = [c for c in df.columns if k.lower() in c.lower()]
-                    # FIX CRITIQUE: Retourne le premier élément de la liste (la chaîne de caractères)
-                    if found: 
-                        return found[0] # Renvoie 'Player' au lieu de ['Player']
-                return None
+            # Identification des colonnes
+            cols_found = {k: next((c for c in df.columns if k.lower() in c.lower()), None) 
+                          for k in ['Player', 'Status', 'Salary', 'Pos']}
 
-            c_player = find_col_safe(['Player', 'Joueur'])
-            c_status = find_col_safe(['Status', 'Statut'])
-            c_salary = find_col_safe(['Salary', 'Salaire'])
-            c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
-
-            if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}.")
-                continue
-
-            # 5. Nettoyage et conversion des salaires
-            df[c_salary] = pd.to_numeric(
-                df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
-                errors='coerce'
-            ).fillna(0)
-
-            def scan_pos(val):
-                text = str(val).upper().strip()
-                if 'G' in text: return 'G'
-                if 'D' in text: return 'D'
-                return 'F'
-
-            df['P'] = df[c_pos].apply(scan_pos)
-
-            def categorize_status(val):
-                val = str(val).strip()
-                if "Min" in val: return "Min"
-                if "Act" in val: return "Act"
-                return "Autre"
-
-            df['Catégorie'] = df[c_status].apply(categorize_status)
-            df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
-
-            nom_proprio = fichier.name.replace('.csv', '')
-            
-            res = pd.DataFrame({
-                'P': df_filtered['P'],
-                'Joueur': df_filtered[c_player],
-                'Salaire': df_filtered[c_salary],
-                'Statut': df_filtered['Catégorie'],
-                'Propriétaire': nom_proprio,
-                'Info_Pos': df_filtered[c_pos]
-            })
-            all_players.append(res)
-
+            if cols_found['Player'] and cols_found['Status'] and cols_found['Salary']:
+                # Nettoyage et conversion numérique
+                df[cols_found['Salary']] = pd.to_numeric(df[cols_found['Salary']].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
+                df['Catégorie'] = df[cols_found['Status']].apply(lambda x: "Min" if "MIN" in str(x).upper() else "Act")
+                
+                res = pd.DataFrame({
+                    'Joueur': df[cols_found['Player']],
+                    'Salaire': df[cols_found['Salary']],
+                    'Statut': df['Catégorie'],
+                    'Équipe': fichier.name.replace('.csv', '')
+                })
+                all_players.append(res)
         except Exception as e:
-            st.error(f"💥 Erreur inattendue avec {fichier.name} : {e}")
+            st.error(f"Erreur avec {fichier.name}: {e}")
 
     if all_players:
         df_final = pd.concat(all_players)
+        
+        # --- CALCULS ---
+        summary = df_final.groupby(['Équipe', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
+        for col in ['Act', 'Min']:
+            if col not in summary.columns: summary[col] = 0
 
-        tab1, tab2 = st.tabs(["📊 Masse Salariale & Cap Space", "👤 Détails Joueurs"])
+        summary['Space Actif'] = CAP_ACTIF - summary['Act']
+        summary['Space Minors'] = CAP_MINORS - summary['Min']
 
-        with tab1:
-            st.write("### Résumé par Équipe")
-            summary = df_final.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0).reset_index()
-            
-            if 'Act' in summary.columns:
-                summary['Total Actif'] = summary['Act']
-                # Utilise la variable dynamique CAP_ACTIF
-                summary['Cap Space Actif'] = summary['Total Actif'].apply(lambda x: CAP_ACTIF - x) 
-                del summary['Act']
-            
-            if 'Min' in summary.columns:
-                summary['Total Mineur'] = summary['Min']
-                # Utilise la variable dynamique CAP_MINORS
-                summary['Cap Space Mineur'] = summary['Total Mineur'].apply(lambda x: CAP_MINORS - x)
-                del summary['Min']
+        # Fonction de formatage : 1 500 000 $
+        def format_currency(val):
+            return f"{val:,.0f}".replace(",", " ") + " $"
 
-            # Fonction de style pour la couleur
-            def style_negative(v, props=''):
-                return props if v < 0 else None
-            
-            styled_summary = summary.style.format({
-                'Total Actif': '{:,.0f} $', 
-                'Cap Space Actif': '{:,.0f} $',
-                'Total Mineur': '{:,.0f} $',
-                'Cap Space Mineur': '{:,.0f} $',
-            }).applymap(style_negative, props='color:red;', subset=pd.IndexSlice[:, ['Cap Space Actif', 'Cap Space Mineur']])
-            
-            st.dataframe(
-                styled_summary, 
-                use_container_width=True, 
-                hide_index=True
-            )
+        # Style pour le rouge si négatif
+        def color_negative(val):
+            return 'color: red' if val < 0 else 'color: #00FF00'
 
-        with tab2:
-            st.write("### Liste des joueurs (Tri par Position)")
-            col_act, col_min = st.columns(2)
+        st.subheader("📊 Résumé de la Masse Salariale")
+        
+        styled_summary = summary.style.format({
+            'Act': format_currency,
+            'Min': format_currency,
+            'Space Actif': format_currency,
+            'Space Minors': format_currency
+        }).applymap(color_negative, subset=['Space Actif', 'Space Minors'])
 
-            def draw_table(df_sub, title):
-                st.subheader(title)
-                df_sorted = df_sub.sort_values(['Propriétaire', 'P', 'Salaire'], ascending=[True, True, False])
-                st.dataframe(
-                    df_sorted[['P', 'Joueur', 'Salaire', 'Propriétaire', 'Info_Pos']],
-                    column_config={
-                        "Salaire": st.column_config.NumberColumn(format="$%d"),
-                        "P": st.column_config.TextColumn("Pos", width="small")
-                    },
-                    use_container_width=True, hide_index=True
-                )
-                st.metric(f"Total {title}", f"{df_sub['Salaire'].sum():,.0f} $")
-
-            with col_act:
-                draw_table(df_final[df_final['Statut'] == 'Act'], "ACTIFS")
-
-            with col_min:
-                draw_table(df_final[df_final['Statut'] == 'Min'], "MINORS")
+        st.dataframe(styled_summary, use_container_width=True, hide_index=True)
 
         st.divider()
-        st.success(f"Analyse terminée. Les totaux et l'espace salarial restant sont affichés.")
+        st.subheader("👤 Détails des Joueurs")
+        
+        # Formatage de la liste détaillée
+        df_details = df_final.copy()
+        st.dataframe(
+            df_details[['Équipe', 'Joueur', 'Statut', 'Salaire']].sort_values(['Équipe', 'Salaire'], ascending=[True, False]),
+            column_config={
+                "Salaire": st.column_config.NumberColumn(format="%d $") # Note: Streamlit limite parfois le séparateur selon la locale, le formatage manuel ci-dessus est plus sûr pour le tableau principal.
+            },
+            use_container_width=True, 
+            hide_index=True
+        )
