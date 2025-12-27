@@ -103,7 +103,7 @@ if st.session_state['historique_salaires']:
     df_histo = pd.DataFrame(st.session_state['historique_salaires'])
     
     # Vue Résumé (Dernière valeur pour chaque équipe)
-    st.subheader("📊 État Actuel des Mineurs")
+    st.subheader("📊 État Actuel de la Masse Salariale")
     derniers = df_histo.drop_duplicates(subset='Équipe', keep='last')
     m_cols = st.columns(3)
     for i, (_, row) in enumerate(derniers.iterrows()):
