@@ -36,10 +36,8 @@ if fichiers_telecharges:
                         break
                 
                 if header_line_index == -1:
-                    # Ne devrait pas arriver si le format Fantrax est respecté
                     return pd.DataFrame()
 
-                # On prend les lignes à partir de l'en-tête réel trouvé
                 raw_data_lines = lines[header_line_index:]
                 
                 # Filtrage des lignes vides/comma-only
@@ -55,7 +53,6 @@ if fichiers_telecharges:
                 if 'ID' in df.columns:
                     df = df[df['ID'].astype(str).str.strip().str.startswith(('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*'))]
 
-                # Cap at 70 entries to avoid weird summary totals at the very end of files
                 return df.head(70)
 
             # --- Process Skaters ---
@@ -70,18 +67,24 @@ if fichiers_telecharges:
             # Remove any totally empty rows that might remain
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes (Fonction corrigée)
+            # 4. Identification sécurisée des colonnes (CORRECTION DÉFINITIVE APPLIQUÉE)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    # On retourne le nom exact de la première colonne trouvée
-                    if found: return found 
+                    # FIX CRITIQUE: Retourne le premier élément de la liste trouvée (la chaîne de caractères)
+                    if found: 
+                        return found[0] 
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
             c_status = find_col_safe(['Status', 'Statut'])
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
+
+            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
+            # Correction de la logique de fallback
+            if not c_pos and df.shape[1] >= 5: # Utilise df.shape[1] pour le nombre de colonnes
+                c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Impossible de trouver 'Player', 'Status' ou 'Salary'.")
