@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Groupé par Positions (F, D, G)")
+st.title("🏒 Analyseur de Salaires Fantrax (Incluant Gardiens)")
 
 # Liste officielle des équipes
 EQUIPES_OFFICIELLES = [
@@ -19,7 +19,7 @@ if fichiers_telecharges:
 
     for fichier in fichiers_telecharges:
         try:
-            # 1. Lecture robuste
+            # 1. Lecture robuste du fichier (UTF-8 avec détection de ligne d'en-tête)
             content = fichier.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
 
@@ -32,11 +32,11 @@ if fichiers_telecharges:
             clean_content = "\n".join(lines[start_line:])
             df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
 
-            # 2. Identification des colonnes
+            # 2. Identification dynamique des colonnes
             def get_col_name(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return found[0] # Renvoie le premier nom trouvé
+                    if found: return found # Retourne le premier nom de colonne correspondant
                 return None
 
             c_player = get_col_name(['Player', 'Joueur'])
@@ -48,37 +48,37 @@ if fichiers_telecharges:
             if not c_status or not c_salary:
                 continue
 
-            # 3. Nettoyage des données
+            # 3. Nettoyage des données salariales
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
-            # Normalisation simplifié des positions pour le tri (F, D, G)
-            def simplify_pos(val):
-                val = str(val).upper()
-                if 'G' in val: return 'G'
-                if 'D' in val: return 'D'
-                return 'F' # Par défaut Attaquant (C, LW, RW, etc.)
+            # 4. Logique de Catégorisation (Act vs Min)
+            # On inclut tous les joueurs dont le statut contient "Act" ou "Min"
+            def categorize_status(row):
+                status_val = str(row[c_status]).strip()
+                pos_val = str(row[c_pos]).strip() if c_pos else ""
+                
+                cat = "Autre"
+                if "Min" in status_val:
+                    cat = "Min"
+                elif "Act" in status_val:
+                    cat = "Act"
+                
+                return cat
 
-            df['Pos_Group'] = df[c_pos].apply(simplify_pos)
-
-            # Catégorisation Act/Min
-            def categorize_status(val):
-                val = str(val).strip()
-                if "Min" in val: return "Min"
-                if "Act" in val: return "Act"
-                return "Autre"
-
-            df['Catégorie'] = df[c_status].apply(categorize_status)
+            df['Catégorie'] = df.apply(categorize_status, axis=1)
+            
+            # Filtrage final
             df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
 
+            # Identification du propriétaire (nom du fichier)
             nom_proprio = fichier.name.replace('.csv', '')
             
             res = pd.DataFrame({
                 'Joueur': df_filtered[c_player] if c_player else "Inconnu",
-                'Pos': df_filtered['Pos_Group'],
-                'Détail Pos': df_filtered[c_pos],
+                'Pos': df_filtered[c_pos] if c_pos else "N/A",
                 'Équipe NHL': df_filtered[c_nhl] if c_nhl else "N/A",
                 'Salaire': df_filtered[c_salary],
                 'Statut': df_filtered['Catégorie'],
@@ -93,7 +93,8 @@ if fichiers_telecharges:
         df_final = pd.concat(all_players)
 
         # --- SECTION RÉSUMÉ ---
-        st.write("### 📊 Résumé des Salaires")
+        st.write("### 📊 Résumé des Salaires (Actifs & Minors)")
+        
         summary_pivot = df_final.pivot_table(
             index='Propriétaire', 
             columns='Statut', 
@@ -101,31 +102,34 @@ if fichiers_telecharges:
             aggfunc='sum', 
             fill_value=0
         ).reset_index()
-        st.dataframe(summary_pivot.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}), use_container_width=True, hide_index=True)
+
+        st.dataframe(
+            summary_pivot.style.format({'Act': '{:,.0f} $', 'Min': '{:,.0f} $'}),
+            use_container_width=True,
+            hide_index=True
+        )
 
         st.divider()
 
-        # --- SECTION DÉTAILS GROUPÉS ---
+        # --- SECTION DÉTAILS ---
         col_act, col_min = st.columns(2)
 
-        # Fonction d'affichage pour éviter la répétition
-        def display_category(df_cat, title):
-            st.subheader(title)
-            # Tri par Propriétaire, puis par Position (F, D, G), puis par Salaire
-            df_sorted = df_cat.sort_values(['Propriétaire', 'Pos', 'Salaire'], ascending=[True, True, False])
-            
+        with col_act:
+            st.subheader("📋 Joueurs ACTIFS (incluant G)")
+            df_act = df_final[df_final['Statut'] == 'Act'].sort_values(['Propriétaire', 'Salaire'], ascending=[True, False])
             st.dataframe(
-                df_sorted[['Pos', 'Joueur', 'Salaire', 'Propriétaire', 'Détail Pos']],
-                column_config={
-                    "Salaire": st.column_config.NumberColumn(format="$%d"),
-                    "Pos": st.column_config.TextColumn("P", width="small")
-                },
+                df_act[['Joueur', 'Pos', 'Salaire', 'Propriétaire']],
+                column_config={"Salaire": st.column_config.NumberColumn(format="$%d")},
                 use_container_width=True, hide_index=True
             )
-            st.metric(f"Total {title}", f"{df_cat['Salaire'].sum():,.0f} $")
-
-        with col_act:
-            display_category(df_final[df_final['Statut'] == 'Act'], "Joueurs ACTIFS")
+            st.metric("Total Actifs", f"{df_act['Salaire'].sum():,.0f} $")
 
         with col_min:
-            display_category(df_final[df_final['Statut'] == 'Min'], "Joueurs MINORS")
+            st.subheader("📋 Joueurs MINORS (incluant G)")
+            df_min = df_final[df_final['Statut'] == 'Min'].sort_values(['Propriétaire', 'Salaire'], ascending=[True, False])
+            st.dataframe(
+                df_min[['Joueur', 'Pos', 'Salaire', 'Propriétaire']],
+                column_config={"Salaire": st.column_config.NumberColumn(format="$%d")},
+                use_container_width=True, hide_index=True
+            )
+            st.metric("Total Minors", f"{df_min['Salaire'].sum():,.0f} $")
