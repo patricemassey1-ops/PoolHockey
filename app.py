@@ -1,79 +1,93 @@
 import streamlit as st
 import pandas as pd
+import io
 
-st.set_page_config(page_title="Calculateur de Salaires Fantrax", layout="wide")
+st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyse des Salaires Fantrax (Version Corrective)")
+st.title("🏒 Analyseur de Salaires Fantrax")
 
-# Configuration des index de colonnes
-COL_PLAYER = 1
-COL_NHL_TEAM = 2
-COL_STATUS = 5
-COL_SALARY = 6
+# On définit les noms de colonnes standards de Fantrax pour plus de sécurité
+# Si les index (0,1,2...) échouent, on peut essayer par noms
+TARGET_COLUMNS = ['Player', 'Team', 'Status', 'Salary']
 
-fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
+fichiers_telecharges = st.file_uploader("Importez vos CSV", type="csv", accept_multiple_files=True)
 
 if fichiers_telecharges:
     all_data = []
 
     for fichier in fichiers_telecharges:
         try:
-            # SOLUTION AUTOMATIQUE : 
-            # engine='python' gère mieux les irrégularités
-            # on_bad_lines='warn' permet de sauter la ligne 45 au lieu de planter
-            df = pd.read_csv(
-                fichier, 
-                sep=',', 
-                engine='python', 
-                on_bad_lines='warn'
-            )
+            # ÉTAPE 1 : Détection du séparateur et lecture robuste
+            # On lit d'abord une petite partie pour tester
+            content = fichier.getvalue().decode('utf-8-sig') # gère aussi le format UTF-8 avec BOM
             
-            # Nettoyage et conversion des salaires
-            df.iloc[:, COL_SALARY] = pd.to_numeric(
-                df.iloc[:, COL_SALARY].astype(str).replace(r'[\$,]', '', regex=True), 
+            # On essaie de lire avec détection automatique du séparateur (sep=None)
+            df = pd.read_csv(
+                io.StringIO(content), 
+                sep=None, 
+                engine='python', 
+                on_bad_lines='skip' # Saute la ligne 45 si elle est corrompue
+            )
+
+            # ÉTAPE 2 : Vérification du nombre de colonnes
+            if df.shape[1] < 5:
+                st.error(f"❌ {fichier.name} semble mal formaté (seulement {df.shape[1]} colonne détectée).")
+                continue
+
+            # ÉTAPE 3 : Extraction dynamique des colonnes
+            # On cherche les colonnes Salaire et Statut par index ou par nom
+            # Fantrax standard: Index 1=Joueur, 2=Équipe, 5=Statut, 6=Salaire
+            idx_status = 5 if df.shape[1] > 5 else -1
+            idx_salary = 6 if df.shape[1] > 6 else -1
+            
+            if idx_status == -1 or idx_salary == -1:
+                st.warning(f"⚠️ Colonnes manquantes dans {fichier.name}")
+                continue
+
+            # Nettoyage du Salaire
+            df.iloc[:, idx_salary] = pd.to_numeric(
+                df.iloc[:, idx_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
-            
-            # Filtrage des contrats "Min"
-            mask_min = df.iloc[:, COL_STATUS].astype(str).str.contains("Min", na=False, case=False)
+
+            # Filtrage "Min"
+            mask_min = df.iloc[:, idx_status].astype(str).str.contains("Min", na=False, case=False)
             df_min = df[mask_min].copy()
             
-            # Identification de l'équipe par le nom du fichier
-            df_min['Équipe Ligue'] = fichier.name
-            all_data.append(df_min)
+            # Nettoyage des noms (enlever les positions comme 'LW, RW')
+            df_min['Équipe Ligue'] = fichier.name.replace('.csv', '')
+            
+            # On ne garde que les colonnes essentielles pour éviter les erreurs d'index
+            res = pd.DataFrame({
+                'Joueur': df_min.iloc[:, 1],
+                'Équipe NHL': df_min.iloc[:, 2],
+                'Salaire': df_min.iloc[:, idx_salary],
+                'Équipe Ligue': df_min['Équipe Ligue']
+            })
+            
+            all_data.append(res)
             
         except Exception as e:
-            st.error(f"⚠️ Impossible de lire {fichier.name}. Erreur : {e}")
+            st.error(f"💥 Erreur critique avec {fichier.name} : {e}")
 
     if all_data:
-        df_total = pd.concat(all_data)
+        df_final = pd.concat(all_data)
         
-        # 1. Résumé par Équipe
-        st.write("### 📊 Masse Salariale (Contrats Min) par Équipe")
-        # On s'assure que la colonne salaire est bien traitée comme nombre avant le groupby
-        summary = df_total.groupby('Équipe Ligue').apply(lambda x: x.iloc[:, COL_SALARY].sum()).reset_index()
-        summary.columns = ['Équipe', 'Total ($)']
+        # Affichage des totaux par équipe
+        st.write("### 💰 Totaux par Équipe (Contrats Min)")
+        total_par_equipe = df_final.groupby('Équipe Ligue')['Salaire'].sum().reset_index()
         
-        cols_summary = st.columns(len(summary))
-        for idx, row in summary.iterrows():
-            cols_summary[idx].metric(row['Équipe'], f"{row['Total']:,.0f} $")
+        m_cols = st.columns(len(total_par_equipe))
+        for i, row in total_par_equipe.iterrows():
+            m_cols[i].metric(row['Équipe Ligue'], f"{row['Salaire']:,.0f} $")
 
         st.divider()
 
-        # 2. Détails par Joueur
-        st.write("### 👤 Liste Complète des Joueurs 'Min'")
-        
-        display_df = df_total.iloc[:, [COL_PLAYER, COL_NHL_TEAM, COL_SALARY]].copy()
-        display_df['Équipe Ligue'] = df_total['Équipe Ligue']
-        display_df.columns = ['Joueur', 'Équipe NHL', 'Salaire', 'Propriétaire']
-        
+        # Tableau détaillé
+        st.write("### 📋 Détail des joueurs")
         st.dataframe(
-            display_df.sort_values(by="Salaire", ascending=False),
-            column_config={
-                "Salaire": st.column_config.NumberColumn("Salaire", format="$%d"),
-            },
-            hide_index=True,
-            use_container_width=True
+            df_final,
+            column_config={"Salaire": st.column_config.NumberColumn(format="$%d")},
+            use_container_width=True,
+            hide_index=True
         )
-        
-        st.success(f"Analyse terminée. Total global : {display_df['Salaire'].sum():,.2f} $")
