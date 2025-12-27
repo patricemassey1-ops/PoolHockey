@@ -25,7 +25,6 @@ if fichiers_telecharges:
                         start_line = i
                         break
                 
-                # Take lines from the header start
                 raw_data_lines = lines[start_line:]
                 
                 # Filter out blank/comma-only lines
@@ -56,12 +55,12 @@ if fichiers_telecharges:
             # Remove any totally empty rows that might remain
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes (CORRIGÉ ICI)
+            # 4. Identification sécurisée des colonnes (CORRECTION APPLIQUÉE)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    # BUG FIX: Ensure we return only the string name of the column
-                    if found: return str(found[0]) 
+                    # BUG FIX: Ensure we return only the string name of the column (e.g. "Player" not "['Player']")
+                    if found: return found[0] 
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -70,12 +69,13 @@ if fichiers_telecharges:
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
             # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
-            # BUG FIX: Fix the shape comparison
+            # BUG FIX: Corrected shape access and column indexing
             if not c_pos and df.shape[1] >= 5:
                 c_pos = df.columns[4]
 
             if not c_status or not c_salary or not c_player:
-                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}")
+                # Cette erreur ne devrait plus apparaître si les mots clés existent dans le fichier
+                st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}. Vérifiez les en-têtes exacts.")
                 continue
 
             # 5. Nettoyage et conversion des salaires
@@ -157,4 +157,3 @@ if fichiers_telecharges:
 
         st.divider()
         st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées.")
-
