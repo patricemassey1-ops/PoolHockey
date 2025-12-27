@@ -30,7 +30,7 @@ if 'last_uploaded_files' not in st.session_state:
 
 equipes = [
     "Canadiens Montréal", "Red Wings Détroit", "Nordiques Québec", 
-    "Prédateurs Nashville", "Sénateurs Ottawa", "Kings Los Angeles"
+    "Prédateurs Nashville", "Whalers Hartford", "Cracheurs Anonymes Lima"
 ]
 
 # --- 2. FONCTION DE CALCUL ROBUSTE ---
