@@ -60,10 +60,13 @@ if fichiers_telecharges:
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
             df.dropna(how='all', inplace=True)
             
+            # 4. Identification sécurisée des colonnes (CORRECTION DÉFINITIVE APPLIQUÉE)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return found
+                    # On retourne UNIQUEMENT la première chaîne de caractères trouvée, pas une liste.
+                    if found: 
+                        return found[0] # <-- FIX CRITIQUE
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -75,6 +78,7 @@ if fichiers_telecharges:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}.")
                 continue
 
+            # 5. Nettoyage et conversion des salaires (Utilise maintenant une chaîne unique)
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
@@ -86,6 +90,7 @@ if fichiers_telecharges:
                 if 'D' in text: return 'D'
                 return 'F'
 
+            # 6. Utilise maintenant une chaîne unique
             df['P'] = df[c_pos].apply(scan_pos)
 
             def categorize_status(val):
@@ -94,11 +99,13 @@ if fichiers_telecharges:
                 if "Act" in val: return "Act"
                 return "Autre"
 
+            # 7. Utilise maintenant une chaîne unique
             df['Catégorie'] = df[c_status].apply(categorize_status)
             df_filtered = df[df['Catégorie'].isin(['Act', 'Min'])].copy()
 
             nom_proprio = fichier.name.replace('.csv', '')
             
+            # 8. Utilise maintenant une chaîne unique
             res = pd.DataFrame({
                 'P': df_filtered['P'],
                 'Joueur': df_filtered[c_player],
@@ -121,24 +128,20 @@ if fichiers_telecharges:
             st.write("### Résumé par Équipe")
             summary = df_final.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0).reset_index()
             
-            # --- NOUVEAU CODE ICI : Calcul du total et de l'espace restant ---
             if 'Act' in summary.columns:
                 summary['Total Actif'] = summary['Act']
                 summary['Cap Space Actif'] = CAP_ACTIF - summary['Total Actif']
-                del summary['Act'] # Renomme/Réorganise pour plus de clarté
+                del summary['Act']
             
             if 'Min' in summary.columns:
                 summary['Total Mineur'] = summary['Min']
                 summary['Cap Space Mineur'] = CAP_MINORS - summary['Total Mineur']
-                del summary['Min'] # Renomme/Réorganise
+                del summary['Min']
 
-            # Calcul du total global et de l'espace restant global
             if 'Total Actif' in summary.columns and 'Total Mineur' in summary.columns:
                  summary['Total Global'] = summary['Total Actif'] + summary['Total Mineur']
                  summary['Cap Space Global'] = (CAP_ACTIF + CAP_MINORS) - summary['Total Global']
 
-
-            # Formatage pour l'affichage
             st.dataframe(
                 summary.style.format({
                     'Total Actif': '{:,.0f} $', 
@@ -151,7 +154,6 @@ if fichiers_telecharges:
                 use_container_width=True, 
                 hide_index=True
             )
-            # ----------------------------------------
 
         with tab2:
             st.write("### Liste des joueurs (Tri par Position)")
@@ -178,4 +180,3 @@ if fichiers_telecharges:
 
         st.divider()
         st.success(f"Analyse terminée. Les totaux et l'espace salarial restant sont affichés.")
-
