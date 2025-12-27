@@ -18,7 +18,7 @@ if fichiers_telecharges:
             lines = content.splitlines()
 
             # Function to extract a data frame given a starting keyword
-            def extract_table(lines, start_keyword, end_keyword=None):
+            def extract_table(lines, start_keyword):
                 start_line = 0
                 for i, line in enumerate(lines):
                     if start_keyword in line:
@@ -48,20 +48,20 @@ if fichiers_telecharges:
             df_skaters = extract_table(lines, 'Skaters')
             
             # --- Process Goalies (Look for the second header) ---
-            # We search specifically for the "Goalies" keyword to find the second table start line
             df_goalies = extract_table(lines, 'Goalies')
 
-            # Combine them. Concat handles cases where one might be empty if not found.
+            # Combine them.
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
             
             # Remove any totally empty rows that might remain
             df.dropna(how='all', inplace=True)
             
-            # 4. Identification sécurisée des colonnes
+            # 4. Identification sécurisée des colonnes (CORRIGÉ ICI)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
-                    if found: return str(found[0])
+                    # BUG FIX: Ensure we return only the string name of the column
+                    if found: return str(found[0]) 
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -69,7 +69,11 @@ if fichiers_telecharges:
             c_salary = find_col_safe(['Salary', 'Salaire'])
             c_pos    = find_col_safe(['Eligible', 'Pos', 'Position'])
 
-            # Security check
+            # Sécurité : Si Pos n'est pas trouvé, on tente la 5ème colonne (index 4)
+            # BUG FIX: Fix the shape comparison
+            if not c_pos and df.shape[1] >= 5:
+                c_pos = df.columns[4]
+
             if not c_status or not c_salary or not c_player:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}")
                 continue
@@ -141,7 +145,7 @@ if fichiers_telecharges:
                         "Salaire": st.column_config.NumberColumn(format="$%d"),
                         "P": st.column_config.TextColumn("Pos", width="small")
                     },
-                    use_container_container=True, hide_index=True
+                    use_container_width=True, hide_index=True
                 )
                 st.metric(f"Total {title}", f"{df_sub['Salaire'].sum():,.0f} $")
 
@@ -153,3 +157,4 @@ if fichiers_telecharges:
 
         st.divider()
         st.success(f"Analyse terminée. Les sections Skaters et Goalies ont été combinées.")
+
