@@ -2,15 +2,17 @@ import streamlit as st
 import pandas as pd
 import io
 
-# Définition des plafonds salariaux
-CAP_ACTIF = 95500000
-CAP_MINORS = 47750000
-
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-st.title("🏒 Analyseur Fantrax : Plafonds Salariaux Appliqués")
+st.title("🏒 Analyseur Fantrax : Plafonds Salariaux Modifiables")
 
-st.markdown(f"Plafond Actif défini à **{CAP_ACTIF:,.0f} $** et Mineur à **{CAP_MINORS:,.0f} $**.")
+# --- NOUVEAU CODE ICI : Champs de saisie pour les plafonds ---
+col_cap1, col_cap2 = st.columns(2)
+with col_cap1:
+    CAP_ACTIF = st.number_input("Plafond Salarial Actif ($)", min_value=0, value=95500000, step=1000000)
+with col_cap2:
+    CAP_MINORS = st.number_input("Plafond Salarial Mineur ($)", min_value=0, value=47750000, step=100000)
+# -----------------------------------------------------------
 
 fichiers_telecharges = st.file_uploader("Importez vos fichiers CSV Fantrax", type="csv", accept_multiple_files=True)
 
@@ -60,11 +62,13 @@ if fichiers_telecharges:
             df = pd.concat([df_skaters, df_goalies], ignore_index=True)
             df.dropna(how='all', inplace=True)
             
+            # 4. Identification sécurisée des colonnes (CORRECTION DÉFINITIVE APPLIQUÉE)
             def find_col_safe(keywords):
                 for k in keywords:
                     found = [c for c in df.columns if k.lower() in c.lower()]
+                    # FIX CRITIQUE: Retourne le premier élément de la liste (la chaîne de caractères)
                     if found: 
-                        return found
+                        return found[0] # Renvoie 'Player' au lieu de ['Player']
                 return None
 
             c_player = find_col_safe(['Player', 'Joueur'])
@@ -76,6 +80,7 @@ if fichiers_telecharges:
                 st.error(f"❌ Colonnes essentielles manquantes dans {fichier.name}.")
                 continue
 
+            # 5. Nettoyage et conversion des salaires
             df[c_salary] = pd.to_numeric(
                 df[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), 
                 errors='coerce'
@@ -124,19 +129,20 @@ if fichiers_telecharges:
             
             if 'Act' in summary.columns:
                 summary['Total Actif'] = summary['Act']
-                summary['Cap Space Actif'] = summary['Total Actif'].apply(lambda x: CAP_ACTIF - x)
+                # Utilise la variable dynamique CAP_ACTIF
+                summary['Cap Space Actif'] = summary['Total Actif'].apply(lambda x: CAP_ACTIF - x) 
                 del summary['Act']
             
             if 'Min' in summary.columns:
                 summary['Total Mineur'] = summary['Min']
+                # Utilise la variable dynamique CAP_MINORS
                 summary['Cap Space Mineur'] = summary['Total Mineur'].apply(lambda x: CAP_MINORS - x)
                 del summary['Min']
 
-            # --- NOUVEAU CODE ICI : Fonction de style ---
+            # Fonction de style pour la couleur
             def style_negative(v, props=''):
                 return props if v < 0 else None
             
-            # Application du style et du formatage
             styled_summary = summary.style.format({
                 'Total Actif': '{:,.0f} $', 
                 'Cap Space Actif': '{:,.0f} $',
@@ -149,7 +155,6 @@ if fichiers_telecharges:
                 use_container_width=True, 
                 hide_index=True
             )
-            # ----------------------------------------
 
         with tab2:
             st.write("### Liste des joueurs (Tri par Position)")
@@ -176,4 +181,3 @@ if fichiers_telecharges:
 
         st.divider()
         st.success(f"Analyse terminée. Les totaux et l'espace salarial restant sont affichés.")
-
