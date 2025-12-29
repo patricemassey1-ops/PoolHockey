@@ -33,9 +33,6 @@ def pos_sort_order(pos_text):
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
-if 'buyouts' not in st.session_state:
-    st.session_state['buyouts'] = {}
-
 st.title("🏒 Analyseur Fantrax 2025")
 
 # --- BARRE LATÉRALE ---
@@ -87,7 +84,7 @@ if fichiers_telecharges:
         st.session_state['historique'] = sauvegarder_historique(nouveau_df)
         st.success("Importation réussie.")
 
-# --- AFFICHAGE ---
+# --- AFFICHAGE PRINCIPAL ---
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
@@ -97,39 +94,39 @@ if not st.session_state['historique'].empty:
         st.dataframe(summary, use_container_width=True)
 
     with tab2:
-        st.header("🔄 Outil de Transfert & Simulateur de Rachat")
+        st.header("🔄 Outil de Transfert & Simulateur de Rachats Multiples")
         equipe_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
         
-        if equipe_choisie not in st.session_state['buyouts']:
-            st.session_state['buyouts'][equipe_choisie] = {'gc_player': None, 'ce_player': None}
-
         df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
         
-        # --- SECTION DES RACHATS (LOGIQUE 50%) ---
-        st.subheader(f"💰 Rachats de contrats (Déduction de 50%)")
+        # --- SECTION DES RACHATS MULTIPLES (DÉDUCTION 50%) ---
+        st.subheader(f"💰 Rachats de contrats (Multiples autorisés)")
+        st.info("Sélectionnez les joueurs à racheter. 50% de leur salaire sera déduit de la masse.")
         col_r1, col_r2 = st.columns(2)
         
         with col_r1:
-            joueurs_gc = df_sim[df_sim['Statut'] == "Grand Club"]
-            choix_gc = st.selectbox("Sélectionner un joueur à racheter (GC)", options=[None] + joueurs_gc['Joueur'].tolist(), format_func=lambda x: "---" if x is None else x, key=f"sel_gc_{equipe_choisie}")
-            if choix_gc:
-                sal_gc = joueurs_gc[joueurs_gc['Joueur'] == choix_gc]['Salaire'].values[0]
-                deduction_gc = sal_gc / 2
-                st.warning(f"Rachat {choix_gc} : -{format_currency(deduction_gc)} (50%)")
-                if st.button("Annuler rachat GC"): 
-                    st.rerun()
-            else: deduction_gc = 0
+            joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
+            choix_gc_multi = st.multiselect(
+                "Joueurs à racheter (Grand Club)", 
+                options=joueurs_gc_df['Joueur'].tolist(),
+                key=f"multi_gc_{equipe_choisie}"
+            )
+            total_deduction_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(choix_gc_multi)]['Salaire'].sum() / 2
+            if total_deduction_gc > 0:
+                st.warning(f"Total déduit (GC) : -{format_currency(total_deduction_gc)}")
 
         with col_r2:
-            joueurs_ce = df_sim[df_sim['Statut'] == "Club École"]
-            choix_ce = st.selectbox("Sélectionner un joueur à racheter (CE)", options=[None] + joueurs_ce['Joueur'].tolist(), format_func=lambda x: "---" if x is None else x, key=f"sel_ce_{equipe_choisie}")
-            if choix_ce:
-                sal_ce = joueurs_ce[joueurs_ce['Joueur'] == choix_ce]['Salaire'].values[0]
-                deduction_ce = sal_ce / 2
-                st.warning(f"Rachat {choix_ce} : -{format_currency(deduction_ce)} (50%)")
-                if st.button("Annuler rachat CE"):
-                    st.rerun()
-            else: deduction_ce = 0
+            joueurs_ce_df = df_sim[df_sim['Statut'] == "Club École"]
+            choix_ce_multi = st.multiselect(
+                "Joueurs à racheter (Club École)", 
+                options=joueurs_ce_df['Joueur'].tolist(),
+                key=f"multi_ce_{equipe_choisie}"
+            )
+            total_deduction_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(choix_ce_multi)]['Salaire'].sum() / 2
+            if total_deduction_ce > 0:
+                st.warning(f"Total déduit (CE) : -{format_currency(total_deduction_ce)}")
+
+        st.markdown("---")
 
         # --- DRAG AND DROP ---
         list_gc = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
@@ -152,10 +149,9 @@ if not st.session_state['historique'].empty:
         masse_gc_pure = extract_salary(col_gc_final)
         masse_ce_pure = extract_salary(col_ce_final)
         
-        sim_g = masse_gc_pure - deduction_gc
-        sim_c = masse_ce_pure - deduction_ce
+        sim_g = masse_gc_pure - total_deduction_gc
+        sim_c = masse_ce_pure - total_deduction_ce
 
-        st.markdown("---")
         res1, res2 = st.columns(2)
         res1.metric("Masse Grand Club (Net)", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
         res2.metric("Masse Club École (Net)", format_currency(sim_c), delta=format_currency(CAP_CLUB_ECOLE - sim_c), delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
