@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import os
 from datetime import datetime
-from streamlit_sortables import sort_items # Nécessite streamlit-sortables
+from streamlit_sortables import sort_items
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
@@ -37,6 +37,18 @@ st.title("🏒 Analyseur Fantrax 2025")
 st.sidebar.header("⚙️ Configuration")
 CAP_GRAND_CLUB = st.sidebar.number_input("Plafond Grand Club ($)", value=95500000, step=500000)
 CAP_CLUB_ECOLE = st.sidebar.number_input("Plafond Club École ($)", value=47750000, step=100000)
+
+st.sidebar.markdown("---")
+st.sidebar.header("💸 Rachats (Buyouts)")
+st.sidebar.info("Le salaire saisi sera soustrait de la masse salariale.")
+
+with st.sidebar.expander("Rachat Grand Club"):
+    nom_buyout_gc = st.text_input("Nom du joueur (GC)", key="nbgc")
+    montant_buyout_gc = st.number_input("Montant à déduire (GC)", value=0, step=50000, key="mbgc")
+
+with st.sidebar.expander("Rachat Club École"):
+    nom_buyout_ce = st.text_input("Nom du joueur (CE)", key="nbce")
+    montant_buyout_ce = st.number_input("Montant à déduire (CE)", value=0, step=50000, key="mbce")
 
 # --- LOGIQUE D'IMPORTATION ---
 fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
@@ -85,7 +97,6 @@ if not st.session_state['historique'].empty:
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
-        # (Votre code résumé des masses salariales reste identique)
         st.header("Résumé des Masses Salariales")
         summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         for col in ['Grand Club', 'Club École']:
@@ -108,66 +119,57 @@ if not st.session_state['historique'].empty:
         st.header("🔄 Outil de Transfert Interactif")
         equipe_sim_choisie = st.selectbox("Sélectionner l'équipe à simuler", options=df_f['Propriétaire'].unique(), key='simulateur_equipe')
         
-        # Filtrer les joueurs de l'équipe
         df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
         
-        # Préparer les listes pour le drag and drop
-        # Format : "Nom (Salaire)"
         list_grand_club = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
         list_club_ecole = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
-        # Création des colonnes interactives
-        st.info("💡 Glissez-déposez les joueurs entre les colonnes pour ajuster votre masse salariale.")
+        st.info("💡 Glissez-déposez les joueurs. Les rachats saisis dans la barre latérale sont déduits automatiquement.")
         
         sort_data = [
             {'header': '🏙️ GRAND CLUB', 'items': list_grand_club},
             {'header': '🏫 CLUB ÉCOLE', 'items': list_club_ecole}
         ]
 
-        # Affichage du composant
         updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
 
-        # Calcul des salaires après transfert
         def extract_salary(player_list):
             total = 0
             for item in player_list:
                 try:
-                    # On récupère le montant entre parenthèses et on nettoie
                     s_str = item.split('(')[-1].replace('$', '').replace(' ', '').replace(')', '')
                     total += int(s_str)
-                except:
-                    continue
+                except: continue
             return total
 
-        sim_g = extract_salary(updated_sort[0]['items'])
-        sim_c = extract_salary(updated_sort[1]['items'])
+        # Calcul des masses avec déduction des rachats
+        sim_g = extract_salary(updated_sort[0]['items']) - montant_buyout_gc
+        sim_c = extract_salary(updated_sort[1]['items']) - montant_buyout_ce
 
         st.markdown("---")
         c1, c2 = st.columns(2)
         
         c1.metric(
             "Masse Grand Club", 
-            format_currency(sim_g), 
+            format_currency(max(0, sim_g)), 
             delta=format_currency(CAP_GRAND_CLUB - sim_g), 
             delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse"
         )
+        if montant_buyout_gc > 0:
+            c1.caption(f"⚠️ Dont rachat : {nom_buyout_gc} (-{format_currency(montant_buyout_gc)})")
+
         c2.metric(
             "Masse Club École", 
-            format_currency(sim_c), 
+            format_currency(max(0, sim_c)), 
             delta=format_currency(CAP_CLUB_ECOLE - sim_c),
             delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse"
         )
+        if montant_buyout_ce > 0:
+            c2.caption(f"⚠️ Dont rachat : {nom_buyout_ce} (-{format_currency(montant_buyout_ce)})")
 
-        # Style pour rendre les blocs de joueurs plus visibles
         st.markdown("""
             <style>
-            .stSortablesItem {
-                background-color: #1E3A8A !important;
-                color: white !important;
-                border-radius: 5px !important;
-                padding: 8px !important;
-                margin-bottom: 5px !important;
-            }
+            .stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }
             </style>
             """, unsafe_allow_html=True)
 else:
