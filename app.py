@@ -19,7 +19,6 @@ def charger_historique():
 def charger_base_joueurs():
     if os.path.exists(PLAYERS_DB_FILE):
         df_base = pd.read_csv(PLAYERS_DB_FILE)
-        # Harmonisation des colonnes
         df_base.columns = [c.strip() for c in df_base.columns]
         rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'player': 'Joueur', 'salary': 'Salaire', 'pos': 'Pos'}
         df_base.rename(columns=rename_dict, inplace=True)
@@ -110,8 +109,6 @@ if not st.session_state['historique'].empty:
     with tab2:
         st.header("🔄 Outil de Transfert & Simulateur")
         equipe_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
-        
-        # DEFINITION DE DF_SIM ICI (Indispensable pour la suite)
         df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
 
         # --- AJOUT JOUEUR AUTONOME ---
@@ -119,23 +116,23 @@ if not st.session_state['historique'].empty:
         if not st.session_state['base_joueurs'].empty:
             col_a1, col_a2 = st.columns([0.6, 0.4])
             with col_a1:
-                choix_p = st.selectbox("Joueur disponible", options=[None] + st.session_state['base_joueurs']['Joueur'].tolist(), key=f"p_{equipe_choisie}")
+                choix_p = st.selectbox("Joueur disponible (Hockey_Players.csv)", options=[None] + sorted(st.session_state['base_joueurs']['Joueur'].tolist()), key=f"p_{equipe_choisie}")
             if choix_p:
                 row = st.session_state['base_joueurs'][st.session_state['base_joueurs']['Joueur'] == choix_p].iloc[0]
                 with col_a2:
                     dest = st.selectbox("Affectation", options=["Grand Club", "Club École"], key=f"d_{equipe_choisie}")
                 st.write(f"Pos: **{row['Pos']}** | Salaire: **{format_currency(row['Salaire'])}**")
-                if st.button(f"Ajouter à {equipe_choisie}"):
+                if st.button(f"Ajouter à l'équipe"):
                     nouvelle_ligne = pd.DataFrame([{'Joueur': row['Joueur'], 'Salaire': row['Salaire'], 'Statut': dest, 'Pos': row['Pos'], 'Propriétaire': equipe_choisie, 'pos_order': pos_sort_order(row['Pos'])}])
                     st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], nouvelle_ligne]))
                     st.rerun()
         else:
-            st.warning("Fichier Hockey_Players.csv introuvable.")
+            st.warning("Fichier Hockey_Players.csv introuvable à la racine du dépôt.")
 
         st.markdown("---")
 
-        # --- RACHATS ---
-        st.subheader("💰 Rachats (50%)")
+        # --- RACHATS MULTIPLES ---
+        st.subheader("💰 Rachats (Déduction 50%)")
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
@@ -149,23 +146,34 @@ if not st.session_state['historique'].empty:
         st.markdown("---")
 
         # --- DRAG AND DROP ---
-        list_gc = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
-        list_ce = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
+        list_gc_init = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
+        list_ce_init = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
-        updated = sort_items([{'header': '🏙️ GRAND CLUB', 'items': list_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}], multi_containers=True, direction='horizontal')
+        updated = sort_items([
+            {'header': '🏙️ GRAND CLUB', 'items': list_gc_init}, 
+            {'header': '🏫 CLUB ÉCOLE', 'items': list_ce_init}
+        ], multi_containers=True, direction='horizontal')
         
-        col_gc_f = updated['items'] if updated else list_gc
-        col_ce_f = updated['items'] if updated else list_ce
+        # Correction d'accès aux colonnes par index
+        if updated:
+            col_gc_items = updated[0]['items']
+            col_ce_items = updated[1]['items']
+        else:
+            col_gc_items = list_gc_init
+            col_ce_items = list_ce_init
 
-        def extract(plist):
+        def extract_salary(plist):
             tot = 0
             for i in plist:
-                try: tot += int(i.split('-')[-1].replace('$', '').replace(' ', '').replace(',', '').strip())
+                try: 
+                    # Extraction après le tiret "-"
+                    s = i.split('-')[-1].replace('$', '').replace(' ', '').replace(',', '').replace('\xa0', '').strip()
+                    tot += int(s)
                 except: continue
             return tot
 
-        sim_g = extract(col_gc_f) - ded_gc
-        sim_c = extract(col_ce_f) - ded_ce
+        sim_g = extract_salary(col_gc_items) - ded_gc
+        sim_c = extract_salary(col_ce_items) - ded_ce
 
         res1, res2 = st.columns(2)
         res1.metric("Grand Club (Net)", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
@@ -173,4 +181,4 @@ if not st.session_state['historique'].empty:
 
         st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Importez un fichier CSV Fantrax.")
+    st.info("Importez un fichier CSV Fantrax pour commencer.")
