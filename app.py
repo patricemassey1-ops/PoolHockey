@@ -198,17 +198,57 @@ with tab1:
         
         st.divider()
         
-        # Formatage optimisé
-        display_df = pd.DataFrame({
+        # Formatage optimisé avec couleurs
+        display_data = {
             'Propriétaire': summary['Propriétaire_nom'].values,
             'Date/Heure': summary['DateTime'].values,
-            'Grand Club': [format_currency(v) for v in summary['Grand Club'].values],
-            'Restant Grand Club': [format_currency(v) for v in summary['Restant Grand Club'].values],
-            'Club École': [format_currency(v) for v in summary['Club École'].values],
-            'Restant Club École': [format_currency(v) for v in summary['Restant Club École'].values]
-        })
+            'Grand Club': [],
+            'Restant Grand Club': [],
+            'Club École': [],
+            'Restant Club École': []
+        }
         
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        for idx, row in summary.iterrows():
+            display_data['Grand Club'].append(format_currency(row['Grand Club']))
+            display_data['Restant Grand Club'].append(format_currency(row['Restant Grand Club']))
+            display_data['Club École'].append(format_currency(row['Club École']))
+            display_data['Restant Club École'].append(format_currency(row['Restant Club École']))
+        
+        display_df = pd.DataFrame(display_data)
+        
+        # Fonction pour colorer selon les dépassements de plafond
+        def color_by_plafond(row):
+            styles = [''] * len(row)
+            
+            try:
+                # Extraire les valeurs numériques
+                gc_val = float(row['Grand Club'].replace(" ", "").replace("$", ""))
+                ce_val = float(row['Club École'].replace(" ", "").replace("$", ""))
+                
+                # Vérifier les dépassements
+                gc_depasse = gc_val > PLAFOND_GRAND_CLUB
+                ce_depasse = ce_val > PLAFOND_CLUB_ECOLE
+                
+                for i, col_name in enumerate(row.index):
+                    if col_name in ['Grand Club', 'Restant Grand Club']:
+                        if gc_depasse:
+                            styles[i] = 'color: #ff0000; font-weight: bold'  # Rouge
+                        else:
+                            styles[i] = 'color: #00cc00; font-weight: bold'  # Vert
+                    elif col_name in ['Club École', 'Restant Club École']:
+                        if ce_depasse:
+                            styles[i] = 'color: #ff0000; font-weight: bold'  # Rouge
+                        else:
+                            styles[i] = 'color: #00cc00; font-weight: bold'  # Vert
+            except:
+                pass
+            
+            return styles
+        
+        # Appliquer le style
+        styled_df = display_df.style.apply(color_by_plafond, axis=1)
+        
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         st.divider()
         
