@@ -236,17 +236,17 @@ with tab1:
                 
                 for i, col_name in enumerate(row.index):
                     if has_depassement:
-                        # Rouge si dépassement
+                        # Texte rouge sur fond noir
                         if 'Restant' in col_name:
-                            styles[i] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+                            styles[i] = 'color: #ff4444; font-weight: bold'
                         else:
-                            styles[i] = 'background-color: #ffe6e6'
+                            styles[i] = 'color: #ff8888'
                     else:
-                        # Vert si tout est OK
+                        # Texte vert sur fond noir
                         if 'Restant' in col_name:
-                            styles[i] = 'background-color: #ccffcc; color: #006600; font-weight: bold'
+                            styles[i] = 'color: #44ff44; font-weight: bold'
                         else:
-                            styles[i] = 'background-color: #e6ffe6'
+                            styles[i] = 'color: #88ff88'
             except:
                 pass
             
