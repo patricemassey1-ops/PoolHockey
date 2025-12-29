@@ -8,7 +8,7 @@ from streamlit_sortables import sort_items
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
-PLAYERS_DB_FILE = "Hockey_Players.csv" # Nouveau fichier de base de données des joueurs
+PLAYERS_DB_FILE = "Hockey_Players.csv"
 
 # --- FONCTIONS ---
 def charger_historique():
@@ -19,10 +19,12 @@ def charger_historique():
 def charger_base_joueurs():
     if os.path.exists(PLAYERS_DB_FILE):
         df_base = pd.read_csv(PLAYERS_DB_FILE)
-        # Assurer la cohérence des noms de colonnes pour la recherche
-        df_base.rename(columns={'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos'}, inplace=True)
-        return df_base[['Joueur', 'Salaire', 'Pos']].copy()
-    return pd.DataFrame(columns=['Joueur', 'Salaire', 'Pos'])
+        # Harmonisation des colonnes
+        df_base.columns = [c.strip() for c in df_base.columns]
+        rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'player': 'Joueur', 'salary': 'Salaire', 'pos': 'Pos'}
+        df_base.rename(columns=rename_dict, inplace=True)
+        return df_base
+    return pd.DataFrame()
 
 def sauvegarder_historique(df):
     df = df.drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
@@ -39,25 +41,22 @@ def pos_sort_order(pos_text):
     if 'D' in pos: return 1
     return 0 
 
-# Initialisation des états
+# Initialisation
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
 if 'base_joueurs' not in st.session_state:
     st.session_state['base_joueurs'] = charger_base_joueurs()
 
-if 'buyouts' not in st.session_state:
-    st.session_state['buyouts'] = {}
-
 st.title("🏒 Analyseur Fantrax 2025")
 
-# --- BARRE LATÉRALE (inchangée) ---
-st.sidebar.header("⚙️ Configuration Globale")
+# --- SIDEBAR ---
+st.sidebar.header("⚙️ Configuration")
 CAP_GRAND_CLUB = st.sidebar.number_input("Plafond Grand Club ($)", value=95500000, step=500000)
 CAP_CLUB_ECOLE = st.sidebar.number_input("Plafond Club École ($)", value=47750000, step=100000)
 
-# --- LOGIQUE D'IMPORTATION FANTRAX (inchangée) ---
-fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax (Rosters)", type="csv", accept_multiple_files=True)
+# --- IMPORTATION ---
+fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
 if fichiers_telecharges:
     dfs_a_ajouter = []
     horodatage = datetime.now().strftime("%d-%m %H:%M")
@@ -85,7 +84,6 @@ if fichiers_telecharges:
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
                 df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 nom_equipe = fichier.name.replace('.csv', '')
-                
                 temp_df = pd.DataFrame({
                     'Joueur': df_merged[c_player], 'Salaire': df_merged[c_salary], 'Statut': df_merged['Catégorie'],
                     'Pos': df_merged[c_pos] if c_pos else "N/A", 'Propriétaire': nom_equipe,
@@ -93,19 +91,19 @@ if fichiers_telecharges:
                 })
                 dfs_a_ajouter.append(temp_df)
         except Exception as e:
-            st.error(f"Erreur sur {fichier.name}: {e}")
+            st.error(f"Erreur : {e}")
 
     if dfs_a_ajouter:
-        nouveau_df = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
-        st.session_state['historique'] = sauvegarder_historique(nouveau_df)
-        st.success("Importation terminée.")
+        st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True))
+        st.rerun()
 
-# --- AFFICHAGE PRINCIPAL ---
+# --- AFFICHAGE ---
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
+        st.header("Résumé des Masses")
         summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         st.dataframe(summary, use_container_width=True)
 
@@ -113,58 +111,40 @@ if not st.session_state['historique'].empty:
         st.header("🔄 Outil de Transfert & Simulateur")
         equipe_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
         
-        # --- FORMULAIRE D'AJOUT DE JOUEUR AUTONOME ---
+        # DEFINITION DE DF_SIM ICI (Indispensable pour la suite)
+        df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
+
+        # --- AJOUT JOUEUR AUTONOME ---
         st.subheader("➕ Ajouter un joueur autonome")
         if not st.session_state['base_joueurs'].empty:
-            
-            col_add1, col_add2 = st.columns([0.6, 0.4])
-            with col_add1:
-                joueur_selectionne = st.selectbox("Sélectionner le joueur", options=[None] + st.session_state['base_joueurs']['Joueur'].tolist(), key=f"sel_auto_player_{equipe_choisie}")
-            
-            if joueur_selectionne:
-                data_joueur = st.session_state['base_joueurs'][st.session_state['base_joueurs']['Joueur'] == joueur_selectionne].iloc[0]
-                
-                with col_add2:
-                    destination = st.selectbox("Assigner à", options=["Grand Club", "Club École"], key=f"sel_auto_dest_{equipe_choisie}")
-
-                st.write(f"**Pos:** {data_joueur['Pos']} | **Salaire:** {format_currency(data_joueur['Salaire'])}")
-
-                if st.button(f"Ajouter {joueur_selectionne} à {equipe_choisie}"):
-                    nouvelle_entree = pd.DataFrame([{
-                        'Joueur': data_joueur['Joueur'],
-                        'Salaire': data_joueur['Salaire'],
-                        'Statut': destination,
-                        'Pos': data_joueur['Pos'],
-                        'Propriétaire': equipe_choisie,
-                        'pos_order': pos_sort_order(data_joueur['Pos']),
-                        'Dernière Mise à jour': datetime.now().strftime("%d-%m %H:%M")
-                    }])
-                    # Ajout et sauvegarde immédiate pour mise à jour
-                    st.session_state['historique'] = pd.concat([st.session_state['historique'], nouvelle_entree], ignore_index=True)
-                    st.session_state['historique'] = sauvegarder_historique(st.session_state['historique'])
-                    st.success(f"{joueur_selectionne} ajouté!")
+            col_a1, col_a2 = st.columns([0.6, 0.4])
+            with col_a1:
+                choix_p = st.selectbox("Joueur disponible", options=[None] + st.session_state['base_joueurs']['Joueur'].tolist(), key=f"p_{equipe_choisie}")
+            if choix_p:
+                row = st.session_state['base_joueurs'][st.session_state['base_joueurs']['Joueur'] == choix_p].iloc[0]
+                with col_a2:
+                    dest = st.selectbox("Affectation", options=["Grand Club", "Club École"], key=f"d_{equipe_choisie}")
+                st.write(f"Pos: **{row['Pos']}** | Salaire: **{format_currency(row['Salaire'])}**")
+                if st.button(f"Ajouter à {equipe_choisie}"):
+                    nouvelle_ligne = pd.DataFrame([{'Joueur': row['Joueur'], 'Salaire': row['Salaire'], 'Statut': dest, 'Pos': row['Pos'], 'Propriétaire': equipe_choisie, 'pos_order': pos_sort_order(row['Pos'])}])
+                    st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], nouvelle_ligne]))
                     st.rerun()
-            
         else:
-            st.warning("Le fichier Hockey_Players.csv est manquant ou vide.")
+            st.warning("Fichier Hockey_Players.csv introuvable.")
 
         st.markdown("---")
-        
-        # ... (Rachats et Drag and Drop inchangés) ...
-        # --- SECTION DES RACHATS MULTIPLES (DÉDUCTION 50%) ---
-        st.subheader(f"💰 Rachats de contrats (Multiples autorisés)")
+
+        # --- RACHATS ---
+        st.subheader("💰 Rachats (50%)")
         col_r1, col_r2 = st.columns(2)
-        
         with col_r1:
             joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
-            choix_gc_multi = st.multiselect("Joueurs à racheter (Grand Club)", options=joueurs_gc_df['Joueur'].tolist(), key=f"multi_gc_{equipe_choisie}")
-            total_deduction_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(choix_gc_multi)]['Salaire'].sum() / 2
-            if total_deduction_gc > 0: st.warning(f"Total déduit (GC) : -{format_currency(total_deduction_gc)}")
+            choix_gc = st.multiselect("Rachats Grand Club", options=joueurs_gc_df['Joueur'].tolist(), key=f"r_gc_{equipe_choisie}")
+            ded_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(choix_gc)]['Salaire'].sum() / 2
         with col_r2:
             joueurs_ce_df = df_sim[df_sim['Statut'] == "Club École"]
-            choix_ce_multi = st.multiselect("Joueurs à racheter (Club École)", options=joueurs_ce_df['Joueur'].tolist(), key=f"multi_ce_{equipe_choisie}")
-            total_deduction_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(choix_ce_multi)]['Salaire'].sum() / 2
-            if total_deduction_ce > 0: st.warning(f"Total déduit (CE) : -{format_currency(total_deduction_ce)}")
+            choix_ce = st.multiselect("Rachats Club École", options=joueurs_ce_df['Joueur'].tolist(), key=f"r_ce_{equipe_choisie}")
+            ded_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(choix_ce)]['Salaire'].sum() / 2
 
         st.markdown("---")
 
@@ -172,30 +152,25 @@ if not st.session_state['historique'].empty:
         list_gc = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
         list_ce = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
-        updated_sort = sort_items([{'header': '🏙️ GRAND CLUB', 'items': list_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}], multi_containers=True, direction='horizontal')
+        updated = sort_items([{'header': '🏙️ GRAND CLUB', 'items': list_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}], multi_containers=True, direction='horizontal')
         
-        col_gc_final = updated_sort['items'] if updated_sort else list_gc
-        col_ce_final = updated_sort['items'] if updated_sort else list_ce
+        col_gc_f = updated['items'] if updated else list_gc
+        col_ce_f = updated['items'] if updated else list_ce
 
-        def extract_salary(player_list):
-            total = 0
-            for item in player_list:
-                try:
-                    s_str = item.split('-')[-1].replace('$', '').replace(' ', '').replace(',', '').strip()
-                    total += int(s_str)
+        def extract(plist):
+            tot = 0
+            for i in plist:
+                try: tot += int(i.split('-')[-1].replace('$', '').replace(' ', '').replace(',', '').strip())
                 except: continue
-            return total
+            return tot
 
-        masse_gc_pure = extract_salary(col_gc_final)
-        masse_ce_pure = extract_salary(col_ce_final)
-        
-        sim_g = masse_gc_pure - total_deduction_gc
-        sim_c = masse_ce_pure - total_deduction_ce
+        sim_g = extract(col_gc_f) - ded_gc
+        sim_c = extract(col_ce_f) - ded_ce
 
         res1, res2 = st.columns(2)
-        res1.metric("Masse Grand Club (Net)", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
-        res2.metric("Masse Club École (Net)", format_currency(sim_c), delta=format_currency(CAP_CLUB_ECOLE - sim_c), delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
+        res1.metric("Grand Club (Net)", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
+        res2.metric("Club École (Net)", format_currency(sim_c), delta=format_currency(CAP_CLUB_ECOLE - sim_c), delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
 
         st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Veuillez importer un fichier CSV Fantrax.")
+    st.info("Importez un fichier CSV Fantrax.")
