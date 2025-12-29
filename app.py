@@ -33,7 +33,7 @@ if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
 if 'buyouts' not in st.session_state:
-    st.session_state['buyouts'] = {} # Format: { 'Equipe': {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0} }
+    st.session_state['buyouts'] = {}
 
 st.title("🏒 Analyseur Fantrax 2025")
 
@@ -75,9 +75,6 @@ if fichiers_telecharges:
                     'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
                 })
                 dfs_a_ajouter.append(temp_df)
-                # Initialiser les rachats vides pour cette nouvelle équipe
-                if nom_equipe_unique not in st.session_state['buyouts']:
-                    st.session_state['buyouts'][nom_equipe_unique] = {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0}
         except Exception as e:
             st.error(f"Erreur : {e}")
     if dfs_a_ajouter:
@@ -88,7 +85,6 @@ if fichiers_telecharges:
 # --- AFFICHAGE PRINCIPAL ---
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
-    
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
@@ -98,39 +94,23 @@ if not st.session_state['historique'].empty:
             if col not in summary.columns: summary[col] = 0
         st.dataframe(summary.style.format({'Grand Club': format_currency, 'Club École': format_currency}), use_container_width=True)
 
-        st.header("Détails des Effectifs")
-        for eq in sorted(df_f['Propriétaire'].unique(), reverse=True):
-            with st.expander(f"📂 {eq}"):
-                col_a, col_b = st.columns(2)
-                df_e = df_f[df_f['Propriétaire'] == eq]
-                with col_a:
-                    st.write("**Grand Club**")
-                    st.table(df_e[df_e['Statut'] == "Grand Club"][['Joueur', 'Salaire']].assign(Salaire=lambda x: x['Salaire'].apply(format_currency)))
-                with col_b:
-                    st.write("**Club École**")
-                    st.table(df_e[df_e['Statut'] == "Club École"][['Joueur', 'Salaire']].assign(Salaire=lambda x: x['Salaire'].apply(format_currency)))
-
     with tab2:
         st.header("🔄 Outil de Transfert Interactif")
-        equipe_sim_choisie = st.selectbox("Sélectionner l'équipe à simuler", options=df_f['Propriétaire'].unique(), key='simulateur_equipe')
+        equipe_sim_choisie = st.selectbox("Équipe à simuler", options=df_f['Propriétaire'].unique())
         
-        # S'assurer que l'équipe existe dans le dictionnaire des rachats
         if equipe_sim_choisie not in st.session_state['buyouts']:
             st.session_state['buyouts'][equipe_sim_choisie] = {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0}
 
-        # --- SECTION RACHATS PAR ÉQUIPE ---
-        st.subheader(f"💸 Rachats pour {equipe_sim_choisie}")
+        # Rachats
         c_buy1, c_buy2 = st.columns(2)
         with c_buy1:
-            st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'] = st.text_input("Joueur racheté (Grand Club)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'], key=f"name_gc_{equipe_sim_choisie}")
-            st.session_state['buyouts'][equipe_sim_choisie]['gc_val'] = st.number_input("Salaire à déduire (GC)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_val'], step=10000, key=f"val_gc_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'] = st.text_input("Joueur racheté (GC)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'], key=f"n_gc_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['gc_val'] = st.number_input("Salaire déduit (GC)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_val'], step=10000, key=f"v_gc_{equipe_sim_choisie}")
         with c_buy2:
-            st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'] = st.text_input("Joueur racheté (Club École)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'], key=f"name_ce_{equipe_sim_choisie}")
-            st.session_state['buyouts'][equipe_sim_choisie]['ce_val'] = st.number_input("Salaire à déduire (CE)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_val'], step=10000, key=f"val_ce_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'] = st.text_input("Joueur racheté (CE)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'], key=f"n_ce_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['ce_val'] = st.number_input("Salaire déduit (CE)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_val'], step=10000, key=f"v_ce_{equipe_sim_choisie}")
 
-        st.markdown("---")
-
-        # --- DRAG AND DROP ---
+        # Drag and Drop
         df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
         list_gc = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
         list_ce = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
@@ -140,37 +120,33 @@ if not st.session_state['historique'].empty:
             {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}
         ]
 
+        # Sécurité pour éviter le TypeError
         updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
+        
+        # Si rien n'est bougé, on utilise les listes initiales
+        col_gc_items = updated_sort[0]['items'] if updated_sort else list_gc
+        col_ce_items = updated_sort[1]['items'] if updated_sort else list_ce
 
         def extract_salary(player_list):
             total = 0
             for item in player_list:
                 try:
-                    s_str = item.split('(')[-1].replace('$', '').replace(' ', '').replace(')', '')
+                    s_str = item.split('(')[-1].replace('$', '').replace(' ', '').replace(',', '').replace('\xa0', '').replace(')', '')
                     total += int(s_str)
                 except: continue
             return total
 
-        # Calcul final : Somme Drag&Drop - Rachat spécifique à l'équipe
         m_gc = st.session_state['buyouts'][equipe_sim_choisie]['gc_val']
         m_ce = st.session_state['buyouts'][equipe_sim_choisie]['ce_val']
         
-        sim_g = extract_salary(updated_sort['items']) - m_gc
-        sim_c = extract_salary(updated_sort['items']) - m_ce
+        sim_g = extract_salary(col_gc_items) - m_gc
+        sim_c = extract_salary(col_ce_items) - m_ce
 
         st.markdown("---")
         res1, res2 = st.columns(2)
-        
-        res1.metric("Masse Grand Club", format_currency(max(0, sim_g)), 
-                    delta=format_currency(CAP_GRAND_CLUB - sim_g), 
-                    delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
-        if m_gc > 0: res1.caption(f"Déduction rachat : {st.session_state['buyouts'][equipe_sim_choisie]['gc_nom']}")
-
-        res2.metric("Masse Club École", format_currency(max(0, sim_c)), 
-                    delta=format_currency(CAP_CLUB_ECOLE - sim_c),
-                    delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
-        if m_ce > 0: res2.caption(f"Déduction rachat : {st.session_state['buyouts'][equipe_sim_choisie]['ce_nom']}")
+        res1.metric("Masse Grand Club", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
+        res2.metric("Masse Club École", format_currency(sim_c), delta=format_currency(CAP_CLUB_ECOLE - sim_c), delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
 
         st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Importez un fichier CSV pour commencer.")
+    st.info("Importez un fichier CSV.")
