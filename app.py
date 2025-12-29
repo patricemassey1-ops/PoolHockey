@@ -198,17 +198,52 @@ with tab1:
         
         st.divider()
         
-        # Formatage optimisé
-        display_df = pd.DataFrame({
+        # Formatage optimisé avec couleurs
+        display_data = {
             'Propriétaire': summary['Propriétaire_nom'].values,
             'Date/Heure': summary['DateTime'].values,
-            'Grand Club': [format_currency(v) for v in summary['Grand Club'].values],
-            'Restant Grand Club': [format_currency(v) for v in summary['Restant Grand Club'].values],
-            'Club École': [format_currency(v) for v in summary['Club École'].values],
-            'Restant Club École': [format_currency(v) for v in summary['Restant Club École'].values]
-        })
+            'Grand Club': [],
+            'Restant Grand Club': [],
+            'Club École': [],
+            'Restant Club École': []
+        }
         
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        for idx, row in summary.iterrows():
+            # Grand Club
+            gc_val = row['Grand Club']
+            gc_restant = row['Restant Grand Club']
+            display_data['Grand Club'].append(format_currency(gc_val))
+            display_data['Restant Grand Club'].append(format_currency(gc_restant))
+            
+            # Club École
+            ce_val = row['Club École']
+            ce_restant = row['Restant Club École']
+            display_data['Club École'].append(format_currency(ce_val))
+            display_data['Restant Club École'].append(format_currency(ce_restant))
+        
+        display_df = pd.DataFrame(display_data)
+        
+        # Fonction pour colorer les cellules
+        def color_restant(val, col_name):
+            # Extraire le montant numérique
+            try:
+                num_val = float(val.replace(" ", "").replace("$", "").replace(",", ""))
+                if 'Restant' in col_name:
+                    if num_val < 0:
+                        return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'  # Rouge
+                    else:
+                        return 'background-color: #ccffcc; color: #006600; font-weight: bold'  # Vert
+            except:
+                pass
+            return ''
+        
+        # Appliquer le style
+        styled_df = display_df.style.apply(
+            lambda x: [color_restant(v, x.name) if 'Restant' in x.name else '' for v in x],
+            axis=0
+        )
+        
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         st.divider()
         
