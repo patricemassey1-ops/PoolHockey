@@ -238,15 +238,15 @@ with tab1:
                     if has_depassement:
                         # Texte rouge sur fond noir
                         if 'Restant' in col_name:
-                            styles[i] = 'color: #ff4444; font-weight: bold'
+                            styles[i] = 'background-color: #000000; color: #ff4444; font-weight: bold'
                         else:
-                            styles[i] = 'color: #ff8888'
+                            styles[i] = 'background-color: #000000; color: #ff8888'
                     else:
                         # Texte vert sur fond noir
                         if 'Restant' in col_name:
-                            styles[i] = 'color: #44ff44; font-weight: bold'
+                            styles[i] = 'background-color: #000000; color: #44ff44; font-weight: bold'
                         else:
-                            styles[i] = 'color: #88ff88'
+                            styles[i] = 'background-color: #000000; color: #88ff88'
             except:
                 pass
             
