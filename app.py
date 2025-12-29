@@ -12,15 +12,19 @@ DB_FILE = "historique_fantrax_v2.csv"
 BUYOUT_FILE = "rachats_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
 
+# PLAFONDS SALARIAUX (par défaut)
+DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
+DEFAULT_PLAFOND_CLUB_ECOLE = 47_750_000
+
 # --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
 def charger_donnees(file, columns):
     if os.path.exists(file):
         df = pd.read_csv(file).fillna(0)
-        return df.drop_duplicates() # Retirer doublons au chargement
+        return df.drop_duplicates()
     return pd.DataFrame(columns=columns)
 
 def sauvegarder_donnees(df, file):
-    df.drop_duplicates().to_csv(file, index=False) # Retirer doublons avant sauvegarde
+    df.drop_duplicates().to_csv(file, index=False)
 
 def format_currency(val):
     if pd.isna(val) or val == "": 
@@ -40,9 +44,8 @@ if 'db_joueurs' not in st.session_state:
         df_players = pd.read_csv(PLAYERS_DB_FILE)
         df_players.rename(columns={'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'Team': 'Equipe_NHL'}, inplace=True, errors='ignore')
         
-        # Nettoyage et suppression des doublons dans la DB des joueurs
         df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
-        df_players = df_players.drop_duplicates(subset=['Joueur', 'Equipe_NHL']) # Doublons par nom/équipe
+        df_players = df_players.drop_duplicates(subset=['Joueur', 'Equipe_NHL'])
         
         df_players['search_label'] = (
             df_players['Joueur'].astype(str) + 
@@ -54,6 +57,24 @@ if 'db_joueurs' not in st.session_state:
         st.session_state['db_joueurs'] = pd.DataFrame()
 
 # --- LOGIQUE D'IMPORTATION ---
+st.sidebar.header("⚙️ Configuration")
+PLAFOND_GRAND_CLUB = st.sidebar.number_input(
+    "💰 Plafond Grand Club ($)", 
+    min_value=0, 
+    value=DEFAULT_PLAFOND_GRAND_CLUB,
+    step=100_000,
+    format="%d"
+)
+PLAFOND_CLUB_ECOLE = st.sidebar.number_input(
+    "🎓 Plafond Club École ($)", 
+    min_value=0, 
+    value=DEFAULT_PLAFOND_CLUB_ECOLE,
+    step=100_000,
+    format="%d"
+)
+
+st.sidebar.divider()
+
 fichiers_telecharges = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
 
 if fichiers_telecharges:
@@ -90,11 +111,11 @@ if fichiers_telecharges:
                     'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 })
                 dfs_a_ajouter.append(temp_df)
-        except Exception as e: st.error(f"Erreur import: {e}")
+        except Exception as e: 
+            st.error(f"Erreur import: {e}")
 
     if dfs_a_ajouter:
         new_data = pd.concat(dfs_a_ajouter, ignore_index=True)
-        # On fusionne et on retire les doublons exacts (Joueur + Propriétaire)
         st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
         sauvegarder_donnees(st.session_state['historique'], DB_FILE)
         st.rerun()
@@ -104,10 +125,71 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gest
 
 with tab1:
     if not st.session_state['historique'].empty:
-        st.header("📊 Masse Salariale")
-        # Suppression des doublons visuels avant le groupement
+        st.header("📊 Masse Salariale par Propriétaire")
+        
         df_f = st.session_state['historique'].drop_duplicates().copy()
         df_f['Salaire'] = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
         
+        # Grouper par propriétaire et statut
         summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
-        # ... (reste du code identique au précédent)
+        
+        # Renommer les colonnes si elles existent
+        if 'Grand Club' not in summary.columns:
+            summary['Grand Club'] = 0
+        if 'Club École' not in summary.columns:
+            summary['Club École'] = 0
+            
+        # Calculer les montants restants
+        summary['Restant Grand Club'] = PLAFOND_GRAND_CLUB - summary['Grand Club']
+        summary['Restant Club École'] = PLAFOND_CLUB_ECOLE - summary['Club École']
+        
+        # Calculer le total et le restant total
+        summary['Total'] = summary['Grand Club'] + summary['Club École']
+        plafond_total = PLAFOND_GRAND_CLUB + PLAFOND_CLUB_ECOLE
+        summary['Restant Total'] = plafond_total - summary['Total']
+        
+        # Afficher les plafonds en haut
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🏒 Plafond Grand Club", format_currency(PLAFOND_GRAND_CLUB))
+        with col2:
+            st.metric("🎓 Plafond Club École", format_currency(PLAFOND_CLUB_ECOLE))
+        with col3:
+            st.metric("💰 Plafond Total", format_currency(plafond_total))
+        
+        st.divider()
+        
+        # Préparer l'affichage avec formatage
+        display_df = summary.copy()
+        display_df['Grand Club'] = display_df['Grand Club'].apply(format_currency)
+        display_df['Restant Grand Club'] = display_df['Restant Grand Club'].apply(format_currency)
+        display_df['Club École'] = display_df['Club École'].apply(format_currency)
+        display_df['Restant Club École'] = display_df['Restant Club École'].apply(format_currency)
+        display_df['Total'] = display_df['Total'].apply(format_currency)
+        display_df['Restant Total'] = display_df['Restant Total'].apply(format_currency)
+        
+        # Réorganiser les colonnes
+        display_df = display_df[['Propriétaire', 'Grand Club', 'Restant Grand Club', 
+                                  'Club École', 'Restant Club École', 'Total', 'Restant Total']]
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Afficher les alertes pour les dépassements
+        st.subheader("⚠️ Alertes")
+        for _, row in summary.iterrows():
+            if row['Restant Grand Club'] < 0:
+                st.error(f"🚨 **{row['Propriétaire']}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**")
+            if row['Restant Club École'] < 0:
+                st.error(f"🚨 **{row['Propriétaire']}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**")
+            if row['Restant Total'] < 0:
+                st.error(f"🚨 **{row['Propriétaire']}** dépasse le plafond total de **{format_currency(abs(row['Restant Total']))}**")
+    else:
+        st.info("Aucune donnée disponible. Importez un fichier CSV via la barre latérale.")
+
+with tab2:
+    st.header("⚖️ Simulateur de Transactions")
+    st.info("Fonctionnalité à venir")
+
+with tab3:
+    st.header("🛠️ Gestion des Données")
+    st.info("Fonctionnalité à venir")
