@@ -68,20 +68,29 @@ if 'db_joueurs' not in st.session_state:
 
 # --- LOGIQUE D'IMPORTATION ---
 st.sidebar.header("⚙️ Configuration")
-PLAFOND_GRAND_CLUB = st.sidebar.number_input(
-    "💰 Plafond Grand Club ($)", 
-    min_value=0, 
-    value=DEFAULT_PLAFOND_GRAND_CLUB,
-    step=100_000,
-    format="%d"
+
+# Formater l'affichage des plafonds dans les inputs
+plafond_gc_display = st.sidebar.text_input(
+    "💰 Plafond Grand Club", 
+    value=f"{DEFAULT_PLAFOND_GRAND_CLUB:,}".replace(",", " ") + " $",
+    key="plafond_gc_input"
 )
-PLAFOND_CLUB_ECOLE = st.sidebar.number_input(
-    "🎓 Plafond Club École ($)", 
-    min_value=0, 
-    value=DEFAULT_PLAFOND_CLUB_ECOLE,
-    step=100_000,
-    format="%d"
+plafond_ce_display = st.sidebar.text_input(
+    "🎓 Plafond Club École", 
+    value=f"{DEFAULT_PLAFOND_CLUB_ECOLE:,}".replace(",", " ") + " $",
+    key="plafond_ce_input"
 )
+
+# Convertir les valeurs formatées en nombres
+try:
+    PLAFOND_GRAND_CLUB = int(plafond_gc_display.replace(" ", "").replace("$", "").replace(",", ""))
+except:
+    PLAFOND_GRAND_CLUB = DEFAULT_PLAFOND_GRAND_CLUB
+    
+try:
+    PLAFOND_CLUB_ECOLE = int(plafond_ce_display.replace(" ", "").replace("$", "").replace(",", ""))
+except:
+    PLAFOND_CLUB_ECOLE = DEFAULT_PLAFOND_CLUB_ECOLE
 
 st.sidebar.divider()
 
@@ -131,10 +140,6 @@ if fichiers_telecharges:
             new_data = pd.concat(dfs_a_ajouter, ignore_index=True)
             st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
             sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-            st.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s) avec succès!")
-            # Attendre un court instant pour afficher le message
-            import time
-            time.sleep(0.5)
             st.rerun()
 
 # --- TABS (Dashboard & Sim) ---
