@@ -18,13 +18,14 @@ def charger_historique():
 
 @st.cache_data
 def charger_base_joueurs_autonomes():
-    """Charge la liste des joueurs disponibles depuis le fichier permanent Hockey_Players.csv"""
     if os.path.exists(PLAYERS_DB_FILE):
         try:
             df_base = pd.read_csv(PLAYERS_DB_FILE)
             df_base.columns = [c.strip() for c in df_base.columns]
             rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'player': 'Joueur', 'salary': 'Salaire', 'pos': 'Pos'}
             df_base.rename(columns=rename_dict, inplace=True)
+            # Ajout d'une colonne formatée pour l'affichage
+            df_base['Display'] = df_base.apply(lambda row: f"{row['Joueur']} ({row['Pos']}) - {format_currency(row['Salaire'])}", axis=1)
             return df_base
         except Exception as e:
             st.error(f"Erreur de lecture de Hockey_Players.csv: {e}")
@@ -50,7 +51,6 @@ def pos_sort_order(pos_text):
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
-# Chargement de la base des joueurs autonomes
 base_joueurs = charger_base_joueurs_autonomes()
 
 st.title("🏒 Analyseur Fantrax 2025")
@@ -122,26 +122,28 @@ if not st.session_state['historique'].empty:
         if not base_joueurs.empty:
             col_a1, col_a2 = st.columns([0.6, 0.4])
             with col_a1:
-                choix_p = st.selectbox("Chercher un joueur autonome", 
-                                       options=[None] + sorted(base_joueurs['Joueur'].tolist()), 
-                                       key=f"p_{equipe_choisie}",
-                                       help="Liste issue de Hockey_Players.csv")
-            if choix_p:
-                row = base_joueurs[base_joueurs['Joueur'] == choix_p].iloc[0]
+                # Utilise 'Display' pour l'affichage, mais renvoie 'Joueur'
+                choix_p_display = st.selectbox("Sélectionner un joueur autonome", 
+                                               options=[None] + base_joueurs['Display'].tolist(), 
+                                               format_func=lambda x: x if x is not None else "---",
+                                               key=f"p_{equipe_choisie}")
+            
+            if choix_p_display:
+                # Retrouve le nom réel du joueur à partir de la sélection display
+                nom_joueur_reel = choix_p_display.split(' (')[0]
+                row = base_joueurs[base_joueurs['Joueur'] == nom_joueur_reel].iloc
+                
                 with col_a2:
                     dest = st.selectbox("Affecter au", options=["Grand Club", "Club École"], key=f"d_{equipe_choisie}")
                 
-                # Inscription des détails (Position et Salaire)
-                st.info(f"**Détails :** {row['Joueur']} | Pos: **{row['Pos']}** | Salaire: **{format_currency(row['Salaire'])}**")
-                
-                if st.button(f"Ajouter {row['Joueur']} (Joueur Autonome)"):
+                if st.button(f"Ajouter {nom_joueur_reel} (Joueur Autonome)"):
                     nouvelle_ligne = pd.DataFrame([{
-                        'Joueur': f"{row['Joueur']} (Joueur Autonome)", 
-                        'Salaire': row['Salaire'], 
+                        'Joueur': f"{nom_joueur_reel} (Joueur Autonome)", 
+                        'Salaire': row['Salaire'].values[0], # Accéder à la valeur
                         'Statut': dest, 
-                        'Pos': row['Pos'], 
+                        'Pos': row['Pos'].values[0],
                         'Propriétaire': equipe_choisie, 
-                        'pos_order': pos_sort_order(row['Pos'])
+                        'pos_order': pos_sort_order(row['Pos'].values[0])
                     }])
                     st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], nouvelle_ligne]))
                     st.rerun()
@@ -153,14 +155,26 @@ if not st.session_state['historique'].empty:
         # --- RACHATS ---
         st.subheader("💰 Rachats (50%)")
         col_r1, col_r2 = st.columns(2)
+        
+        # Préparer les listes de display pour les rachats
+        joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
+        joueurs_gc_df['Display'] = joueurs_gc_df.apply(lambda row: f"{row['Joueur']} ({row['Pos']}) - {format_currency(row['Salaire'])}", axis=1)
+        
+        joueurs_ce_df = df_sim[df_sim['Statut'] == "Club École"]
+        joueurs_ce_df['Display'] = joueurs_ce_df.apply(lambda row: f"{row['Joueur']} ({row['Pos']}) - {format_currency(row['Salaire'])}", axis=1)
+
         with col_r1:
-            joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
-            choix_gc = st.multiselect("Rachats GC", options=joueurs_gc_df['Joueur'].tolist(), key=f"r_gc_{equipe_choisie}")
-            ded_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(choix_gc)]['Salaire'].sum() / 2
+            choix_gc = st.multiselect("Rachats Grand Club", options=joueurs_gc_df['Display'].tolist(), key=f"r_gc_{equipe_choisie}")
+            # Retrouver les salaires à partir des noms de joueurs sélectionnés
+            noms_gc = [c.split(' (')[0] for c in choix_gc]
+            total_deduction_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(noms_gc)]['Salaire'].sum() / 2
+            ded_gc = total_deduction_gc
+
         with col_r2:
-            joueurs_ce_df = df_sim[df_sim['Statut'] == "Club École"]
-            choix_ce = st.multiselect("Rachats CE", options=joueurs_ce_df['Joueur'].tolist(), key=f"r_ce_{equipe_choisie}")
-            ded_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(choix_ce)]['Salaire'].sum() / 2
+            choix_ce = st.multiselect("Rachats Club École", options=joueurs_ce_df['Display'].tolist(), key=f"r_ce_{equipe_choisie}")
+            noms_ce = [c.split(' (')[0] for c in choix_ce]
+            total_deduction_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(noms_ce)]['Salaire'].sum() / 2
+            ded_ce = total_deduction_ce
 
         st.markdown("---")
 
@@ -174,8 +188,8 @@ if not st.session_state['historique'].empty:
         ], multi_containers=True, direction='horizontal')
         
         if updated:
-            col_gc_items = updated[0]['items']
-            col_ce_items = updated[1]['items']
+            col_gc_items = updated['items']
+            col_ce_items = updated['items']
         else:
             col_gc_items = list_gc_init
             col_ce_items = list_ce_init
