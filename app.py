@@ -5,41 +5,48 @@ import os
 from datetime import datetime
 from streamlit_sortables import sort_items
 
-# Configuration de la page avec mise en cache du layout
+# Configuration de la page
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
 
-# --- FONCTIONS DE NETTOYAGE OPTIMISÉES ---
-@st.cache_data
-def get_cleaner():
-    """Crée un moteur de nettoyage réutilisable."""
-    return lambda x: int(pd.to_numeric(str(x).replace('$', '').replace(',', '').replace(' ', '').replace('\xa0', ''), errors='coerce') or 0)
+# --- FONCTIONS DE NETTOYAGE ---
+def clean_salary_values(series):
+    """Nettoyage vectorisé ultra-rapide des colonnes de salaire."""
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace(r'[\$,\s\xa0]', '', regex=True), 
+        errors='coerce'
+    ).fillna(0).astype(int)
 
 def format_currency(val):
     return f"{int(val or 0):,}".replace(",", " ") + "$"
 
-# --- CHARGEMENT INTELLIGENT DES FICHIERS ---
+# --- CHARGEMENT DES FICHIERS ---
 @st.cache_data(show_spinner="Chargement de la base joueurs...")
 def charger_base_joueurs():
     if not os.path.exists(PLAYERS_DB_FILE):
         return pd.DataFrame()
     
-    # Lecture optimisée : on ne lit que les colonnes nécessaires
-    df = pd.read_csv(PLAYERS_DB_FILE, usecols=lambda x: x in ['Player', 'Salary', 'Position', 'Team', 'Équipe', 'player', 'salary', 'pos'])
-    df.columns = [c.strip() for c in df.columns]
-    
-    # Renommage rapide
-    rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'Team': 'Équipe', 'Équipe': 'Équipe'}
-    df.rename(columns=rename_dict, inplace=True)
-    
-    # Nettoyage vectorisé (100x plus rapide qu'un apply standard)
-    df['Salaire'] = pd.to_numeric(df['Salaire'].astype(str).str.replace(r'[\$,\s\xa0]', '', regex=True), errors='coerce').fillna(0).astype(int)
-    
-    # Création du cache d'affichage pour les Selectbox
-    df['Display'] = df['Joueur'] + " (" + df.get('Équipe', 'N/A') + " - " + df['Pos'] + ") - " + df['Salaire'].map(format_currency)
-    return df
+    try:
+        # Lecture optimisée
+        df = pd.read_csv(PLAYERS_DB_FILE)
+        df.columns = [c.strip() for c in df.columns]
+        
+        # Harmonisation des colonnes
+        rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'Team': 'Équipe', 'Équipe': 'Équipe'}
+        df.rename(columns=rename_dict, inplace=True)
+        
+        # Nettoyage des données
+        df['Salaire'] = clean_salary_values(df['Salaire'])
+        
+        # Création de la colonne d'affichage
+        df['Display'] = df['Joueur'] + " (" + df.get('Équipe', 'N/A') + " - " + df['Pos'] + ") - " + df['Salaire'].apply(format_currency)
+        return df
+    except Exception as e:
+        st.error(f"Erreur Hockey_Players.csv : {e}")
+        return pd.DataFrame()
 
 def charger_historique():
     if os.path.exists(DB_FILE):
@@ -50,49 +57,95 @@ def charger_historique():
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
-# Chargement unique de la base lourde
 base_joueurs = charger_base_joueurs()
 
-st.title("🏒 Analyseur Fantrax 2025 (Mode Turbo)")
+st.title("🏒 Analyseur Fantrax 2025")
 
-# --- LOGIQUE D'IMPORTATION (Fragmentée) ---
-with st.sidebar.expander("📥 Importation Rapide"):
-    fichiers = st.file_uploader("CSV Fantrax", type="csv", accept_multiple_files=True)
-    if fichiers and st.button("Lancer l'importation"):
-        cleaner = get_cleaner()
-        dfs = []
+# --- IMPORTATION ---
+with st.sidebar.expander("📥 Importation Fantrax"):
+    fichiers = st.file_uploader("Fichiers CSV", type="csv", accept_multiple_files=True)
+    if fichiers and st.button("Lancer l'import"):
+        dfs_a_ajouter = []
         for f in fichiers:
             content = f.getvalue().decode('utf-8-sig')
-            df_raw = pd.read_csv(io.StringIO(content), sep=None, engine='python', on_bad_lines='skip')
-            # ... (logique d'extraction identique à la précédente, mais simplifiée) ...
-            dfs.append(df_raw) # À adapter avec votre logique de colonnes
-        st.session_state['historique'] = pd.concat([st.session_state['historique']] + dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-        st.session_state['historique'].to_csv(DB_FILE, index=False)
-        st.rerun()
+            lines = content.splitlines()
+            
+            # Extraction Skaters & Goalies
+            def extract_table(lines, keyword):
+                idx = [i for i, l in enumerate(lines) if keyword in l]
+                if not idx: return pd.DataFrame()
+                start = idx[0] + 1
+                return pd.read_csv(io.StringIO("\n".join(lines[start:])), sep=None, engine='python', on_bad_lines='skip')
 
-# --- INTERFACE PRINCIPALE ---
+            df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
+            
+            # Détection des colonnes
+            c_player = next((c for c in df_merged.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
+            c_salary = next((c for c in df_merged.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
+            c_status = next((c for c in df_merged.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
+            c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), None)
+            c_team = next((c for c in df_merged.columns if 'team' in c.lower() or 'éqp' in c.lower()), None)
+
+            if c_player and c_salary:
+                df_merged['Salaire_Clean'] = clean_salary_values(df_merged[c_salary])
+                # Correction si Fantrax exporte en milliers
+                df_merged['Salaire_Clean'] = df_merged['Salaire_Clean'].apply(lambda x: x*1000 if 0 < x < 100000 else x)
+                
+                temp_df = pd.DataFrame({
+                    'Joueur': df_merged[c_player],
+                    'Salaire': df_merged['Salaire_Clean'],
+                    'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club") if c_status else "Grand Club",
+                    'Pos': df_merged[c_pos] if c_pos else "N/A",
+                    'Équipe_NHL': df_merged[c_team] if c_team else "N/A",
+                    'Propriétaire': f.name.replace('.csv', '')
+                })
+                dfs_a_ajouter.append(temp_df)
+        
+        if dfs_a_ajouter:
+            new_hist = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
+            st.session_state['historique'] = new_hist.drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
+            st.session_state['historique'].to_csv(DB_FILE, index=False)
+            st.rerun()
+
+# --- AFFICHAGE ---
 if not st.session_state['historique'].empty:
-    df_f = st.session_state['historique']
-    tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
-
+    tab1, tab2 = st.tabs(["📊 Dashboard", "⚖️ Simulateur"])
+    
     with tab1:
-        # Pivot table est plus rapide pour les résumés
-        summary = df_f.pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0)
+        st.header("Résumé des Masses")
+        summary = st.session_state['historique'].pivot_table(index='Propriétaire', columns='Statut', values='Salaire', aggfunc='sum', fill_value=0)
         st.dataframe(summary.style.format(format_currency), use_container_width=True)
 
     with tab2:
-        equipe = st.selectbox("Équipe", sorted(df_f['Propriétaire'].unique()), key="sel_eq")
-        df_sim = df_f[df_f['Propriétaire'] == equipe].copy()
+        equipe = st.selectbox("Équipe", sorted(st.session_state['historique']['Propriétaire'].unique()))
+        df_sim = st.session_state['historique'][st.session_state['historique']['Propriétaire'] == equipe].copy()
+        
+        # Ajout Joueur Autonome
+        st.subheader("➕ Ajouter un (Joueur Autonome)")
+        if not base_joueurs.empty:
+            c_a1, c_a2 = st.columns([0.7, 0.3])
+            with c_a1:
+                p_auto = st.selectbox("Sélectionner un joueur autonome", [None] + base_joueurs['Display'].tolist(), key=f"auto_{equipe}")
+            if p_auto:
+                row = base_joueurs[base_joueurs['Display'] == p_auto].iloc[0]
+                with c_a2:
+                    dest = st.selectbox("Affectation", ["Grand Club", "Club École"], key=f"dest_{equipe}")
+                if st.button("Ajouter à l'équipe"):
+                    new_row = pd.DataFrame([{'Joueur': f"{row['Joueur']} (Autonome)", 'Salaire': row['Salaire'], 'Statut': dest, 'Pos': row['Pos'], 'Équipe_NHL': row['Équipe'], 'Propriétaire': equipe}])
+                    st.session_state['historique'] = pd.concat([st.session_state['historique'], new_row], ignore_index=True)
+                    st.session_state['historique'].to_csv(DB_FILE, index=False)
+                    st.rerun()
 
-        # Utilisation de f-strings optimisées pour le Drag & Drop
-        df_sim['Display'] = df_sim['Joueur'] + " (" + df_sim.get('Équipe_NHL', 'N/A') + " - " + df_sim['Pos'] + ") - " + df_sim['Salaire'].map(format_currency)
-
-        # UI de rachat simplifiée
-        c1, c2 = st.columns(2)
-        with c1:
-            rachats_gc = st.multiselect("Rachats GC", df_sim[df_sim['Statut']=="Grand Club"]['Display'], key=f"r1_{equipe}")
-        with c2:
-            rachats_ce = st.multiselect("Rachats CE", df_sim[df_sim['Statut']=="Club École"]['Display'], key=f"r2_{equipe}")
+        st.divider()
+        
+        # Simulateur de transfert
+        df_sim['Display'] = df_sim['Joueur'] + " (" + df_sim.get('Équipe_NHL', 'N/A') + " - " + df_sim['Pos'] + ") - " + df_sim['Salaire'].apply(format_currency)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            rachats_gc = st.multiselect("Rachats GC (50%)", df_sim[df_sim['Statut']=="Grand Club"]['Display'], key=f"r_gc_{equipe}")
+        with col2:
+            rachats_ce = st.multiselect("Rachats CE (50%)", df_sim[df_sim['Statut']=="Club École"]['Display'], key=f"r_ce_{equipe}")
 
         # Drag and Drop
         l_gc = df_sim[df_sim['Statut'] == "Grand Club"]['Display'].tolist()
@@ -100,16 +153,18 @@ if not st.session_state['historique'].empty:
 
         updated = sort_items([{'header': '🏙️ GC', 'items': l_gc}, {'header': '🏫 CE', 'items': l_ce}], multi_containers=True)
         
-        # Calcul ultra-rapide via split
         def get_total(items):
-            return sum(int(i.split('-')[-1].replace('$', '').replace(' ', '')) for i in items if '-' in i)
+            tot = 0
+            for i in items:
+                try: tot += int(i.split('-')[-1].replace('$', '').replace(' ', '').replace('\xa0', ''))
+                except: continue
+            return tot
 
-        res_gc = get_total(updated['items'] if updated else l_gc)
-        res_ce = get_total(updated['items'] if updated else l_ce)
+        m_gc = get_total(updated['items'] if updated else l_gc) - (get_total(rachats_gc) / 2)
+        m_ce = get_total(updated['items'] if updated else l_ce) - (get_total(rachats_ce) / 2)
 
-        st.divider()
-        m1, m2 = st.columns(2)
-        m1.metric("Grand Club", format_currency(res_gc))
-        m2.metric("Club École", format_currency(res_ce))
+        res1, res2 = st.columns(2)
+        res1.metric("Masse Grand Club", format_currency(m_gc), delta=format_currency(95500000 - m_gc))
+        res2.metric("Masse Club École", format_currency(m_ce), delta=format_currency(47750000 - m_ce))
 
-st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; padding: 6px !important; margin: 2px !important; font-size: 13px !important; }</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; padding: 10px !important; margin: 5px !important; border-radius: 8px !important; }</style>""", unsafe_allow_html=True)
