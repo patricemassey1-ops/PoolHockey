@@ -82,7 +82,6 @@ if fichiers_telecharges:
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
     
-    # Correction: Assigner les onglets à des variables distinctes (tab1, tab2)
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
@@ -127,7 +126,7 @@ if not st.session_state['historique'].empty:
                     options=["Grand Club", "Club École"],
                     required=True,
                 ),
-                # Correction: Utiliser NumberColumn au lieu de Column
+                # CORRECTION APPLIQUÉE ICI pour résoudre le TypeError:
                 "Salaire": st.column_config.NumberColumn("Salaire", format="$ %d"), 
             },
             hide_index=True,
@@ -140,6 +139,7 @@ if not st.session_state['historique'].empty:
         sim_c = edited_data[edited_data['Statut'] == "Club École"]['Salaire'].sum()
 
         st.markdown("---")
+        # Ces deux colonnes affichent le résultat de la simulation
         c1, c2 = st.columns(2)
         
         # Affichage des métriques de plafond simulées
