@@ -198,64 +198,17 @@ with tab1:
         
         st.divider()
         
-        # Formatage optimisé avec couleurs
-        display_data = {
+        # Formatage optimisé
+        display_df = pd.DataFrame({
             'Propriétaire': summary['Propriétaire_nom'].values,
             'Date/Heure': summary['DateTime'].values,
-            'Grand Club': [],
-            'Restant Grand Club': [],
-            'Club École': [],
-            'Restant Club École': []
-        }
+            'Grand Club': [format_currency(v) for v in summary['Grand Club'].values],
+            'Restant Grand Club': [format_currency(v) for v in summary['Restant Grand Club'].values],
+            'Club École': [format_currency(v) for v in summary['Club École'].values],
+            'Restant Club École': [format_currency(v) for v in summary['Restant Club École'].values]
+        })
         
-        for idx, row in summary.iterrows():
-            # Grand Club
-            gc_val = row['Grand Club']
-            gc_restant = row['Restant Grand Club']
-            display_data['Grand Club'].append(format_currency(gc_val))
-            display_data['Restant Grand Club'].append(format_currency(gc_restant))
-            
-            # Club École
-            ce_val = row['Club École']
-            ce_restant = row['Restant Club École']
-            display_data['Club École'].append(format_currency(ce_val))
-            display_data['Restant Club École'].append(format_currency(ce_restant))
-        
-        display_df = pd.DataFrame(display_data)
-        
-        # Fonction pour colorer toute la ligne selon les dépassements
-        def color_row(row):
-            styles = [''] * len(row)
-            
-            # Vérifier les dépassements
-            try:
-                restant_gc = float(row['Restant Grand Club'].replace(" ", "").replace("$", ""))
-                restant_ce = float(row['Restant Club École'].replace(" ", "").replace("$", ""))
-                
-                has_depassement = restant_gc < 0 or restant_ce < 0
-                
-                for i, col_name in enumerate(row.index):
-                    if has_depassement:
-                        # Texte rouge sur fond noir
-                        if 'Restant' in col_name:
-                            styles[i] = 'background-color: #000000; color: #ff4444; font-weight: bold'
-                        else:
-                            styles[i] = 'background-color: #000000; color: #ff8888'
-                    else:
-                        # Texte vert sur fond noir
-                        if 'Restant' in col_name:
-                            styles[i] = 'background-color: #000000; color: #44ff44; font-weight: bold'
-                        else:
-                            styles[i] = 'background-color: #000000; color: #88ff88'
-            except:
-                pass
-            
-            return styles
-        
-        # Appliquer le style par ligne
-        styled_df = display_df.style.apply(color_row, axis=1)
-        
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
         
         st.divider()
         
