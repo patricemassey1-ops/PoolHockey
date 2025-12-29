@@ -81,41 +81,82 @@ with tab1:
         stats['Espace GC'] = cap_gc - stats['Total GC']
         st.dataframe(stats.style.format(format_currency, subset=['Grand Club', 'Club École', 'Impact', 'Total GC', 'Espace GC']), use_container_width=True)
 
-# --- TAB 2: SIMULATEUR (VERSION CORRIGÉE) ---
+# --- TAB 2: SIMULATEUR (CORRIGÉ 2025) ---
 with tab2:
     teams = sorted(st.session_state.historique['Propriétaire'].unique()) if not st.session_state.historique.empty else []
     if teams:
         eq = st.selectbox("Sélectionner une équipe", teams, key="sim_selector")
         
-        # Nettoyage pour éviter l'erreur JSON NaN
+        # 1. Nettoyage des données pour l'affichage
         dff = st.session_state.historique[st.session_state.historique['Propriétaire'] == eq].copy().fillna("N/A")
         
-        # Label pour le Drag & Drop
+        # 2. Préparation des labels pour le Drag & Drop
+        # Format: Nom | Position | Salaire (en k)
         dff['label'] = dff['Joueur'].astype(str) + " | " + dff['Pos'].astype(str) + " | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k")
         
         l_gc = dff[dff['Statut'] == "Grand Club"]['label'].tolist()
         l_ce = dff[dff['Statut'] == "Club École"]['label'].tolist()
 
-        # res renvoie : [ [items_GC], [items_Ecole] ]
+        # 3. Composant de Drag & Drop
+        # res renverra une liste de deux listes: res[0] (GC) et res[1] (École)
         res = sort_items([
             {'header': '🏙️ GRAND CLUB', 'items': l_gc}, 
             {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}
         ], multi_containers=True, key=f"sim_v2025_{eq}")
 
+        # 4. Fonction de calcul robuste
         def quick_sum(items_list):
-            """Calcule la somme des salaires à partir des labels du simulateur"""
             if not items_list or not isinstance(items_list, list): 
                 return 0
             total = 0
             for x in items_list:
                 if isinstance(x, str) and '|' in x:
                     try:
-                        # On récupère la valeur en 'k' à la fin du label
+                        # On extrait le salaire (ex: 1000k -> 1000000)
                         val_k = x.split('|')[-1].replace('k','').strip()
                         total += int(val_k) * 1000
                     except:
                         continue
             return total
+        
+        # 5. Calcul des masses (Gestion du retour de res)
+        if res and len(res) >= 2:
+            s_gc_joueurs = quick_sum(res[0]) # Joueurs actuellement dans la colonne GC
+            s_ce_joueurs = quick_sum(res[1]) # Joueurs actuellement dans la colonne École
+        else:
+            s_gc_joueurs = quick_sum(l_gc)
+            s_ce_joueurs = quick_sum(l_ce)
+        
+        # 6. Récupération des pénalités de rachat pour cette équipe
+        p_imp = st.session_state.rachats[st.session_state.rachats['Propriétaire'] == eq]['Impact'].sum()
+        
+        # 7. Calcul final
+        masse_finale_gc = s_gc_joueurs + p_imp
+
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        
+        # Affichage avec delta par rapport au plafond configuré
+        c1.metric(
+            "Masse GC (+ Pénalités)", 
+            format_currency(masse_finale_gc), 
+            delta=format_currency(cap_gc - masse_finale_gc)
+        )
+        
+        c2.metric(
+            "Masse Club École", 
+            format_currency(s_ce_joueurs),
+            delta=format_currency(cap_ce - s_ce_joueurs)
+        )
+        
+        c3.metric(
+            "Total Pénalités/Rachats", 
+            format_currency(p_imp)
+        )
+
+        if p_imp > 0:
+            st.info(f"ℹ️ La masse du Grand Club inclut {format_currency(p_imp)} de pénalités (Rachats et JA).")
+
         
         # CORRECTION DE L'INDEXATION ICI
         # Si res existe, on prend l'index 0 pour GC et 1 pour École
