@@ -8,29 +8,26 @@ from streamlit_sortables import sort_items
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
-# The app will always look for this file in your GitHub folder
-PLAYERS_DB_FILE = "Hockey_Players.csv" 
+PLAYERS_DB_FILE = "Hockey_Players.csv"
 
-# --- FUNCTIONS ---
+# --- FONCTIONS ---
 def charger_historique():
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE)
     return pd.DataFrame()
 
-@st.cache_data # Keep data in cache to avoid reloading constantly
-def charger_base_joueurs_permanente():
-    """Reads the Hockey_Players.csv file from the GitHub repository."""
+@st.cache_data
+def charger_base_joueurs_autonomes():
+    """Charge la liste des joueurs disponibles depuis le fichier permanent Hockey_Players.csv"""
     if os.path.exists(PLAYERS_DB_FILE):
         try:
             df_base = pd.read_csv(PLAYERS_DB_FILE)
             df_base.columns = [c.strip() for c in df_base.columns]
-            # Standardizing columns
-            rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 
-                           'player': 'Joueur', 'salary': 'Salaire', 'pos': 'Pos'}
+            rename_dict = {'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'player': 'Joueur', 'salary': 'Salaire', 'pos': 'Pos'}
             df_base.rename(columns=rename_dict, inplace=True)
             return df_base
         except Exception as e:
-            st.error(f"Error reading Hockey_Players.csv: {e}")
+            st.error(f"Erreur de lecture de Hockey_Players.csv: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
 
@@ -49,12 +46,12 @@ def pos_sort_order(pos_text):
     if 'D' in pos: return 1
     return 0 
 
-# --- INITIALIZATION ---
+# Initialisation
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
-# ALWAYS LOAD THE PERMANENT FILE
-base_joueurs = charger_base_joueurs_permanente()
+# Chargement de la base des joueurs autonomes
+base_joueurs = charger_base_joueurs_autonomes()
 
 st.title("🏒 Analyseur Fantrax 2025")
 
@@ -63,7 +60,7 @@ st.sidebar.header("⚙️ Configuration")
 CAP_GRAND_CLUB = st.sidebar.number_input("Plafond Grand Club ($)", value=95500000, step=500000)
 CAP_CLUB_ECOLE = st.sidebar.number_input("Plafond Club École ($)", value=47750000, step=100000)
 
-# --- FANTRAX IMPORT ---
+# --- IMPORTATION ---
 fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax (Rosters)", type="csv", accept_multiple_files=True)
 if fichiers_telecharges:
     dfs_a_ajouter = []
@@ -99,18 +96,19 @@ if fichiers_telecharges:
                 })
                 dfs_a_ajouter.append(temp_df)
         except Exception as e:
-            st.error(f"Error on {fichier.name}: {e}")
+            st.error(f"Erreur : {e}")
 
     if dfs_a_ajouter:
         st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True))
         st.rerun()
 
-# --- MAIN DISPLAY ---
+# --- AFFICHAGE ---
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
+        st.header("Résumé des Masses")
         summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         st.dataframe(summary, use_container_width=True)
 
@@ -119,29 +117,36 @@ if not st.session_state['historique'].empty:
         equipe_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
         df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
 
-        # --- PERMANENT PLAYER ADDITION ---
-        st.subheader("➕ Ajouter un joueur (Base Permanente)")
+        # --- AJOUT JOUEUR AUTONOME ---
+        st.subheader("➕ Ajouter un (Joueur Autonome)")
         if not base_joueurs.empty:
             col_a1, col_a2 = st.columns([0.6, 0.4])
             with col_a1:
-                choix_p = st.selectbox("Sélectionner dans Hockey_Players.csv", 
+                choix_p = st.selectbox("Chercher un joueur autonome", 
                                        options=[None] + sorted(base_joueurs['Joueur'].tolist()), 
-                                       key=f"p_{equipe_choisie}")
+                                       key=f"p_{equipe_choisie}",
+                                       help="Liste issue de Hockey_Players.csv")
             if choix_p:
                 row = base_joueurs[base_joueurs['Joueur'] == choix_p].iloc[0]
                 with col_a2:
                     dest = st.selectbox("Affecter au", options=["Grand Club", "Club École"], key=f"d_{equipe_choisie}")
-                st.info(f"**{row['Joueur']}** | Pos: {row['Pos']} | Salaire: {format_currency(row['Salaire'])}")
-                if st.button(f"Ajouter à {equipe_choisie}"):
+                
+                # Inscription des détails (Position et Salaire)
+                st.info(f"**Détails :** {row['Joueur']} | Pos: **{row['Pos']}** | Salaire: **{format_currency(row['Salaire'])}**")
+                
+                if st.button(f"Ajouter {row['Joueur']} (Joueur Autonome)"):
                     nouvelle_ligne = pd.DataFrame([{
-                        'Joueur': row['Joueur'], 'Salaire': row['Salaire'], 'Statut': dest, 
-                        'Pos': row['Pos'], 'Propriétaire': equipe_choisie, 
+                        'Joueur': f"{row['Joueur']} (Joueur Autonome)", 
+                        'Salaire': row['Salaire'], 
+                        'Statut': dest, 
+                        'Pos': row['Pos'], 
+                        'Propriétaire': equipe_choisie, 
                         'pos_order': pos_sort_order(row['Pos'])
                     }])
                     st.session_state['historique'] = sauvegarder_historique(pd.concat([st.session_state['historique'], nouvelle_ligne]))
                     st.rerun()
         else:
-            st.warning("⚠️ Hockey_Players.csv non détecté sur le serveur GitHub.")
+            st.warning("⚠️ Aucun fichier Hockey_Players.csv trouvé pour les joueurs autonomes.")
 
         st.markdown("---")
 
@@ -194,4 +199,4 @@ if not st.session_state['historique'].empty:
 
         st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Importez un fichier CSV Fantrax pour commencer.")
+    st.info("Veuillez importer un fichier CSV Fantrax pour commencer.")
