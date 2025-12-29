@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from streamlit_sortables import sort_items
 
 # --- CONFIGURATION ---
@@ -89,7 +90,9 @@ fichiers_telecharges = st.sidebar.file_uploader("📥 Importer CSV Fantrax", typ
 if fichiers_telecharges:
     with st.spinner("⏳ Import en cours..."):
         dfs_a_ajouter = []
-        horodatage = datetime.now().strftime("%d-%m %H:%M")
+        # Utiliser le fuseau horaire de Montréal
+        montreal_tz = ZoneInfo("America/Montreal")
+        horodatage = datetime.now(montreal_tz).strftime("%d-%m %H:%M")
         for fichier in fichiers_telecharges:
             try:
                 content = fichier.getvalue().decode('utf-8-sig')
