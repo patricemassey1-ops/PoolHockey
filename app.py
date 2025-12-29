@@ -11,6 +11,7 @@ st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 DB_FILE = "historique_fantrax_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
 
+# Initialisation des plafonds dans la session
 if 'cap_gc' not in st.session_state: st.session_state['cap_gc'] = 95500000
 if 'cap_ce' not in st.session_state: st.session_state['cap_ce'] = 47750000
 
@@ -40,21 +41,19 @@ def charger_base_joueurs():
 if 'historique' not in st.session_state:
     st.session_state['historique'] = pd.read_csv(DB_FILE) if os.path.exists(DB_FILE) else pd.DataFrame()
 
-# 4. BARRE LATÉRALE & IMPORTATION AUTOMATIQUE
-st.sidebar.header("⚙️ Configuration")
-st.session_state['cap_gc'] = st.sidebar.number_input("Plafond GC", value=st.session_state['cap_gc'], step=500000)
-st.session_state['cap_ce'] = st.sidebar.number_input("Plafond CE", value=st.session_state['cap_ce'], step=100000)
+# 4. BARRE LATÉRALE (MASSE SALARIALE)
+st.sidebar.header("💰 Masse Salariale")
+st.session_state['cap_gc'] = st.sidebar.number_input("Plafond Grand Club", value=st.session_state['cap_gc'], step=500000)
+st.session_state['cap_ce'] = st.sidebar.number_input("Plafond Club École", value=st.session_state['cap_ce'], step=100000)
 
 st.sidebar.markdown("---")
-# L'importation se déclenche dès que la liste 'fichiers' n'est plus vide
-fichiers = st.sidebar.file_uploader("📥 Déposer CSV Fantrax ici", type="csv", accept_multiple_files=True)
+fichiers = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
 
 if fichiers:
     dfs = []
     for f in fichiers:
         content = f.getvalue().decode('utf-8-sig')
         lines = content.splitlines()
-        
         def extract(keyword):
             idx = next((i for i, l in enumerate(lines) if keyword in l), -1)
             return pd.read_csv(io.StringIO("\n".join(lines[idx+1:])), sep=None, engine='python', on_bad_lines='skip') if idx != -1 else pd.DataFrame()
@@ -76,14 +75,11 @@ if fichiers:
                 'Propriétaire': f.name.replace('.csv', '')
             })
             dfs.append(temp)
-    
     if dfs:
-        # Fusion et sauvegarde automatique
         new_data = pd.concat([st.session_state['historique']] + dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
         st.session_state['historique'] = new_data
         new_data.to_csv(DB_FILE, index=False)
-        st.sidebar.success(f"✅ {len(fichiers)} fichier(s) importé(s) automatiquement")
-        # On ne met pas de rerun() ici pour éviter les boucles infinies avec l'uploader
+        st.sidebar.success("✅ Importation réussie")
 
 # 5. SIMULATEUR
 base_joueurs = charger_base_joueurs()
@@ -98,11 +94,17 @@ if not st.session_state['historique'].empty:
         l_gc = df_sim[df_sim['Statut'] == "Grand Club"]['Display'].tolist()
         l_ce = df_sim[df_sim['Statut'] == "Club École"]['Display'].tolist()
 
-        updated = sort_items([{'header': '🏙️ GRAND CLUB', 'items': l_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}], multi_containers=True)
+        # --- DRAG AND DROP (CORRECTION INDEXATION) ---
+        updated = sort_items([
+            {'header': '🏙️ GRAND CLUB', 'items': l_gc}, 
+            {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}
+        ], multi_containers=True, direction='horizontal')
         
-        # Correction indexation liste
-        it_gc = updated['items'] if updated else l_gc
-        it_ce = updated['items'] if updated else l_ce
+        if updated and len(updated) >= 2:
+            it_gc = updated[0]['items']
+            it_ce = updated[1]['items']
+        else:
+            it_gc, it_ce = l_gc, l_ce
 
         def get_t(items):
             return sum(int(str(i).split('-')[-1].replace('$', '').replace(' ', '').replace('\xa0', '').strip()) for i in items if '-' in str(i))
@@ -114,4 +116,4 @@ if not st.session_state['historique'].empty:
         c1.metric("Grand Club", format_currency(m_gc), delta=format_currency(st.session_state['cap_gc'] - m_gc))
         c2.metric("Club École", format_currency(m_ce), delta=format_currency(st.session_state['cap_ce'] - m_ce))
 
-st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; padding: 10px !important; border-radius: 6px !important; }</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; padding: 8px !important; border-radius: 6px !important; font-size: 14px; }</style>""", unsafe_allow_html=True)
