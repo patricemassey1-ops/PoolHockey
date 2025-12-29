@@ -81,34 +81,61 @@ with tab1:
         stats['Espace GC'] = cap_gc - stats['Total GC']
         st.dataframe(stats.style.format(format_currency, subset=['Grand Club', 'Club École', 'Impact', 'Total GC', 'Espace GC']), use_container_width=True)
 
-# --- SIMULATEUR ---
+# --- TAB 2: SIMULATEUR (VERSION CORRIGÉE) ---
 with tab2:
     teams = sorted(st.session_state.historique['Propriétaire'].unique()) if not st.session_state.historique.empty else []
     if teams:
-        eq = st.selectbox("Choisir Équipe", teams)
+        eq = st.selectbox("Sélectionner une équipe", teams, key="sim_selector")
+        
+        # Nettoyage pour éviter l'erreur JSON NaN
         dff = st.session_state.historique[st.session_state.historique['Propriétaire'] == eq].copy().fillna("N/A")
         
-        # Affichage riche demandé
-        dff['label'] = (dff['Joueur'].astype(str) + " (" + dff['Pos'].astype(str) + " - " + 
-                        dff['Equipe_NHL'].astype(str) + ") | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k"))
+        # Label pour le Drag & Drop
+        dff['label'] = dff['Joueur'].astype(str) + " | " + dff['Pos'].astype(str) + " | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k")
         
         l_gc = dff[dff['Statut'] == "Grand Club"]['label'].tolist()
         l_ce = dff[dff['Statut'] == "Club École"]['label'].tolist()
 
-        res = sort_items([{'header': '🏙️ GRAND CLUB', 'items': l_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}], multi_containers=True, key=f"sim_{eq}")
+        # res renvoie : [ [items_GC], [items_Ecole] ]
+        res = sort_items([
+            {'header': '🏙️ GRAND CLUB', 'items': l_gc}, 
+            {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}
+        ], multi_containers=True, key=f"sim_v2025_{eq}")
 
-        def quick_sum(items):
-            return sum(int(str(x).split('|')[-1].replace('k','').strip()) * 1000 for x in items if '|' in str(x))
+        def quick_sum(items_list):
+            """Calcule la somme des salaires à partir des labels du simulateur"""
+            if not items_list or not isinstance(items_list, list): 
+                return 0
+            total = 0
+            for x in items_list:
+                if isinstance(x, str) and '|' in x:
+                    try:
+                        # On récupère la valeur en 'k' à la fin du label
+                        val_k = x.split('|')[-1].replace('k','').strip()
+                        total += int(val_k) * 1000
+                    except:
+                        continue
+            return total
         
-        s_gc = quick_sum(res['items'])
-        s_ce = quick_sum(res['items'])
+        # CORRECTION DE L'INDEXATION ICI
+        # Si res existe, on prend l'index 0 pour GC et 1 pour École
+        if res and isinstance(res, list) and len(res) >= 2:
+            s_gc_joueurs = quick_sum(res[0]) # Liste du 1er conteneur (GC)
+            s_ce_joueurs = quick_sum(res[1]) # Liste du 2e conteneur (École)
+        else:
+            # Valeurs par défaut si le composant n'a pas encore bougé
+            s_gc_joueurs = quick_sum(l_gc)
+            s_ce_joueurs = quick_sum(l_ce)
+        
+        # Récupération des pénalités (Rachats + JA)
         p_imp = st.session_state.rachats[st.session_state.rachats['Propriétaire'] == eq]['Impact'].sum()
         
         st.divider()
         c1, c2, c3 = st.columns(3)
-        c1.metric("Masse GC (+Rachats)", format_currency(s_gc + p_imp), delta=format_currency(cap_gc - (s_gc + p_imp)))
-        c2.metric("Masse École", format_currency(s_ce), delta=format_currency(cap_ce - s_ce))
-        c3.metric("Pénalités (50%)", format_currency(p_imp))
+        c1.metric("Masse GC (+ Pénalités)", format_currency(s_gc_joueurs + p_imp), delta=format_currency(cap_gc - (s_gc_joueurs + p_imp)))
+        c2.metric("Masse Club École", format_currency(s_ce_joueurs))
+        c3.metric("Total Pénalités (50%)", format_currency(p_imp))
+
 
 # --- GESTION (EMBAUCHE & RACHAT) ---
 with tab3:
