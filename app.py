@@ -28,27 +28,19 @@ def pos_sort_order(pos_text):
     if 'D' in pos: return 1
     return 0 
 
+# Initialisation des états
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
+
+if 'buyouts' not in st.session_state:
+    st.session_state['buyouts'] = {} # Format: { 'Equipe': {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0} }
 
 st.title("🏒 Analyseur Fantrax 2025")
 
 # --- BARRE LATÉRALE ---
-st.sidebar.header("⚙️ Configuration")
+st.sidebar.header("⚙️ Configuration Globale")
 CAP_GRAND_CLUB = st.sidebar.number_input("Plafond Grand Club ($)", value=95500000, step=500000)
 CAP_CLUB_ECOLE = st.sidebar.number_input("Plafond Club École ($)", value=47750000, step=100000)
-
-st.sidebar.markdown("---")
-st.sidebar.header("💸 Rachats (Buyouts)")
-st.sidebar.info("Le salaire saisi sera soustrait de la masse salariale.")
-
-with st.sidebar.expander("Rachat Grand Club"):
-    nom_buyout_gc = st.text_input("Nom du joueur (GC)", key="nbgc")
-    montant_buyout_gc = st.number_input("Montant à déduire (GC)", value=0, step=50000, key="mbgc")
-
-with st.sidebar.expander("Rachat Club École"):
-    nom_buyout_ce = st.text_input("Nom du joueur (CE)", key="nbce")
-    montant_buyout_ce = st.number_input("Montant à déduire (CE)", value=0, step=50000, key="mbce")
 
 # --- LOGIQUE D'IMPORTATION ---
 fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
@@ -83,6 +75,9 @@ if fichiers_telecharges:
                     'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
                 })
                 dfs_a_ajouter.append(temp_df)
+                # Initialiser les rachats vides pour cette nouvelle équipe
+                if nom_equipe_unique not in st.session_state['buyouts']:
+                    st.session_state['buyouts'][nom_equipe_unique] = {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0}
         except Exception as e:
             st.error(f"Erreur : {e}")
     if dfs_a_ajouter:
@@ -119,16 +114,30 @@ if not st.session_state['historique'].empty:
         st.header("🔄 Outil de Transfert Interactif")
         equipe_sim_choisie = st.selectbox("Sélectionner l'équipe à simuler", options=df_f['Propriétaire'].unique(), key='simulateur_equipe')
         
-        df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
-        
-        list_grand_club = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
-        list_club_ecole = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
+        # S'assurer que l'équipe existe dans le dictionnaire des rachats
+        if equipe_sim_choisie not in st.session_state['buyouts']:
+            st.session_state['buyouts'][equipe_sim_choisie] = {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0}
 
-        st.info("💡 Glissez-déposez les joueurs. Les rachats saisis dans la barre latérale sont déduits automatiquement.")
-        
+        # --- SECTION RACHATS PAR ÉQUIPE ---
+        st.subheader(f"💸 Rachats pour {equipe_sim_choisie}")
+        c_buy1, c_buy2 = st.columns(2)
+        with c_buy1:
+            st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'] = st.text_input("Joueur racheté (Grand Club)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_nom'], key=f"name_gc_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['gc_val'] = st.number_input("Salaire à déduire (GC)", value=st.session_state['buyouts'][equipe_sim_choisie]['gc_val'], step=10000, key=f"val_gc_{equipe_sim_choisie}")
+        with c_buy2:
+            st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'] = st.text_input("Joueur racheté (Club École)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_nom'], key=f"name_ce_{equipe_sim_choisie}")
+            st.session_state['buyouts'][equipe_sim_choisie]['ce_val'] = st.number_input("Salaire à déduire (CE)", value=st.session_state['buyouts'][equipe_sim_choisie]['ce_val'], step=10000, key=f"val_ce_{equipe_sim_choisie}")
+
+        st.markdown("---")
+
+        # --- DRAG AND DROP ---
+        df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
+        list_gc = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
+        list_ce = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
+
         sort_data = [
-            {'header': '🏙️ GRAND CLUB', 'items': list_grand_club},
-            {'header': '🏫 CLUB ÉCOLE', 'items': list_club_ecole}
+            {'header': '🏙️ GRAND CLUB', 'items': list_gc},
+            {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}
         ]
 
         updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
@@ -142,35 +151,26 @@ if not st.session_state['historique'].empty:
                 except: continue
             return total
 
-        # Calcul des masses avec déduction des rachats
-        sim_g = extract_salary(updated_sort[0]['items']) - montant_buyout_gc
-        sim_c = extract_salary(updated_sort[1]['items']) - montant_buyout_ce
+        # Calcul final : Somme Drag&Drop - Rachat spécifique à l'équipe
+        m_gc = st.session_state['buyouts'][equipe_sim_choisie]['gc_val']
+        m_ce = st.session_state['buyouts'][equipe_sim_choisie]['ce_val']
+        
+        sim_g = extract_salary(updated_sort['items']) - m_gc
+        sim_c = extract_salary(updated_sort['items']) - m_ce
 
         st.markdown("---")
-        c1, c2 = st.columns(2)
+        res1, res2 = st.columns(2)
         
-        c1.metric(
-            "Masse Grand Club", 
-            format_currency(max(0, sim_g)), 
-            delta=format_currency(CAP_GRAND_CLUB - sim_g), 
-            delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse"
-        )
-        if montant_buyout_gc > 0:
-            c1.caption(f"⚠️ Dont rachat : {nom_buyout_gc} (-{format_currency(montant_buyout_gc)})")
+        res1.metric("Masse Grand Club", format_currency(max(0, sim_g)), 
+                    delta=format_currency(CAP_GRAND_CLUB - sim_g), 
+                    delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
+        if m_gc > 0: res1.caption(f"Déduction rachat : {st.session_state['buyouts'][equipe_sim_choisie]['gc_nom']}")
 
-        c2.metric(
-            "Masse Club École", 
-            format_currency(max(0, sim_c)), 
-            delta=format_currency(CAP_CLUB_ECOLE - sim_c),
-            delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse"
-        )
-        if montant_buyout_ce > 0:
-            c2.caption(f"⚠️ Dont rachat : {nom_buyout_ce} (-{format_currency(montant_buyout_ce)})")
+        res2.metric("Masse Club École", format_currency(max(0, sim_c)), 
+                    delta=format_currency(CAP_CLUB_ECOLE - sim_c),
+                    delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
+        if m_ce > 0: res2.caption(f"Déduction rachat : {st.session_state['buyouts'][equipe_sim_choisie]['ce_nom']}")
 
-        st.markdown("""
-            <style>
-            .stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }
-            </style>
-            """, unsafe_allow_html=True)
+        st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Importez un fichier CSV pour activer les fonctionnalités.")
+    st.info("Importez un fichier CSV pour commencer.")
