@@ -16,7 +16,10 @@ def charger_historique():
     return pd.DataFrame()
 
 def sauvegarder_historique(df):
+    # Suppression des doublons avant sauvegarde (même joueur, même équipe)
+    df = df.drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
     df.to_csv(DB_FILE, index=False)
+    return df
 
 def format_currency(val):
     if pd.isna(val): return "0 $"
@@ -60,27 +63,35 @@ if fichiers_telecharges:
                 if 'ID' in df_raw.columns:
                     df_raw = df_raw[df_raw['ID'].astype(str).str.strip().str.startswith(('0','1','2','3','4','5','6','7','8','9','*'))]
                 return df_raw
+            
             df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
             c_player = next((c for c in df_merged.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
             c_status = next((c for c in df_merged.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
             c_salary = next((c for c in df_merged.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
             c_pos = next((c for c in df_merged.columns if 'pos' in c.lower() or 'eligible' in c.lower()), None)
+            
             if c_status and c_salary and c_player:
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
                 df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
-                nom_equipe_unique = f"{fichier.name.replace('.csv', '')} ({horodatage})"
+                
+                # On nettoie le nom du fichier pour grouper par équipe réelle sans l'heure dans l'ID unique si on veut éviter les doublons
+                nom_equipe = fichier.name.replace('.csv', '')
+                
                 temp_df = pd.DataFrame({
                     'Joueur': df_merged[c_player], 'Salaire': df_merged[c_salary], 'Statut': df_merged['Catégorie'],
-                    'Pos': df_merged[c_pos] if c_pos else "N/A", 'Propriétaire': nom_equipe_unique,
-                    'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
+                    'Pos': df_merged[c_pos] if c_pos else "N/A", 'Propriétaire': nom_equipe,
+                    'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0,
+                    'Dernière Mise à jour': horodatage
                 })
                 dfs_a_ajouter.append(temp_df)
         except Exception as e:
-            st.error(f"Erreur : {e}")
+            st.error(f"Erreur lors de l'importation de {fichier.name}: {e}")
+
     if dfs_a_ajouter:
-        st.session_state['historique'] = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
-        sauvegarder_historique(st.session_state['historique'])
-        st.success("Importation réussie")
+        # Fusion avec l'existant et suppression immédiate des doublons
+        nouveau_df = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
+        st.session_state['historique'] = sauvegarder_historique(nouveau_df)
+        st.success("Importation terminée. Doublons retirés.")
 
 # --- AFFICHAGE PRINCIPAL ---
 if not st.session_state['historique'].empty:
@@ -96,7 +107,7 @@ if not st.session_state['historique'].empty:
 
     with tab2:
         st.header("🔄 Outil de Transfert Interactif")
-        equipe_sim_choisie = st.selectbox("Équipe à simuler", options=df_f['Propriétaire'].unique())
+        equipe_sim_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
         
         if equipe_sim_choisie not in st.session_state['buyouts']:
             st.session_state['buyouts'][equipe_sim_choisie] = {'gc_nom': '', 'gc_val': 0, 'ce_nom': '', 'ce_val': 0}
@@ -112,25 +123,25 @@ if not st.session_state['historique'].empty:
 
         # Drag and Drop
         df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
-        list_gc = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
-        list_ce = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
+        list_gc_init = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
+        list_ce_init = [f"{r['Joueur']} ({format_currency(r['Salaire'])})" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
         sort_data = [
-            {'header': '🏙️ GRAND CLUB', 'items': list_gc},
-            {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}
+            {'header': '🏙️ GRAND CLUB', 'items': list_gc_init},
+            {'header': '🏫 CLUB ÉCOLE', 'items': list_ce_init}
         ]
 
-        # Sécurité pour éviter le TypeError
         updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
         
-        # Si rien n'est bougé, on utilise les listes initiales
-        col_gc_items = updated_sort[0]['items'] if updated_sort else list_gc
-        col_ce_items = updated_sort[1]['items'] if updated_sort else list_ce
+        # Gestion des listes après mouvement
+        col_gc_items = updated_sort[0]['items'] if updated_sort else list_gc_init
+        col_ce_items = updated_sort[1]['items'] if updated_sort else list_ce_init
 
         def extract_salary(player_list):
             total = 0
             for item in player_list:
                 try:
+                    # Nettoyage robuste du texte pour extraire le nombre
                     s_str = item.split('(')[-1].replace('$', '').replace(' ', '').replace(',', '').replace('\xa0', '').replace(')', '')
                     total += int(s_str)
                 except: continue
@@ -149,4 +160,4 @@ if not st.session_state['historique'].empty:
 
         st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; border-radius: 5px !important; padding: 8px !important; margin-bottom: 5px !important; }</style>""", unsafe_allow_html=True)
 else:
-    st.info("Importez un fichier CSV.")
+    st.info("Importez un fichier CSV pour commencer.")
