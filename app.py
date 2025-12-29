@@ -86,7 +86,7 @@ if fichiers_telecharges:
     if dfs_a_ajouter:
         nouveau_df = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
         st.session_state['historique'] = sauvegarder_historique(nouveau_df)
-        st.success("Importation et déduplication terminées.")
+        st.success("Importation réussie.")
 
 # --- AFFICHAGE ---
 if not st.session_state['historique'].empty:
@@ -110,20 +110,31 @@ if not st.session_state['historique'].empty:
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             st.session_state['buyouts'][equipe_choisie]['gc_nom'] = st.text_input("Joueur racheté (Grand Club)", value=st.session_state['buyouts'][equipe_choisie]['gc_nom'], key=f"ngc_{equipe_choisie}")
-            st.session_state['buyouts'][equipe_choisie]['gc_val'] = st.number_input("Montant à déduire de la Masse GC", value=st.session_state['buyouts'][equipe_choisie]['gc_val'], step=10000, key=f"vgc_{equipe_choisie}")
+            st.session_state['buyouts'][equipe_choisie]['gc_val'] = st.number_input("Déduire de la Masse GC", value=st.session_state['buyouts'][equipe_choisie]['gc_val'], step=10000, key=f"vgc_{equipe_choisie}")
         with col_r2:
             st.session_state['buyouts'][equipe_choisie]['ce_nom'] = st.text_input("Joueur racheté (Club École)", value=st.session_state['buyouts'][equipe_choisie]['ce_nom'], key=f"nce_{equipe_choisie}")
-            st.session_state['buyouts'][equipe_choisie]['ce_val'] = st.number_input("Montant à déduire de la Masse CE", value=st.session_state['buyouts'][equipe_choisie]['ce_val'], step=10000, key=f"vce_{equipe_choisie}")
+            st.session_state['buyouts'][equipe_choisie]['ce_val'] = st.number_input("Déduire de la Masse CE", value=st.session_state['buyouts'][equipe_choisie]['ce_val'], step=10000, key=f"vce_{equipe_choisie}")
 
         # --- DRAG AND DROP ---
         df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
         list_gc = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
         list_ce = [f"{r['Joueur']} ({r['Pos']}) - {format_currency(r['Salaire'])}" for _, r in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
-        updated_sort = sort_items([{'header': '🏙️ GRAND CLUB', 'items': list_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}], multi_containers=True, direction='horizontal')
+        sort_data = [
+            {'header': '🏙️ GRAND CLUB', 'items': list_gc},
+            {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}
+        ]
+
+        # APPEL DU COMPOSANT
+        updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
         
-        col_gc_final = updated_sort['items'] if updated_sort else list_gc
-        col_ce_final = updated_sort['items'] if updated_sort else list_ce
+        # CORRECTION DE L'ERREUR TYPESCRIPT (Accès par index [0] et [1])
+        if updated_sort and len(updated_sort) >= 2:
+            col_gc_final = updated_sort[0]['items']
+            col_ce_final = updated_sort[1]['items']
+        else:
+            col_gc_final = list_gc
+            col_ce_final = list_ce
 
         def extract_salary(player_list):
             total = 0
@@ -134,7 +145,7 @@ if not st.session_state['historique'].empty:
                 except: continue
             return total
 
-        # --- CALCULS FINAUX AVEC DÉDUCTION ---
+        # --- CALCULS FINAUX ---
         m_gc = st.session_state['buyouts'][equipe_choisie]['gc_val']
         m_ce = st.session_state['buyouts'][equipe_choisie]['ce_val']
         
@@ -147,12 +158,10 @@ if not st.session_state['historique'].empty:
         st.markdown("---")
         res1, res2 = st.columns(2)
         
-        # Affichage Grand Club
         res1.metric("Masse Grand Club (Net)", format_currency(sim_g), delta=format_currency(CAP_GRAND_CLUB - sim_g), delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse")
         if m_gc > 0:
             res1.error(f"📉 Brut: {format_currency(masse_gc_pure)} | Rachat: -{format_currency(m_gc)}")
         
-        # Affichage Club École
         res2.metric("Masse Club École (Net)", format_currency(sim_c), delta=format_currency(CAP_CLUB_ECOLE - sim_c), delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse")
         if m_ce > 0:
             res2.error(f"📉 Brut: {format_currency(masse_ce_pure)} | Rachat: -{format_currency(m_ce)}")
