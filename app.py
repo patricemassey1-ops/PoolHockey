@@ -8,12 +8,21 @@ from streamlit_sortables import sort_items
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
+PLAYERS_DB_FILE = "Hockey_Players.csv" # Nouveau fichier de base de données des joueurs
 
 # --- FONCTIONS ---
 def charger_historique():
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE)
     return pd.DataFrame()
+
+def charger_base_joueurs():
+    if os.path.exists(PLAYERS_DB_FILE):
+        df_base = pd.read_csv(PLAYERS_DB_FILE)
+        # Assurer la cohérence des noms de colonnes pour la recherche
+        df_base.rename(columns={'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos'}, inplace=True)
+        return df_base[['Joueur', 'Salaire', 'Pos']].copy()
+    return pd.DataFrame(columns=['Joueur', 'Salaire', 'Pos'])
 
 def sauvegarder_historique(df):
     df = df.drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
@@ -30,18 +39,25 @@ def pos_sort_order(pos_text):
     if 'D' in pos: return 1
     return 0 
 
+# Initialisation des états
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_historique()
 
+if 'base_joueurs' not in st.session_state:
+    st.session_state['base_joueurs'] = charger_base_joueurs()
+
+if 'buyouts' not in st.session_state:
+    st.session_state['buyouts'] = {}
+
 st.title("🏒 Analyseur Fantrax 2025")
 
-# --- BARRE LATÉRALE ---
+# --- BARRE LATÉRALE (inchangée) ---
 st.sidebar.header("⚙️ Configuration Globale")
 CAP_GRAND_CLUB = st.sidebar.number_input("Plafond Grand Club ($)", value=95500000, step=500000)
 CAP_CLUB_ECOLE = st.sidebar.number_input("Plafond Club École ($)", value=47750000, step=100000)
 
-# --- LOGIQUE D'IMPORTATION ---
-fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
+# --- LOGIQUE D'IMPORTATION FANTRAX (inchangée) ---
+fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax (Rosters)", type="csv", accept_multiple_files=True)
 if fichiers_telecharges:
     dfs_a_ajouter = []
     horodatage = datetime.now().strftime("%d-%m %H:%M")
@@ -82,7 +98,7 @@ if fichiers_telecharges:
     if dfs_a_ajouter:
         nouveau_df = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True)
         st.session_state['historique'] = sauvegarder_historique(nouveau_df)
-        st.success("Importation réussie.")
+        st.success("Importation terminée.")
 
 # --- AFFICHAGE PRINCIPAL ---
 if not st.session_state['historique'].empty:
@@ -94,37 +110,61 @@ if not st.session_state['historique'].empty:
         st.dataframe(summary, use_container_width=True)
 
     with tab2:
-        st.header("🔄 Outil de Transfert & Simulateur de Rachats Multiples")
+        st.header("🔄 Outil de Transfert & Simulateur")
         equipe_choisie = st.selectbox("Équipe à simuler", options=sorted(df_f['Propriétaire'].unique()))
         
-        df_sim = df_f[df_f['Propriétaire'] == equipe_choisie].copy()
+        # --- FORMULAIRE D'AJOUT DE JOUEUR AUTONOME ---
+        st.subheader("➕ Ajouter un joueur autonome")
+        if not st.session_state['base_joueurs'].empty:
+            
+            col_add1, col_add2 = st.columns([0.6, 0.4])
+            with col_add1:
+                joueur_selectionne = st.selectbox("Sélectionner le joueur", options=[None] + st.session_state['base_joueurs']['Joueur'].tolist(), key=f"sel_auto_player_{equipe_choisie}")
+            
+            if joueur_selectionne:
+                data_joueur = st.session_state['base_joueurs'][st.session_state['base_joueurs']['Joueur'] == joueur_selectionne].iloc[0]
+                
+                with col_add2:
+                    destination = st.selectbox("Assigner à", options=["Grand Club", "Club École"], key=f"sel_auto_dest_{equipe_choisie}")
+
+                st.write(f"**Pos:** {data_joueur['Pos']} | **Salaire:** {format_currency(data_joueur['Salaire'])}")
+
+                if st.button(f"Ajouter {joueur_selectionne} à {equipe_choisie}"):
+                    nouvelle_entree = pd.DataFrame([{
+                        'Joueur': data_joueur['Joueur'],
+                        'Salaire': data_joueur['Salaire'],
+                        'Statut': destination,
+                        'Pos': data_joueur['Pos'],
+                        'Propriétaire': equipe_choisie,
+                        'pos_order': pos_sort_order(data_joueur['Pos']),
+                        'Dernière Mise à jour': datetime.now().strftime("%d-%m %H:%M")
+                    }])
+                    # Ajout et sauvegarde immédiate pour mise à jour
+                    st.session_state['historique'] = pd.concat([st.session_state['historique'], nouvelle_entree], ignore_index=True)
+                    st.session_state['historique'] = sauvegarder_historique(st.session_state['historique'])
+                    st.success(f"{joueur_selectionne} ajouté!")
+                    st.rerun()
+            
+        else:
+            st.warning("Le fichier Hockey_Players.csv est manquant ou vide.")
+
+        st.markdown("---")
         
+        # ... (Rachats et Drag and Drop inchangés) ...
         # --- SECTION DES RACHATS MULTIPLES (DÉDUCTION 50%) ---
         st.subheader(f"💰 Rachats de contrats (Multiples autorisés)")
-        st.info("Sélectionnez les joueurs à racheter. 50% de leur salaire sera déduit de la masse.")
         col_r1, col_r2 = st.columns(2)
         
         with col_r1:
             joueurs_gc_df = df_sim[df_sim['Statut'] == "Grand Club"]
-            choix_gc_multi = st.multiselect(
-                "Joueurs à racheter (Grand Club)", 
-                options=joueurs_gc_df['Joueur'].tolist(),
-                key=f"multi_gc_{equipe_choisie}"
-            )
+            choix_gc_multi = st.multiselect("Joueurs à racheter (Grand Club)", options=joueurs_gc_df['Joueur'].tolist(), key=f"multi_gc_{equipe_choisie}")
             total_deduction_gc = joueurs_gc_df[joueurs_gc_df['Joueur'].isin(choix_gc_multi)]['Salaire'].sum() / 2
-            if total_deduction_gc > 0:
-                st.warning(f"Total déduit (GC) : -{format_currency(total_deduction_gc)}")
-
+            if total_deduction_gc > 0: st.warning(f"Total déduit (GC) : -{format_currency(total_deduction_gc)}")
         with col_r2:
             joueurs_ce_df = df_sim[df_sim['Statut'] == "Club École"]
-            choix_ce_multi = st.multiselect(
-                "Joueurs à racheter (Club École)", 
-                options=joueurs_ce_df['Joueur'].tolist(),
-                key=f"multi_ce_{equipe_choisie}"
-            )
+            choix_ce_multi = st.multiselect("Joueurs à racheter (Club École)", options=joueurs_ce_df['Joueur'].tolist(), key=f"multi_ce_{equipe_choisie}")
             total_deduction_ce = joueurs_ce_df[joueurs_ce_df['Joueur'].isin(choix_ce_multi)]['Salaire'].sum() / 2
-            if total_deduction_ce > 0:
-                st.warning(f"Total déduit (CE) : -{format_currency(total_deduction_ce)}")
+            if total_deduction_ce > 0: st.warning(f"Total déduit (CE) : -{format_currency(total_deduction_ce)}")
 
         st.markdown("---")
 
@@ -134,8 +174,8 @@ if not st.session_state['historique'].empty:
 
         updated_sort = sort_items([{'header': '🏙️ GRAND CLUB', 'items': list_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': list_ce}], multi_containers=True, direction='horizontal')
         
-        col_gc_final = updated_sort[0]['items'] if updated_sort else list_gc
-        col_ce_final = updated_sort[1]['items'] if updated_sort else list_ce
+        col_gc_final = updated_sort['items'] if updated_sort else list_gc
+        col_ce_final = updated_sort['items'] if updated_sort else list_ce
 
         def extract_salary(player_list):
             total = 0
