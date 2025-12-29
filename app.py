@@ -2,185 +2,154 @@ import streamlit as st
 import pandas as pd
 import io
 import os
-from streamlit_sortables import sort_items
+from datetime import datetime
 
-# 1. CONFIGURATION ET GESTION DES FICHIERS
-st.set_page_config(page_title="Simulateur Pro 2025", layout="wide")
+st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
-BUYOUT_FILE = "rachats_v2.csv"
-PLAYERS_DB_FILE = "Hockey_Players.csv"
 
-def save_all():
-    """Sauvegarde immédiate sur le disque."""
-    st.session_state.historique.to_csv(DB_FILE, index=False)
-    st.session_state.rachats.to_csv(BUYOUT_FILE, index=False)
+# --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
+def charger_historique():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame()
 
-@st.cache_data
-def load_initial_data(file, columns):
-    """Charge les données de manière sécurisée et gère les valeurs manquantes."""
-    if os.path.exists(file):
-        try:
-            df = pd.read_csv(file)
-            return df.fillna({'Joueur': 'Inconnu', 'Salaire': 0, 'Pos': 'N/A', 'Equipe_NHL': 'N/A', 'Statut': 'Grand Club', 'Impact': 0})
-        except: return pd.DataFrame(columns=columns)
-    return pd.DataFrame(columns=columns)
+def sauvegarder_historique(df):
+    df.to_csv(DB_FILE, index=False)
 
-# Initialisation des données
+# Initialisation de la session
 if 'historique' not in st.session_state:
-    st.session_state.historique = load_initial_data(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Equipe_NHL', 'Propriétaire'])
-if 'rachats' not in st.session_state:
-    st.session_state.rachats = load_initial_data(BUYOUT_FILE, ['Propriétaire', 'Joueur', 'Impact'])
-if 'db_joueurs' not in st.session_state:
-    st.session_state.db_joueurs = load_initial_data(PLAYERS_DB_FILE, ['Player', 'Salary', 'Position', 'Team'])
+    st.session_state['historique'] = charger_historique()
+
+st.title("🏒 Analyseur Fantrax : Historique par Date & Heure")
+
+# --- CONFIGURATION DES PLAFONDS ---
+col_cap1, col_cap2 = st.columns(2)
+with col_cap1:
+    CAP_GRAND_CLUB = st.number_input("Plafond Grand Club ($)", min_value=0, value=95500000, step=1000000)
+with col_cap2:
+    CAP_CLUB_ECOLE = st.number_input("Plafond Club École ($)", min_value=0, value=47750000, step=100000)
+
+# --- IMPORTATION ---
+fichiers_telecharges = st.file_uploader("Importer des CSV Fantrax", type="csv", accept_multiple_files=True)
 
 def format_currency(val):
-    """Formate un nombre en devise."""
-    return f"{int(val or 0):,}".replace(",", " ") + "$"
+    if pd.isna(val): return "0 $"
+    return f"{int(val):,}".replace(",", " ") + " $"
 
-# 2. BARRE LATÉRALE - IMPORTATION AUTOMATIQUE ROBUSTE
-with st.sidebar:
-    st.header("⚙️ Configuration 2025")
-    cap_gc = st.number_input("Plafond Grand Club", value=95500000, step=500000)
-    cap_ce = st.number_input("Plafond Club École", value=47750000, step=100000)
+def pos_sort_order(pos_text):
+    pos = str(pos_text).upper()
+    if 'G' in pos: return 2
+    if 'D' in pos: return 1
+    return 0 # F
+
+if fichiers_telecharges:
+    dfs_a_ajouter = []
+    # Générer le suffixe de date et heure une seule fois pour cette importation
+    horodatage = datetime.now().strftime("%d-%m %H:%M")
     
-    st.divider()
-    uploaded_files = st.file_uploader("📁 Déposer CSV Fantrax", type="csv", accept_multiple_files=True)
-    
-    if uploaded_files:
-        new_dfs = []
-        for f in uploaded_files:
-            try:
-                # Lecture brute pour trouver l'en-tête de manière flexible
-                content = f.getvalue().decode('utf-8-sig').splitlines()
-                idx = -1
-                for i, line in enumerate(content):
-                    if any(key in line for key in ['Player', 'Skaters', 'Goalies', 'Joueur', 'Salary']):
-                        idx = i
-                        break
+    for fichier in fichiers_telecharges:
+        try:
+            content = fichier.getvalue().decode('utf-8-sig')
+            lines = content.splitlines()
+
+            def extract_table(lines, keyword):
+                idx = next((i for i, l in enumerate(lines) if keyword in l), -1)
+                if idx == -1: return pd.DataFrame()
+                h_idx = next((i for i in range(idx + 1, len(lines)) if any(kw in lines[i] for kw in ["ID", "Player", "Salary"])), -1)
+                if h_idx == -1: return pd.DataFrame()
+                df_raw = pd.read_csv(io.StringIO("\n".join(lines[h_idx:])), sep=None, engine='python', on_bad_lines='skip')
+                if 'ID' in df_raw.columns:
+                    df_raw = df_raw[df_raw['ID'].astype(str).str.strip().str.startswith(('0','1','2','3','4','5','6','7','8','9','*'))]
+                return df_raw
+
+            df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
+            
+            c_player = next((c for c in df_merged.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
+            c_status = next((c for c in df_merged.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
+            c_salary = next((c for c in df_merged.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
+            c_pos = next((c for c in df_merged.columns if 'pos' in c.lower() or 'eligible' in c.lower()), None)
+
+            if c_status and c_salary and c_player:
+                df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0) * 1000
+                df_merged['Catégorie'] = df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club")
                 
-                if idx != -1:
-                    csv_data = io.StringIO("\n".join(content[idx:]))
-                    df_raw = pd.read_csv(csv_data, sep=None, engine='python', on_bad_lines='skip').fillna("N/A")
-                    df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                # Nom de l'équipe unique avec date et heure
+                nom_equipe_unique = f"{fichier.name.replace('.csv', '')} ({horodatage})"
+                
+                temp_df = pd.DataFrame({
+                    'Joueur': df_merged[c_player], 
+                    'Salaire': df_merged[c_salary], 
+                    'Statut': df_merged['Catégorie'],
+                    'Pos': df_merged[c_pos] if c_pos else "N/A", 
+                    'Propriétaire': nom_equipe_unique,
+                    'pos_order': df_merged[c_pos].apply(pos_sort_order) if c_pos else 0
+                })
+                dfs_a_ajouter.append(temp_df)
+        except Exception as e:
+            st.error(f"Erreur avec {fichier.name}: {e}")
 
-                    col_p = next((c for c in df_raw.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
-                    col_s = next((c for c in df_raw.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
-                    col_st = next((c for c in df_raw.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
-                    
-                    if col_p and col_s:
-                        sal = pd.to_numeric(df_raw[col_s].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-                        sal = sal.apply(lambda x: x*1000 if 0 < x < 100000 else x)
-                        
-                        temp = pd.DataFrame({
-                            'Joueur': df_raw[col_p].astype(str).str.strip(),
-                            'Salaire': sal.astype(int),
-                            'Statut': df_raw[col_st].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club") if col_st else "Grand Club",
-                            'Pos': df_raw['Pos'].astype(str) if 'Pos' in df_raw.columns else "N/A",
-                            'Equipe_NHL': df_raw['Team'].astype(str) if 'Team' in df_raw.columns else "N/A",
-                            'Propriétaire': f.name.replace('.csv', '')
-                        })
-                        new_dfs.append(temp)
-                else: st.error(f"Format non reconnu dans {f.name}")
-            except Exception as e: st.error(f"Erreur sur {f.name}: {e}")
-        
-        if new_dfs:
-            st.session_state.historique = pd.concat([st.session_state.historique] + new_dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-            save_all()
-            st.sidebar.success(f"✅ {len(new_dfs)} fichiers importés")
+    if dfs_a_ajouter:
+        df_new = pd.concat(dfs_a_ajouter)
+        st.session_state['historique'] = pd.concat([st.session_state['historique'], df_new], ignore_index=True)
+        sauvegarder_historique(st.session_state['historique'])
+        st.success(f"Importation réussie à {horodatage}")
+
+# --- GESTION DE L'HISTORIQUE (SIDEBAR) ---
+st.sidebar.header("⚙️ Gestion des données")
+if not st.session_state['historique'].empty:
+    # On trie pour avoir les plus récents en haut dans la sidebar
+    equipes_dispo = sorted(st.session_state['historique']['Propriétaire'].unique(), reverse=True)
+    eq_suppr = st.sidebar.selectbox("Supprimer une version spécifique", ["-- Choisir --"] + equipes_dispo)
+    
+    if st.sidebar.button("❌ Supprimer définitivement"):
+        if eq_suppr != "-- Choisir --":
+            st.session_state['historique'] = st.session_state['historique'][st.session_state['historique']['Propriétaire'] != eq_suppr]
+            sauvegarder_historique(st.session_state['historique'])
             st.rerun()
+    
+    if st.sidebar.button("⚠️ Effacer tout l'historique"):
+        st.session_state['historique'] = pd.DataFrame()
+        sauvegarder_historique(st.session_state['historique'])
+        st.rerun()
 
-# 3. ONGLETS PRINCIPAUX
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
+# --- AFFICHAGE ---
+if not st.session_state['historique'].empty:
+    df_f = st.session_state['historique']
 
-# --- DASHBOARD ---
-with tab1:
-    if not st.session_state.historique.empty:
-        stats = st.session_state.historique.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
-        r_sum = st.session_state.rachats.groupby('Propriétaire')['Impact'].sum().reset_index()
-        stats = stats.merge(r_sum, on='Propriétaire', how='left').fillna(0)
-        for c in ['Grand Club', 'Club École', 'Impact']: 
-            if c not in stats.columns: stats[c] = 0
-        stats['Total GC'] = stats['Grand Club'] + stats['Impact']
-        stats['Espace GC'] = cap_gc - stats['Total GC']
-        st.dataframe(stats.style.format(format_currency, subset=['Grand Club', 'Club École', 'Impact', 'Total GC', 'Espace GC']), use_container_width=True)
+    # 1. RÉSUMÉ GLOBAL
+    st.header("📊 Résumé des Importations")
+    summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
+    for col in ['Grand Club', 'Club École']:
+        if col not in summary.columns: summary[col] = 0
 
-# --- SIMULATEUR ---
-with tab2:
-    teams = sorted(st.session_state.historique['Propriétaire'].unique()) if not st.session_state.historique.empty else []
-    if teams:
-        eq = st.selectbox("Sélectionner une équipe", teams, key="sim_selector")
-        dff = st.session_state.historique[st.session_state.historique['Propriétaire'] == eq].copy().fillna("N/A")
-        
-        # Label optimisé pour le Drag & Drop (évite les erreurs JSON/lenteurs)
-        dff['label'] = dff['Joueur'].astype(str) + " | " + dff['Pos'].astype(str) + " | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k")
-        
-        l_gc = dff[dff['Statut'] == "Grand Club"]['label'].tolist()
-        l_ce = dff[dff['Statut'] == "Club École"]['label'].tolist()
+    st.dataframe(
+        summary.style.format({'Grand Club': format_currency, 'Club École': format_currency})
+        .applymap(lambda v: 'color: red;' if v > CAP_GRAND_CLUB else 'color: #00FF00;', subset=['Grand Club'])
+        .applymap(lambda v: 'color: red;' if v > CAP_CLUB_ECOLE else 'color: #00FF00;', subset=['Club École']),
+        use_container_width=True, hide_index=True
+    )
 
-        res = sort_items([{'header': '🏙️ GRAND CLUB', 'items': l_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}], multi_containers=True, key=f"sim_v2025_{eq}")
+    # 2. DÉTAILS PAR ÉQUIPE
+    st.header("👤 Détails des Effectifs")
+    # Affichage par ordre alphabétique inverse pour voir les plus récents en premier
+    for eq in sorted(df_f['Propriétaire'].unique(), reverse=True):
+        with st.expander(f"📂 {eq}"):
+            c1, c2 = st.columns(2)
+            df_e = df_f[df_f['Propriétaire'] == eq]
+            
+            with c1:
+                st.markdown("⭐ **Grand Club**")
+                df_g = df_e[df_e['Statut'] == "Grand Club"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
+                st.table(df_g[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_g['Salaire'].apply(format_currency)))
+                m_g = df_g['Salaire'].sum()
+                st.metric("Masse", format_currency(m_g), delta=format_currency(CAP_GRAND_CLUB - m_g), delta_color="normal" if m_g <= CAP_GRAND_CLUB else "inverse")
 
-        def quick_sum(items):
-            """Calcule la somme des salaires depuis les labels du simulateur."""
-            if not items or not isinstance(items, list): return 0
-            total = 0
-            for x in items:
-                if isinstance(x, str) and '|' in x:
-                    try: total += int(x.split('|')[-1].replace('k','').strip()) * 1000
-                    except: pass
-            return total
-        
-        s_gc_joueurs = quick_sum(res) if (res and len(res) > 0) else quick_sum(l_gc)
-        s_ce_joueurs = quick_sum(res) if (res and len(res) > 1) else quick_sum(l_ce)
-        p_imp = st.session_state.rachats[st.session_state.rachats['Propriétaire'] == eq]['Impact'].sum()
-        
-        st.divider()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Masse GC (+ Pénalités)", format_currency(s_gc_joueurs + p_imp), delta=format_currency(cap_gc - (s_gc_joueurs + p_imp)))
-        c2.metric("Masse Club École", format_currency(s_ce_joueurs))
-        c3.metric("Total Pénalités (50%)", format_currency(p_imp))
-
-# --- GESTION (EMBAUCHE JA & RACHATS) ---
-with tab3:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🆕 Embauche Agent Libre (JA)")
-        available = st.session_state.db_joueurs.copy().fillna("N/A")
-        if not available.empty:
-            available['label'] = available['Player'].astype(str) + " (" + available['Position'].astype(str) + ") - " + available['Salary'].astype(str)
-            with st.form("fa_form"):
-                f_prop = st.selectbox("Équipe Acquéreuse", teams if teams else ["Ma Ligue"])
-                sel = st.selectbox("Chercher un joueur", available['label'].tolist())
-                f_stat = st.radio("Assignation initiale", ["Grand Club", "Club École"], horizontal=True)
-                
-                if st.form_submit_button("Signer (Complet + 50% Pénalité)"):
-                    p_data = available[available['label'] == sel].iloc
-                    sal = pd.to_numeric(str(p_data['Salary']).replace(r'[^\d]', '', regex=True), errors='coerce') or 0
-                    if 0 < sal < 100000: sal *= 1000
-                    
-                    new_p = pd.DataFrame([{'Joueur': p_data['Player'], 'Salaire': sal, 'Statut': f_stat, 'Pos': p_data['Position'], 'Equipe_NHL': p_data['Team'], 'Propriétaire': f_prop}])
-                    st.session_state.historique = pd.concat([st.session_state.historique, new_p], ignore_index=True)
-                    new_r = pd.DataFrame([{'Propriétaire': f_prop, 'Joueur': f"Pénalité JA: {p_data['Player']}", 'Impact': int(sal * 0.5)}])
-                    st.session_state.rachats = pd.concat([st.session_state.rachats, new_r], ignore_index=True)
-                    save_all()
-                    st.rerun()
-
-    with col2:
-        st.subheader("📉 Racheter un Contrat")
-        if teams:
-            with st.form("buy_form"):
-                t_sel = st.selectbox("Sélectionner l'équipe", teams, key="bt_manage")
-                j_df = st.session_state.historique[st.session_state.historique['Propriétaire'] == t_sel]
-                j_list = {f"{r['Joueur']} ({r['Pos']}) | {format_currency(r['Salaire'])}": (r['Joueur'], r['Salaire']) for _, r in j_df.iterrows()}
-                j_sel_label = st.selectbox("Joueur à racheter", list(j_list.keys()) if j_list else ["Aucun"])
-                
-                if st.form_submit_button("Confirmer Rachat (50%)"):
-                    if j_list and j_sel_label != "Aucun":
-                        j_name, j_sal = j_list[j_sel_label]
-                        new_r = pd.DataFrame([{'Propriétaire': t_sel, 'Joueur': j_name, 'Impact': int(j_sal * 0.5)}])
-                        st.session_state.rachats = pd.concat([st.session_state.rachats, new_r], ignore_index=True)
-                        st.session_state.historique = st.session_state.historique[~((st.session_state.historique.Joueur == j_name) & (st.session_state.historique.Propriétaire == t_sel))]
-                        save_all()
-                        st.rerun()
-
-st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; font-size: 11px; padding: 4px; border-radius: 4px; }</style>""", unsafe_allow_html=True)
+            with c2:
+                st.markdown("🎓 **Club École**")
+                df_c = df_e[df_e['Statut'] == "Club École"].sort_values(['pos_order', 'Salaire'], ascending=[True, False])
+                st.table(df_c[['Joueur', 'Pos', 'Salaire']].assign(Salaire=df_c['Salaire'].apply(format_currency)))
+                m_c = df_c['Salaire'].sum()
+                st.metric("Masse", format_currency(m_c), delta=format_currency(CAP_CLUB_ECOLE - m_c), delta_color="normal" if m_c <= CAP_CLUB_ECOLE else "inverse")
+else:
+    st.info("Aucun historique détecté. Importez vos fichiers CSV pour commencer.")
