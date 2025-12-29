@@ -223,25 +223,37 @@ with tab1:
         
         display_df = pd.DataFrame(display_data)
         
-        # Fonction pour colorer les cellules
-        def color_restant(val, col_name):
-            # Extraire le montant numérique
+        # Fonction pour colorer toute la ligne selon les dépassements
+        def color_row(row):
+            styles = [''] * len(row)
+            
+            # Vérifier les dépassements
             try:
-                num_val = float(val.replace(" ", "").replace("$", "").replace(",", ""))
-                if 'Restant' in col_name:
-                    if num_val < 0:
-                        return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'  # Rouge
+                restant_gc = float(row['Restant Grand Club'].replace(" ", "").replace("$", ""))
+                restant_ce = float(row['Restant Club École'].replace(" ", "").replace("$", ""))
+                
+                has_depassement = restant_gc < 0 or restant_ce < 0
+                
+                for i, col_name in enumerate(row.index):
+                    if has_depassement:
+                        # Rouge si dépassement
+                        if 'Restant' in col_name:
+                            styles[i] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+                        else:
+                            styles[i] = 'background-color: #ffe6e6'
                     else:
-                        return 'background-color: #ccffcc; color: #006600; font-weight: bold'  # Vert
+                        # Vert si tout est OK
+                        if 'Restant' in col_name:
+                            styles[i] = 'background-color: #ccffcc; color: #006600; font-weight: bold'
+                        else:
+                            styles[i] = 'background-color: #e6ffe6'
             except:
                 pass
-            return ''
+            
+            return styles
         
-        # Appliquer le style
-        styled_df = display_df.style.apply(
-            lambda x: [color_restant(v, x.name) if 'Restant' in x.name else '' for v in x],
-            axis=0
-        )
+        # Appliquer le style par ligne
+        styled_df = display_df.style.apply(color_row, axis=1)
         
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
