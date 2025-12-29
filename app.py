@@ -82,7 +82,7 @@ if fichiers_telecharges:
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
     
-    # Correction: Assigner les onglets à des variables distinctes
+    # Correction: Assigner les onglets à des variables distinctes (tab1, tab2)
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
@@ -127,7 +127,8 @@ if not st.session_state['historique'].empty:
                     options=["Grand Club", "Club École"],
                     required=True,
                 ),
-                "Salaire": st.column_config.Column(format="%.0f $"),
+                # Correction: Utiliser NumberColumn au lieu de Column
+                "Salaire": st.column_config.NumberColumn("Salaire", format="$ %d"), 
             },
             hide_index=True,
             use_container_width=True,
