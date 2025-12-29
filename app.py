@@ -142,9 +142,19 @@ with tab1:
         df_f = st.session_state['historique'].drop_duplicates()
         df_f['Salaire'] = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
         
-        # Grouper par propriétaire et statut
-        summary = df_f.groupby(['Propriétaire', 'Statut'], as_index=False)['Salaire'].sum()
-        summary = summary.pivot(index='Propriétaire', columns='Statut', values='Salaire').fillna(0).reset_index()
+        # Extraire le propriétaire et la date/heure
+        df_f[['Propriétaire_nom', 'DateTime']] = df_f['Propriétaire'].str.extract(r'(.+?)\s*\((.+)\)')
+        df_f['Propriétaire_nom'] = df_f['Propriétaire_nom'].fillna(df_f['Propriétaire'])
+        df_f['DateTime'] = df_f['DateTime'].fillna('')
+        
+        # Grouper par propriétaire complet et statut
+        summary = df_f.groupby(['Propriétaire', 'Propriétaire_nom', 'DateTime', 'Statut'], as_index=False)['Salaire'].sum()
+        summary = summary.pivot_table(
+            index=['Propriétaire', 'Propriétaire_nom', 'DateTime'], 
+            columns='Statut', 
+            values='Salaire', 
+            fill_value=0
+        ).reset_index()
         
         # Renommer les colonnes si elles existent
         if 'Grand Club' not in summary.columns:
@@ -156,43 +166,70 @@ with tab1:
         summary['Restant Grand Club'] = PLAFOND_GRAND_CLUB - summary['Grand Club']
         summary['Restant Club École'] = PLAFOND_CLUB_ECOLE - summary['Club École']
         
-        # Calculer le total et le restant total
-        summary['Total'] = summary['Grand Club'] + summary['Club École']
-        plafond_total = PLAFOND_GRAND_CLUB + PLAFOND_CLUB_ECOLE
-        summary['Restant Total'] = plafond_total - summary['Total']
-        
         # Afficher les plafonds en haut
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             st.metric("🏒 Plafond Grand Club", format_currency(PLAFOND_GRAND_CLUB))
         with col2:
             st.metric("🎓 Plafond Club École", format_currency(PLAFOND_CLUB_ECOLE))
-        with col3:
-            st.metric("💰 Plafond Total", format_currency(plafond_total))
         
         st.divider()
         
         # Préparer l'affichage avec formatage (optimisé)
         display_df = summary.copy()
-        for col in ['Grand Club', 'Restant Grand Club', 'Club École', 'Restant Club École', 'Total', 'Restant Total']:
+        for col in ['Grand Club', 'Restant Grand Club', 'Club École', 'Restant Club École']:
             display_df[col] = display_df[col].apply(format_currency)
         
         # Réorganiser les colonnes
-        display_df = display_df[['Propriétaire', 'Grand Club', 'Restant Grand Club', 
-                                  'Club École', 'Restant Club École', 'Total', 'Restant Total']]
+        display_df = display_df[['Propriétaire_nom', 'DateTime', 'Grand Club', 'Restant Grand Club', 
+                                  'Club École', 'Restant Club École']]
+        display_df.columns = ['Propriétaire', 'Date/Heure', 'Grand Club', 'Restant Grand Club', 
+                              'Club École', 'Restant Club École']
         
         st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        
+        # Section suppression
+        st.subheader("🗑️ Supprimer une importation")
+        
+        # Liste des propriétaires uniques (avec date/heure)
+        proprietaires_list = summary['Propriétaire'].tolist()
+        proprietaires_display = [f"{row['Propriétaire_nom']} ({row['DateTime']})" for _, row in summary.iterrows()]
+        
+        if proprietaires_list:
+            col_select, col_btn = st.columns([3, 1])
+            with col_select:
+                selected_proprio = st.selectbox(
+                    "Sélectionner une importation à supprimer",
+                    options=range(len(proprietaires_list)),
+                    format_func=lambda x: proprietaires_display[x],
+                    key="delete_select"
+                )
+            with col_btn:
+                st.write("")  # Espacer pour aligner
+                st.write("")
+                if st.button("🗑️ Supprimer", type="primary", use_container_width=True):
+                    proprio_to_delete = proprietaires_list[selected_proprio]
+                    # Supprimer toutes les lignes de ce propriétaire
+                    st.session_state['historique'] = st.session_state['historique'][
+                        st.session_state['historique']['Propriétaire'] != proprio_to_delete
+                    ]
+                    sauvegarder_donnees(st.session_state['historique'], DB_FILE)
+                    st.success(f"✅ Importation supprimée: {proprietaires_display[selected_proprio]}")
+                    st.rerun()
+        
+        st.divider()
         
         # Afficher les alertes pour les dépassements
         st.subheader("⚠️ Alertes")
         alertes = []
         for _, row in summary.iterrows():
+            proprio_display = f"{row['Propriétaire_nom']} ({row['DateTime']})"
             if row['Restant Grand Club'] < 0:
-                alertes.append(f"🚨 **{row['Propriétaire']}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**")
+                alertes.append(f"🚨 **{proprio_display}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**")
             if row['Restant Club École'] < 0:
-                alertes.append(f"🚨 **{row['Propriétaire']}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**")
-            if row['Restant Total'] < 0:
-                alertes.append(f"🚨 **{row['Propriétaire']}** dépasse le plafond total de **{format_currency(abs(row['Restant Total']))}**")
+                alertes.append(f"🚨 **{proprio_display}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**")
         
         if alertes:
             for alerte in alertes:
