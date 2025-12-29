@@ -36,7 +36,7 @@ if 'db_joueurs' not in st.session_state:
 def format_currency(val):
     return f"{int(val or 0):,}".replace(",", " ") + "$"
 
-# 2. BARRE LATÉRALE - IMPORTATION AUTOMATIQUE ET PARAMÈTRES
+# 2. BARRE LATÉRALE - IMPORTATION ROBUSTE (CORRECTION NORDICUES.CSV)
 with st.sidebar:
     st.header("⚙️ Configuration 2025")
     cap_gc = st.number_input("Plafond Grand Club", value=95500000, step=500000)
@@ -48,37 +48,49 @@ with st.sidebar:
     if uploaded_files:
         new_dfs = []
         for f in uploaded_files:
-            content = f.getvalue().decode('utf-8-sig').splitlines()
-            # Trouve la ligne d'en-tête (Player ou Skaters)
-            idx = next((i for i, l in enumerate(content) if any(x in l for x in ['Player', 'Skaters', 'Goalies'])), 0)
             try:
-                df_raw = pd.read_csv(io.StringIO("\n".join(content[idx:])), sep=None, engine='python', on_bad_lines='skip').fillna("N/A")
+                # Lecture brute pour trouver l'en-tête de manière flexible
+                content = f.getvalue().decode('utf-8-sig').splitlines()
+                idx = -1
+                for i, line in enumerate(content):
+                    if any(key in line for key in ['Player', 'Skaters', 'Goalies', 'Joueur', 'Salary']):
+                        idx = i
+                        break
                 
-                # Mapping flexible des colonnes
-                col_p = next((c for c in df_raw.columns if 'player' in c.lower()), "Player")
-                col_s = next((c for c in df_raw.columns if 'salary' in c.lower()), "Salary")
-                col_st = next((c for c in df_raw.columns if 'status' in c.lower()), "Status")
-                
-                # Nettoyage salaires (Gestion 1000k vs 1M)
-                sal = pd.to_numeric(df_raw[col_s].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-                sal = sal.apply(lambda x: x*1000 if 0 < x < 100000 else x)
-                
-                temp = pd.DataFrame({
-                    'Joueur': df_raw[col_p].astype(str),
-                    'Salaire': sal.astype(int),
-                    'Statut': df_raw[col_st].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club") if col_st in df_raw.columns else "Grand Club",
-                    'Pos': df_raw['Pos'].astype(str) if 'Pos' in df_raw.columns else "N/A",
-                    'Equipe_NHL': df_raw['Team'].astype(str) if 'Team' in df_raw.columns else "N/A",
-                    'Propriétaire': f.name.replace('.csv', '')
-                })
-                new_dfs.append(temp)
+                if idx != -1:
+                    # Utilisation de sep=None pour gérer , ou ; automatiquement
+                    csv_data = io.StringIO("\n".join(content[idx:]))
+                    df_raw = pd.read_csv(csv_data, sep=None, engine='python', on_bad_lines='skip').fillna("N/A")
+                    df_raw.columns = [str(c).strip() for c in df_raw.columns] # Nettoyage colonnes
+
+                    # Mapping flexible
+                    col_p = next((c for c in df_raw.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
+                    col_s = next((c for c in df_raw.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
+                    col_st = next((c for c in df_raw.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
+                    
+                    if col_p and col_s:
+                        sal = pd.to_numeric(df_raw[col_s].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                        sal = sal.apply(lambda x: x*1000 if 0 < x < 100000 else x)
+                        
+                        temp = pd.DataFrame({
+                            'Joueur': df_raw[col_p].astype(str).str.strip(),
+                            'Salaire': sal.astype(int),
+                            'Statut': df_raw[col_st].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club") if col_st else "Grand Club",
+                            'Pos': df_raw['Pos'].astype(str) if 'Pos' in df_raw.columns else "N/A",
+                            'Equipe_NHL': df_raw['Team'].astype(str) if 'Team' in df_raw.columns else "N/A",
+                            'Propriétaire': f.name.replace('.csv', '')
+                        })
+                        new_dfs.append(temp)
+                else:
+                    st.error(f"Format non reconnu dans {f.name}")
             except Exception as e:
-                st.error(f"Erreur import {f.name}")
+                st.error(f"Erreur sur {f.name}: {e}")
         
         if new_dfs:
             st.session_state.historique = pd.concat([st.session_state.historique] + new_dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
             save_all()
-            st.sidebar.success("✅ Importation réussie")
+            st.sidebar.success(f"✅ {len(new_dfs)} fichiers importés")
+            st.rerun()
 
 # 3. ONGLETS PRINCIPAUX
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
@@ -95,21 +107,18 @@ with tab1:
         stats['Espace GC'] = cap_gc - stats['Total GC']
         st.dataframe(stats.style.format(format_currency, subset=['Grand Club', 'Club École', 'Impact', 'Total GC', 'Espace GC']), use_container_width=True)
 
-# --- SIMULATEUR (FIXED FOR LIST OF LISTS) ---
+# --- SIMULATEUR ---
 with tab2:
     teams = sorted(st.session_state.historique['Propriétaire'].unique()) if not st.session_state.historique.empty else []
     if teams:
-        eq = st.selectbox("Sélectionner une équipe", teams)
+        eq = st.selectbox("Sélectionner une équipe", teams, key="sim_selector")
         dff = st.session_state.historique[st.session_state.historique['Propriétaire'] == eq].copy().fillna("N/A")
-        
-        # Label sécurisé (sans NaN)
         dff['label'] = dff['Joueur'].astype(str) + " | " + dff['Pos'].astype(str) + " | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k")
         
         l_gc = dff[dff['Statut'] == "Grand Club"]['label'].tolist()
         l_ce = dff[dff['Statut'] == "Club École"]['label'].tolist()
 
-        # res renvoie une liste de listes [[gc_items], [ce_items]]
-        res = sort_items([{'header': '🏙️ GRAND CLUB', 'items': l_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}], multi_containers=True, key=f"sim_{eq}")
+        res = sort_items([{'header': '🏙️ GRAND CLUB', 'items': l_gc}, {'header': '🏫 CLUB ÉCOLE', 'items': l_ce}], multi_containers=True, key=f"sim_v2025_{eq}")
 
         def quick_sum(items):
             if not items or not isinstance(items, list): return 0
@@ -120,11 +129,8 @@ with tab2:
                     except: pass
             return total
         
-        # Calcul des masses selon la position actuelle dans le simulateur
         s_gc_joueurs = quick_sum(res[0]) if (res and len(res) > 0) else quick_sum(l_gc)
         s_ce_joueurs = quick_sum(res[1]) if (res and len(res) > 1) else quick_sum(l_ce)
-        
-        # Pénalités (Rachats + JA)
         p_imp = st.session_state.rachats[st.session_state.rachats['Propriétaire'] == eq]['Impact'].sum()
         
         st.divider()
@@ -133,7 +139,7 @@ with tab2:
         c2.metric("Masse Club École", format_currency(s_ce_joueurs))
         c3.metric("Total Pénalités (50%)", format_currency(p_imp))
 
-# --- GESTION (EMBAUCHE JA & RACHATS) ---
+# --- GESTION ---
 with tab3:
     col1, col2 = st.columns(2)
     with col1:
@@ -143,22 +149,18 @@ with tab3:
             available['label'] = available['Player'].astype(str) + " (" + available['Position'].astype(str) + ") - " + available['Salary'].astype(str)
             with st.form("fa_form"):
                 f_prop = st.selectbox("Équipe Acquéreuse", teams if teams else ["Ma Ligue"])
-                sel = st.selectbox("Chercher un joueur dans la base", available['label'].tolist())
-                f_stat = st.radio("Assignation initiale", ["Grand Club", "Club École"], horizontal=True)
+                sel = st.selectbox("Chercher un joueur", available['label'].tolist())
+                f_stat = st.radio("Assignation", ["Grand Club", "Club École"], horizontal=True)
                 
                 if st.form_submit_button("Signer (Complet + 50% Pénalité)"):
                     p_data = available[available['label'] == sel].iloc[0]
                     sal = pd.to_numeric(str(p_data['Salary']).replace(r'[^\d]', '', regex=True), errors='coerce') or 0
                     if 0 < sal < 100000: sal *= 1000
                     
-                    # 1. Ajouter Joueur avec Salaire Complet
                     new_p = pd.DataFrame([{'Joueur': p_data['Player'], 'Salaire': sal, 'Statut': f_stat, 'Pos': p_data['Position'], 'Equipe_NHL': p_data['Team'], 'Propriétaire': f_prop}])
                     st.session_state.historique = pd.concat([st.session_state.historique, new_p], ignore_index=True)
-                    
-                    # 2. Ajouter la pénalité de 50% automatiquement
                     new_r = pd.DataFrame([{'Propriétaire': f_prop, 'Joueur': f"Pénalité JA: {p_data['Player']}", 'Impact': int(sal * 0.5)}])
                     st.session_state.rachats = pd.concat([st.session_state.rachats, new_r], ignore_index=True)
-                    
                     save_all()
                     st.rerun()
 
@@ -174,10 +176,8 @@ with tab3:
                 if st.form_submit_button("Confirmer Rachat (50%)"):
                     if j_list and j_sel_label != "Aucun":
                         j_name, j_sal = j_list[j_sel_label]
-                        # Création impact rachat (50%)
                         new_r = pd.DataFrame([{'Propriétaire': t_sel, 'Joueur': j_name, 'Impact': int(j_sal * 0.5)}])
                         st.session_state.rachats = pd.concat([st.session_state.rachats, new_r], ignore_index=True)
-                        # Retrait de l'effectif
                         st.session_state.historique = st.session_state.historique[~((st.session_state.historique.Joueur == j_name) & (st.session_state.historique.Propriétaire == t_sel))]
                         save_all()
                         st.rerun()
