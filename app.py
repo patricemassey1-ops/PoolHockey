@@ -4,15 +4,14 @@ import io
 import os
 from streamlit_sortables import sort_items
 
-# 1. CONFIGURATION DU SYSTÈME
-st.set_page_config(page_title="Simulateur Fantrax 2025 - Auto", layout="wide")
+# 1. CONFIGURATION
+st.set_page_config(page_title="Simulateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
 BUYOUT_FILE = "rachats_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
 
 def save_all():
-    """Exportation automatique vers les fichiers CSV"""
     st.session_state.historique.to_csv(DB_FILE, index=False)
     st.session_state.rachats.to_csv(BUYOUT_FILE, index=False)
 
@@ -25,7 +24,6 @@ def load_initial_data(file, columns):
         except: return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
-# Initialisation des sessions
 if 'historique' not in st.session_state:
     st.session_state.historique = load_initial_data(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Equipe_NHL', 'Propriétaire'])
 if 'rachats' not in st.session_state:
@@ -36,34 +34,26 @@ if 'db_joueurs' not in st.session_state:
 def format_currency(val):
     return f"{int(val or 0):,}".replace(",", " ") + "$"
 
-# 2. IMPORTATION AUTOMATIQUE (DÉCLENCHÉE PAR LE DÉPÔT)
+# 2. BARRE LATÉRALE - IMPORTATION AUTOMATIQUE
 with st.sidebar:
     st.header("🚀 Importation Automatique")
     cap_gc = st.number_input("Plafond Grand Club", value=95500000, step=500000)
     cap_ce = st.number_input("Plafond Club École", value=47750000, step=100000)
     
-    st.divider()
     uploaded_files = st.file_uploader("Déposez vos CSV Fantrax ici", type="csv", accept_multiple_files=True)
-    
-    # LOGIQUE D'IMPORTATION SANS BOUTON
     if uploaded_files:
         new_dfs = []
         for f in uploaded_files:
             content = f.getvalue().decode('utf-8-sig').splitlines()
             idx = next((i for i, l in enumerate(content) if any(x in l for x in ['Skaters', 'Goalies', 'Player'])), -1)
-            
             if idx != -1:
                 try:
                     df_raw = pd.read_csv(io.StringIO("\n".join(content[idx+1:])), sep=None, engine='python', on_bad_lines='skip').fillna("N/A")
-                    
                     col_p = next((c for c in df_raw.columns if 'player' in c.lower()), "Player")
                     col_s = next((c for c in df_raw.columns if 'salary' in c.lower()), "Salary")
                     col_st = next((c for c in df_raw.columns if 'status' in c.lower()), "Status")
-                    
-                    # Nettoyage salaires
                     sal = pd.to_numeric(df_raw[col_s].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
                     sal = sal.apply(lambda x: x*1000 if 0 < x < 100000 else x)
-                    
                     temp = pd.DataFrame({
                         'Joueur': df_raw[col_p].astype(str),
                         'Salaire': sal.astype(int),
@@ -73,18 +63,15 @@ with st.sidebar:
                         'Propriétaire': f.name.replace('.csv', '')
                     })
                     new_dfs.append(temp)
-                except Exception as e:
-                    st.sidebar.error(f"Erreur sur {f.name}")
-        
+                except: pass
         if new_dfs:
             st.session_state.historique = pd.concat([st.session_state.historique] + new_dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-            save_all() # SAUVEGARDE AUTO
-            st.sidebar.success(f"✅ {len(uploaded_files)} fichiers importés !")
+            save_all()
+            st.rerun()
 
 # 3. ONGLETS
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
 
-# --- DASHBOARD ---
 with tab1:
     if not st.session_state.historique.empty:
         stats = st.session_state.historique.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
@@ -96,25 +83,34 @@ with tab1:
         stats['Espace GC'] = cap_gc - stats['Total GC']
         st.dataframe(stats.style.format(format_currency, subset=['Grand Club', 'Club École', 'Impact', 'Total GC', 'Espace GC']), use_container_width=True)
 
-# --- SIMULATEUR ---
+# --- SIMULATEUR (CORRECTIONS APPLIQUÉES) ---
 with tab2:
     teams = sorted(st.session_state.historique['Propriétaire'].unique()) if not st.session_state.historique.empty else []
     if teams:
         eq = st.selectbox("Équipe", teams)
         dff = st.session_state.historique[st.session_state.historique['Propriétaire'] == eq].copy().fillna("N/A")
-        # Label sécurisé (pas de NaN)
         dff['label'] = dff['Joueur'].astype(str) + " | " + dff['Pos'].astype(str) + " | " + dff['Salaire'].apply(lambda x: f"{int(x/1000)}k")
         
         l_gc = dff[dff['Statut'] == "Grand Club"]['label'].tolist()
         l_ce = dff[dff['Statut'] == "Club École"]['label'].tolist()
 
+        # res devient une liste de listes : [ [items_gc], [items_ce] ]
         res = sort_items([{'header': '🏙️ GC', 'items': l_gc}, {'header': '🏫 ÉCOLE', 'items': l_ce}], multi_containers=True, key=f"sim_{eq}")
 
-        def quick_sum(items):
-            return sum(int(str(x).split('|')[-1].replace('k','').strip()) * 1000 for x in items if '|' in str(x))
+        def quick_sum(items_list):
+            if not items_list or not isinstance(items_list, list): return 0
+            total = 0
+            for x in items_list:
+                if isinstance(x, str) and '|' in x:
+                    try:
+                        total += int(x.split('|')[-1].replace('k','').strip()) * 1000
+                    except: pass
+            return total
         
-        s_gc_joueurs = quick_sum(res) if (res and len(res) > 0) else quick_sum(l_gc)
-        s_ce = quick_sum(res) if (res and len(res) > 1) else quick_sum(l_ce)
+        # Accès sécurisé aux sous-listes de res
+        s_gc_joueurs = quick_sum(res[0]) if (res and len(res) > 0) else quick_sum(l_gc)
+        s_ce = quick_sum(res[1]) if (res and len(res) > 1) else quick_sum(l_ce)
+        
         p_imp = st.session_state.rachats[st.session_state.rachats['Propriétaire'] == eq]['Impact'].sum()
         
         st.divider()
@@ -123,7 +119,6 @@ with tab2:
         c2.metric("Masse École", format_currency(s_ce))
         c3.metric("Rachats/Pénalités", format_currency(p_imp))
 
-# --- GESTION ---
 with tab3:
     col1, col2 = st.columns(2)
     with col1:
@@ -134,12 +129,10 @@ with tab3:
             with st.form("fa_auto"):
                 f_prop = st.selectbox("Équipe Acquéreuse", teams if teams else ["Ligue"])
                 sel = st.selectbox("Joueur dans la base", available['label'].tolist())
-                if st.form_submit_button("Signer & Sauvegarder"):
-                    p_data = available[available['label'] == sel].iloc
+                if st.form_submit_button("Signer"):
+                    p_data = available[available['label'] == sel].iloc[0]
                     sal = pd.to_numeric(str(p_data['Salary']).replace(r'[^\d]', '', regex=True), errors='coerce') or 0
                     if sal < 100000: sal *= 1000
-                    
-                    # Joueur 100% + Pénalité 50%
                     new_p = pd.DataFrame([{'Joueur': p_data['Player'], 'Salaire': sal, 'Statut': "Grand Club", 'Pos': p_data['Position'], 'Equipe_NHL': p_data['Team'], 'Propriétaire': f_prop}])
                     st.session_state.historique = pd.concat([st.session_state.historique, new_p])
                     new_r = pd.DataFrame([{'Propriétaire': f_prop, 'Joueur': f"JA: {p_data['Player']}", 'Impact': int(sal * 0.5)}])
@@ -154,8 +147,8 @@ with tab3:
                 t_sel = st.selectbox("Équipe", teams, key="bt_auto")
                 j_df = st.session_state.historique[st.session_state.historique['Propriétaire'] == t_sel]
                 j_sel = st.selectbox("Joueur", j_df['Joueur'].tolist())
-                if st.form_submit_button("Racheter & Sauvegarder"):
-                    row = j_df[j_df['Joueur'] == j_sel].iloc
+                if st.form_submit_button("Racheter"):
+                    row = j_df[j_df['Joueur'] == j_sel].iloc[0]
                     new_r = pd.DataFrame([{'Propriétaire': t_sel, 'Joueur': j_sel, 'Impact': int(row['Salaire'] * 0.5)}])
                     st.session_state.rachats = pd.concat([st.session_state.rachats, new_r])
                     st.session_state.historique = st.session_state.historique[~((st.session_state.historique.Joueur == j_sel) & (st.session_state.historique.Propriétaire == t_sel))]
