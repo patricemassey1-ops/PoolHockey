@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import os
 from datetime import datetime
+from streamlit_sortables import sort_items # Nécessite streamlit-sortables
 
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
@@ -77,7 +78,6 @@ if fichiers_telecharges:
         sauvegarder_historique(st.session_state['historique'])
         st.success("Importation réussie")
 
-
 # --- AFFICHAGE PRINCIPAL ---
 if not st.session_state['historique'].empty:
     df_f = st.session_state['historique']
@@ -85,6 +85,7 @@ if not st.session_state['historique'].empty:
     tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"]) 
 
     with tab1:
+        # (Votre code résumé des masses salariales reste identique)
         st.header("Résumé des Masses Salariales")
         summary = df_f.groupby(['Propriétaire', 'Statut'])['Salaire'].sum().unstack(fill_value=0).reset_index()
         for col in ['Grand Club', 'Club École']:
@@ -103,58 +104,71 @@ if not st.session_state['historique'].empty:
                     st.write("**Club École**")
                     st.table(df_e[df_e['Statut'] == "Club École"][['Joueur', 'Salaire']].assign(Salaire=lambda x: x['Salaire'].apply(format_currency)))
 
-
     with tab2:
         st.header("🔄 Outil de Transfert Interactif")
-        st.markdown("Utilisez le menu déroulant dans la colonne **`Statut`** pour changer l'affectation d'un joueur et voir l'impact sur le cap.")
-
-        # 1. Sélection de l'équipe
         equipe_sim_choisie = st.selectbox("Sélectionner l'équipe à simuler", options=df_f['Propriétaire'].unique(), key='simulateur_equipe')
         
+        # Filtrer les joueurs de l'équipe
         df_sim = df_f[df_f['Propriétaire'] == equipe_sim_choisie].copy()
         
-        # 2. Utilisation de st.data_editor pour permettre l'édition du statut
-        df_sim = df_sim.sort_values(['pos_order', 'Statut', 'Salaire'], ascending=[True, False, False])
-        
-        edited_data = st.data_editor(
-            df_sim[['Joueur', 'Pos', 'Salaire', 'Statut']],
-            column_config={
-                "Statut": st.column_config.SelectboxColumn(
-                    "Statut",
-                    help="Déplacer le joueur entre les clubs",
-                    width="medium",
-                    options=["Grand Club", "Club École"],
-                    required=True,
-                ),
-                # CORRECTION APPLIQUÉE ICI pour résoudre le TypeError:
-                "Salaire": st.column_config.NumberColumn("Salaire", format="$ %d"), 
-            },
-            hide_index=True,
-            use_container_width=True,
-            key=f'editor_{equipe_sim_choisie}'
-        )
+        # Préparer les listes pour le drag and drop
+        # Format : "Nom (Salaire)"
+        list_grand_club = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Grand Club"].iterrows()]
+        list_club_ecole = [f"{row['Joueur']} ({format_currency(row['Salaire'])})" for _, row in df_sim[df_sim['Statut'] == "Club École"].iterrows()]
 
-        # 3. Calculer les totaux simulés à partir des données éditées
-        sim_g = edited_data[edited_data['Statut'] == "Grand Club"]['Salaire'].sum()
-        sim_c = edited_data[edited_data['Statut'] == "Club École"]['Salaire'].sum()
+        # Création des colonnes interactives
+        st.info("💡 Glissez-déposez les joueurs entre les colonnes pour ajuster votre masse salariale.")
+        
+        sort_data = [
+            {'header': '🏙️ GRAND CLUB', 'items': list_grand_club},
+            {'header': '🏫 CLUB ÉCOLE', 'items': list_club_ecole}
+        ]
+
+        # Affichage du composant
+        updated_sort = sort_items(sort_data, multi_containers=True, direction='horizontal')
+
+        # Calcul des salaires après transfert
+        def extract_salary(player_list):
+            total = 0
+            for item in player_list:
+                try:
+                    # On récupère le montant entre parenthèses et on nettoie
+                    s_str = item.split('(')[-1].replace('$', '').replace(' ', '').replace(')', '')
+                    total += int(s_str)
+                except:
+                    continue
+            return total
+
+        sim_g = extract_salary(updated_sort[0]['items'])
+        sim_c = extract_salary(updated_sort[1]['items'])
 
         st.markdown("---")
-        # Ces deux colonnes affichent le résultat de la simulation
         c1, c2 = st.columns(2)
         
-        # Affichage des métriques de plafond simulées
         c1.metric(
-            "Simulé: Grand Club", 
+            "Masse Grand Club", 
             format_currency(sim_g), 
             delta=format_currency(CAP_GRAND_CLUB - sim_g), 
             delta_color="normal" if sim_g <= CAP_GRAND_CLUB else "inverse"
         )
         c2.metric(
-            "Simulé: Club École", 
+            "Masse Club École", 
             format_currency(sim_c), 
             delta=format_currency(CAP_CLUB_ECOLE - sim_c),
             delta_color="normal" if sim_c <= CAP_CLUB_ECOLE else "inverse"
         )
 
+        # Style pour rendre les blocs de joueurs plus visibles
+        st.markdown("""
+            <style>
+            .stSortablesItem {
+                background-color: #1E3A8A !important;
+                color: white !important;
+                border-radius: 5px !important;
+                padding: 8px !important;
+                margin-bottom: 5px !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 else:
     st.info("Importez un fichier CSV pour activer les fonctionnalités.")
