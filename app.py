@@ -5,20 +5,21 @@ import os
 from datetime import datetime
 from streamlit_sortables import sort_items
 
-# Configuration de la page
+# 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
 
-# --- INITIALISATION DU SESSION STATE (La Marge) ---
+# 2. INITIALISATION DE LA MARGE (PLAFONDS CONSERVÉS)
 if 'cap_gc' not in st.session_state:
     st.session_state['cap_gc'] = 95500000
 if 'cap_ce' not in st.session_state:
     st.session_state['cap_ce'] = 47750000
 
-# --- FONCTIONS DE NETTOYAGE ---
+# 3. FONCTIONS DE NETTOYAGE ET FORMATAGE
 def clean_salary_values(series):
+    """Nettoyage vectorisé des salaires (2025)"""
     return pd.to_numeric(
         series.astype(str).str.replace(r'[\$,\s\xa0]', '', regex=True), 
         errors='coerce'
@@ -27,7 +28,13 @@ def clean_salary_values(series):
 def format_currency(val):
     return f"{int(val or 0):,}".replace(",", " ") + "$"
 
-# --- CHARGEMENT DES FICHIERS ---
+def pos_sort_order(pos_text):
+    pos = str(pos_text).upper()
+    if 'G' in pos: return 2
+    if 'D' in pos: return 1
+    return 0 
+
+# 4. CHARGEMENT DES DONNÉES
 @st.cache_data(show_spinner="Chargement de la base joueurs...")
 def charger_base_joueurs():
     if not os.path.exists(PLAYERS_DB_FILE):
@@ -44,27 +51,21 @@ def charger_base_joueurs():
         st.error(f"Erreur Hockey_Players.csv : {e}")
         return pd.DataFrame()
 
-# --- SIDEBAR (CONSERVATION DU PLAFOND) ---
-st.sidebar.header("⚙️ Configuration des Plafonds")
-st.session_state['cap_gc'] = st.sidebar.number_input(
-    "Plafond Grand Club ($)", 
-    value=st.session_state['cap_gc'], 
-    step=500000
-)
-st.session_state['cap_ce'] = st.sidebar.number_input(
-    "Plafond Club École ($)", 
-    value=st.session_state['cap_ce'], 
-    step=100000
-)
-
-# --- LOGIQUE D'IMPORTATION ---
 if 'historique' not in st.session_state:
-    if os.path.exists(DB_FILE): st.session_state['historique'] = pd.read_csv(DB_FILE)
-    else: st.session_state['historique'] = pd.DataFrame()
+    if os.path.exists(DB_FILE):
+        st.session_state['historique'] = pd.read_csv(DB_FILE)
+    else:
+        st.session_state['historique'] = pd.DataFrame()
 
-fichiers = st.sidebar.file_uploader("📥 Importer Fantrax", type="csv", accept_multiple_files=True)
-if fichiers and st.sidebar.button("Lancer l'import"):
-    dfs = []
+# 5. BARRE LATÉRALE (SIDEBAR)
+st.sidebar.header("⚙️ Configuration des Plafonds")
+st.session_state['cap_gc'] = st.sidebar.number_input("Plafond Grand Club ($)", value=st.session_state['cap_gc'], step=500000)
+st.session_state['cap_ce'] = st.sidebar.number_input("Plafond Club École ($)", value=st.session_state['cap_ce'], step=100000)
+
+st.sidebar.markdown("---")
+fichiers = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
+if fichiers and st.sidebar.button("Lancer l'importation"):
+    dfs_a_ajouter = []
     for f in fichiers:
         content = f.getvalue().decode('utf-8-sig')
         lines = content.splitlines()
@@ -74,26 +75,32 @@ if fichiers and st.sidebar.button("Lancer l'import"):
             return pd.read_csv(io.StringIO("\n".join(lines[idx+1:])), sep=None, engine='python', on_bad_lines='skip')
         
         df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
-        c_player = next((c for c in df_merged.columns if 'player' in c.lower()), None)
-        c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), None)
-        
+        c_player = next((c for c in df_merged.columns if 'player' in c.lower() or 'joueur' in c.lower()), None)
+        c_salary = next((c for c in df_merged.columns if 'salary' in c.lower() or 'salaire' in c.lower()), None)
+        c_status = next((c for c in df_merged.columns if 'status' in c.lower() or 'statut' in c.lower()), None)
+        c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), None)
+        c_team = next((c for c in df_merged.columns if 'team' in c.lower() or 'éqp' in c.lower()), None)
+
         if c_player and c_salary:
             df_merged['Salaire_Clean'] = clean_salary_values(df_merged[c_salary])
             df_merged['Salaire_Clean'] = df_merged['Salaire_Clean'].apply(lambda x: x*1000 if 0 < x < 100000 else x)
             temp_df = pd.DataFrame({
                 'Joueur': df_merged[c_player], 'Salaire': df_merged['Salaire_Clean'],
-                'Statut': "Grand Club", 'Propriétaire': f.name.replace('.csv', '')
+                'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club") if c_status else "Grand Club",
+                'Pos': df_merged[c_pos] if c_pos else "N/A", 'Équipe_NHL': df_merged[c_team] if c_team else "N/A",
+                'Propriétaire': f.name.replace('.csv', '')
             })
-            dfs.append(temp_df)
-    if dfs:
-        st.session_state['historique'] = pd.concat([st.session_state['historique']] + dfs).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
+            dfs_a_ajouter.append(temp_df)
+    if dfs_a_ajouter:
+        st.session_state['historique'] = pd.concat([st.session_state['historique'], pd.concat(dfs_a_ajouter)], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
         st.session_state['historique'].to_csv(DB_FILE, index=False)
         st.rerun()
 
-# --- AFFICHAGE ---
+# 6. AFFICHAGE PRINCIPAL
 base_joueurs = charger_base_joueurs()
+
 if not st.session_state['historique'].empty:
-    tab1, tab2 = st.tabs(["📊 Dashboard", "⚖️ Simulateur"])
+    tab1, tab2 = st.tabs(["📊 Tableau de Bord", "⚖️ Simulateur Avancé"])
     
     with tab1:
         st.header("Résumé des Masses")
@@ -101,29 +108,69 @@ if not st.session_state['historique'].empty:
         st.dataframe(summary.style.format(format_currency), use_container_width=True)
 
     with tab2:
-        equipe = st.selectbox("Équipe", sorted(st.session_state['historique']['Propriétaire'].unique()))
+        equipe = st.selectbox("Sélectionner l'équipe", options=sorted(st.session_state['historique']['Propriétaire'].unique()))
         df_sim = st.session_state['historique'][st.session_state['historique']['Propriétaire'] == equipe].copy()
         
-        # Outil de rachat et transfert...
-        df_sim['Display'] = df_sim['Joueur'] + " - " + df_sim['Salaire'].apply(format_currency)
-        
-        col1, col2 = st.columns(2)
-        with col1: rachats_gc = st.multiselect("Rachats GC (50%)", df_sim['Display'], key=f"r_gc_{equipe}")
-        with col2: rachats_ce = st.multiselect("Rachats CE (50%)", df_sim['Display'], key=f"r_ce_{equipe}")
+        # AJOUT JOUEUR AUTONOME
+        st.subheader("➕ Ajouter un (Joueur Autonome)")
+        if not base_joueurs.empty:
+            c_a1, c_a2 = st.columns([0.7, 0.3])
+            with c_a1:
+                p_auto = st.selectbox("Rechercher dans Hockey_Players.csv", [None] + base_joueurs['Display'].tolist(), key=f"auto_{equipe}")
+            if p_auto:
+                row = base_joueurs[base_joueurs['Display'] == p_auto].iloc[0]
+                with c_a2:
+                    dest = st.selectbox("Assigner à", ["Grand Club", "Club École"], key=f"dest_{equipe}")
+                if st.button("Ajouter à l'équipe"):
+                    new_row = pd.DataFrame([{'Joueur': f"{row['Joueur']} (Autonome)", 'Salaire': row['Salaire'], 'Statut': dest, 'Pos': row['Pos'], 'Équipe_NHL': row['Équipe'], 'Propriétaire': equipe}])
+                    st.session_state['historique'] = pd.concat([st.session_state['historique'], new_row], ignore_index=True)
+                    st.session_state['historique'].to_csv(DB_FILE, index=False)
+                    st.rerun()
 
-        # Drag and Drop
-        l_gc = df_sim['Display'].tolist() # Simplifié pour l'exemple
-        updated = sort_items([{'header': '🏙️ GC', 'items': l_gc}, {'header': '🏫 CE', 'items': []}], multi_containers=True)
+        st.divider()
+
+        # PRÉPARATION DES LISTES POUR LE SIMULATEUR
+        df_sim['Display'] = df_sim['Joueur'] + " (" + df_sim.get('Équipe_NHL', 'N/A') + " - " + df_sim['Pos'] + ") - " + df_sim['Salaire'].apply(format_currency)
         
+        # RACHATS (BUYOUTS)
+        st.subheader("💰 Rachats (50%)")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            rachats_gc = st.multiselect("Rachats Grand Club", df_sim[df_sim['Statut']=="Grand Club"]['Display'], key=f"r_gc_{equipe}")
+        with col_r2:
+            rachats_ce = st.multiselect("Rachats Club École", df_sim[df_sim['Statut']=="Club École"]['Display'], key=f"r_ce_{equipe}")
+
+        # TRANSFERT INTERACTIF (DRAG AND DROP)
+        st.subheader("🔄 Transferts")
+        l_gc_init = df_sim[df_sim['Statut'] == "Grand Club"]['Display'].tolist()
+        l_ce_init = df_sim[df_sim['Statut'] == "Club École"]['Display'].tolist()
+
+        updated = sort_items([
+            {'header': '🏙️ GRAND CLUB', 'items': l_gc_init}, 
+            {'header': '🏫 CLUB ÉCOLE', 'items': l_ce_init}
+        ], multi_containers=True, direction='horizontal')
+        
+        # Correction d'indexation pour la liste retournée
+        if updated and len(updated) >= 2:
+            items_gc, items_ce = updated[0]['items'], updated[1]['items']
+        else:
+            items_gc, items_ce = l_gc_init, l_ce_init
+
+        # CALCUL DES TOTAUX
         def get_tot(items):
-            return sum([int(str(i).split('-')[-1].replace('$', '').replace(' ', '').replace('\xa0', '').strip()) for i in items if '-' in str(i)])
+            tot = 0
+            for i in items:
+                try: tot += int(str(i).split('-')[-1].replace('$', '').replace(' ', '').replace('\xa0', '').strip())
+                except: continue
+            return tot
 
-        m_gc = get_tot(updated['items'] if updated else l_gc) - (get_tot(rachats_gc) / 2)
-        m_ce = get_tot(updated['items'] if updated else []) - (get_tot(rachats_ce) / 2)
+        m_gc = get_tot(items_gc) - (get_tot(rachats_gc) / 2)
+        m_ce = get_tot(items_ce) - (get_tot(rachats_ce) / 2)
 
+        # AFFICHAGE DES RÉSULTATS (COMPARAISON À LA MARGE)
+        st.markdown("---")
         res1, res2 = st.columns(2)
-        # UTILISATION DES VALEURS CONSERVÉES DANS LA MARGE (Session State)
-        res1.metric("Grand Club", format_currency(m_gc), delta=format_currency(st.session_state['cap_gc'] - m_gc))
-        res2.metric("Club École", format_currency(m_ce), delta=format_currency(st.session_state['cap_ce'] - m_ce))
+        res1.metric("Grand Club (Net)", format_currency(m_gc), delta=format_currency(st.session_state['cap_gc'] - m_gc), delta_color="normal" if m_gc <= st.session_state['cap_gc'] else "inverse")
+        res2.metric("Club École (Net)", format_currency(m_ce), delta=format_currency(st.session_state['cap_ce'] - m_ce), delta_color="normal" if m_ce <= st.session_state['cap_ce'] else "inverse")
 
-st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; padding: 10px !important; margin: 5px !important; border-radius: 8px !important; }</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stSortablesItem { background-color: #1E3A8A !important; color: white !important; padding: 8px !important; margin-bottom: 4px !important; border-radius: 6px !important; font-size: 14px; }</style>""", unsafe_allow_html=True)
