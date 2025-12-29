@@ -132,6 +132,9 @@ if fichiers_telecharges:
             st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
             sauvegarder_donnees(st.session_state['historique'], DB_FILE)
             st.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s) avec succès!")
+            # Attendre un court instant pour afficher le message
+            import time
+            time.sleep(0.5)
             st.rerun()
 
 # --- TABS (Dashboard & Sim) ---
