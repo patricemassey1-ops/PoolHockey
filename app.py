@@ -18,10 +18,10 @@ DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
 DEFAULT_PLAFOND_CLUB_ECOLE = 47_750_000
 
 # --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
-@st.cache_data(ttl=300)  # Cache pour 5 minutes
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache pour 1 heure
 def charger_donnees(file, columns):
     if os.path.exists(file):
-        df = pd.read_csv(file).fillna(0)
+        df = pd.read_csv(file, dtype={'Salaire': 'float64'}).fillna(0)
         return df.drop_duplicates()
     return pd.DataFrame(columns=columns)
 
@@ -38,11 +38,11 @@ def format_currency(val):
     except:
         return "0 $"
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600, show_spinner=False)
 def charger_db_joueurs():
     """Charge la base de données des joueurs avec cache"""
     if os.path.exists(PLAYERS_DB_FILE):
-        df_players = pd.read_csv(PLAYERS_DB_FILE)
+        df_players = pd.read_csv(PLAYERS_DB_FILE, dtype={'Salaire': 'float64'})
         df_players.rename(columns={'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'Team': 'Equipe_NHL'}, inplace=True, errors='ignore')
         
         df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
@@ -141,35 +141,47 @@ with tab1:
     if not st.session_state['historique'].empty:
         st.header("📊 Masse Salariale par Propriétaire")
         
-        # Optimisation: éviter les copies inutiles
-        df_f = st.session_state['historique'].drop_duplicates()
-        df_f['Salaire'] = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
+        # Optimisation: traiter directement sans copie excessive
+        df_f = st.session_state['historique']
         
-        # Extraire le propriétaire et la date/heure
-        df_f[['Propriétaire_nom', 'DateTime']] = df_f['Propriétaire'].str.extract(r'(.+?)\s*\((.+)\)')
-        df_f['Propriétaire_nom'] = df_f['Propriétaire_nom'].fillna(df_f['Propriétaire'])
-        df_f['DateTime'] = df_f['DateTime'].fillna('')
+        # Conversion efficace des salaires
+        salaires = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
         
-        # Grouper par propriétaire complet et statut
-        summary = df_f.groupby(['Propriétaire', 'Propriétaire_nom', 'DateTime', 'Statut'], as_index=False)['Salaire'].sum()
+        # Extraction rapide propriétaire/date
+        split_data = df_f['Propriétaire'].str.extract(r'(.+?)\s*\((.+)\)', expand=True)
+        proprio_nom = split_data[0].fillna(df_f['Propriétaire']).values
+        date_time = split_data[1].fillna('').values
+        
+        # Créer un DataFrame optimisé pour le groupement
+        temp_df = pd.DataFrame({
+            'Propriétaire': df_f['Propriétaire'].values,
+            'Propriétaire_nom': proprio_nom,
+            'DateTime': date_time,
+            'Statut': df_f['Statut'].values,
+            'Salaire': salaires.values
+        })
+        
+        # Groupement et pivot optimisés
+        summary = temp_df.groupby(['Propriétaire', 'Propriétaire_nom', 'DateTime', 'Statut'], observed=True)['Salaire'].sum().reset_index()
         summary = summary.pivot_table(
             index=['Propriétaire', 'Propriétaire_nom', 'DateTime'], 
             columns='Statut', 
             values='Salaire', 
-            fill_value=0
+            fill_value=0,
+            observed=True
         ).reset_index()
         
-        # Renommer les colonnes si elles existent
+        # Colonnes garanties
         if 'Grand Club' not in summary.columns:
             summary['Grand Club'] = 0
         if 'Club École' not in summary.columns:
             summary['Club École'] = 0
             
-        # Calculer les montants restants
+        # Calculs vectorisés
         summary['Restant Grand Club'] = PLAFOND_GRAND_CLUB - summary['Grand Club']
         summary['Restant Club École'] = PLAFOND_CLUB_ECOLE - summary['Club École']
         
-        # Afficher les plafonds en haut
+        # Métriques en haut
         col1, col2 = st.columns(2)
         with col1:
             st.metric("🏒 Plafond Grand Club", format_currency(PLAFOND_GRAND_CLUB))
@@ -178,25 +190,23 @@ with tab1:
         
         st.divider()
         
-        # Préparer l'affichage avec formatage (optimisé)
-        display_df = summary.copy()
-        for col in ['Grand Club', 'Restant Grand Club', 'Club École', 'Restant Club École']:
-            display_df[col] = display_df[col].apply(format_currency)
-        
-        # Réorganiser les colonnes
-        display_df = display_df[['Propriétaire_nom', 'DateTime', 'Grand Club', 'Restant Grand Club', 
-                                  'Club École', 'Restant Club École']]
-        display_df.columns = ['Propriétaire', 'Date/Heure', 'Grand Club', 'Restant Grand Club', 
-                              'Club École', 'Restant Club École']
+        # Formatage optimisé
+        display_df = pd.DataFrame({
+            'Propriétaire': summary['Propriétaire_nom'].values,
+            'Date/Heure': summary['DateTime'].values,
+            'Grand Club': [format_currency(v) for v in summary['Grand Club'].values],
+            'Restant Grand Club': [format_currency(v) for v in summary['Restant Grand Club'].values],
+            'Club École': [format_currency(v) for v in summary['Club École'].values],
+            'Restant Club École': [format_currency(v) for v in summary['Restant Club École'].values]
+        })
         
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         
         st.divider()
         
-        # Section suppression
+        # Section suppression optimisée
         st.subheader("🗑️ Supprimer une importation")
         
-        # Liste des propriétaires uniques (avec date/heure)
         proprietaires_list = summary['Propriétaire'].tolist()
         proprietaires_display = [f"{row['Propriétaire_nom']} ({row['DateTime']})" for _, row in summary.iterrows()]
         
@@ -210,33 +220,32 @@ with tab1:
                     key="delete_select"
                 )
             with col_btn:
-                st.write("")  # Espacer pour aligner
+                st.write("")
                 st.write("")
                 if st.button("🗑️ Supprimer", type="primary", use_container_width=True):
                     proprio_to_delete = proprietaires_list[selected_proprio]
-                    # Supprimer toutes les lignes de ce propriétaire
                     st.session_state['historique'] = st.session_state['historique'][
                         st.session_state['historique']['Propriétaire'] != proprio_to_delete
-                    ]
+                    ].copy()
                     sauvegarder_donnees(st.session_state['historique'], DB_FILE)
                     st.success(f"✅ Importation supprimée: {proprietaires_display[selected_proprio]}")
                     st.rerun()
         
         st.divider()
         
-        # Afficher les alertes pour les dépassements
+        # Alertes optimisées
         st.subheader("⚠️ Alertes")
         alertes = []
-        for _, row in summary.iterrows():
+        for idx, row in summary.iterrows():
             proprio_display = f"{row['Propriétaire_nom']} ({row['DateTime']})"
             if row['Restant Grand Club'] < 0:
-                alertes.append(f"🚨 **{proprio_display}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**")
+                alertes.append(('error', f"🚨 **{proprio_display}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**"))
             if row['Restant Club École'] < 0:
-                alertes.append(f"🚨 **{proprio_display}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**")
+                alertes.append(('error', f"🚨 **{proprio_display}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**"))
         
         if alertes:
-            for alerte in alertes:
-                st.error(alerte)
+            for alert_type, msg in alertes:
+                st.error(msg)
         else:
             st.success("✅ Aucun dépassement de plafond salarial")
     else:
