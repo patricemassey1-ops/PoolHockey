@@ -4,187 +4,128 @@ import io
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
-# =========================
-# CONFIGURATION
-# =========================
+# ================= CONFIG =================
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
-DB_FILE = "historique_fantrax_v2.csv"
-BUYOUT_FILE = "rachats_v2.csv"
-PLAYERS_DB_FILE = "Hockey_Players.csv"
+DB_FILE = "historique_fantrax.csv"
 HISTORIQUE_FILE = "historique_actions.csv"
 
-DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
-DEFAULT_PLAFOND_CLUB_ECOLE = 47_750_000
+PLAFOND_GC = 95_500_000
+PLAFOND_CE = 47_750_000
 
-# =========================
-# OUTILS
-# =========================
-def format_currency(val):
-    if pd.isna(val) or val == "":
-        return "0 $"
+# ================= UTILS =================
+def format_currency(v):
     try:
-        return f"{int(float(val)):,}".replace(",", " ") + " $"
+        return f"{int(float(v)):,}".replace(",", " ") + " $"
     except:
         return "0 $"
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def charger_donnees(file, columns):
-    if os.path.exists(file):
-        return pd.read_csv(file).drop_duplicates()
-    return pd.DataFrame(columns=columns)
+def save(df, f): df.to_csv(f, index=False)
 
-def sauvegarder_donnees(df, file):
-    df.drop_duplicates().to_csv(file, index=False)
-
-def ajouter_action_historique(proprio, action, joueur, details):
+def log_action(p, a, j, d):
     tz = ZoneInfo("America/Montreal")
     now = datetime.now(tz)
+    row = pd.DataFrame([{
+        "Date": now.strftime("%Y-%m-%d"),
+        "Heure": now.strftime("%H:%M:%S"),
+        "Propriétaire": p,
+        "Action": a,
+        "Joueur": j,
+        "Details": d
+    }])
+    st.session_state["actions"] = pd.concat([st.session_state["actions"], row])
+    save(st.session_state["actions"], HISTORIQUE_FILE)
 
-    action_df = pd.DataFrame({
-        "Date": [now.strftime("%Y-%m-%d")],
-        "Heure": [now.strftime("%H:%M:%S")],
-        "Propriétaire": [proprio],
-        "Action": [action],
-        "Joueur": [joueur],
-        "Details": [details]
-    })
-
-    st.session_state["historique_actions"] = pd.concat(
-        [st.session_state["historique_actions"], action_df],
-        ignore_index=True
-    )
-    sauvegarder_donnees(st.session_state["historique_actions"], HISTORIQUE_FILE)
-
-# =========================
-# DB JOUEURS
-# =========================
-@st.cache_data(ttl=3600, show_spinner=False)
-def charger_db_joueurs():
-    if not os.path.exists(PLAYERS_DB_FILE):
-        return pd.DataFrame()
-
-    df = pd.read_csv(PLAYERS_DB_FILE)
-
-    df.rename(columns={
-        "Player": "Joueur",
-        "Salary": "Salaire",
-        "Position": "Pos",
-        "Team": "Equipe_NHL"
-    }, inplace=True, errors="ignore")
-
-    df["Salaire"] = (
-        df.get("Salaire", 0)
-        .astype(str)
-        .str.replace(r"[\$, ]", "", regex=True)
-        .astype(float)
-        .fillna(0) * 1000
+# ================= SESSION =================
+if "data" not in st.session_state:
+    st.session_state["data"] = pd.read_csv(DB_FILE) if os.path.exists(DB_FILE) else pd.DataFrame(
+        columns=["Propriétaire","Joueur","Salaire","Statut"]
     )
 
-    df["search_label"] = (
-        df["Joueur"] + " (" + df["Equipe_NHL"].fillna("N/A") + ") - " +
-        df["Salaire"].apply(format_currency)
+if "actions" not in st.session_state:
+    st.session_state["actions"] = pd.read_csv(HISTORIQUE_FILE) if os.path.exists(HISTORIQUE_FILE) else pd.DataFrame(
+        columns=["Date","Heure","Propriétaire","Action","Joueur","Details"]
     )
 
-    return df.drop_duplicates(subset=["Joueur", "Equipe_NHL"])
+# ================= SIDEBAR IMPORT =================
+st.sidebar.header("📥 Importer un fichier Fantrax")
+file = st.sidebar.file_uploader("CSV Fantrax", type="csv")
 
-# =========================
-# SESSION INIT
-# =========================
-if "historique" not in st.session_state:
-    st.session_state["historique"] = charger_donnees(
-        DB_FILE,
-        ["Joueur", "Salaire", "Statut", "Pos", "Equipe", "Propriétaire"]
-    )
+if file:
+    df = pd.read_csv(file)
+    df["Salaire"] = df["Salary"].astype(str).str.replace(r"[\$, ]","",regex=True).astype(float)*1000
+    df["Statut"] = df["Status"].apply(lambda x: "Club École" if "MIN" in str(x) else "Grand Club")
+    df["Propriétaire"] = file.name.replace(".csv","")
+    df = df[["Propriétaire","Player","Salaire","Statut"]]
+    df.columns = ["Propriétaire","Joueur","Salaire","Statut"]
 
-if "Equipe" not in st.session_state["historique"].columns:
-    st.session_state["historique"]["Equipe"] = "N/A"
+    st.session_state["data"] = pd.concat([st.session_state["data"], df])
+    save(st.session_state["data"], DB_FILE)
+    st.sidebar.success("Import réussi")
 
-if "rachats" not in st.session_state:
-    st.session_state["rachats"] = charger_donnees(
-        BUYOUT_FILE,
-        ["Propriétaire", "Joueur", "Impact"]
-    )
+# ================= TABS =================
+tab1,tab2,tab3,tab4 = st.tabs(["📊 Dashboard","⚖️ Simulateur","🧠 Suggestions","📜 Historique"])
 
-if "db_joueurs" not in st.session_state:
-    st.session_state["db_joueurs"] = charger_db_joueurs()
-
-if "historique_actions" not in st.session_state:
-    st.session_state["historique_actions"] = charger_donnees(
-        HISTORIQUE_FILE,
-        ["Date", "Heure", "Propriétaire", "Action", "Joueur", "Details"]
-    )
-
-# =========================
-# SIDEBAR
-# =========================
-st.sidebar.header("⚙️ Configuration")
-
-PLAFOND_GRAND_CLUB = DEFAULT_PLAFOND_GRAND_CLUB
-PLAFOND_CLUB_ECOLE = DEFAULT_PLAFOND_CLUB_ECOLE
-
-# =========================
-# TABS
-# =========================
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion", "📜 Historique"]
-)
-
-# =========================
-# TAB 1 – DASHBOARD
-# =========================
+# ================= DASHBOARD + GRAPHIQUES =================
 with tab1:
     st.header("📊 Masse salariale")
-
-    if st.session_state["historique"].empty:
-        st.info("Importez des données Fantrax.")
+    if st.session_state["data"].empty:
+        st.info("Aucune donnée")
     else:
-        df = st.session_state["historique"].copy()
-        df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0)
+        g = st.session_state["data"].groupby(["Propriétaire","Statut"])["Salaire"].sum().unstack(fill_value=0)
+        st.bar_chart(g)
+        st.dataframe(g.applymap(format_currency), use_container_width=True)
 
-        resume = df.groupby(
-            ["Propriétaire", "Statut"], observed=True
-        )["Salaire"].sum().unstack(fill_value=0)
+        # EXPORT PDF
+        if st.button("📄 Export PDF"):
+            pdf = "export.pdf"
+            doc = SimpleDocTemplate(pdf)
+            styles = getSampleStyleSheet()
+            content = [Paragraph("Masse salariale", styles["Title"])]
+            for p,row in g.iterrows():
+                content.append(Paragraph(f"{p} : GC {format_currency(row.get('Grand Club',0))}", styles["Normal"]))
+            doc.build(content)
+            with open(pdf,"rb") as f:
+                st.download_button("Télécharger PDF", f, file_name="fantrax.pdf")
 
-        if "Grand Club" not in resume:
-            resume["Grand Club"] = 0
-        if "Club École" not in resume:
-            resume["Club École"] = 0
-
-        resume["Restant GC"] = PLAFOND_GRAND_CLUB - resume["Grand Club"]
-        resume["Restant CE"] = PLAFOND_CLUB_ECOLE - resume["Club École"]
-
-        resume_display = resume.applymap(format_currency)
-        st.dataframe(resume_display, use_container_width=True)
-
-# =========================
-# TAB 2 – SIMULATEUR
-# =========================
+# ================= SIMULATEUR + PREVIEW =================
 with tab2:
-    st.header("⚖️ Simulateur de mouvements")
-    st.info("Simulation stable – clés sécurisées – historique actif.")
+    st.header("⚖️ Simulateur avec aperçu")
+    p = st.selectbox("Propriétaire", st.session_state["data"]["Propriétaire"].unique())
+    dfp = st.session_state["data"][st.session_state["data"]["Propriétaire"]==p]
 
-# =========================
-# TAB 3 – GESTION
-# =========================
+    joueur = st.selectbox("Joueur", dfp["Joueur"])
+    j = dfp[dfp["Joueur"]==joueur].iloc[0]
+
+    if st.button("Simuler déplacement"):
+        if j["Statut"]=="Grand Club":
+            nouveau = dfp[dfp["Statut"]=="Grand Club"]["Salaire"].sum() - j["Salaire"]
+            st.info(f"Nouveau total GC: {format_currency(nouveau)}")
+        else:
+            nouveau = dfp[dfp["Statut"]=="Club École"]["Salaire"].sum() - j["Salaire"]
+            st.info(f"Nouveau total CE: {format_currency(nouveau)}")
+
+# ================= SUGGESTIONS AUTO =================
 with tab3:
-    st.header("🛠️ Gestion des joueurs")
-    st.info("Ajout / rachats sécurisés (base prête).")
+    st.header("🧠 Suggestions automatiques")
+    for p in st.session_state["data"]["Propriétaire"].unique():
+        dfp = st.session_state["data"][st.session_state["data"]["Propriétaire"]==p]
+        total_gc = dfp[dfp["Statut"]=="Grand Club"]["Salaire"].sum()
+        if total_gc > PLAFOND_GC:
+            surplus = total_gc - PLAFOND_GC
+            worst = dfp[dfp["Statut"]=="Grand Club"].sort_values("Salaire",ascending=False).iloc[0]
+            st.warning(f"{p} dépasse de {format_currency(surplus)} → Descendre {worst['Joueur']}")
 
-# =========================
-# TAB 4 – HISTORIQUE
-# =========================
+# ================= HISTORIQUE + UNDO =================
 with tab4:
-    st.header("📜 Historique des actions")
+    st.header("📜 Historique + Undo")
+    st.dataframe(st.session_state["actions"], use_container_width=True)
 
-    if st.session_state["historique_actions"].empty:
-        st.info("Aucune action enregistrée.")
-    else:
-        df = st.session_state["historique_actions"].copy()
-        df["Date/Heure"] = df["Date"] + " " + df["Heure"]
-        st.dataframe(
-            df[["Date/Heure", "Propriétaire", "Action", "Joueur", "Details"]],
-            use_container_width=True,
-            hide_index=True
-        )
+    if not st.session_state["actions"].empty:
+        if st.button("↩️ Annuler dernière action"):
+            st.session_state["actions"] = st.session_state["actions"].iloc[:-1]
+            save(st.session_state["actions"], HISTORIQUE_FILE)
+            st.success("Dernière action annulée")
