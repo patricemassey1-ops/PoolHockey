@@ -205,29 +205,34 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     st.session_state["season"] = season
 
 # =====================================================
-# IMPORT
+# IMPORT FANTRAX (uploader toujours visible)
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
-if not LOCKED:
-    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
-    if uploaded:
+
+uploaded = st.sidebar.file_uploader(
+    "CSV Fantrax",
+    type=["csv", "txt"],
+    help="Import autorisé seulement pour la saison courante ou future"
+)
+
+if uploaded:
+    if LOCKED:
+        st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
+    else:
         try:
             df_import = parse_fantrax(uploaded)
 
-            # ✅ Sécurité: df_import doit être un DataFrame
             if df_import is None or not isinstance(df_import, pd.DataFrame):
-                st.sidebar.error("❌ Erreur: parse_fantrax n'a pas retourné un DataFrame.")
+                st.sidebar.error("❌ Erreur interne : données invalides.")
                 st.stop()
 
             if df_import.empty:
-                st.sidebar.error("❌ Aucune donnée importée (fichier Fantrax vide ou format non reconnu).")
+                st.sidebar.error("❌ Aucune donnée valide trouvée dans le fichier Fantrax.")
                 st.stop()
 
-            # ✅ Propriétaire
             owner = os.path.splitext(uploaded.name)[0]
             df_import["Propriétaire"] = owner
 
-            # ✅ Concat + save
             st.session_state["data"] = (
                 pd.concat([st.session_state["data"], df_import], ignore_index=True)
                 .drop_duplicates(subset=["Propriétaire", "Joueur"])
@@ -237,8 +242,8 @@ if not LOCKED:
             st.sidebar.success("✅ Import réussi")
 
         except Exception as e:
-            st.sidebar.error(f"❌ Import échoué: {e}")
-            st.stop()
+            st.sidebar.error(f"❌ Import échoué : {e}")
+
 
 
 # =====================================================
