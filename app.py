@@ -723,7 +723,36 @@ with tabA:
 
 from urllib.parse import quote, unquote
 
-# --- query param capture (comme tu as déjà)
+from urllib.parse import quote, unquote
+
+# =====================================================
+# BLESSÉS (IR) — TABLEAU CLIQUABLE (SANS JS)
+# =====================================================
+st.markdown("## 🩹 Joueurs Blessés (IR)")
+df_inj_ui = view_for_click(injured_all)
+
+# ---- Helpers query params (compat versions Streamlit)
+def _get_qp(key: str):
+    if hasattr(st, "query_params"):
+        v = st.query_params.get(key)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    qp = st.experimental_get_query_params()
+    v = qp.get(key)
+    return v[0] if v else None
+
+def _clear_qp(key: str):
+    if hasattr(st, "query_params"):
+        try:
+            st.query_params.pop(key, None)
+        except Exception:
+            st.query_params[key] = ""
+    else:
+        # reset tous les params (fallback ancien streamlit)
+        st.experimental_set_query_params()
+
+# ---- Capture clic IR (si présent)
 picked_ir = _get_qp("ir_pick")
 if picked_ir:
     picked_ir = unquote(picked_ir)
@@ -731,46 +760,172 @@ if picked_ir:
     _clear_qp("ir_pick")
     st.rerun()
 
-st.markdown(
-    """
-    <style>
-      .ir-table tbody tr{ position:relative; } /* IMPORTANT */
-      .ir-rowlink{
-        position:absolute;
-        inset:0;
-        z-index:5;
-        display:block;
-        text-decoration:none;
-        background:transparent;
-      }
-      /* pour que le texte reste au-dessus visuellement si besoin */
-      .ir-table td{ position:relative; z-index:1; }
+if df_inj_ui.empty:
+    st.info("Aucun joueur blessé.")
+else:
+    st.markdown(
+        """
+        <style>
+          .ir-card{
+            background:#000;
+            border:2px solid #ff2d2d;
+            border-radius:16px;
+            overflow:hidden;
+            box-shadow:0 10px 24px rgba(0,0,0,.40);
+          }
+          .ir-head{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            padding:12px 14px;
+            border-bottom:1px solid #2a2a2a;
+            background:linear-gradient(180deg,#060606,#000);
+          }
+          .ir-title{
+            color:#ff2d2d;
+            font-weight:1000;
+            letter-spacing:1px;
+            text-transform:uppercase;
+          }
+          .ir-badge{
+            color:#ff2d2d;
+            font-size:12px;
+            opacity:.9;
+            border:1px solid #ff2d2d;
+            padding:4px 10px;
+            border-radius:999px;
+            white-space:nowrap;
+          }
 
-      /* hover indique cliquable */
-      .ir-table tbody tr:hover td{
-        background:linear-gradient(90deg,#120000,#070707);
-        cursor:pointer;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+          .ir-table-wrap{ max-height:340px; overflow:auto; }
+          .ir-table{
+            width:100%;
+            border-collapse:separate;
+            border-spacing:0;
+            color:#ff2d2d;
+            font-weight:800;
+            font-size:14px;
+          }
+          .ir-table th{
+            text-align:left;
+            padding:10px 12px;
+            position:sticky;
+            top:0;
+            background:rgba(5,5,5,.92);
+            backdrop-filter: blur(6px);
+            border-bottom:1px solid #2a2a2a;
+            z-index:2;
+            font-weight:1000;
+          }
+          .ir-table td{
+            padding:10px 12px;
+            border-bottom:1px solid #151515;
+            line-height:1.2;
+          }
 
-rows_html = ""
-for _, rr in df_inj_ui.iterrows():
-    name = str(rr["Joueur"])
-    q = quote(name)
-    rows_html += f"""
-    <tr>
-      <td class="ir-player">
-        <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
-        {name}
-      </td>
-      <td class="ir-pos">{rr['Pos']}</td>
-      <td class="ir-team">{rr['Equipe']}</td>
-      <td class="ir-salary">{rr['Salaire']}</td>
-    </tr>
-    """
+          /* zebra */
+          .ir-table tbody tr:nth-child(odd) td{ background:#000; }
+          .ir-table tbody tr:nth-child(even) td{ background:#070707; }
+
+          /* hover */
+          .ir-table tbody tr:hover td{
+            background:linear-gradient(90deg,#120000,#070707);
+            cursor:pointer;
+          }
+
+          /* colonnes */
+          .ir-player{ font-weight:1000; }
+          .ir-pos{ width:64px; text-align:center; }
+          .ir-team{ width:84px; text-align:center; opacity:.95; }
+          .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
+
+          /* ---- IMPORTANT: lien overlay sur la ligne (valide HTML car dans le 1er td) */
+          .ir-table tbody tr{ position:relative; }
+          .ir-rowlink{
+            position:absolute;
+            inset:0;
+            z-index:5;
+            display:block;
+            text-decoration:none;
+            background:transparent;
+          }
+          .ir-table td{ position:relative; z-index:1; }
+
+          .ir-actions{
+            margin-top:10px;
+            padding:12px 14px;
+            background:#0a0a0a;
+            border:1px solid #2a2a2a;
+            border-radius:16px;
+          }
+          .ir-actions-title{
+            color:#ff2d2d;
+            font-weight:1000;
+            letter-spacing:.6px;
+            text-transform:uppercase;
+          }
+          .ir-hint{
+            margin-top:6px;
+            color:#ff2d2d;
+            opacity:.75;
+            font-size:12px;
+            font-weight:800;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    rows_html = ""
+    for _, rr in df_inj_ui.iterrows():
+        name = str(rr["Joueur"])
+        q = quote(name)
+        rows_html += f"""
+        <tr>
+          <td class="ir-player">
+            <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
+            {name}
+          </td>
+          <td class="ir-pos">{rr['Pos']}</td>
+          <td class="ir-team">{rr['Equipe']}</td>
+          <td class="ir-salary">{rr['Salaire']}</td>
+        </tr>
+        """
+
+    st.markdown(
+        f"""
+        <div class="ir-card">
+          <div class="ir-head">
+            <div class="ir-title">JOUEURS BLESSÉS</div>
+            <div class="ir-badge">Salaire non comptabilisé</div>
+          </div>
+
+          <div class="ir-table-wrap">
+            <table class="ir-table">
+              <thead>
+                <tr>
+                  <th>Joueur</th>
+                  <th class="ir-pos">Pos</th>
+                  <th class="ir-team">Équipe</th>
+                  <th class="ir-salary">Salaire</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows_html}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="ir-actions">
+          <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+          <div class="ir-hint">Le clic marche sans JavaScript (lien overlay).</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 
 
