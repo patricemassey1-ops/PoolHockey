@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io, os, tempfile
+import io, os, tempfile, csv
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -32,91 +32,86 @@ def season_file(season):
     return f"{DATA_DIR}/fantrax_{season}.csv"
 
 # ======================================================
-# PARSER FANTRAX **ANTI-CRASH**
+# PARSER FANTRAX **BULLETPROOF**
 # ======================================================
 def parse_fantrax_file(uploaded_file):
-    raw = uploaded_file.read().decode("utf-8", errors="ignore")
+    content = uploaded_file.read().decode("utf-8", errors="ignore").splitlines()
 
-    # on garde uniquement les lignes contenant Player
-    lines = [l for l in raw.splitlines() if "Player" in l or l.startswith("*")]
+    reader = csv.reader(content, delimiter="\t")
+    rows = list(reader)
 
-    if not lines:
+    header = None
+    for i, row in enumerate(rows):
+        if "Player" in row and "Salary" in row:
+            header = row
+            start = i + 1
+            break
+
+    if header is None:
         raise ValueError("Aucune donnée Fantrax détectée")
 
-    df = pd.read_csv(
-        io.StringIO("\n".join(lines)),
-        sep=None,                # détection auto
-        engine="python",
-        on_bad_lines="skip"      # IGNORE lignes cassées
-    )
+    col_idx = {name: header.index(name) for name in header if name in header}
 
-    df.columns = [c.strip() for c in df.columns]
+    joueurs = []
 
-    required = {"Player", "Salary"}
-    if not required.issubset(df.columns):
-        raise ValueError(f"Colonnes requises manquantes : {df.columns.tolist()}")
+    for r in rows[start:]:
+        if len(r) <= max(col_idx.values()):
+            continue
+        if not r[col_idx["Player"]]:
+            continue
 
-    df = df[df["Player"].notna()].copy()
+        try:
+            salaire = float(r[col_idx["Salary"]].replace(",", "").replace("$", "")) * 1000
+        except:
+            salaire = 0
 
-    out = pd.DataFrame()
-    out["Joueur"] = df["Player"].astype(str)
+        joueurs.append({
+            "Joueur": r[col_idx["Player"]],
+            "Salaire": salaire,
+            "Pos": r[col_idx["Pos"]] if "Pos" in col_idx else "N/A",
+            "Statut": "Club École" if "min" in r[col_idx.get("Status", "")].lower() else "Grand Club"
+        })
 
-    out["Salaire"] = (
-        df["Salary"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .str.replace("$", "", regex=False)
-        .astype(float)
-        * 1000
-    )
+    if not joueurs:
+        raise ValueError("Aucun joueur valide trouvé")
 
-    out["Pos"] = df["Pos"] if "Pos" in df.columns else "N/A"
-
-    if "Status" in df.columns:
-        out["Statut"] = df["Status"].apply(
-            lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
-        )
-    else:
-        out["Statut"] = "Grand Club"
-
-    return out.reset_index(drop=True)
+    return pd.DataFrame(joueurs)
 
 # ======================================================
-# CONTROLE PLAFOND (SAFE)
+# PLAFOND (SAFE)
 # ======================================================
 def controle_plafond(df):
     cols = ["Propriétaire", "GC", "CE", "RGC", "RCE"]
-    if df.empty or "Propriétaire" not in df.columns:
+    if df.empty:
         return pd.DataFrame(columns=cols)
 
     rows = []
-    for p in df["Propriétaire"].dropna().unique():
-        d = df[df["Propriétaire"] == p]
+    for gm in df["Propriétaire"].unique():
+        d = df[df["Propriétaire"] == gm]
         gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
         ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
         rows.append({
-            "Propriétaire": p,
+            "Propriétaire": gm,
             "GC": gc,
             "CE": ce,
             "RGC": PLAFOND_GRAND_CLUB - gc,
             "RCE": PLAFOND_CLUB_ECOLE - ce
         })
-
     return pd.DataFrame(rows, columns=cols)
 
 # ======================================================
-# IA RECOMMANDATIONS
+# IA
 # ======================================================
 def ia_reco(df):
     recos = []
     plaf = controle_plafond(df)
     for _, r in plaf.iterrows():
         if r["RGC"] < 0:
-            joueurs = df[
+            top = df[
                 (df["Propriétaire"] == r["Propriétaire"]) &
                 (df["Statut"] == "Grand Club")
             ].sort_values("Salaire", ascending=False).head(2)
-            for _, j in joueurs.iterrows():
+            for _, j in top.iterrows():
                 recos.append(
                     f"{r['Propriétaire']} : rétrograder {j['Joueur']} ({int(j['Salaire']):,}$)"
                 )
@@ -127,11 +122,7 @@ def ia_reco(df):
 # ======================================================
 def export_pdf(season, df):
     styles = getSampleStyleSheet()
-    elements = [
-        Paragraph(f"<b>Rapport Fantrax – Saison {season}</b>", styles["Title"]),
-        Paragraph(datetime.now().strftime("%d/%m/%Y %H:%M"), styles["Normal"]),
-        Paragraph("<br/>", styles["Normal"])
-    ]
+    elements = [Paragraph(f"<b>Rapport Fantrax {season}</b>", styles["Title"])]
 
     plaf = controle_plafond(df)
     table_data = [["GM", "GC", "RGC", "CE", "RCE"]]
@@ -151,10 +142,11 @@ def export_pdf(season, df):
         ("TEXTCOLOR",(0,0),(-1,0),colors.white),
         ("GRID",(0,0),(-1,-1),0.5,colors.grey)
     ]))
-    elements.append(table)
 
+    elements.append(table)
     elements.append(PageBreak())
     elements.append(Paragraph("<b>Recommandations IA</b>", styles["Heading2"]))
+
     for r in ia_reco(df):
         elements.append(Paragraph(r, styles["Normal"]))
 
@@ -182,7 +174,7 @@ if uploaded:
         df["Propriétaire"] = uploaded.name.replace(".csv", "")
         data = pd.concat([data, df], ignore_index=True)
         data.to_csv(DATA_FILE, index=False)
-        st.success(f"✅ Import réussi : {len(df)} joueurs")
+        st.success(f"✅ Import réussi ({len(df)} joueurs)")
     except Exception as e:
         st.error(f"❌ Import impossible : {e}")
 
@@ -193,7 +185,6 @@ if not plafonds.empty:
     fig, ax = plt.subplots()
     ax.bar(plafonds["Propriétaire"], plafonds["GC"])
     ax.axhline(PLAFOND_GRAND_CLUB)
-    ax.set_title("Masse salariale – Grand Club")
     st.pyplot(fig)
 
 st.subheader("🧠 Recommandations IA")
@@ -203,4 +194,4 @@ for r in ia_reco(data):
 if st.button("📄 Export PDF stylé"):
     path = export_pdf(season, data)
     with open(path, "rb") as f:
-        st.download_button("⬇️ Télécharger le PDF", f, file_name=f"fantrax_{season}.pdf")
+        st.download_button("Télécharger PDF", f, file_name=f"fantrax_{season}.pdf")
