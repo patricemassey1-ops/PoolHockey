@@ -615,24 +615,29 @@ else:
             if k in st.session_state and isinstance(st.session_state[k], dict):
                 st.session_state[k]["selection"] = {"rows": []}
 
-    def get_selected_player():
-        if st.session_state.get("sel_actifs") and st.session_state["sel_actifs"].get("selection", {}).get("rows"):
-            i = st.session_state["sel_actifs"]["selection"]["rows"][0]
-            if i < len(df_actifs_ui):
-                return "Actif", str(df_actifs_ui.iloc[i]["Joueur"])
-        if st.session_state.get("sel_banc") and st.session_state["sel_banc"].get("selection", {}).get("rows"):
-            i = st.session_state["sel_banc"]["selection"]["rows"][0]
-            if i < len(df_banc_ui):
-                return "Banc", str(df_banc_ui.iloc[i]["Joueur"])
-        if st.session_state.get("sel_min") and st.session_state["sel_min"].get("selection", {}).get("rows"):
-            i = st.session_state["sel_min"]["selection"]["rows"][0]
-            if i < len(df_min_ui):
-                return "Mineur", str(df_min_ui.iloc[i]["Joueur"])
-        if st.session_state.get("sel_inj") and st.session_state["sel_inj"].get("selection", {}).get("rows"):
-            i = st.session_state["sel_inj"]["selection"]["rows"][0]
-            if i < len(df_inj_ui):
-                return "Blessé", str(df_inj_ui.iloc[i]["Joueur"])
-        return None, None
+   def get_selected_player():
+    if st.session_state.get("sel_actifs") and st.session_state["sel_actifs"].get("selection", {}).get("rows"):
+        i = st.session_state["sel_actifs"]["selection"]["rows"][0]
+        if i < len(df_actifs_ui):
+            return "Actif", str(df_actifs_ui.iloc[i]["Joueur"])
+
+    if st.session_state.get("sel_banc") and st.session_state["sel_banc"].get("selection", {}).get("rows"):
+        i = st.session_state["sel_banc"]["selection"]["rows"][0]
+        if i < len(df_banc_ui):
+            return "Banc", str(df_banc_ui.iloc[i]["Joueur"])
+
+    if st.session_state.get("sel_min") and st.session_state["sel_min"].get("selection", {}).get("rows"):
+        i = st.session_state["sel_min"]["selection"]["rows"][0]
+        if i < len(df_min_ui):
+            return "Mineur", str(df_min_ui.iloc[i]["Joueur"])
+
+    # Blessés: via selectbox (HTML table est seulement visuel)
+    inj_pick = st.session_state.get("inj_pick_selectbox", "")
+    if inj_pick:
+        return "Blessé", str(inj_pick)
+
+    return None, None
+
 
     def can_add_to_actif(pos: str):
         pos = normalize_pos(pos)
