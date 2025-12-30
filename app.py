@@ -721,132 +721,187 @@ with tabA:
 
     st.divider()
 
-    # Blessés (visible + clickable)
-    st.markdown("## 🩹 Joueurs Blessés (IR)")
-    df_inj_ui = view_for_click(injured_all)
+# =====================================================
+# BLESSÉS (IR) — AFFICHAGE PLUS NET (CARTE + ZEBRA + HOVER)
+# =====================================================
+st.markdown("## 🩹 Joueurs Blessés (IR)")
+df_inj_ui = view_for_click(injured_all)
 
-    if df_inj_ui.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        rows_html = ""
-        for _, rr in df_inj_ui.iterrows():
-            rows_html += f"""
-            <tr>
-              <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Joueur']}</td>
-              <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Pos']}</td>
-              <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Equipe']}</td>
-              <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;text-align:right;font-weight:900;">{rr['Salaire']}</td>
-            </tr>
-            """
+if df_inj_ui.empty:
+    st.info("Aucun joueur blessé.")
+else:
+    # CSS ciblé (plus net + hover + zebra)
+    st.markdown(
+        """
+        <style>
+          .ir-card{
+            background:#000;
+            border:2px solid #ff2d2d;
+            border-radius:16px;
+            overflow:hidden;
+            box-shadow:0 10px 24px rgba(0,0,0,.40);
+          }
+          .ir-head{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            padding:12px 14px;
+            border-bottom:1px solid #2a2a2a;
+          }
+          .ir-title{
+            color:#ff2d2d;
+            font-weight:1000;
+            letter-spacing:1px;
+            text-transform:uppercase;
+          }
+          .ir-badge{
+            color:#ff2d2d;
+            font-size:12px;
+            opacity:.9;
+            border:1px solid #ff2d2d;
+            padding:4px 10px;
+            border-radius:999px;
+          }
 
-        st.markdown(
-            f"""
-            <div style="
-                background:#000;
-                border:2px solid #ff2d2d;
-                border-radius:16px;
-                overflow:hidden;
-                box-shadow:0 6px 18px rgba(0,0,0,0.35);
-                margin-top:6px;
-            ">
-              <div style="
-                  padding:12px 14px;
-                  color:#ff2d2d;
-                  font-weight:1000;
-                  border-bottom:1px solid #2a2a2a;
-                  letter-spacing:1px;
-                  text-transform:uppercase;
-                  display:flex;
-                  align-items:center;
-                  justify-content:space-between;
-              ">
-                <span>JOUEURS BLESSÉS</span>
-                <span style="font-size:12px;opacity:0.85;">SALAIRE NON COMPTABILISÉ</span>
-              </div>
+          .ir-table-wrap{
+            max-height:320px;
+            overflow:auto;
+          }
+          .ir-table{
+            width:100%;
+            border-collapse:collapse;
+            color:#ff2d2d;
+            font-weight:700;
+          }
+          .ir-table th{
+            text-align:left;
+            padding:10px 12px;
+            position:sticky;
+            top:0;
+            background:#050505;
+            border-bottom:1px solid #2a2a2a;
+            z-index:1;
+            font-weight:1000;
+            letter-spacing:.3px;
+          }
+          .ir-table td{
+            padding:10px 12px;
+            border-bottom:1px solid #151515;
+          }
+          .ir-table tr:nth-child(odd) td{
+            background:#000;
+          }
+          .ir-table tr:nth-child(even) td{
+            background:#070707;
+          }
+          .ir-table tr:hover td{
+            background:#120000;
+          }
+          .ir-salary{
+            text-align:right;
+            font-weight:1000;
+            white-space:nowrap;
+          }
+          .ir-pos{
+            width:60px;
+          }
+          .ir-team{
+            width:80px;
+            opacity:.95;
+          }
 
-              <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
-                <thead>
-                  <tr style="border-bottom:1px solid #2a2a2a;">
-                    <th style="text-align:left;padding:10px 12px;font-weight:1000;">Joueur</th>
-                    <th style="text-align:left;padding:10px 12px;font-weight:1000;">Pos</th>
-                    <th style="text-align:left;padding:10px 12px;font-weight:1000;">Équipe</th>
-                    <th style="text-align:right;padding:10px 12px;font-weight:1000;">Salaire</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows_html}
-                </tbody>
-              </table>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+          /* Boutons IR uniquement (container sous le tableau) */
+          .ir-actions{
+            margin-top:10px;
+            padding:12px 14px;
+            background:#0a0a0a;
+            border:1px solid #2a2a2a;
+            border-radius:16px;
+          }
+          .ir-actions-title{
+            color:#ff2d2d;
+            font-weight:1000;
+            letter-spacing:.6px;
+            margin-bottom:10px;
+            text-transform:uppercase;
+          }
 
-        st.markdown(
-            """
-            <div style="
-                background:#0a0a0a;
-                border:1px solid #2a2a2a;
-                border-radius:16px;
-                padding:12px 14px;
-                margin-top:10px;
-            ">
-              <div style="color:#ff2d2d;font-weight:1000;letter-spacing:0.6px;margin-bottom:10px;">
-                CLIQUE POUR DÉPLACER
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+          /* Style des boutons Streamlit dans cette zone */
+          div.ir-btns button[kind="secondary"]{
+            border:1px solid #ff2d2d !important;
+            background:#000000 !important;
+            color:#ff2d2d !important;
+            font-weight:900 !important;
+          }
+          div.ir-btns button[kind="secondary"]:hover{
+            background:#120000 !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        st.markdown(
-            """
-            <style>
-              div[data-testid="stHorizontalBlock"] button[kind="secondary"]{
-                border:1px solid #ff2d2d !important;
-                background:#000000 !important;
-                color:#ff2d2d !important;
-                font-weight:800 !important;
-              }
-              div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover{
-                background:#120000 !important;
-              }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+    # Table HTML plus nette
+    rows_html = ""
+    for _, rr in df_inj_ui.iterrows():
+        rows_html += f"""
+        <tr>
+          <td>{rr['Joueur']}</td>
+          <td class="ir-pos">{rr['Pos']}</td>
+          <td class="ir-team">{rr['Equipe']}</td>
+          <td class="ir-salary">{rr['Salaire']}</td>
+        </tr>
+        """
 
-        names = df_inj_ui["Joueur"].tolist()
-        btn_cols = st.columns(3)
-        for idx, name in enumerate(names):
-            with btn_cols[idx % 3]:
-                if st.button(f"🩹 {name}", use_container_width=True, key=f"inj_btn_{proprietaire}_{idx}"):
-                    set_move_ctx(proprietaire, name)
-                    st.rerun()
+    st.markdown(
+        f"""
+        <div class="ir-card">
+          <div class="ir-head">
+            <div class="ir-title">JOUEURS BLESSÉS</div>
+            <div class="ir-badge">Salaire non comptabilisé</div>
+          </div>
 
-    # Click dataframe -> open popup (MUST be after df_*_ui exist)
-    def pick_from_df(df_ui: pd.DataFrame, key_state: str) -> str:
-        if df_ui is None or df_ui.empty:
-            return ""
-        sel = st.session_state.get(key_state, {})
-        rows = sel.get("selection", {}).get("rows", [])
-        if rows:
-            i = rows[0]
-            if 0 <= i < len(df_ui):
-                return str(df_ui.iloc[i]["Joueur"])
-        return ""
+          <div class="ir-table-wrap">
+            <table class="ir-table">
+              <thead>
+                <tr>
+                  <th>Joueur</th>
+                  <th class="ir-pos">Pos</th>
+                  <th class="ir-team">Équipe</th>
+                  <th class="ir-salary">Salaire</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows_html}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    picked = ""
-    picked = picked or pick_from_df(df_actifs_ui, "sel_actifs")
-    picked = picked or pick_from_df(df_banc_ui, "sel_banc")
-    picked = picked or pick_from_df(df_min_ui, "sel_min")
+    # Actions claires (boutons)
+    st.markdown(
+        """
+        <div class="ir-actions">
+          <div class="ir-actions-title">Clique pour déplacer</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if picked:
-        set_move_ctx(proprietaire, picked)
-        clear_df_selections()
-        st.rerun()
+    # Boutons en grille (2 colonnes = plus net / plus gros)
+    names = df_inj_ui["Joueur"].tolist()
+    st.markdown('<div class="ir-btns">', unsafe_allow_html=True)
+    btn_cols = st.columns(2)
+    for idx, name in enumerate(names):
+        with btn_cols[idx % 2]:
+            if st.button(f"🩹 {name}", use_container_width=True, key=f"inj_btn_{proprietaire}_{idx}"):
+                set_move_ctx(proprietaire, name)
+                st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    open_move_dialog()
 
 # =====================================================
 # TAB H - HISTORIQUE
