@@ -30,18 +30,21 @@ def saison_verrouillee(season):
 # FORMAT
 # =====================================================
 def money(v):
-    return f"{int(v):,}".replace(",", " ") + " $"
+    try:
+        return f"{int(v):,}".replace(",", " ") + " $"
+    except:
+        return "0 $"
 
 # =====================================================
-# PARSER FANTRAX ROBUSTE (TESTÉ AVEC Nordiques.csv)
+# PARSER FANTRAX (CORRIGÉ NONE / NAN / VIDE)
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
 
     if len(raw) < 3:
-        raise ValueError("Fichier trop court")
+        raise ValueError("Fichier Fantrax invalide")
 
-    # Ignorer la 1re ligne vide / Skaters
+    # Ignorer ligne vide / Skaters
     csv_text = "\n".join(raw[1:])
 
     df = pd.read_csv(
@@ -53,20 +56,22 @@ def parse_fantrax(upload):
     df.columns = [c.replace('"', '').strip() for c in df.columns]
 
     if "Player" not in df.columns or "Salary" not in df.columns:
-        raise ValueError("Colonnes Fantrax introuvables")
+        raise ValueError(f"Colonnes trouvées : {list(df.columns)}")
 
     out = pd.DataFrame()
     out["Joueur"] = df["Player"].astype(str)
     out["Pos"] = df.get("Pos", "N/A")
     out["Equipe"] = df.get("Team", "N/A")
 
-    out["Salaire"] = (
+    # 🔥 CORRECTION DÉFINITIVE ICI
+    sal = (
         df["Salary"]
         .astype(str)
         .str.replace(",", "", regex=False)
-        .replace("", "0")
-        .astype(float) * 1000
+        .replace(["None", "nan", "NaN", ""], "0")
     )
+
+    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
 
     out["Statut"] = df.get("Status", "").apply(
         lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
@@ -159,28 +164,27 @@ plafonds = pd.DataFrame(resume)
 # =====================================================
 # TABLE
 # =====================================================
-st.subheader("📊 Plafonds")
+st.subheader("📊 Plafonds salariaux")
 display = plafonds.copy()
 for c in display.columns[1:]:
     display[c] = display[c].apply(money)
 st.dataframe(display, use_container_width=True)
 
 # =====================================================
-# 📊 GRAPHIQUE TEMPS RÉEL (BUG FIXÉ)
+# 📊 GRAPHIQUE TEMPS RÉEL
 # =====================================================
-st.subheader("📈 Masse salariale Grand Club")
+st.subheader("📈 Masse salariale – Grand Club")
 
 fig, ax = plt.subplots()
 ax.bar(plafonds["Propriétaire"], plafonds["GC"])
 ax.axhline(PLAFOND_GC, linestyle="--")
-ax.set_ylabel("Salaire")
 plt.xticks(rotation=45, ha="right")
 st.pyplot(fig)
 
 # =====================================================
 # ⚖️ CONTRÔLE TRANSACTION
 # =====================================================
-st.subheader("⚖️ Vérification transaction")
+st.subheader("⚖️ Validation transaction")
 
 p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
 salaire_test = st.number_input("Salaire du joueur", min_value=0, step=100000)
@@ -201,12 +205,12 @@ st.subheader("🧠 Recommandations IA")
 
 for _, r in plafonds.iterrows():
     if r["Restant GC"] < 2_000_000:
-        st.warning(f"{r['Propriétaire']} : envisager rétrogradation")
+        st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
     if r["Restant CE"] > 10_000_000:
-        st.info(f"{r['Propriétaire']} : potentiel rappel du club école")
+        st.info(f"{r['Propriétaire']} : rappel possible")
 
 # =====================================================
-# 📄 EXPORT PDF (OPTIONNEL – SAFE)
+# 📄 EXPORT PDF (OPTIONNEL)
 # =====================================================
 st.subheader("📄 Export PDF")
 
