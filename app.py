@@ -558,19 +558,35 @@ with tabA:
 
     st.divider()
 
-    # ---- Blessés en dessous (fond rouge pâle) ----
-    st.markdown("### 🩹 Joueurs Blessés (IR)")
-    df_inj_ui = view_for_click(injured_all)
+    # ---- Blessés en dessous (fond noir + texte rouge) ----
+st.markdown("### 🩹 Joueurs Blessés (IR)")
+df_inj_ui = view_for_click(injured_all)
 
-    if df_inj_ui.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        sty = df_inj_ui.style.apply(
-            lambda _: ["background-color: #ffe6e6"] * len(df_inj_ui.columns),
-            axis=1
-        )
-        st.dataframe(sty, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_inj")
+if df_inj_ui.empty:
+    st.info("Aucun joueur blessé.")
+else:
+    sty = (
+        df_inj_ui.style
+        .set_properties(**{
+            "background-color": "#000000",
+            "color": "#ff2d2d",
+            "border-color": "#333333",
+        })
+        .set_table_styles([
+            {"selector": "th", "props": [("background-color", "#000000"), ("color", "#ff2d2d"), ("border-color", "#333333")]},
+            {"selector": "td", "props": [("background-color", "#000000"), ("color", "#ff2d2d"), ("border-color", "#333333")]},
+        ])
+    )
+
+    st.dataframe(
+        sty,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="sel_inj",
+    )
+
 
     # ---- sélection ----
     def clear_selections():
