@@ -4,6 +4,7 @@ import io
 import os
 import re
 from datetime import datetime
+from urllib.parse import quote, unquote
 
 # =====================================================
 # CONFIG
@@ -131,9 +132,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # =====================================================
-# PARSER FANTRAX (Skaters + Goalies séparés par ligne vide)
-# - Ajoute Equipe (Team)
-# - Salaire en milliers -> x1000
+# PARSER FANTRAX
 # =====================================================
 def parse_fantrax(upload):
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
@@ -242,12 +241,52 @@ def clear_df_selections():
         if k in st.session_state and isinstance(st.session_state[k], dict):
             st.session_state[k]["selection"] = {"rows": []}
 
+def pick_from_df(df_ui: pd.DataFrame, key: str) -> str | None:
+    """
+    Retourne le nom du joueur sélectionné dans un st.dataframe(selection_mode="single-row")
+    """
+    ss = st.session_state.get(key)
+    if not ss or not isinstance(ss, dict):
+        return None
+    sel = ss.get("selection", {})
+    rows = sel.get("rows", [])
+    if not rows:
+        return None
+    idx = rows[0]
+    if df_ui is None or df_ui.empty:
+        return None
+    if idx < 0 or idx >= len(df_ui):
+        return None
+    return str(df_ui.iloc[idx]["Joueur"])
+
 def set_move_ctx(owner: str, joueur: str):
     st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
     st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur, "nonce": st.session_state["move_nonce"]}
 
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
+
+# =====================================================
+# QUERY PARAMS (IR click)
+# =====================================================
+def _get_qp(key: str):
+    if hasattr(st, "query_params"):
+        v = st.query_params.get(key)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    qp = st.experimental_get_query_params()
+    v = qp.get(key)
+    return v[0] if v else None
+
+def _clear_qp(key: str):
+    if hasattr(st, "query_params"):
+        try:
+            st.query_params.pop(key, None)
+        except Exception:
+            st.query_params[key] = ""
+    else:
+        st.experimental_set_query_params()
 
 # =====================================================
 # HISTORY
@@ -563,7 +602,8 @@ if uploaded:
 # =====================================================
 # HEADER
 # =====================================================
-st.image("Logo_Pool.png", use_container_width=True)
+if os.path.exists("Logo_Pool.png"):
+    st.image("Logo_Pool.png", use_container_width=True)
 st.title("🏒 Fantrax – Gestion Salariale")
 
 df = st.session_state["data"]
@@ -633,11 +673,11 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# TAB A - ALIGNEMENT (FULL, ORDER SAFE)
+# TAB A - ALIGNEMENT (FIX: POPUP + IR DANS ONGLET)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-    st.caption("Clique un joueur (Actifs/Banc/Mineur) ou un bouton Blessé (IR) pour ouvrir le pop-up.")
+    st.caption("Sélectionne un joueur (Actifs/Banc/Mineur) ou clique une ligne Blessé (IR) pour ouvrir le pop-up.")
 
     proprietaire = st.selectbox(
         "Propriétaire",
@@ -719,217 +759,194 @@ with tabA:
             key="sel_min",
         )
 
+    # ---- FIX: détecter sélection dans les dataframes et ouvrir popup
+    picked = (
+        pick_from_df(df_actifs_ui, "sel_actifs")
+        or pick_from_df(df_banc_ui, "sel_banc")
+        or pick_from_df(df_min_ui, "sel_min")
+    )
+    if picked:
+        clear_df_selections()
+        set_move_ctx(proprietaire, picked)
+
+    # =====================================================
+    # IR — TABLEAU CLIQUABLE (SANS JS) DANS TAB A
+    # =====================================================
     st.divider()
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
+    df_inj_ui = view_for_click(injured_all)
 
-from urllib.parse import quote, unquote
+    # Capture clic IR via query param
+    picked_ir = _get_qp("ir_pick")
+    if picked_ir:
+        picked_ir = unquote(picked_ir)
+        set_move_ctx(proprietaire, picked_ir)
+        _clear_qp("ir_pick")  # on nettoie l'URL
 
-from urllib.parse import quote, unquote
-
-# =====================================================
-# BLESSÉS (IR) — TABLEAU CLIQUABLE (SANS JS)
-# =====================================================
-st.markdown("## 🩹 Joueurs Blessés (IR)")
-df_inj_ui = view_for_click(injured_all)
-
-# ---- Helpers query params (compat versions Streamlit)
-def _get_qp(key: str):
-    if hasattr(st, "query_params"):
-        v = st.query_params.get(key)
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
-    qp = st.experimental_get_query_params()
-    v = qp.get(key)
-    return v[0] if v else None
-
-def _clear_qp(key: str):
-    if hasattr(st, "query_params"):
-        try:
-            st.query_params.pop(key, None)
-        except Exception:
-            st.query_params[key] = ""
+    if df_inj_ui.empty:
+        st.info("Aucun joueur blessé.")
     else:
-        # reset tous les params (fallback ancien streamlit)
-        st.experimental_set_query_params()
+        st.markdown(
+            """
+            <style>
+              .ir-card{
+                background:#000;
+                border:2px solid #ff2d2d;
+                border-radius:16px;
+                overflow:hidden;
+                box-shadow:0 10px 24px rgba(0,0,0,.40);
+              }
+              .ir-head{
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                gap:12px;
+                padding:12px 14px;
+                border-bottom:1px solid #2a2a2a;
+                background:linear-gradient(180deg,#060606,#000);
+              }
+              .ir-title{
+                color:#ff2d2d;
+                font-weight:1000;
+                letter-spacing:1px;
+                text-transform:uppercase;
+              }
+              .ir-badge{
+                color:#ff2d2d;
+                font-size:12px;
+                opacity:.9;
+                border:1px solid #ff2d2d;
+                padding:4px 10px;
+                border-radius:999px;
+                white-space:nowrap;
+              }
 
-# ---- Capture clic IR (si présent)
-picked_ir = _get_qp("ir_pick")
-if picked_ir:
-    picked_ir = unquote(picked_ir)
-    set_move_ctx(proprietaire, picked_ir)
-    _clear_qp("ir_pick")
-    st.rerun()
+              .ir-table-wrap{ max-height:340px; overflow:auto; }
+              .ir-table{
+                width:100%;
+                border-collapse:separate;
+                border-spacing:0;
+                color:#ff2d2d;
+                font-weight:800;
+                font-size:14px;
+              }
+              .ir-table th{
+                text-align:left;
+                padding:10px 12px;
+                position:sticky;
+                top:0;
+                background:rgba(5,5,5,.92);
+                backdrop-filter: blur(6px);
+                border-bottom:1px solid #2a2a2a;
+                z-index:2;
+                font-weight:1000;
+              }
+              .ir-table td{
+                padding:10px 12px;
+                border-bottom:1px solid #151515;
+                line-height:1.2;
+              }
 
-if df_inj_ui.empty:
-    st.info("Aucun joueur blessé.")
-else:
-    st.markdown(
-        """
-        <style>
-          .ir-card{
-            background:#000;
-            border:2px solid #ff2d2d;
-            border-radius:16px;
-            overflow:hidden;
-            box-shadow:0 10px 24px rgba(0,0,0,.40);
-          }
-          .ir-head{
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap:12px;
-            padding:12px 14px;
-            border-bottom:1px solid #2a2a2a;
-            background:linear-gradient(180deg,#060606,#000);
-          }
-          .ir-title{
-            color:#ff2d2d;
-            font-weight:1000;
-            letter-spacing:1px;
-            text-transform:uppercase;
-          }
-          .ir-badge{
-            color:#ff2d2d;
-            font-size:12px;
-            opacity:.9;
-            border:1px solid #ff2d2d;
-            padding:4px 10px;
-            border-radius:999px;
-            white-space:nowrap;
-          }
+              .ir-table tbody tr:nth-child(odd) td{ background:#000; }
+              .ir-table tbody tr:nth-child(even) td{ background:#070707; }
+              .ir-table tbody tr:hover td{
+                background:linear-gradient(90deg,#120000,#070707);
+                cursor:pointer;
+              }
 
-          .ir-table-wrap{ max-height:340px; overflow:auto; }
-          .ir-table{
-            width:100%;
-            border-collapse:separate;
-            border-spacing:0;
-            color:#ff2d2d;
-            font-weight:800;
-            font-size:14px;
-          }
-          .ir-table th{
-            text-align:left;
-            padding:10px 12px;
-            position:sticky;
-            top:0;
-            background:rgba(5,5,5,.92);
-            backdrop-filter: blur(6px);
-            border-bottom:1px solid #2a2a2a;
-            z-index:2;
-            font-weight:1000;
-          }
-          .ir-table td{
-            padding:10px 12px;
-            border-bottom:1px solid #151515;
-            line-height:1.2;
-          }
+              .ir-player{ font-weight:1000; }
+              .ir-pos{ width:64px; text-align:center; }
+              .ir-team{ width:84px; text-align:center; opacity:.95; }
+              .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
 
-          /* zebra */
-          .ir-table tbody tr:nth-child(odd) td{ background:#000; }
-          .ir-table tbody tr:nth-child(even) td{ background:#070707; }
+              /* overlay link (valide car dans le 1er td) */
+              .ir-table tbody tr{ position:relative; }
+              .ir-rowlink{
+                position:absolute;
+                inset:0;
+                z-index:5;
+                display:block;
+                text-decoration:none;
+                background:transparent;
+              }
+              .ir-table td{ position:relative; z-index:1; }
 
-          /* hover */
-          .ir-table tbody tr:hover td{
-            background:linear-gradient(90deg,#120000,#070707);
-            cursor:pointer;
-          }
+              .ir-actions{
+                margin-top:10px;
+                padding:12px 14px;
+                background:#0a0a0a;
+                border:1px solid #2a2a2a;
+                border-radius:16px;
+              }
+              .ir-actions-title{
+                color:#ff2d2d;
+                font-weight:1000;
+                letter-spacing:.6px;
+                text-transform:uppercase;
+              }
+              .ir-hint{
+                margin-top:6px;
+                color:#ff2d2d;
+                opacity:.75;
+                font-size:12px;
+                font-weight:800;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
-          /* colonnes */
-          .ir-player{ font-weight:1000; }
-          .ir-pos{ width:64px; text-align:center; }
-          .ir-team{ width:84px; text-align:center; opacity:.95; }
-          .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
+        rows_html = ""
+        for _, rr in df_inj_ui.iterrows():
+            name = str(rr["Joueur"])
+            q = quote(name)
+            rows_html += f"""
+            <tr>
+              <td class="ir-player">
+                <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
+                {name}
+              </td>
+              <td class="ir-pos">{rr['Pos']}</td>
+              <td class="ir-team">{rr['Equipe']}</td>
+              <td class="ir-salary">{rr['Salaire']}</td>
+            </tr>
+            """
 
-          /* ---- IMPORTANT: lien overlay sur la ligne (valide HTML car dans le 1er td) */
-          .ir-table tbody tr{ position:relative; }
-          .ir-rowlink{
-            position:absolute;
-            inset:0;
-            z-index:5;
-            display:block;
-            text-decoration:none;
-            background:transparent;
-          }
-          .ir-table td{ position:relative; z-index:1; }
+        st.markdown(
+            f"""
+            <div class="ir-card">
+              <div class="ir-head">
+                <div class="ir-title">JOUEURS BLESSÉS</div>
+                <div class="ir-badge">Salaire non comptabilisé</div>
+              </div>
 
-          .ir-actions{
-            margin-top:10px;
-            padding:12px 14px;
-            background:#0a0a0a;
-            border:1px solid #2a2a2a;
-            border-radius:16px;
-          }
-          .ir-actions-title{
-            color:#ff2d2d;
-            font-weight:1000;
-            letter-spacing:.6px;
-            text-transform:uppercase;
-          }
-          .ir-hint{
-            margin-top:6px;
-            color:#ff2d2d;
-            opacity:.75;
-            font-size:12px;
-            font-weight:800;
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+              <div class="ir-table-wrap">
+                <table class="ir-table">
+                  <thead>
+                    <tr>
+                      <th>Joueur</th>
+                      <th class="ir-pos">Pos</th>
+                      <th class="ir-team">Équipe</th>
+                      <th class="ir-salary">Salaire</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows_html}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-    rows_html = ""
-    for _, rr in df_inj_ui.iterrows():
-        name = str(rr["Joueur"])
-        q = quote(name)
-        rows_html += f"""
-        <tr>
-          <td class="ir-player">
-            <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
-            {name}
-          </td>
-          <td class="ir-pos">{rr['Pos']}</td>
-          <td class="ir-team">{rr['Equipe']}</td>
-          <td class="ir-salary">{rr['Salaire']}</td>
-        </tr>
-        """
+            <div class="ir-actions">
+              <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+              <div class="ir-hint">Sélection Actifs/Banc/Mineur = pop-up • IR = clic ligne.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        f"""
-        <div class="ir-card">
-          <div class="ir-head">
-            <div class="ir-title">JOUEURS BLESSÉS</div>
-            <div class="ir-badge">Salaire non comptabilisé</div>
-          </div>
-
-          <div class="ir-table-wrap">
-            <table class="ir-table">
-              <thead>
-                <tr>
-                  <th>Joueur</th>
-                  <th class="ir-pos">Pos</th>
-                  <th class="ir-team">Équipe</th>
-                  <th class="ir-salary">Salaire</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows_html}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="ir-actions">
-          <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
-          <div class="ir-hint">Le clic marche sans JavaScript (lien overlay).</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
-
-
+    # ---- IMPORTANT: on ouvre le pop-up à la fin de l’onglet (après avoir capté toutes les sélections)
+    open_move_dialog()
 
 # =====================================================
 # TAB H - HISTORIQUE
