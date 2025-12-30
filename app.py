@@ -724,7 +724,7 @@ with tabA:
     ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
 
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+    gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
     # Counts (Actifs)
     tmp = gc_actif.copy()
@@ -750,24 +750,44 @@ with tabA:
     st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
 
+    # ---- Tables
     df_actifs_ui = view_for_click(gc_actif)
-    df_banc_ui = view_for_click(gc_banc)
-    df_min_ui = view_for_click(ce_all)
+    df_banc_ui   = view_for_click(gc_banc)
+    df_min_ui    = view_for_click(ce_all)
 
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🟢 Actifs")
-        st.dataframe(df_actifs_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_actifs")
+        st.dataframe(
+            df_actifs_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_actifs",
+        )
     with c2:
         st.markdown("### 🟡 Banc")
-        st.dataframe(df_banc_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_banc")
+        st.dataframe(
+            df_banc_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_banc",
+        )
     with c3:
         st.markdown("### 🔵 Mineur")
-        st.dataframe(df_min_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_min")
+        st.dataframe(
+            df_min_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_min",
+        )
 
+    # ---- Sélection (Actifs/Banc/Mineur) => ouvre le pop-up
     picked = (
         pick_from_df(df_actifs_ui, "sel_actifs")
         or pick_from_df(df_banc_ui, "sel_banc")
@@ -776,6 +796,111 @@ with tabA:
     if picked:
         clear_df_selections()
         set_move_ctx(proprietaire, picked)
+
+    # =====================================================
+    # IR — AFFICHAGE PROPRE (HTML RÉEL) + CLIC
+    # =====================================================
+    st.divider()
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
+    df_inj_ui = view_for_click(injured_all)
+
+    picked_ir = _get_qp("ir_pick")
+    if picked_ir:
+        picked_ir = unquote(picked_ir)
+        set_move_ctx(proprietaire, picked_ir)
+        _clear_qp("ir_pick")
+        st.rerun()  # IMPORTANT: rerun pour ouvrir le dialog proprement
+
+    if df_inj_ui.empty:
+        st.info("Aucun joueur blessé.")
+    else:
+        st.markdown(
+            """
+            <style>
+              .ir-card{background:#000;border:2px solid #ff2d2d;border-radius:16px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.40);}
+              .ir-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #2a2a2a;background:linear-gradient(180deg,#080808,#000);}
+              .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
+              .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+
+              .ir-table-wrap{max-height:360px;overflow:auto;}
+              .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
+              .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
+              .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
+              .ir-table tbody tr:nth-child(odd) td{background:#000;}
+              .ir-table tbody tr:nth-child(even) td{background:#070707;}
+              .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
+
+              .ir-player{color:#ffffff;font-weight:1000;}
+              .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
+              .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
+              .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
+
+              .ir-table tbody tr{position:relative;}
+              .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
+              .ir-table td{position:relative;z-index:1;}
+
+              .ir-actions{margin-top:10px;padding:12px 14px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:16px;}
+              .ir-actions-title{color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;}
+              .ir-hint{margin-top:6px;color:#ff2d2d;opacity:.75;font-size:12px;font-weight:800;}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        rows_html = ""
+        for _, rr in df_inj_ui.iterrows():
+            raw_name = str(rr.get("Joueur", ""))
+            name = html.escape(raw_name)
+            pos = html.escape(str(rr.get("Pos", "")))
+            team = html.escape(str(rr.get("Equipe", "")))
+            sal = html.escape(str(rr.get("Salaire", "")))
+            q = quote(raw_name)
+
+            rows_html += f"""
+            <tr>
+              <td class="ir-player">
+                <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
+                🩹 {name}
+              </td>
+              <td class="ir-pos">{pos}</td>
+              <td class="ir-team">{team}</td>
+              <td class="ir-salary">{sal}</td>
+            </tr>
+            """
+
+        html_block = f"""
+        <div class="ir-card">
+          <div class="ir-head">
+            <div class="ir-title">JOUEURS BLESSÉS</div>
+            <div class="ir-badge">Salaire non comptabilisé</div>
+          </div>
+          <div class="ir-table-wrap">
+            <table class="ir-table">
+              <thead>
+                <tr>
+                  <th>Joueur</th>
+                  <th class="ir-pos">Pos</th>
+                  <th class="ir-team">Équipe</th>
+                  <th class="ir-salary">Salaire</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows_html}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="ir-actions">
+          <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+          <div class="ir-hint">IR = clic ligne • Actifs/Banc/Mineur = sélection.</div>
+        </div>
+        """
+        st.markdown(html_block, unsafe_allow_html=True)
+
+    # ✅ CRUCIAL: le pop-up DOIT être appelé ici, dans tabA, après les sélections
+    open_move_dialog()
+
 
 # =====================================================
 # IR — AFFICHAGE PROPRE (HTML RÉEL, PAS TEXTE)
