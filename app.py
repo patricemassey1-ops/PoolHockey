@@ -11,6 +11,7 @@ st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 DB_FILE = "historique_fantrax_v2.csv"
 BUYOUT_FILE = "rachats_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
+EQUIPE_FILE = "equipes_joueurs.csv"  # Fichier pour stocker les équipes
 
 # PLAFONDS SALARIAUX (par défaut)
 DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
@@ -56,7 +57,7 @@ def charger_db_joueurs():
 
 # Initialisation de la session (optimisée)
 if 'historique' not in st.session_state:
-    st.session_state['historique'] = charger_donnees(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Propriétaire', 'pos_order'])
+    st.session_state['historique'] = charger_donnees(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Equipe', 'Propriétaire', 'pos_order'])
     # Nettoyer les données invalides au chargement
     if not st.session_state['historique'].empty:
         st.session_state['historique'] = st.session_state['historique'][
@@ -65,6 +66,9 @@ if 'historique' not in st.session_state:
             (st.session_state['historique']['Joueur'].astype(str).str.strip() != '0') &
             (st.session_state['historique']['Joueur'].astype(str) != 'nan')
         ]
+        # Ajouter colonne Equipe si elle n'existe pas
+        if 'Equipe' not in st.session_state['historique'].columns:
+            st.session_state['historique']['Equipe'] = 'N/A'
 
 if 'rachats' not in st.session_state:
     st.session_state['rachats'] = charger_donnees(BUYOUT_FILE, ['Propriétaire', 'Joueur', 'Impact'])
@@ -137,6 +141,7 @@ if fichiers_telecharges:
                 c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
                 c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
                 c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
+                c_team = next((c for c in df_merged.columns if 'team' in c.lower()), None)
 
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
                 df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
@@ -145,7 +150,8 @@ if fichiers_telecharges:
                     'Joueur': df_merged[c_player].astype(str), 
                     'Salaire': df_merged[c_salary], 
                     'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
-                    'Pos': df_merged[c_pos].fillna("N/A").astype(str), 
+                    'Pos': df_merged[c_pos].fillna("N/A").astype(str),
+                    'Equipe': df_merged[c_team].astype(str) if c_team else "N/A",
                     'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 })
                 
@@ -179,18 +185,6 @@ if fichiers_telecharges:
         status_text.text("✅ Import terminé!")
         progress_bar.progress(100)
         
-        # Compte à rebours avec barre de progression
-        import time
-        countdown_bar = st.sidebar.progress(100)
-        countdown_text = st.sidebar.empty()
-        
-        for i in range(10, 0, -1):
-            countdown_text.text(f"🔄 Actualisation dans {i} secondes...")
-            countdown_bar.progress(int(i * 10))
-            time.sleep(1)
-        
-        countdown_text.empty()
-        countdown_bar.empty()
         status_text.empty()
         progress_bar.empty()
         
@@ -441,9 +435,11 @@ with tab2:
                         if not joueur_info.empty:
                             j = joueur_info.iloc[0]
                             salaire = float(j['Salaire'])
+                            equipe = j.get('Equipe', 'N/A') if 'Equipe' in joueur_info.columns else 'N/A'
                             total_gc += salaire
                             joueurs_gc_data.append({
                                 'Joueur': joueur_nom,
+                                'Équipe': equipe,
                                 'Pos': j['Pos'],
                                 'Salaire': format_currency(salaire)
                             })
@@ -487,9 +483,11 @@ with tab2:
                         if not joueur_info.empty:
                             j = joueur_info.iloc[0]
                             salaire = float(j['Salaire'])
+                            equipe = j.get('Equipe', 'N/A') if 'Equipe' in joueur_info.columns else 'N/A'
                             total_ce += salaire
                             joueurs_ce_data.append({
                                 'Joueur': joueur_nom,
+                                'Équipe': equipe,
                                 'Pos': j['Pos'],
                                 'Salaire': format_currency(salaire)
                             })
