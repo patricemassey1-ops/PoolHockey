@@ -17,7 +17,7 @@ HISTORY_FILE = "historique_mouvements.csv"
 def money(x):
     try:
         return f"{float(x):,.0f} $"
-    except:
+    except Exception:
         return "—"
 
 def logo_for_owner(owner):
@@ -50,11 +50,15 @@ st.title("🏒 Gestion du Pool Hockey")
 st.sidebar.header("⚖️ Plafonds salariaux")
 
 st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-    "Grand Club (GC)", value=85_000_000, step=1_000_000
+    "Grand Club (GC)",
+    value=85_000_000,
+    step=1_000_000
 )
 
 st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-    "Club École (CE)", value=15_000_000, step=500_000
+    "Club École (CE)",
+    value=15_000_000,
+    step=500_000
 )
 
 st.sidebar.divider()
@@ -168,6 +172,7 @@ if st.session_state.data is not None:
         )
 
         ligne = joueurs_prop[joueurs_prop["Joueur"] == joueur].iloc[0]
+
         statut_actuel = ligne["Statut"]
         salaire = ligne["Salaire"]
 
@@ -205,7 +210,6 @@ if st.session_state.data is not None:
                 df.to_csv(DATA_FILE, index=False)
                 st.session_state.data = df
 
-                # ---- Historique ----
                 hist = {
                     "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "Propriétaire": proprietaire,
@@ -239,4 +243,3 @@ if st.session_state.data is not None:
 
 else:
     st.info("📥 Importez un fichier CSV Fantrax pour commencer")
-
