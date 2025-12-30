@@ -351,14 +351,20 @@ with tab2:
                 
                 # Initialiser les listes dans session_state si nécessaire
                 if f'{sim_key}_grand_club' not in st.session_state:
-                    st.session_state[f'{sim_key}_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
+                    # Filtrer les joueurs invalides dès l'initialisation
+                    gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
+                    st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
                 if f'{sim_key}_club_ecole' not in st.session_state:
-                    st.session_state[f'{sim_key}_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+                    # Filtrer les joueurs invalides dès l'initialisation
+                    ce_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+                    st.session_state[f'{sim_key}_club_ecole'] = [j for j in ce_joueurs if j and str(j).strip() != '' and str(j) != '0']
                 
                 # Bouton pour réinitialiser
                 if st.button("🔄 Réinitialiser", key="reset_sim"):
-                    st.session_state[f'{sim_key}_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
-                    st.session_state[f'{sim_key}_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+                    gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
+                    st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
+                    ce_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+                    st.session_state[f'{sim_key}_club_ecole'] = [j for j in ce_joueurs if j and str(j).strip() != '' and str(j) != '0']
                     st.rerun()
                 
                 st.divider()
@@ -374,6 +380,10 @@ with tab2:
                     joueurs_gc_data = []
                     
                     for joueur_nom in st.session_state[f'{sim_key}_grand_club']:
+                        # Filtrer les joueurs invalides
+                        if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
+                            continue
+                            
                         joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
                         if not joueur_info.empty:
                             j = joueur_info.iloc[0]
@@ -419,6 +429,10 @@ with tab2:
                     joueurs_ce_data = []
                     
                     for joueur_nom in st.session_state[f'{sim_key}_club_ecole']:
+                        # Filtrer les joueurs invalides
+                        if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
+                            continue
+                            
                         joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
                         if not joueur_info.empty:
                             j = joueur_info.iloc[0]
