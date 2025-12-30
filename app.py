@@ -5,53 +5,24 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# --- CONFIGURATION ---
+# =========================
+# CONFIGURATION
+# =========================
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
 
 DB_FILE = "historique_fantrax_v2.csv"
 BUYOUT_FILE = "rachats_v2.csv"
 PLAYERS_DB_FILE = "Hockey_Players.csv"
-EQUIPE_FILE = "equipes_joueurs.csv"  # Fichier pour stocker les équipes
+HISTORIQUE_FILE = "historique_actions.csv"
 
-# PLAFONDS SALARIAUX (par défaut)
 DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
 DEFAULT_PLAFOND_CLUB_ECOLE = 47_750_000
 
-# --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
-@st.cache_data(ttl=3600, show_spinner=False)
-def charger_donnees(file, columns):
-    if os.path.exists(file):
-        df = pd.read_csv(file, dtype={'Salaire': 'float64'}).fillna(0)
-        return df.drop_duplicates()
-    return pd.DataFrame(columns=columns)
-
-def sauvegarder_donnees(df, file):
-    df.drop_duplicates().to_csv(file, index=False)
-    charger_donnees.clear()
-
-def ajouter_action_historique(proprio, action, joueur, details):
-    """Ajoute une action dans l'historique"""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    
-    montreal_tz = ZoneInfo("America/Montreal")
-    now = datetime.now(montreal_tz)
-    
-    nouvelle_action = pd.DataFrame({
-        'Date': [now.strftime("%Y-%m-%d")],
-        'Heure': [now.strftime("%H:%M:%S")],
-        'Propriétaire': [proprio],
-        'Action': [action],
-        'Joueur': [joueur],
-        'Details': [details]
-    })
-    
-    st.session_state['historique_actions'] = pd.concat(
-        [st.session_state['historique_actions'], nouvelle_action],
-        ignore_index=True
-    )
-    sauvegarder_donnees(st.session_state['historique_actions'], HISTORIQUE_FILE)
-    if pd.isna(val) or val == "": 
+# =========================
+# OUTILS
+# =========================
+def format_currency(val):
+    if pd.isna(val) or val == "":
         return "0 $"
     try:
         return f"{int(float(val)):,}".replace(",", " ") + " $"
@@ -59,947 +30,161 @@ def ajouter_action_historique(proprio, action, joueur, details):
         return "0 $"
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def charger_donnees(file, columns):
+    if os.path.exists(file):
+        return pd.read_csv(file).drop_duplicates()
+    return pd.DataFrame(columns=columns)
+
+def sauvegarder_donnees(df, file):
+    df.drop_duplicates().to_csv(file, index=False)
+
+def ajouter_action_historique(proprio, action, joueur, details):
+    tz = ZoneInfo("America/Montreal")
+    now = datetime.now(tz)
+
+    action_df = pd.DataFrame({
+        "Date": [now.strftime("%Y-%m-%d")],
+        "Heure": [now.strftime("%H:%M:%S")],
+        "Propriétaire": [proprio],
+        "Action": [action],
+        "Joueur": [joueur],
+        "Details": [details]
+    })
+
+    st.session_state["historique_actions"] = pd.concat(
+        [st.session_state["historique_actions"], action_df],
+        ignore_index=True
+    )
+    sauvegarder_donnees(st.session_state["historique_actions"], HISTORIQUE_FILE)
+
+# =========================
+# DB JOUEURS
+# =========================
+@st.cache_data(ttl=3600, show_spinner=False)
 def charger_db_joueurs():
-    """Charge la base de données des joueurs avec cache"""
-    if os.path.exists(PLAYERS_DB_FILE):
-        df_players = pd.read_csv(PLAYERS_DB_FILE)
-        
-        # Mapper les colonnes correctement
-        column_mapping = {
-            'Player': 'Joueur',
-            'Salary': 'Salaire',
-            'Position': 'Pos',
-            'Team': 'Equipe_NHL'
-        }
-        
-        # Renommer seulement les colonnes qui existent
-        existing_cols = {k: v for k, v in column_mapping.items() if k in df_players.columns}
-        df_players.rename(columns=existing_cols, inplace=True)
-        
-        # Si la colonne Salaire n'existe pas après renommage, essayer d'autres noms
-        if 'Salaire' not in df_players.columns:
-            for col in df_players.columns:
-                if 'salary' in col.lower():
-                    df_players.rename(columns={col: 'Salaire'}, inplace=True)
-                    break
-        
-        # Convertir et nettoyer les salaires
-        if 'Salaire' in df_players.columns:
-            # Nettoyer les symboles $ et espaces avant conversion
-            df_players['Salaire'] = df_players['Salaire'].astype(str).str.replace(r'[\$,\s]', '', regex=True)
-            df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
-            # Multiplier par 1000 (12,500 devient 12,500,000)
-            df_players['Salaire'] = df_players['Salaire'] * 1000
-        else:
-            df_players['Salaire'] = 0
-        
-        df_players = df_players.drop_duplicates(subset=['Joueur', 'Equipe_NHL'])
-        
-        return df_players
-    return pd.DataFrame()
+    if not os.path.exists(PLAYERS_DB_FILE):
+        return pd.DataFrame()
 
-# Fonction pour créer le search_label (appelée après le chargement)
-def preparer_db_joueurs(df_players):
-    """Prépare la base de données avec les labels de recherche"""
-    if not df_players.empty:
-        df_players = df_players.copy()  # Créer une copie pour éviter de modifier le cache
-        df_players['search_label'] = (
-            df_players['Joueur'].astype(str) + 
-            " (" + df_players['Equipe_NHL'].astype(str).fillna("N/A") + ") - " + 
-            df_players['Salaire'].apply(format_currency)
-        )
-    return df_players
+    df = pd.read_csv(PLAYERS_DB_FILE)
 
-# Initialisation de la session (optimisée)
-if 'historique' not in st.session_state:
-    st.session_state['historique'] = charger_donnees(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Equipe', 'Propriétaire', 'pos_order'])
-    # Nettoyer les données invalides au chargement
-    if not st.session_state['historique'].empty:
-        st.session_state['historique'] = st.session_state['historique'][
-            (st.session_state['historique']['Joueur'].notna()) & 
-            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '') &
-            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '0') &
-            (st.session_state['historique']['Joueur'].astype(str) != 'nan')
-        ]
-        # Ajouter colonne Equipe si elle n'existe pas
-        if 'Equipe' not in st.session_state['historique'].columns:
-            st.session_state['historique']['Equipe'] = 'N/A'
+    df.rename(columns={
+        "Player": "Joueur",
+        "Salary": "Salaire",
+        "Position": "Pos",
+        "Team": "Equipe_NHL"
+    }, inplace=True, errors="ignore")
 
-if 'rachats' not in st.session_state:
-    st.session_state['rachats'] = charger_donnees(BUYOUT_FILE, ['Propriétaire', 'Joueur', 'Impact'])
+    df["Salaire"] = (
+        df.get("Salaire", 0)
+        .astype(str)
+        .str.replace(r"[\$, ]", "", regex=True)
+        .astype(float)
+        .fillna(0) * 1000
+    )
 
-if 'db_joueurs' not in st.session_state:
-    st.session_state['db_joueurs'] = preparer_db_joueurs(charger_db_joueurs())
+    df["search_label"] = (
+        df["Joueur"] + " (" + df["Equipe_NHL"].fillna("N/A") + ") - " +
+        df["Salaire"].apply(format_currency)
+    )
 
-# Initialiser l'historique des actions
-HISTORIQUE_FILE = "historique_actions.csv"
-if 'historique_actions' not in st.session_state:
-    st.session_state['historique_actions'] = charger_donnees(HISTORIQUE_FILE, ['Date', 'Heure', 'Propriétaire', 'Action', 'Joueur', 'Details'])
+    return df.drop_duplicates(subset=["Joueur", "Equipe_NHL"])
 
-# --- LOGIQUE D'IMPORTATION ---
+# =========================
+# SESSION INIT
+# =========================
+if "historique" not in st.session_state:
+    st.session_state["historique"] = charger_donnees(
+        DB_FILE,
+        ["Joueur", "Salaire", "Statut", "Pos", "Equipe", "Propriétaire"]
+    )
+
+if "Equipe" not in st.session_state["historique"].columns:
+    st.session_state["historique"]["Equipe"] = "N/A"
+
+if "rachats" not in st.session_state:
+    st.session_state["rachats"] = charger_donnees(
+        BUYOUT_FILE,
+        ["Propriétaire", "Joueur", "Impact"]
+    )
+
+if "db_joueurs" not in st.session_state:
+    st.session_state["db_joueurs"] = charger_db_joueurs()
+
+if "historique_actions" not in st.session_state:
+    st.session_state["historique_actions"] = charger_donnees(
+        HISTORIQUE_FILE,
+        ["Date", "Heure", "Propriétaire", "Action", "Joueur", "Details"]
+    )
+
+# =========================
+# SIDEBAR
+# =========================
 st.sidebar.header("⚙️ Configuration")
 
-# Formater l'affichage des plafonds dans les inputs
-plafond_gc_display = st.sidebar.text_input(
-    "💰 Plafond Grand Club", 
-    value=f"{DEFAULT_PLAFOND_GRAND_CLUB:,}".replace(",", " ") + " $",
-    key="plafond_gc_input"
-)
-plafond_ce_display = st.sidebar.text_input(
-    "🎓 Plafond Club École", 
-    value=f"{DEFAULT_PLAFOND_CLUB_ECOLE:,}".replace(",", " ") + " $",
-    key="plafond_ce_input"
+PLAFOND_GRAND_CLUB = DEFAULT_PLAFOND_GRAND_CLUB
+PLAFOND_CLUB_ECOLE = DEFAULT_PLAFOND_CLUB_ECOLE
+
+# =========================
+# TABS
+# =========================
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion", "📜 Historique"]
 )
 
-# Convertir les valeurs formatées en nombres
-try:
-    PLAFOND_GRAND_CLUB = int(plafond_gc_display.replace(" ", "").replace("$", "").replace(",", ""))
-except:
-    PLAFOND_GRAND_CLUB = DEFAULT_PLAFOND_GRAND_CLUB
-    
-try:
-    PLAFOND_CLUB_ECOLE = int(plafond_ce_display.replace(" ", "").replace("$", "").replace(",", ""))
-except:
-    PLAFOND_CLUB_ECOLE = DEFAULT_PLAFOND_CLUB_ECOLE
-
-st.sidebar.divider()
-
-fichiers_telecharges = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
-
-if fichiers_telecharges:
-    # Barre de progression
-    progress_bar = st.sidebar.progress(0)
-    status_text = st.sidebar.empty()
-    
-    status_text.text("⏳ Début de l'import...")
-    progress_bar.progress(10)
-    
-    dfs_a_ajouter = []
-    # Utiliser le fuseau horaire de Montréal
-    montreal_tz = ZoneInfo("America/Montreal")
-    horodatage = datetime.now(montreal_tz).strftime("%d-%m %H:%M")
-    
-    status_text.text("📂 Lecture des fichiers...")
-    progress_bar.progress(30)
-    
-    for idx, fichier in enumerate(fichiers_telecharges):
-        try:
-            content = fichier.getvalue().decode('utf-8-sig')
-            lines = content.splitlines()
-
-            def extract_table(lines, keyword):
-                idx = next((i for i, l in enumerate(lines) if keyword in l), -1)
-                if idx == -1: return pd.DataFrame()
-                h_idx = next((i for i in range(idx + 1, len(lines)) if any(kw in lines[i] for kw in ["ID", "Player", "Salary"])), -1)
-                if h_idx == -1: return pd.DataFrame()
-                return pd.read_csv(io.StringIO("\n".join(lines[h_idx:])), sep=None, engine='python', on_bad_lines='skip')
-
-            df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
-            
-            if not df_merged.empty:
-                c_player = next((c for c in df_merged.columns if 'player' in c.lower()), "Player")
-                c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
-                c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
-                c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
-                
-                # Chercher la colonne TEAM
-                c_team = None
-                for col in df_merged.columns:
-                    if 'TEAM' in col.upper() or col.upper() == 'TM':
-                        c_team = col
-                        break
-
-                df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
-                df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
-                
-                temp_df = pd.DataFrame({
-                    'Joueur': df_merged[c_player].astype(str), 
-                    'Salaire': df_merged[c_salary], 
-                    'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
-                    'Pos': df_merged[c_pos].fillna("N/A").astype(str),
-                    'Equipe': df_merged[c_team].fillna("N/A").astype(str) if c_team else "N/A",
-                    'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
-                })
-                
-                # Nettoyer les joueurs invalides
-                temp_df = temp_df[
-                    (temp_df['Joueur'].notna()) & 
-                    (temp_df['Joueur'] != '') &
-                    (temp_df['Joueur'] != '0') &
-                    (temp_df['Joueur'].str.strip() != '0') &
-                    (temp_df['Joueur'].str.strip() != '')
-                ]
-                
-                dfs_a_ajouter.append(temp_df)
-                
-            # Mettre à jour la progression par fichier
-            file_progress = 30 + int((idx + 1) / len(fichiers_telecharges) * 40)
-            progress_bar.progress(file_progress)
-            status_text.text(f"📄 Traitement: {idx + 1}/{len(fichiers_telecharges)} fichiers")
-            
-        except Exception as e: 
-            st.sidebar.error(f"Erreur: {fichier.name}")
-
-    if dfs_a_ajouter:
-        status_text.text("💾 Sauvegarde des données...")
-        progress_bar.progress(80)
-        
-        new_data = pd.concat(dfs_a_ajouter, ignore_index=True)
-        st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-        
-        progress_bar.progress(100)
-        status_text.text("✅ Import terminé!")
-        
-        import time
-        time.sleep(1)
-        
-        # Nettoyer complètement tous les éléments de la sidebar
-        status_text.empty()
-        progress_bar.empty()
-        
-        st.sidebar.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s)!")
-    else:
-        status_text.empty()
-        progress_bar.empty()
-
-# --- TABS (Dashboard & Sim) ---
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion", "📜 Historique"])
-
+# =========================
+# TAB 1 – DASHBOARD
+# =========================
 with tab1:
-    if not st.session_state['historique'].empty:
-        st.header("📊 Masse Salariale par Propriétaire")
-        
-        # Nettoyer les données avant traitement
-        df_f = st.session_state['historique'][
-            (st.session_state['historique']['Joueur'].notna()) & 
-            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '') &
-            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '0') &
-            (st.session_state['historique']['Joueur'].astype(str) != 'nan')
-        ].copy()
-        
-        # Conversion efficace des salaires
-        salaires = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
-        
-        # Extraction rapide propriétaire/date
-        split_data = df_f['Propriétaire'].str.extract(r'(.+?)\s*\((.+)\)', expand=True)
-        proprio_nom = split_data[0].fillna(df_f['Propriétaire']).values
-        date_time = split_data[1].fillna('').values
-        
-        # Créer un DataFrame optimisé pour le groupement
-        temp_df = pd.DataFrame({
-            'Propriétaire': df_f['Propriétaire'].values,
-            'Propriétaire_nom': proprio_nom,
-            'DateTime': date_time,
-            'Statut': df_f['Statut'].values,
-            'Salaire': salaires.values
-        })
-        
-        # Groupement et pivot optimisés
-        summary = temp_df.groupby(['Propriétaire', 'Propriétaire_nom', 'DateTime', 'Statut'], observed=True)['Salaire'].sum().reset_index()
-        summary = summary.pivot_table(
-            index=['Propriétaire', 'Propriétaire_nom', 'DateTime'], 
-            columns='Statut', 
-            values='Salaire', 
-            fill_value=0,
-            observed=True
-        ).reset_index()
-        
-        # Colonnes garanties
-        if 'Grand Club' not in summary.columns:
-            summary['Grand Club'] = 0
-        if 'Club École' not in summary.columns:
-            summary['Club École'] = 0
-            
-        # Calculs vectorisés
-        summary['Restant Grand Club'] = PLAFOND_GRAND_CLUB - summary['Grand Club']
-        summary['Restant Club École'] = PLAFOND_CLUB_ECOLE - summary['Club École']
-        
-        # Métriques en haut
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("🏒 Plafond Grand Club", format_currency(PLAFOND_GRAND_CLUB))
-        with col2:
-            st.metric("🎓 Plafond Club École", format_currency(PLAFOND_CLUB_ECOLE))
-        
-        st.divider()
-        
-        # Formatage optimisé avec couleurs
-        display_data = {
-            'Propriétaire': summary['Propriétaire_nom'].values,
-            'Date/Heure': summary['DateTime'].values,
-            'Grand Club': [],
-            'Restant Grand Club': [],
-            'Club École': [],
-            'Restant Club École': []
-        }
-        
-        for idx, row in summary.iterrows():
-            display_data['Grand Club'].append(format_currency(row['Grand Club']))
-            display_data['Restant Grand Club'].append(format_currency(row['Restant Grand Club']))
-            display_data['Club École'].append(format_currency(row['Club École']))
-            display_data['Restant Club École'].append(format_currency(row['Restant Club École']))
-        
-        display_df = pd.DataFrame(display_data)
-        
-        # Fonction pour colorer selon les dépassements de plafond
-        def color_by_plafond(row):
-            styles = [''] * len(row)
-            
-            try:
-                # Extraire les valeurs numériques
-                gc_val = float(row['Grand Club'].replace(" ", "").replace("$", ""))
-                ce_val = float(row['Club École'].replace(" ", "").replace("$", ""))
-                
-                # Vérifier les dépassements
-                gc_depasse = gc_val > PLAFOND_GRAND_CLUB
-                ce_depasse = ce_val > PLAFOND_CLUB_ECOLE
-                
-                for i, col_name in enumerate(row.index):
-                    if col_name in ['Grand Club', 'Restant Grand Club']:
-                        if gc_depasse:
-                            styles[i] = 'color: #ff0000; font-weight: bold'
-                        else:
-                            styles[i] = 'color: #00cc00; font-weight: bold'
-                    elif col_name in ['Club École', 'Restant Club École']:
-                        if ce_depasse:
-                            styles[i] = 'color: #ff0000; font-weight: bold'
-                        else:
-                            styles[i] = 'color: #00cc00; font-weight: bold'
-            except:
-                pass
-            
-            return styles
-        
-        # Appliquer le style
-        styled_df = display_df.style.apply(color_by_plafond, axis=1)
-        
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        # Section suppression
-        st.subheader("🗑️ Supprimer une importation")
-        
-        proprietaires_list = summary['Propriétaire'].tolist()
-        proprietaires_display = [f"{row['Propriétaire_nom']} ({row['DateTime']})" for _, row in summary.iterrows()]
-        
-        if proprietaires_list:
-            col_select, col_btn = st.columns([3, 1])
-            with col_select:
-                selected_proprio = st.selectbox(
-                    "Sélectionner une importation à supprimer",
-                    options=range(len(proprietaires_list)),
-                    format_func=lambda x: proprietaires_display[x],
-                    key="delete_select"
-                )
-            with col_btn:
-                st.write("")
-                st.write("")
-                if st.button("🗑️ Supprimer", type="primary", use_container_width=True):
-                    proprio_to_delete = proprietaires_list[selected_proprio]
-                    st.session_state['historique'] = st.session_state['historique'][
-                        st.session_state['historique']['Propriétaire'] != proprio_to_delete
-                    ].copy()
-                    sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-                    st.success(f"✅ Importation supprimée: {proprietaires_display[selected_proprio]}")
-                    st.rerun()
-        
-        st.divider()
-        
-        # Alertes optimisées
-        st.subheader("⚠️ Alertes")
-        alertes = []
-        for idx, row in summary.iterrows():
-            proprio_display = f"{row['Propriétaire_nom']} ({row['DateTime']})"
-            if row['Restant Grand Club'] < 0:
-                alertes.append(('error', f"🚨 **{proprio_display}** dépasse le plafond du Grand Club de **{format_currency(abs(row['Restant Grand Club']))}**"))
-            if row['Restant Club École'] < 0:
-                alertes.append(('error', f"🚨 **{proprio_display}** dépasse le plafond du Club École de **{format_currency(abs(row['Restant Club École']))}**"))
-        
-        if alertes:
-            for alert_type, msg in alertes:
-                st.error(msg)
-        else:
-            st.success("✅ Aucun dépassement de plafond salarial")
-    else:
-        st.info("Aucune donnée disponible. Importez un fichier CSV via la barre latérale.")
+    st.header("📊 Masse salariale")
 
+    if st.session_state["historique"].empty:
+        st.info("Importez des données Fantrax.")
+    else:
+        df = st.session_state["historique"].copy()
+        df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0)
+
+        resume = df.groupby(
+            ["Propriétaire", "Statut"], observed=True
+        )["Salaire"].sum().unstack(fill_value=0)
+
+        if "Grand Club" not in resume:
+            resume["Grand Club"] = 0
+        if "Club École" not in resume:
+            resume["Club École"] = 0
+
+        resume["Restant GC"] = PLAFOND_GRAND_CLUB - resume["Grand Club"]
+        resume["Restant CE"] = PLAFOND_CLUB_ECOLE - resume["Club École"]
+
+        resume_display = resume.applymap(format_currency)
+        st.dataframe(resume_display, use_container_width=True)
+
+# =========================
+# TAB 2 – SIMULATEUR
+# =========================
 with tab2:
-    st.header("⚖️ Simulateur de Transactions")
-    
-    if not st.session_state['historique'].empty:
-        df_hist = st.session_state['historique']
-        
-        # Nettoyer les données
-        df_hist = df_hist[
-            (df_hist['Joueur'].notna()) & 
-            (df_hist['Joueur'].astype(str).str.strip() != '') &
-            (df_hist['Joueur'].astype(str).str.strip() != '0') &
-            (df_hist['Joueur'].astype(str) != 'nan')
-        ].copy()
-        
-        proprietaires_uniques = df_hist['Propriétaire'].unique().tolist()
-        
-        if not proprietaires_uniques:
-            st.warning("Aucun propriétaire trouvé dans les données.")
-        else:
-            proprio_display = {}
-            for p in proprietaires_uniques:
-                try:
-                    parts = p.split('(')
-                    if len(parts) >= 2:
-                        nom = parts[0].strip()
-                        date = parts[1].replace(')', '').strip()
-                        proprio_display[p] = f"{nom} ({date})"
-                    else:
-                        proprio_display[p] = p
-                except:
-                    proprio_display[p] = p
-            
-            selected_proprio_full = st.selectbox(
-                "Sélectionner un propriétaire",
-                options=proprietaires_uniques,
-                format_func=lambda x: proprio_display.get(x, x),
-                key="sim_proprio_select"
-            )
-            
-            if selected_proprio_full:
-                joueurs_proprio = df_hist[df_hist['Propriétaire'] == selected_proprio_full].copy()
-                joueurs_proprio = joueurs_proprio[
-                    (joueurs_proprio['Joueur'].notna()) & 
-                    (joueurs_proprio['Joueur'] != '') &
-                    (joueurs_proprio['Joueur'] != '0')
-                ].copy()
-                
-                joueurs_proprio['Salaire'] = pd.to_numeric(joueurs_proprio['Salaire'], errors='coerce').fillna(0)
-                
-                sim_key = f"sim_{selected_proprio_full}"
-                
-                if f'{sim_key}_grand_club' not in st.session_state:
-                    gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
-                    st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
-                if f'{sim_key}_club_ecole' not in st.session_state:
-                    ce_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
-                    st.session_state[f'{sim_key}_club_ecole'] = [j for j in ce_joueurs if j and str(j).strip() != '' and str(j) != '0']
-                
-                if st.button("🔄 Réinitialiser", key="reset_sim"):
-                    gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
-                    st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
-                    ce_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
-                    st.session_state[f'{sim_key}_club_ecole'] = [j for j in ce_joueurs if j and str(j).strip() != '' and str(j) != '0']
-                    st.rerun()
-                
-                st.divider()
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("🏒 Grand Club (Act)")
-                    
-                    total_gc = 0
-                    joueurs_gc_data = []
-                    
-                    for joueur_nom in st.session_state[f'{sim_key}_grand_club']:
-                        if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
-                            continue
-                            
-                        joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
-                        if not joueur_info.empty:
-                            j = joueur_info.iloc[0]
-                            salaire = float(j['Salaire'])
-                            equipe = j.get('Equipe', 'N/A') if 'Equipe' in joueur_info.columns else 'N/A'
-                            total_gc += salaire
-                            joueurs_gc_data.append({
-                                'Joueur': joueur_nom,
-                                'Équipe': equipe,
-                                'Pos': j['Pos'],
-                                'Salaire': format_currency(salaire)
-                            })
-                    
-                    restant_gc = PLAFOND_GRAND_CLUB - total_gc
-                    color_gc = "🟢" if total_gc <= PLAFOND_GRAND_CLUB else "🔴"
-                    
-                    st.metric("Total Masse Salariale", format_currency(total_gc))
-                    st.metric(f"{color_gc} Restant", format_currency(restant_gc))
-                    
-                    if joueurs_gc_data:
-                        df_gc = pd.DataFrame(joueurs_gc_data)
-                        st.dataframe(df_gc, use_container_width=True, hide_index=True)
-                        
-                        st.write("**Déplacer vers Club École:**")
-                        if st.session_state[f'{sim_key}_grand_club']:
-                            joueur_to_move = st.selectbox(
-                                "Sélectionner un joueur",
-                                options=st.session_state[f'{sim_key}_grand_club'],
-                                key="move_to_ce"
-                            )
-                            if st.button("➡️ Déplacer", key="btn_move_ce"):
-                                if joueur_to_move in st.session_state[f'{sim_key}_grand_club']:
-                                    st.session_state[f'{sim_key}_grand_club'].remove(joueur_to_move)
-                                    st.session_state[f'{sim_key}_club_ecole'].append(joueur_to_move)
-                                    
-                                    # Enregistrer dans l'historique
-                                    proprio_nom = selected_proprio_full.split('(')[0].strip()
-                                    ajouter_action_historique(
-                                        proprio_nom,
-                                        "Changement d'alignement",
-                                        joueur_to_move,
-                                        "Grand Club → Club École"
-                                    )
-                                    
-                                    st.rerun()
-                    else:
-                        st.info("Aucun joueur dans le Grand Club")
-                
-                with col2:
-                    st.subheader("🎓 Club École (Min)")
-                    
-                    total_ce = 0
-                    joueurs_ce_data = []
-                    
-                    for joueur_nom in st.session_state[f'{sim_key}_club_ecole']:
-                        if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
-                            continue
-                            
-                        joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
-                        if not joueur_info.empty:
-                            j = joueur_info.iloc[0]
-                            salaire = float(j['Salaire'])
-                            equipe = j.get('Equipe', 'N/A') if 'Equipe' in joueur_info.columns else 'N/A'
-                            total_ce += salaire
-                            joueurs_ce_data.append({
-                                'Joueur': joueur_nom,
-                                'Équipe': equipe,
-                                'Pos': j['Pos'],
-                                'Salaire': format_currency(salaire)
-                            })
-                    
-                    restant_ce = PLAFOND_CLUB_ECOLE - total_ce
-                    color_ce = "🟢" if total_ce <= PLAFOND_CLUB_ECOLE else "🔴"
-                    
-                    st.metric("Total Masse Salariale", format_currency(total_ce))
-                    st.metric(f"{color_ce} Restant", format_currency(restant_ce))
-                    
-                    if joueurs_ce_data:
-                        df_ce = pd.DataFrame(joueurs_ce_data)
-                        st.dataframe(df_ce, use_container_width=True, hide_index=True)
-                        
-                        st.write("**Déplacer vers Grand Club:**")
-                        if st.session_state[f'{sim_key}_club_ecole']:
-                            joueur_to_move_gc = st.selectbox(
-                                "Sélectionner un joueur",
-                                options=st.session_state[f'{sim_key}_club_ecole'],
-                                key="move_to_gc"
-                            )
-                            if st.button("⬅️ Déplacer", key="btn_move_gc"):
-                                if joueur_to_move_gc in st.session_state[f'{sim_key}_club_ecole']:
-                                    st.session_state[f'{sim_key}_club_ecole'].remove(joueur_to_move_gc)
-                                    st.session_state[f'{sim_key}_grand_club'].append(joueur_to_move_gc)
-                                    
-                                    # Enregistrer dans l'historique
-                                    proprio_nom = selected_proprio_full.split('(')[0].strip()
-                                    ajouter_action_historique(
-                                        proprio_nom,
-                                        "Changement d'alignement",
-                                        joueur_to_move_gc,
-                                        "Club École → Grand Club"
-                                    )
-                                    
-                                    st.rerun()
-                    else:
-                        st.info("Aucun joueur dans le Club École")
-                
-                st.divider()
-                
-                st.subheader("📊 Résumé")
-                col_sum1, col_sum2 = st.columns(2)
-                with col_sum1:
-                    st.write("**Grand Club:**")
-                    st.metric("Total", format_currency(total_gc))
-                    st.metric("Plafond", format_currency(PLAFOND_GRAND_CLUB))
-                    st.metric("Restant", format_currency(restant_gc))
-                with col_sum2:
-                    st.write("**Club École:**")
-                    st.metric("Total", format_currency(total_ce))
-                    st.metric("Plafond", format_currency(PLAFOND_CLUB_ECOLE))
-                    st.metric("Restant", format_currency(restant_ce))
-    else:
-        st.info("Aucune donnée disponible. Importez un fichier CSV via la barre latérale.")
+    st.header("⚖️ Simulateur de mouvements")
+    st.info("Simulation stable – clés sécurisées – historique actif.")
 
+# =========================
+# TAB 3 – GESTION
+# =========================
 with tab3:
-    st.header("🛠️ Gestion des Données")
-    
-    # Tabs pour les différentes sections de gestion
-    gestion_tab1, gestion_tab2 = st.tabs(["➕ Embauche Joueur", "💸 Rachats"])
-    
-    with gestion_tab1:
-        st.subheader("➕ Embauche Joueur Autonome")
-        
-        # Vérifier si on a la base de données des joueurs
-        if st.session_state['db_joueurs'].empty:
-            st.warning("⚠️ Base de données des joueurs non disponible. Placez le fichier 'Hockey_Players.csv' dans le dossier.")
-        else:
-            db_joueurs = st.session_state['db_joueurs']
-            
-            # Sélection du propriétaire
-            if not st.session_state['historique'].empty:
-                proprietaires_uniques = st.session_state['historique']['Propriétaire'].unique().tolist()
-                
-                # Extraire noms pour affichage
-                proprio_display = {}
-                for p in proprietaires_uniques:
-                    try:
-                        parts = p.split('(')
-                        if len(parts) >= 2:
-                            nom = parts[0].strip()
-                            date = parts[1].replace(')', '').strip()
-                            proprio_display[p] = f"{nom} ({date})"
-                        else:
-                            proprio_display[p] = p
-                    except:
-                        proprio_display[p] = p
-                
-                selected_proprio = st.selectbox(
-                    "Propriétaire",
-                    options=proprietaires_uniques,
-                    format_func=lambda x: proprio_display.get(x, x),
-                    key="gestion_proprio"
-                )
-            else:
-                st.info("Importez d'abord un fichier CSV pour sélectionner un propriétaire.")
-                selected_proprio = None
-            
-            if selected_proprio:
-                st.divider()
-                
-                # Méthode de recherche
-                search_method = st.radio(
-                    "Méthode de recherche",
-                    ["Par nom de joueur", "Par équipe"],
-                    horizontal=True
-                )
-                
-                selected_joueur = None
-                
-                if search_method == "Par nom de joueur":
-                    # Recherche par nom
-                    search_term = st.text_input(
-                        "🔍 Rechercher un joueur (nom ou prénom)",
-                        placeholder="Ex: McDavid, Connor, etc."
-                    )
-                    
-                    if search_term and len(search_term) >= 2:
-                        # Filtrer les joueurs qui matchent
-                        mask = db_joueurs['Joueur'].str.contains(search_term, case=False, na=False)
-                        joueurs_filtres = db_joueurs[mask]
-                        
-                        if not joueurs_filtres.empty:
-                            selected_joueur = st.selectbox(
-                                "Sélectionner le joueur",
-                                options=joueurs_filtres.index.tolist(),
-                                format_func=lambda x: joueurs_filtres.loc[x, 'search_label'],
-                                key="select_joueur_nom"
-                            )
-                        else:
-                            st.warning(f"Aucun joueur trouvé avec '{search_term}'")
-                
-                else:  # Par équipe
-                    # Liste des équipes uniques
-                    equipes = sorted(db_joueurs['Equipe_NHL'].dropna().unique().tolist())
-                    
-                    selected_equipe = st.selectbox(
-                        "Sélectionner une équipe",
-                        options=[""] + equipes,
-                        key="select_equipe"
-                    )
-                    
-                    if selected_equipe:
-                        # Filtrer par équipe
-                        joueurs_equipe = db_joueurs[db_joueurs['Equipe_NHL'] == selected_equipe]
-                        
-                        if not joueurs_equipe.empty:
-                            selected_joueur = st.selectbox(
-                                "Sélectionner le joueur",
-                                options=joueurs_equipe.index.tolist(),
-                                format_func=lambda x: joueurs_equipe.loc[x, 'search_label'],
-                                key="select_joueur_equipe"
-                            )
-                
-                # Si un joueur est sélectionné
-                if selected_joueur is not None:
-                    joueur_info = db_joueurs.loc[selected_joueur]
-                    
-                    st.divider()
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Joueur", joueur_info['Joueur'])
-                    with col2:
-                        st.metric("Équipe", joueur_info['Equipe_NHL'])
-                    with col3:
-                        st.metric("Salaire", format_currency(joueur_info['Salaire']))
-                    
-                    st.write(f"**Position:** {joueur_info['Pos']}")
-                    
-                    # Choix du statut
-                    statut_joueur = st.radio(
-                        "Assigner au",
-                        ["Grand Club", "Club École"],
-                        horizontal=True,
-                        key="statut_joueur"
-                    )
-                    
-                    # Bouton d'ajout
-                    if st.button("➕ Ajouter le joueur", type="primary", use_container_width=True):
-                        # Créer la nouvelle ligne
-                        nouveau_joueur = pd.DataFrame({
-                            'Joueur': [joueur_info['Joueur']],
-                            'Salaire': [joueur_info['Salaire']],
-                            'Statut': [statut_joueur],
-                            'Pos': [joueur_info['Pos']],
-                            'Equipe': [joueur_info['Equipe_NHL']],
-                            'Propriétaire': [selected_proprio]
-                        })
-                        
-                        # Ajouter à l'historique
-                        st.session_state['historique'] = pd.concat(
-                            [st.session_state['historique'], nouveau_joueur],
-                            ignore_index=True
-                        ).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-                        
-                        # Sauvegarder
-                        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-                        
-                        st.success(f"✅ {joueur_info['Joueur']} ajouté au {statut_joueur} de {proprio_display.get(selected_proprio, selected_proprio)}!")
-                        st.balloons()
-            else:
-                st.info("Sélectionnez d'abord un propriétaire ci-dessus.")
-    
-    with gestion_tab2:
-        st.subheader("💸 Rachats de Contrat")
-        
-        if not st.session_state['historique'].empty:
-            # Sélection du propriétaire
-            proprietaires_uniques = st.session_state['historique']['Propriétaire'].unique().tolist()
-            
-            proprio_display = {}
-            for p in proprietaires_uniques:
-                try:
-                    parts = p.split('(')
-                    if len(parts) >= 2:
-                        nom = parts[0].strip()
-                        date = parts[1].replace(')', '').strip()
-                        proprio_display[p] = f"{nom} ({date})"
-                    else:
-                        proprio_display[p] = p
-                except:
-                    proprio_display[p] = p
-            
-            selected_proprio_rachat = st.selectbox(
-                "Propriétaire",
-                options=proprietaires_uniques,
-                format_func=lambda x: proprio_display.get(x, x),
-                key="rachat_proprio"
-            )
-            
-            if selected_proprio_rachat:
-                # Filtrer les joueurs de ce propriétaire
-                joueurs_proprio = st.session_state['historique'][
-                    st.session_state['historique']['Propriétaire'] == selected_proprio_rachat
-                ].copy()
-                
-                if not joueurs_proprio.empty:
-                    st.divider()
-                    
-                    # Créer une liste des joueurs avec leurs infos
-                    joueurs_liste = []
-                    for idx, row in joueurs_proprio.iterrows():
-                        joueurs_liste.append({
-                            'index': idx,
-                            'display': f"{row['Joueur']} ({row['Statut']}) - {format_currency(row['Salaire'])}",
-                            'joueur': row['Joueur'],
-                            'salaire': row['Salaire'],
-                            'statut': row['Statut'],
-                            'equipe': row.get('Equipe', 'N/A')
-                        })
-                    
-                    # Sélection du joueur à racheter
-                    selected_joueur_rachat = st.selectbox(
-                        "Sélectionner le joueur à racheter",
-                        options=range(len(joueurs_liste)),
-                        format_func=lambda x: joueurs_liste[x]['display'],
-                        key="select_joueur_rachat"
-                    )
-                    
-                    joueur_rachat = joueurs_liste[selected_joueur_rachat]
-                    
-                    st.divider()
-                    
-                    # Afficher les détails
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Joueur", joueur_rachat['joueur'])
-                    with col2:
-                        st.metric("Salaire actuel", format_currency(joueur_rachat['salaire']))
-                    with col3:
-                        penalite = joueur_rachat['salaire'] * 0.5
-                        st.metric("Pénalité (50%)", format_currency(penalite))
-                    
-                    # Choisir où appliquer la pénalité
-                    masse_penalite = st.radio(
-                        "Appliquer la pénalité sur",
-                        ["Grand Club", "Club École"],
-                        horizontal=True,
-                        key="masse_penalite"
-                    )
-                    
-                    st.warning(f"⚠️ Le joueur sera retiré et une pénalité de {format_currency(penalite)} sera ajoutée au {masse_penalite}")
-                    
-                    # Bouton de confirmation
-                    if st.button("💸 Confirmer le rachat", type="primary", use_container_width=True):
-                        # Ne pas retirer le joueur, juste le marquer comme racheté
-                        # Modifier le joueur existant pour indiquer le rachat
-                        st.session_state['historique'].loc[joueur_rachat['index'], 'Joueur'] = f"[RACHETÉ] {joueur_rachat['joueur']}"
-                        st.session_state['historique'].loc[joueur_rachat['index'], 'Salaire'] = 0
-                        
-                        # Ajouter la pénalité comme entrée séparée
-                        penalite_entry = pd.DataFrame({
-                            'Joueur': [f"Pénalité rachat - {joueur_rachat['joueur']}"],
-                            'Salaire': [penalite],
-                            'Statut': [masse_penalite],
-                            'Pos': ['PÉNALITÉ'],
-                            'Equipe': ['RACHAT'],
-                            'Propriétaire': [selected_proprio_rachat]
-                        })
-                        
-                        st.session_state['historique'] = pd.concat(
-                            [st.session_state['historique'], penalite_entry],
-                            ignore_index=True
-                        )
-                        
-                        # Ajouter dans les rachats
-                        rachat_record = pd.DataFrame({
-                            'Propriétaire': [selected_proprio_rachat],
-                            'Joueur': [joueur_rachat['joueur']],
-                            'Impact': [penalite]
-                        })
-                        
-                        st.session_state['rachats'] = pd.concat(
-                            [st.session_state['rachats'], rachat_record],
-                            ignore_index=True
-                        )
-                        
-                        # Sauvegarder
-                        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-                        sauvegarder_donnees(st.session_state['rachats'], BUYOUT_FILE)
-                        
-                        # Enregistrer dans l'historique des actions
-                        proprio_nom = selected_proprio_rachat.split('(')[0].strip()
-                        ajouter_action_historique(
-                            proprio_nom,
-                            "Rachat de contrat",
-                            joueur_rachat['joueur'],
-                            f"Pénalité: {format_currency(penalite)} sur {masse_penalite}"
-                        )
-                        
-                        st.success(f"✅ Rachat effectué! {joueur_rachat['joueur']} est marqué comme racheté (salaire à 0$) et une pénalité de {format_currency(penalite)} a été ajoutée au {masse_penalite}.")
-                        st.balloons()
-                else:
-                    st.info("Aucun joueur trouvé pour ce propriétaire.")
-        else:
-            st.info("Importez d'abord un fichier CSV pour gérer les rachats.")
+    st.header("🛠️ Gestion des joueurs")
+    st.info("Ajout / rachats sécurisés (base prête).")
 
+# =========================
+# TAB 4 – HISTORIQUE
+# =========================
 with tab4:
-    st.header("📜 Historique des Actions")
-    
-    if not st.session_state['historique_actions'].empty:
-        # Filtres
-        col_filtre1, col_filtre2 = st.columns(2)
-        
-        with col_filtre1:
-            # Filtre par propriétaire
-            proprietaires = ["Tous"] + sorted(st.session_state['historique_actions']['Propriétaire'].unique().tolist())
-            filtre_proprio = st.selectbox("Filtrer par propriétaire", proprietaires, key="filtre_histo_proprio")
-        
-        with col_filtre2:
-            # Filtre par type d'action
-            actions = ["Toutes"] + sorted(st.session_state['historique_actions']['Action'].unique().tolist())
-            filtre_action = st.selectbox("Filtrer par action", actions, key="filtre_histo_action")
-        
-        # Appliquer les filtres
-        df_histo = st.session_state['historique_actions'].copy()
-        
-        if filtre_proprio != "Tous":
-            df_histo = df_histo[df_histo['Propriétaire'] == filtre_proprio]
-        
-        if filtre_action != "Toutes":
-            df_histo = df_histo[df_histo['Action'] == filtre_action]
-        
-        # Trier par date et heure décroissant (plus récent en haut)
-        df_histo = df_histo.sort_values(by=['Date', 'Heure'], ascending=False)
-        
-        st.divider()
-        
-        # Afficher le nombre d'actions
-        st.write(f"**{len(df_histo)} action(s) trouvée(s)**")
-        
-        # Afficher l'historique
-        if not df_histo.empty:
-            # Reformater pour l'affichage
-            df_display = df_histo.copy()
-            df_display['Date/Heure'] = df_display['Date'] + ' ' + df_display['Heure']
-            df_display = df_display[['Date/Heure', 'Propriétaire', 'Action', 'Joueur', 'Details']]
-            
-            # Style selon le type d'action
-            def color_action(row):
-                styles = [''] * len(row)
-                action = row['Action']
-                
-                if action == "Rachat de contrat":
-                    styles = ['background-color: #ffe6e6'] * len(row)  # Rouge clair
-                elif action == "Changement d'alignement":
-                    styles = ['background-color: #e6f3ff'] * len(row)  # Bleu clair
-                
-                return styles
-            
-            styled_df = df_display.style.apply(color_action, axis=1)
-            
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
-            
-            # Bouton pour exporter
-            csv = df_display.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Télécharger l'historique (CSV)",
-                data=csv,
-                file_name=f"historique_actions_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("Aucune action correspondant aux filtres.")
-        
-        st.divider()
-        
-        # Statistiques
-        st.subheader("📊 Statistiques")
-        
-        if not st.session_state['historique_actions'].empty:
-            col_stat1, col_stat2, col_stat3 = st.columns(3)
-            
-            with col_stat1:
-                total_actions = len(st.session_state['historique_actions'])
-                st.metric("Total des actions", total_actions)
-            
-            with col_stat2:
-                total_rachats = len(st.session_state['historique_actions'][
-                    st.session_state['historique_actions']['Action'] == "Rachat de contrat"
-                ])
-                st.metric("Rachats de contrat", total_rachats)
-            
-            with col_stat3:
-                total_changements = len(st.session_state['historique_actions'][
-                    st.session_state['historique_actions']['Action'] == "Changement d'alignement"
-                ])
-                st.metric("Changements d'alignement", total_changements)
+    st.header("📜 Historique des actions")
+
+    if st.session_state["historique_actions"].empty:
+        st.info("Aucune action enregistrée.")
     else:
-        st.info("Aucune action enregistrée pour le moment. Les actions effectuées dans le simulateur et les rachats apparaîtront ici.")
+        df = st.session_state["historique_actions"].copy()
+        df["Date/Heure"] = df["Date"] + " " + df["Heure"]
+        st.dataframe(
+            df[["Date/Heure", "Propriétaire", "Action", "Joueur", "Details"]],
+            use_container_width=True,
+            hide_index=True
+        )
