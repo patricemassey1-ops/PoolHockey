@@ -58,100 +58,95 @@ import csv
 import re
 
 def parse_fantrax(upload):
+    import csv
+    import re
+
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
-    # Enlève les caractères invisibles (ça évite plusieurs bugs)
     raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
-    # Détecte le séparateur à partir d'une ligne qui ressemble à un header
+    # Détection du séparateur
     def detect_sep(lines):
-        candidates = []
         for l in lines:
-            s = l.strip()
-            if not s:
-                continue
-            low = s.lower()
-            if ("player" in low and "salary" in low) and ("," in s or ";" in s or "\t" in s):
-                candidates.append(s)
-        sample = "\n".join(candidates[:5] if candidates else [l for l in lines if l.strip()][:5])
-        if not sample.strip():
-            return ","
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"])
-            return dialect.delimiter
-        except Exception:
-            # fallback: le plus fréquent
-            if ";" in sample and sample.count(";") >= sample.count(","):
-                return ";"
-            return ","
+            if "Player" in l and ("Salary" in l):
+                for d in [",", ";", "\t"]:
+                    if d in l:
+                        return d
+        return ","
 
     sep = detect_sep(raw_lines)
 
-    # Trouver les index des headers contenant Player + Salary
-    header_idxs = []
-    for i, line in enumerate(raw_lines):
-        s = line.strip()
-        if not s:
-            continue
-        low = s.lower()
-        # header probable
-        if "player" in low and "salary" in low:
-            # doit contenir un séparateur pour être un vrai header csv
-            if sep in s:
-                header_idxs.append(i)
+    # Détection des headers valides
+    header_idxs = [
+        i for i, l in enumerate(raw_lines)
+        if "player" in l.lower() and "salary" in l.lower()
+    ]
 
     if not header_idxs:
-        raise ValueError(
-            "Impossible de trouver une ligne d’en-tête contenant 'Player' et 'Salary'. "
-            "Vérifie que c’est bien l’export Fantrax (Roster export) et non un autre format."
-        )
+        raise ValueError("Aucune section Fantrax valide détectée (Player / Salary).")
 
-    # Fonction qui lit une section depuis un header jusqu'à la prochaine séparation
-    def read_section(start_idx, end_idx):
-        lines = raw_lines[start_idx:end_idx]
-        # Nettoyage: retire lignes vides au début/fin
-        while lines and not lines[0].strip():
-            lines = lines[1:]
-        while lines and not lines[-1].strip():
-            lines = lines[:-1]
+    def read_section(start, end):
+        lines = raw_lines[start:end]
+        lines = [l for l in lines if l.strip()]
         if len(lines) < 2:
             return None
 
-        csv_text = "\n".join(lines)
-
-        dfx = pd.read_csv(
-            io.StringIO(csv_text),
+        df = pd.read_csv(
+            io.StringIO("\n".join(lines)),
             sep=sep,
             engine="python",
-            on_bad_lines="skip",
+            on_bad_lines="skip"
         )
-        dfx.columns = [c.replace('"', "").strip() for c in dfx.columns]
-        return dfx
+        df.columns = [c.strip().replace('"', "") for c in df.columns]
+        return df
 
-    # Construire les sections (Skaters/Goalies etc.)
     dfs = []
-    for idx_pos, h in enumerate(header_idxs):
-        end = header_idxs[idx_pos + 1] if idx_pos + 1 < len(header_idxs) else len(raw_lines)
-
-        # option: coupe aussi à la première ligne vide "longue" après le tableau
-        # mais sans briser si Fantrax ne met pas de ligne vide
-        # (on lit jusqu'au prochain header de toute façon)
-        dfx = read_section(h, end)
-        if dfx is not None and not dfx.empty:
-            dfs.append(dfx)
+    for i, h in enumerate(header_idxs):
+        end = header_idxs[i + 1] if i + 1 < len(header_idxs) else len(raw_lines)
+        df_part = read_section(h, end)
+        if df_part is not None and not df_part.empty:
+            dfs.append(df_part)
 
     if not dfs:
-        raise ValueError("Sections Fantrax détectées mais aucune donnée lisible.")
+        raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
 
     df = pd.concat(dfs, ignore_index=True)
 
-    # Normaliser les noms de colonnes (au cas où)
-    cols_lower = {c.lower(): c for c in df.columns}
-    player_col = cols_lower.get("player")
-    salary_col = cols_lower.get("salary")
+    # Normalisation colonnes
+    cols = {c.lower(): c for c in df.columns}
 
-    if not player_col or not salary_col:
-        # Debug utile: montre les colonnes trouvées
-        raise ValueError(f"Colonnes Fantrax non détectées (Player/Salary). Colonnes trouvées: {list(df.columns)}")
+    if "player" not in cols or "salary" not in cols:
+        raise ValueError(f"Colonnes Fantrax manquantes. Colonnes trouvées: {list(df.columns)}")
+
+    out = pd.DataFrame()
+    out["Joueur"] = df[cols["player"]].astype(str)
+
+    # 👉 ÉQUIPE DU JOUEUR (Team)
+    out["Equipe"] = df[cols["team"]] if "team" in cols else "N/A"
+
+    out["Pos"] = df[cols["pos"]] if "pos" in cols else "N/A"
+
+    sal = (
+        df[cols["salary"]]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace(" ", "", regex=False)
+        .replace(["None", "nan", "NaN", ""], "0")
+    )
+
+    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
+
+    if "status" in cols:
+        out["Statut"] = df[cols["status"]].apply(
+            lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
+        )
+    else:
+        out["Statut"] = "Grand Club"
+
+    # Sécurité finale
+    out = out[out["Joueur"].str.len() > 2].reset_index(drop=True)
+
+    return out
+
 
 
 
