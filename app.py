@@ -41,10 +41,33 @@ def format_currency(val):
 def charger_db_joueurs():
     """Charge la base de données des joueurs avec cache"""
     if os.path.exists(PLAYERS_DB_FILE):
-        df_players = pd.read_csv(PLAYERS_DB_FILE, dtype={'Salaire': 'float64'})
-        df_players.rename(columns={'Player': 'Joueur', 'Salary': 'Salaire', 'Position': 'Pos', 'Team': 'Equipe_NHL'}, inplace=True, errors='ignore')
+        df_players = pd.read_csv(PLAYERS_DB_FILE)
         
-        df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
+        # Mapper les colonnes correctement
+        column_mapping = {
+            'Player': 'Joueur',
+            'Salary': 'Salaire',
+            'Position': 'Pos',
+            'Team': 'Equipe_NHL'
+        }
+        
+        # Renommer seulement les colonnes qui existent
+        existing_cols = {k: v for k, v in column_mapping.items() if k in df_players.columns}
+        df_players.rename(columns=existing_cols, inplace=True)
+        
+        # Si la colonne Salaire n'existe pas après renommage, essayer d'autres noms
+        if 'Salaire' not in df_players.columns:
+            for col in df_players.columns:
+                if 'salary' in col.lower():
+                    df_players.rename(columns={col: 'Salaire'}, inplace=True)
+                    break
+        
+        # Convertir et nettoyer les salaires
+        if 'Salaire' in df_players.columns:
+            df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
+        else:
+            df_players['Salaire'] = 0
+        
         df_players = df_players.drop_duplicates(subset=['Joueur', 'Equipe_NHL'])
         
         df_players['search_label'] = (
