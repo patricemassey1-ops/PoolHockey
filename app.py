@@ -577,19 +577,159 @@ with tab2:
 with tab3:
     st.header("🛠️ Gestion des Données")
     
-    st.subheader("➕ Embauche Joueur Autonome")
+    # Tabs pour les différentes sections de gestion
+    gestion_tab1, gestion_tab2 = st.tabs(["➕ Embauche Joueur", "💸 Rachats"])
     
-    # Vérifier si on a la base de données des joueurs
-    if st.session_state['db_joueurs'].empty:
-        st.warning("⚠️ Base de données des joueurs non disponible. Placez le fichier 'Hockey_Players.csv' dans le dossier.")
-    else:
-        db_joueurs = st.session_state['db_joueurs']
+    with gestion_tab1:
+        st.subheader("➕ Embauche Joueur Autonome")
         
-        # Sélection du propriétaire
+        # Vérifier si on a la base de données des joueurs
+        if st.session_state['db_joueurs'].empty:
+            st.warning("⚠️ Base de données des joueurs non disponible. Placez le fichier 'Hockey_Players.csv' dans le dossier.")
+        else:
+            db_joueurs = st.session_state['db_joueurs']
+            
+            # Sélection du propriétaire
+            if not st.session_state['historique'].empty:
+                proprietaires_uniques = st.session_state['historique']['Propriétaire'].unique().tolist()
+                
+                # Extraire noms pour affichage
+                proprio_display = {}
+                for p in proprietaires_uniques:
+                    try:
+                        parts = p.split('(')
+                        if len(parts) >= 2:
+                            nom = parts[0].strip()
+                            date = parts[1].replace(')', '').strip()
+                            proprio_display[p] = f"{nom} ({date})"
+                        else:
+                            proprio_display[p] = p
+                    except:
+                        proprio_display[p] = p
+                
+                selected_proprio = st.selectbox(
+                    "Propriétaire",
+                    options=proprietaires_uniques,
+                    format_func=lambda x: proprio_display.get(x, x),
+                    key="gestion_proprio"
+                )
+            else:
+                st.info("Importez d'abord un fichier CSV pour sélectionner un propriétaire.")
+                selected_proprio = None
+            
+            if selected_proprio:
+                st.divider()
+                
+                # Méthode de recherche
+                search_method = st.radio(
+                    "Méthode de recherche",
+                    ["Par nom de joueur", "Par équipe"],
+                    horizontal=True
+                )
+                
+                selected_joueur = None
+                
+                if search_method == "Par nom de joueur":
+                    # Recherche par nom
+                    search_term = st.text_input(
+                        "🔍 Rechercher un joueur (nom ou prénom)",
+                        placeholder="Ex: McDavid, Connor, etc."
+                    )
+                    
+                    if search_term and len(search_term) >= 2:
+                        # Filtrer les joueurs qui matchent
+                        mask = db_joueurs['Joueur'].str.contains(search_term, case=False, na=False)
+                        joueurs_filtres = db_joueurs[mask]
+                        
+                        if not joueurs_filtres.empty:
+                            selected_joueur = st.selectbox(
+                                "Sélectionner le joueur",
+                                options=joueurs_filtres.index.tolist(),
+                                format_func=lambda x: joueurs_filtres.loc[x, 'search_label'],
+                                key="select_joueur_nom"
+                            )
+                        else:
+                            st.warning(f"Aucun joueur trouvé avec '{search_term}'")
+                
+                else:  # Par équipe
+                    # Liste des équipes uniques
+                    equipes = sorted(db_joueurs['Equipe_NHL'].dropna().unique().tolist())
+                    
+                    selected_equipe = st.selectbox(
+                        "Sélectionner une équipe",
+                        options=[""] + equipes,
+                        key="select_equipe"
+                    )
+                    
+                    if selected_equipe:
+                        # Filtrer par équipe
+                        joueurs_equipe = db_joueurs[db_joueurs['Equipe_NHL'] == selected_equipe]
+                        
+                        if not joueurs_equipe.empty:
+                            selected_joueur = st.selectbox(
+                                "Sélectionner le joueur",
+                                options=joueurs_equipe.index.tolist(),
+                                format_func=lambda x: joueurs_equipe.loc[x, 'search_label'],
+                                key="select_joueur_equipe"
+                            )
+                
+                # Si un joueur est sélectionné
+                if selected_joueur is not None:
+                    joueur_info = db_joueurs.loc[selected_joueur]
+                    
+                    st.divider()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Joueur", joueur_info['Joueur'])
+                    with col2:
+                        st.metric("Équipe", joueur_info['Equipe_NHL'])
+                    with col3:
+                        st.metric("Salaire", format_currency(joueur_info['Salaire']))
+                    
+                    st.write(f"**Position:** {joueur_info['Pos']}")
+                    
+                    # Choix du statut
+                    statut_joueur = st.radio(
+                        "Assigner au",
+                        ["Grand Club", "Club École"],
+                        horizontal=True,
+                        key="statut_joueur"
+                    )
+                    
+                    # Bouton d'ajout
+                    if st.button("➕ Ajouter le joueur", type="primary", use_container_width=True):
+                        # Créer la nouvelle ligne
+                        nouveau_joueur = pd.DataFrame({
+                            'Joueur': [joueur_info['Joueur']],
+                            'Salaire': [joueur_info['Salaire']],
+                            'Statut': [statut_joueur],
+                            'Pos': [joueur_info['Pos']],
+                            'Equipe': [joueur_info['Equipe_NHL']],
+                            'Propriétaire': [selected_proprio]
+                        })
+                        
+                        # Ajouter à l'historique
+                        st.session_state['historique'] = pd.concat(
+                            [st.session_state['historique'], nouveau_joueur],
+                            ignore_index=True
+                        ).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
+                        
+                        # Sauvegarder
+                        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
+                        
+                        st.success(f"✅ {joueur_info['Joueur']} ajouté au {statut_joueur} de {proprio_display.get(selected_proprio, selected_proprio)}!")
+                        st.balloons()
+            else:
+                st.info("Sélectionnez d'abord un propriétaire ci-dessus.")
+    
+    with gestion_tab2:
+        st.subheader("💸 Rachats de Contrat")
+        
         if not st.session_state['historique'].empty:
+            # Sélection du propriétaire
             proprietaires_uniques = st.session_state['historique']['Propriétaire'].unique().tolist()
             
-            # Extraire noms pour affichage
             proprio_display = {}
             for p in proprietaires_uniques:
                 try:
@@ -603,118 +743,105 @@ with tab3:
                 except:
                     proprio_display[p] = p
             
-            selected_proprio = st.selectbox(
+            selected_proprio_rachat = st.selectbox(
                 "Propriétaire",
                 options=proprietaires_uniques,
                 format_func=lambda x: proprio_display.get(x, x),
-                key="gestion_proprio"
-            )
-        else:
-            st.info("Importez d'abord un fichier CSV pour sélectionner un propriétaire.")
-            selected_proprio = None
-        
-        if selected_proprio:
-            st.divider()
-            
-            # Méthode de recherche
-            search_method = st.radio(
-                "Méthode de recherche",
-                ["Par nom de joueur", "Par équipe"],
-                horizontal=True
+                key="rachat_proprio"
             )
             
-            selected_joueur = None
-            
-            if search_method == "Par nom de joueur":
-                # Recherche par nom
-                search_term = st.text_input(
-                    "🔍 Rechercher un joueur (nom ou prénom)",
-                    placeholder="Ex: McDavid, Connor, etc."
-                )
+            if selected_proprio_rachat:
+                # Filtrer les joueurs de ce propriétaire
+                joueurs_proprio = st.session_state['historique'][
+                    st.session_state['historique']['Propriétaire'] == selected_proprio_rachat
+                ].copy()
                 
-                if search_term and len(search_term) >= 2:
-                    # Filtrer les joueurs qui matchent
-                    mask = db_joueurs['Joueur'].str.contains(search_term, case=False, na=False)
-                    joueurs_filtres = db_joueurs[mask]
+                if not joueurs_proprio.empty:
+                    st.divider()
                     
-                    if not joueurs_filtres.empty:
-                        selected_joueur = st.selectbox(
-                            "Sélectionner le joueur",
-                            options=joueurs_filtres.index.tolist(),
-                            format_func=lambda x: joueurs_filtres.loc[x, 'search_label'],
-                            key="select_joueur_nom"
+                    # Créer une liste des joueurs avec leurs infos
+                    joueurs_liste = []
+                    for idx, row in joueurs_proprio.iterrows():
+                        joueurs_liste.append({
+                            'index': idx,
+                            'display': f"{row['Joueur']} ({row['Statut']}) - {format_currency(row['Salaire'])}",
+                            'joueur': row['Joueur'],
+                            'salaire': row['Salaire'],
+                            'statut': row['Statut'],
+                            'equipe': row.get('Equipe', 'N/A')
+                        })
+                    
+                    # Sélection du joueur à racheter
+                    selected_joueur_rachat = st.selectbox(
+                        "Sélectionner le joueur à racheter",
+                        options=range(len(joueurs_liste)),
+                        format_func=lambda x: joueurs_liste[x]['display'],
+                        key="select_joueur_rachat"
+                    )
+                    
+                    joueur_rachat = joueurs_liste[selected_joueur_rachat]
+                    
+                    st.divider()
+                    
+                    # Afficher les détails
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Joueur", joueur_rachat['joueur'])
+                    with col2:
+                        st.metric("Salaire actuel", format_currency(joueur_rachat['salaire']))
+                    with col3:
+                        penalite = joueur_rachat['salaire'] * 0.5
+                        st.metric("Pénalité (50%)", format_currency(penalite))
+                    
+                    # Choisir où appliquer la pénalité
+                    masse_penalite = st.radio(
+                        "Appliquer la pénalité sur",
+                        ["Grand Club", "Club École"],
+                        horizontal=True,
+                        key="masse_penalite"
+                    )
+                    
+                    st.warning(f"⚠️ Le joueur sera retiré et une pénalité de {format_currency(penalite)} sera ajoutée au {masse_penalite}")
+                    
+                    # Bouton de confirmation
+                    if st.button("💸 Confirmer le rachat", type="primary", use_container_width=True):
+                        # Retirer le joueur
+                        st.session_state['historique'] = st.session_state['historique'].drop(joueur_rachat['index'])
+                        
+                        # Ajouter la pénalité comme entrée spéciale
+                        penalite_entry = pd.DataFrame({
+                            'Joueur': [f"RACHAT - {joueur_rachat['joueur']}"],
+                            'Salaire': [penalite],
+                            'Statut': [masse_penalite],
+                            'Pos': ['RACHAT'],
+                            'Equipe': ['RACHAT'],
+                            'Propriétaire': [selected_proprio_rachat]
+                        })
+                        
+                        st.session_state['historique'] = pd.concat(
+                            [st.session_state['historique'], penalite_entry],
+                            ignore_index=True
                         )
-                    else:
-                        st.warning(f"Aucun joueur trouvé avec '{search_term}'")
-            
-            else:  # Par équipe
-                # Liste des équipes uniques
-                equipes = sorted(db_joueurs['Equipe_NHL'].dropna().unique().tolist())
-                
-                selected_equipe = st.selectbox(
-                    "Sélectionner une équipe",
-                    options=[""] + equipes,
-                    key="select_equipe"
-                )
-                
-                if selected_equipe:
-                    # Filtrer par équipe
-                    joueurs_equipe = db_joueurs[db_joueurs['Equipe_NHL'] == selected_equipe]
-                    
-                    if not joueurs_equipe.empty:
-                        selected_joueur = st.selectbox(
-                            "Sélectionner le joueur",
-                            options=joueurs_equipe.index.tolist(),
-                            format_func=lambda x: joueurs_equipe.loc[x, 'search_label'],
-                            key="select_joueur_equipe"
+                        
+                        # Ajouter dans les rachats
+                        rachat_record = pd.DataFrame({
+                            'Propriétaire': [selected_proprio_rachat],
+                            'Joueur': [joueur_rachat['joueur']],
+                            'Impact': [penalite]
+                        })
+                        
+                        st.session_state['rachats'] = pd.concat(
+                            [st.session_state['rachats'], rachat_record],
+                            ignore_index=True
                         )
-            
-            # Si un joueur est sélectionné
-            if selected_joueur is not None:
-                joueur_info = db_joueurs.loc[selected_joueur]
-                
-                st.divider()
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Joueur", joueur_info['Joueur'])
-                with col2:
-                    st.metric("Équipe", joueur_info['Equipe_NHL'])
-                with col3:
-                    st.metric("Salaire", format_currency(joueur_info['Salaire']))
-                
-                st.write(f"**Position:** {joueur_info['Pos']}")
-                
-                # Choix du statut
-                statut_joueur = st.radio(
-                    "Assigner au",
-                    ["Grand Club", "Club École"],
-                    horizontal=True,
-                    key="statut_joueur"
-                )
-                
-                # Bouton d'ajout
-                if st.button("➕ Ajouter le joueur", type="primary", use_container_width=True):
-                    # Créer la nouvelle ligne
-                    nouveau_joueur = pd.DataFrame({
-                        'Joueur': [joueur_info['Joueur']],
-                        'Salaire': [joueur_info['Salaire']],
-                        'Statut': [statut_joueur],
-                        'Pos': [joueur_info['Pos']],
-                        'Equipe': [joueur_info['Equipe_NHL']],
-                        'Propriétaire': [selected_proprio]
-                    })
-                    
-                    # Ajouter à l'historique
-                    st.session_state['historique'] = pd.concat(
-                        [st.session_state['historique'], nouveau_joueur],
-                        ignore_index=True
-                    ).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-                    
-                    # Sauvegarder
-                    sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-                    
-                    st.success(f"✅ {joueur_info['Joueur']} ajouté au {statut_joueur} de {proprio_display.get(selected_proprio, selected_proprio)}!")
-                    st.balloons()
+                        
+                        # Sauvegarder
+                        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
+                        sauvegarder_donnees(st.session_state['rachats'], BUYOUT_FILE)
+                        
+                        st.success(f"✅ Rachat effectué! {joueur_rachat['joueur']} a été retiré et une pénalité de {format_currency(penalite)} a été ajoutée au {masse_penalite}.")
+                        st.balloons()
+                else:
+                    st.info("Aucun joueur trouvé pour ce propriétaire.")
         else:
-            st.info("Sélectionnez d'abord un propriétaire ci-dessus.")
+            st.info("Importez d'abord un fichier CSV pour gérer les rachats.")
