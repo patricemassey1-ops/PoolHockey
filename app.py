@@ -627,149 +627,114 @@ with tab1:
 # =====================================================
 # ALIGNEMENT
 # - Actifs / Banc / Mineur
-# - Blessés: fond noir + texte blanc + boutons cliquables (ouvre pop-up direct)
-# - Pop-up robuste via move_ctx
 # =====================================================
-with tabA:
-    st.subheader("🧾 Alignement")
-    st.caption("Clique un joueur (Actifs/Banc/Mineur) ou un bouton Blessé (IR) pour ouvrir le pop-up.")
+# BLESSÉS : SECTION PLUS VISIBLE (NOIR + ROUGE + BOUTONS)
+# =====================================================
+st.markdown("## 🩹 Joueurs Blessés (IR)")
+df_inj_ui = view_for_click(injured_all)
 
-    proprietaire = st.selectbox(
-        "Propriétaire",
-        sorted(st.session_state["data"]["Propriétaire"].unique()),
-        key="align_owner",
+if df_inj_ui.empty:
+    st.info("Aucun joueur blessé.")
+else:
+    # Carte plus visible + bordure rouge + ombre légère
+    rows_html = ""
+    for _, rr in df_inj_ui.iterrows():
+        rows_html += f"""
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Joueur']}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Pos']}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;font-weight:800;">{rr['Equipe']}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #2a2a2a;text-align:right;font-weight:900;">{rr['Salaire']}</td>
+        </tr>
+        """
+
+    st.markdown(
+        f"""
+        <div style="
+            background:#000;
+            border:2px solid #ff2d2d;
+            border-radius:16px;
+            overflow:hidden;
+            box-shadow:0 6px 18px rgba(0,0,0,0.35);
+            margin-top:6px;
+        ">
+          <div style="
+              padding:12px 14px;
+              color:#ff2d2d;
+              font-weight:1000;
+              border-bottom:1px solid #2a2a2a;
+              letter-spacing:1px;
+              text-transform:uppercase;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+          ">
+            <span>JOUEURS BLESSÉS</span>
+            <span style="font-size:12px;opacity:0.85;">SALAIRE NON COMPTABILISÉ</span>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
+            <thead>
+              <tr style="border-bottom:1px solid #2a2a2a;">
+                <th style="text-align:left;padding:10px 12px;font-weight:1000;">Joueur</th>
+                <th style="text-align:left;padding:10px 12px;font-weight:1000;">Pos</th>
+                <th style="text-align:left;padding:10px 12px;font-weight:1000;">Équipe</th>
+                <th style="text-align:right;padding:10px 12px;font-weight:1000;">Salaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows_html}
+            </tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    data_all = st.session_state["data"]
-    dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+    # Boutons plus visibles (gros + style "danger")
+    st.markdown(
+        """
+        <div style="
+            background:#0a0a0a;
+            border:1px solid #2a2a2a;
+            border-radius:16px;
+            padding:12px 14px;
+            margin-top:10px;
+        ">
+          <div style="color:#ff2d2d;font-weight:1000;letter-spacing:0.6px;margin-bottom:10px;">
+            CLIQUE POUR DÉPLACER
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    injured_all = dprop[dprop["Slot"] == "Blessé"].copy()
-    dprop_not_inj = dprop[dprop["Slot"] != "Blessé"].copy()
+    # CSS local pour rendre ces boutons rouges/noirs (sans affecter toute l'app)
+    st.markdown(
+        """
+        <style>
+          div[data-testid="stHorizontalBlock"] button[kind="secondary"]{
+            border:1px solid #ff2d2d !important;
+            background: #000000 !important;
+            color:#ff2d2d !important;
+            font-weight:800 !important;
+          }
+          div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover{
+            background:#120000 !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    gc_all = dprop_not_inj[dprop_not_inj["Statut"] == "Grand Club"].copy()
-    ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
+    names = df_inj_ui["Joueur"].tolist()
+    btn_cols = st.columns(3)
+    for idx, name in enumerate(names):
+        with btn_cols[idx % 3]:
+            if st.button(f"🩹 {name}", use_container_width=True, key=f"inj_btn_{proprietaire}_{idx}"):
+                set_move_ctx(proprietaire, name)
+                st.rerun()
 
-    gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
-    gc_banc = gc_all[gc_all["Slot"] == "Banc"].copy()
-
-    # Compteurs actifs (GC Actif seulement)
-    nb_F = int((gc_actif["Pos"].apply(normalize_pos) == "F").sum())
-    nb_D = int((gc_actif["Pos"].apply(normalize_pos) == "D").sum())
-    nb_G = int((gc_actif["Pos"].apply(normalize_pos) == "G").sum())
-
-    # Totaux cap (exclut blessés)
-    total_gc = int(gc_all["Salaire"].sum())
-    total_ce = int(ce_all["Salaire"].sum())
-    restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
-    restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
-
-    # Stocke pour le pop-up (robuste)
-    st.session_state["align_counts"] = {"F": nb_F, "D": nb_D, "G": nb_G}
-    st.session_state["align_totals"] = {"GC": total_gc, "CE": total_ce, "RGC": restant_gc, "RCE": restant_ce}
-
-    top = st.columns([1, 1, 1, 1, 1])
-    top[0].metric("GC", money(total_gc))
-    top[1].metric("R GC", money(restant_gc))
-    top[2].metric("CE", money(total_ce))
-    top[3].metric("R CE", money(restant_ce))
-    top[4].metric("Blessés", f"{len(injured_all)}")
-
-    st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
-    st.divider()
-
-    def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
-        if x is None or x.empty:
-            return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
-        y = x.copy()
-        y["Pos"] = y["Pos"].apply(normalize_pos)
-        y["_pos_order"] = y["Pos"].apply(pos_sort_key)
-        y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
-        y["Salaire"] = y["Salaire"].apply(money)
-        return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
-
-    # 3 colonnes
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("### 🟢 Actifs")
-        df_actifs_ui = view_for_click(gc_actif)
-        st.dataframe(
-            df_actifs_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_actifs",
-        )
-
-    with col2:
-        st.markdown("### 🟡 Banc")
-        df_banc_ui = view_for_click(gc_banc)
-        st.dataframe(
-            df_banc_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_banc",
-        )
-
-    with col3:
-        st.markdown("### 🔵 Mineur")
-        df_min_ui = view_for_click(ce_all)
-        st.dataframe(
-            df_min_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_min",
-        )
-
-    st.divider()
-
-    # Blessés : tableau HTML noir + texte rouge
-    st.markdown("### 🩹 Joueurs Blessés (IR)")
-    df_inj_ui = view_for_click(injured_all)
-
-    if df_inj_ui.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        rows_html = ""
-        for _, rr in df_inj_ui.iterrows():
-            rows_html += f"""
-            <tr>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Joueur']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Pos']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Equipe']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;text-align:right;font-weight:800;">{rr['Salaire']}</td>
-            </tr>
-            """
-
-        st.markdown(
-            f"""
-            <div style="background:#000;border:1px solid #222;border-radius:12px;overflow:hidden;">
-              <div style="padding:10px 12px;color:#ff2d2d;font-weight:900;border-bottom:1px solid #222;letter-spacing:0.5px;">
-                JOUEURS BLESSÉS
-              </div>
-              <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
-                <thead>
-                  <tr style="border-bottom:1px solid #222;">
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Joueur</th>
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Pos</th>
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Équipe</th>
-                    <th style="text-align:right;padding:10px 10px;color:#ff2d2d;font-weight:900;">Salaire</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows_html}
-                </tbody>
-              </table>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
         # Boutons cliquables (ouvre pop-up direct)
         st.markdown(
