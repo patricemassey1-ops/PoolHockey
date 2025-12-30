@@ -16,15 +16,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # =====================================================
 # SESSION DEFAULTS
 # =====================================================
+
 if "uploader_nonce" not in st.session_state:
     st.session_state["uploader_nonce"] = 0
 
 def do_rerun():
-    # compat Streamlit (ancien: experimental_rerun)
     if hasattr(st, "rerun"):
         st.rerun()
     else:
         st.experimental_rerun()
+
 
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -604,6 +605,7 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 # IMPORT FANTRAX
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
+
 uploaded = st.sidebar.file_uploader(
     "CSV Fantrax",
     type=["csv", "txt"],
@@ -611,29 +613,35 @@ uploaded = st.sidebar.file_uploader(
     key=f"fantrax_uploader_{st.session_state['uploader_nonce']}",
 )
 
-if uploaded:
+if uploaded is not None:
     if LOCKED:
         st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
     else:
         try:
             df_import = parse_fantrax(uploaded)
-            if df_import.empty:
+
+            if df_import is None or df_import.empty:
                 st.sidebar.error("❌ Import invalide : aucune donnée exploitable.")
-                st.stop()
+            else:
+                owner = os.path.splitext(uploaded.name)[0]
+                df_import["Propriétaire"] = owner
 
-            owner = os.path.splitext(uploaded.name)[0]
-            df_import["Propriétaire"] = owner
+                st.session_state["data"] = pd.concat(
+                    [st.session_state["data"], df_import],
+                    ignore_index=True
+                )
+                st.session_state["data"] = clean_data(st.session_state["data"])
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
 
-            st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
-            st.session_state["data"] = clean_data(st.session_state["data"])
-            st.session_state["data"].to_csv(DATA_FILE, index=False)
-            st.sidebar.success("✅ Import réussi")
-            st.session_state["uploader_nonce"] += 1   # reset uploader (évite l’état “sticky”)
-do_rerun()
+                st.sidebar.success("✅ Import réussi")
+
+                # ✅ Reset uploader + rerun pour afficher tout de suite
+                st.session_state["uploader_nonce"] += 1
+                do_rerun()
 
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
-            st.stop()
+
 
 # =====================================================
 # HEADER
