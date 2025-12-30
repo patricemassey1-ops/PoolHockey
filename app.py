@@ -536,14 +536,14 @@ with tab2:
                 col_sum1, col_sum2 = st.columns(2)
                 with col_sum1:
                     st.write("**Grand Club:**")
-                    st.write(f"- Total: {format_currency(total_gc)}")
-                    st.write(f"- Plafond: {format_currency(PLAFOND_GRAND_CLUB)}")
-                    st.write(f"- Restant: {format_currency(restant_gc)}")
+                    st.metric("Total", format_currency(total_gc))
+                    st.metric("Plafond", format_currency(PLAFOND_GRAND_CLUB))
+                    st.metric("Restant", format_currency(restant_gc))
                 with col_sum2:
                     st.write("**Club École:**")
-                    st.write(f"- Total: {format_currency(total_ce)}")
-                    st.write(f"- Plafond: {format_currency(PLAFOND_CLUB_ECOLE)}")
-                    st.write(f"- Restant: {format_currency(restant_ce)}")
+                    st.metric("Total", format_currency(total_ce))
+                    st.metric("Plafond", format_currency(PLAFOND_CLUB_ECOLE))
+                    st.metric("Restant", format_currency(restant_ce))
     else:
         st.info("Aucune donnée disponible. Importez un fichier CSV via la barre latérale.")
 
