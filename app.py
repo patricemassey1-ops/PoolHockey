@@ -3,7 +3,6 @@ import pandas as pd
 import io
 import os
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 # =====================================================
 # CONFIG
@@ -73,7 +72,7 @@ def parse_fantrax(upload):
     return out[out["Joueur"].str.len() > 2]
 
 # =====================================================
-# SIDEBAR – SAISON
+# SIDEBAR – SAISON & PLAFONDS
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -86,6 +85,11 @@ if auto not in saisons:
 season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
 LOCKED = saison_verrouillee(season)
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
+
+st.sidebar.divider()
+st.sidebar.header("💰 Plafonds salariaux")
+st.sidebar.metric("🏒 Grand Club", money(PLAFOND_GC))
+st.sidebar.metric("🏫 Club École", money(PLAFOND_CE))
 
 # =====================================================
 # SESSION
@@ -128,16 +132,20 @@ else:
 # CALCULS
 # =====================================================
 df = st.session_state["data"]
-resume = []
 
+if df.empty:
+    st.info("Aucune donnée importée")
+    st.stop()
+
+resume = []
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
     gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
     ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
     resume.append({
         "Propriétaire": p,
-        "GC": gc,
-        "CE": ce,
+        "Grand Club": gc,
+        "Club École": ce,
         "Restant GC": PLAFOND_GC - gc,
         "Restant CE": PLAFOND_CE - ce
     })
@@ -149,9 +157,8 @@ plafonds = pd.DataFrame(resume)
 # =====================================================
 st.title("🏒 Fantrax – Gestion Salariale")
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "📊 Tableau",
-    "📈 Graphiques",
     "⚖️ Transactions",
     "🧠 Recommandations"
 ])
@@ -166,22 +173,9 @@ with tab1:
     st.dataframe(display, use_container_width=True)
 
 # =====================================================
-# 📈 GRAPHIQUES (PLUS PETIT)
-# =====================================================
-with tab2:
-    st.subheader("Masse salariale – Grand Club")
-
-    fig, ax = plt.subplots(figsize=(6, 4))  # 👈 taille réduite
-    ax.bar(plafonds["Propriétaire"], plafonds["GC"])
-    ax.axhline(PLAFOND_GC, linestyle="--")
-    ax.set_ylabel("$")
-    plt.xticks(rotation=30, ha="right")
-    st.pyplot(fig, use_container_width=False)
-
-# =====================================================
 # ⚖️ TRANSACTIONS
 # =====================================================
-with tab3:
+with tab2:
     p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
     salaire = st.number_input("Salaire du joueur", min_value=0, step=100000)
     statut = st.radio("Statut", ["Grand Club", "Club École"])
@@ -195,9 +189,9 @@ with tab3:
         st.success("✅ Transaction valide")
 
 # =====================================================
-# 🧠 IA
+# 🧠 RECOMMANDATIONS
 # =====================================================
-with tab4:
+with tab3:
     for _, r in plafonds.iterrows():
         if r["Restant GC"] < 2_000_000:
             st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
