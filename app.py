@@ -54,145 +54,6 @@ def money(v):
 # =====================================================
 # PARSER FANTRAX
 # =====================================================
-import csv
-import re
-
-def parse_fantrax(upload):
-    import csv
-    import re
-
-    raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
-    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
-
-    # Détection du séparateur
-    def detect_sep(lines):
-        for l in lines:
-            if "Player" in l and ("Salary" in l):
-                for d in [",", ";", "\t"]:
-                    if d in l:
-                        return d
-        return ","
-
-    sep = detect_sep(raw_lines)
-
-    # Détection des headers valides
-    header_idxs = [
-        i for i, l in enumerate(raw_lines)
-        if "player" in l.lower() and "salary" in l.lower()
-    ]
-
-    if not header_idxs:
-        raise ValueError("Aucune section Fantrax valide détectée (Player / Salary).")
-
-    def read_section(start, end):
-        lines = raw_lines[start:end]
-        lines = [l for l in lines if l.strip()]
-        if len(lines) < 2:
-            return None
-
-        df = pd.read_csv(
-            io.StringIO("\n".join(lines)),
-            sep=sep,
-            engine="python",
-            on_bad_lines="skip"
-        )
-        df.columns = [c.strip().replace('"', "") for c in df.columns]
-        return df
-
-    dfs = []
-    for i, h in enumerate(header_idxs):
-        end = header_idxs[i + 1] if i + 1 < len(header_idxs) else len(raw_lines)
-        df_part = read_section(h, end)
-        if df_part is not None and not df_part.empty:
-            dfs.append(df_part)
-
-    if not dfs:
-        raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
-
-    df = pd.concat(dfs, ignore_index=True)
-
-    # Normalisation colonnes
-    cols = {c.lower(): c for c in df.columns}
-
-    if "player" not in cols or "salary" not in cols:
-        raise ValueError(f"Colonnes Fantrax manquantes. Colonnes trouvées: {list(df.columns)}")
-
-    out = pd.DataFrame()
-    out["Joueur"] = df[cols["player"]].astype(str)
-
-    # 👉 ÉQUIPE DU JOUEUR (Team)
-    out["Equipe"] = df[cols["team"]] if "team" in cols else "N/A"
-
-    out["Pos"] = df[cols["pos"]] if "pos" in cols else "N/A"
-
-    sal = (
-        df[cols["salary"]]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .str.replace(" ", "", regex=False)
-        .replace(["None", "nan", "NaN", ""], "0")
-    )
-
-    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
-
-    if "status" in cols:
-        out["Statut"] = df[cols["status"]].apply(
-            lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
-        )
-    else:
-        out["Statut"] = "Grand Club"
-
-    # Sécurité finale
-    out = out[out["Joueur"].str.len() > 2].reset_index(drop=True)
-
-    return out
-
-
-
-
-# =====================================================
-# SIDEBAR
-# =====================================================
-st.sidebar.header("📅 Saison")
-
-saisons = ["2024-2025", "2025-2026", "2026-2027"]
-auto = saison_auto()
-if auto not in saisons:
-    saisons.append(auto)
-    saisons.sort()
-
-season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
-LOCKED = saison_verrouillee(season)
-DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
-
-st.sidebar.divider()
-st.sidebar.header("💰 Plafonds")
-
-if st.sidebar.button("✏️ Modifier les plafonds"):
-    st.session_state["edit_plafond"] = True
-
-if st.session_state.get("edit_plafond"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club", value=st.session_state["PLAFOND_GC"], step=500_000
-    )
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École", value=st.session_state["PLAFOND_CE"], step=250_000
-    )
-
-st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
-
-# =====================================================
-# DATA
-# =====================================================
-if "season" not in st.session_state or st.session_state["season"] != season:
-    if os.path.exists(DATA_FILE):
-        st.session_state["data"] = pd.read_csv(DATA_FILE)
-    else:
-        st.session_state["data"] = pd.DataFrame(
-            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos", "Equipe"]
-        )
-    st.session_state["season"] = season
 
 def parse_fantrax(upload):
     import csv
@@ -297,6 +158,87 @@ def parse_fantrax(upload):
 
     # ✅ Retour garanti DataFrame
     return out
+
+
+# =====================================================
+# SIDEBAR
+# =====================================================
+st.sidebar.header("📅 Saison")
+
+saisons = ["2024-2025", "2025-2026", "2026-2027"]
+auto = saison_auto()
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
+
+season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
+LOCKED = saison_verrouillee(season)
+DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
+
+st.sidebar.divider()
+st.sidebar.header("💰 Plafonds")
+
+if st.sidebar.button("✏️ Modifier les plafonds"):
+    st.session_state["edit_plafond"] = True
+
+if st.session_state.get("edit_plafond"):
+    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
+        "Plafond Grand Club", value=st.session_state["PLAFOND_GC"], step=500_000
+    )
+    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
+        "Plafond Club École", value=st.session_state["PLAFOND_CE"], step=250_000
+    )
+
+st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
+st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
+
+# =====================================================
+# DATA
+# =====================================================
+if "season" not in st.session_state or st.session_state["season"] != season:
+    if os.path.exists(DATA_FILE):
+        st.session_state["data"] = pd.read_csv(DATA_FILE)
+    else:
+        st.session_state["data"] = pd.DataFrame(
+            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos", "Equipe"]
+        )
+    st.session_state["season"] = season
+
+# =====================================================
+# IMPORT
+# =====================================================
+st.sidebar.header("📥 Import Fantrax")
+if not LOCKED:
+    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
+    if uploaded:
+        try:
+            df_import = parse_fantrax(uploaded)
+
+            # ✅ Sécurité: df_import doit être un DataFrame
+            if df_import is None or not isinstance(df_import, pd.DataFrame):
+                st.sidebar.error("❌ Erreur: parse_fantrax n'a pas retourné un DataFrame.")
+                st.stop()
+
+            if df_import.empty:
+                st.sidebar.error("❌ Aucune donnée importée (fichier Fantrax vide ou format non reconnu).")
+                st.stop()
+
+            # ✅ Propriétaire
+            owner = os.path.splitext(uploaded.name)[0]
+            df_import["Propriétaire"] = owner
+
+            # ✅ Concat + save
+            st.session_state["data"] = (
+                pd.concat([st.session_state["data"], df_import], ignore_index=True)
+                .drop_duplicates(subset=["Propriétaire", "Joueur"])
+            )
+
+            st.session_state["data"].to_csv(DATA_FILE, index=False)
+            st.sidebar.success("✅ Import réussi")
+
+        except Exception as e:
+            st.sidebar.error(f"❌ Import échoué: {e}")
+            st.stop()
 
 
 # =====================================================
