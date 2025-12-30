@@ -12,8 +12,25 @@ st.set_page_config("Fantrax Pool Hockey", layout="wide")
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PLAFOND_GC = 95_500_000
-PLAFOND_CE = 47_750_000
+# =====================================================
+# PLAFONDS (SESSION)
+# =====================================================
+if "PLAFOND_GC" not in st.session_state:
+    st.session_state["PLAFOND_GC"] = 95_500_000
+if "PLAFOND_CE" not in st.session_state:
+    st.session_state["PLAFOND_CE"] = 47_750_000
+
+# =====================================================
+# LOGOS ÉQUIPES
+# =====================================================
+LOGOS = {
+    "Nordiques": "Nordiques_Logo.png",
+    "Lama": "Lama_Logo.png",
+    "Prédateurs": "Prédateurs_Logo.png",
+    "Red Wings": "Red_Wings_Logo.png",
+    "Whalers": "Whalers_Logo.png",
+    "Canadiens": "Canadiens_Logo.png"   # ✅ AJOUT ICI
+}
 
 # =====================================================
 # SAISON AUTO
@@ -29,24 +46,16 @@ def saison_verrouillee(season):
 # FORMAT
 # =====================================================
 def money(v):
-    try:
-        return f"{int(v):,}".replace(",", " ") + " $"
-    except:
-        return "0 $"
+    return f"{int(v):,}".replace(",", " ") + " $"
 
 # =====================================================
-# PARSER FANTRAX (STABLE)
+# PARSER FANTRAX
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
     csv_text = "\n".join(raw[1:])
 
-    df = pd.read_csv(
-        io.StringIO(csv_text),
-        engine="python",
-        on_bad_lines="skip"
-    )
-
+    df = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
     df.columns = [c.replace('"', '').strip() for c in df.columns]
 
     if "Player" not in df.columns or "Salary" not in df.columns:
@@ -72,7 +81,7 @@ def parse_fantrax(upload):
     return out[out["Joueur"].str.len() > 2]
 
 # =====================================================
-# SIDEBAR – SAISON & PLAFONDS
+# SIDEBAR – SAISON
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -86,13 +95,28 @@ season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
 LOCKED = saison_verrouillee(season)
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 
+# =====================================================
+# SIDEBAR – MODIFICATION PLAFONDS
+# =====================================================
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds salariaux")
-st.sidebar.metric("🏒 Grand Club", money(PLAFOND_GC))
-st.sidebar.metric("🏫 Club École", money(PLAFOND_CE))
+
+if st.sidebar.button("✏️ Modifier les plafonds"):
+    st.session_state["edit_plafond"] = True
+
+if st.session_state.get("edit_plafond"):
+    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
+        "Plafond Grand Club", value=st.session_state["PLAFOND_GC"], step=500_000
+    )
+    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
+        "Plafond Club École", value=st.session_state["PLAFOND_CE"], step=250_000
+    )
+
+st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
+st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
 
 # =====================================================
-# SESSION
+# SESSION DATA
 # =====================================================
 if "season" not in st.session_state or st.session_state["season"] != season:
     if os.path.exists(DATA_FILE):
@@ -111,32 +135,29 @@ st.sidebar.header("📥 Import Fantrax")
 if not LOCKED:
     uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
     if uploaded:
-        try:
-            df = parse_fantrax(uploaded)
-            df["Propriétaire"] = uploaded.name.replace(".csv", "")
-            st.session_state["data"] = pd.concat(
-                [st.session_state["data"], df],
-                ignore_index=True
-            ).drop_duplicates(subset=["Propriétaire", "Joueur"])
+        df = parse_fantrax(uploaded)
+        df["Propriétaire"] = uploaded.name.replace(".csv", "")
+        st.session_state["data"] = pd.concat(
+            [st.session_state["data"], df],
+            ignore_index=True
+        ).drop_duplicates(subset=["Propriétaire", "Joueur"])
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        st.sidebar.success("✅ Import réussi")
 
-            st.session_state["data"].to_csv(DATA_FILE, index=False)
-            st.sidebar.success(f"✅ {len(df)} joueurs importés")
+# =====================================================
+# HEADER LOGO
+# =====================================================
+st.image("Logo_Pool.png", use_container_width=True)
+st.title("🏒 Fantrax – Gestion Salariale")
 
-        except Exception as e:
-            st.sidebar.error("❌ Import impossible")
-            st.sidebar.code(str(e))
-else:
-    st.sidebar.warning("🔒 Saison verrouillée")
+df = st.session_state["data"]
+if df.empty:
+    st.info("Aucune donnée")
+    st.stop()
 
 # =====================================================
 # CALCULS
 # =====================================================
-df = st.session_state["data"]
-
-if df.empty:
-    st.info("Aucune donnée importée")
-    st.stop()
-
 resume = []
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
@@ -144,36 +165,41 @@ for p in df["Propriétaire"].unique():
     ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
     resume.append({
         "Propriétaire": p,
-        "Grand Club": gc,
-        "Club École": ce,
-        "Restant GC": PLAFOND_GC - gc,
-        "Restant CE": PLAFOND_CE - ce
+        "GC": gc,
+        "CE": ce,
+        "Restant GC": st.session_state["PLAFOND_GC"] - gc,
+        "Restant CE": st.session_state["PLAFOND_CE"] - ce
     })
 
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# UI – ONGLETs
+# ONGLETs
 # =====================================================
-st.title("🏒 Fantrax – Gestion Salariale")
-
-tab1, tab2, tab3 = st.tabs([
-    "📊 Tableau",
-    "⚖️ Transactions",
-    "🧠 Recommandations"
-])
+tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
 # =====================================================
-# 📊 TABLEAU
+# TABLEAU AVEC LOGOS
 # =====================================================
 with tab1:
-    display = plafonds.copy()
-    for c in display.columns[1:]:
-        display[c] = display[c].apply(money)
-    st.dataframe(display, use_container_width=True)
+    for _, r in plafonds.iterrows():
+        col1, col2 = st.columns([1, 6])
+        with col1:
+            for nom, logo in LOGOS.items():
+                if nom.lower() in r["Propriétaire"].lower():
+                    st.image(logo, width=80)
+        with col2:
+            st.markdown(
+                f"""
+                **{r['Propriétaire']}**  
+                🏒 GC : {money(r['GC'])} (reste {money(r['Restant GC'])})  
+                🏫 CE : {money(r['CE'])} (reste {money(r['Restant CE'])})
+                """
+            )
+        st.divider()
 
 # =====================================================
-# ⚖️ TRANSACTIONS
+# TRANSACTIONS
 # =====================================================
 with tab2:
     p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
@@ -189,7 +215,7 @@ with tab2:
         st.success("✅ Transaction valide")
 
 # =====================================================
-# 🧠 RECOMMANDATIONS
+# IA
 # =====================================================
 with tab3:
     for _, r in plafonds.iterrows():
