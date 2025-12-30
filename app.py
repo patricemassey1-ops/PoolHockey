@@ -64,9 +64,9 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
-# =========================
-# ✅ BLOC 1 — clean_data() COMPLET (avec suppression de doublons)
-# =========================
+# =====================================================
+# NETTOYAGE GLOBAL (anti None/Goalies + aucun doublon)
+# =====================================================
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
@@ -75,12 +75,15 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = "" if col != "Salaire" else 0
 
+    # Normalisation texte
+    df["Propriétaire"] = df["Propriétaire"].astype(str).str.strip()
     df["Joueur"] = df["Joueur"].astype(str).str.strip()
     df["Pos"] = df["Pos"].astype(str).str.strip()
     df["Equipe"] = df["Equipe"].astype(str).str.strip()
     df["Statut"] = df["Statut"].astype(str).str.strip()
     df["Slot"] = df["Slot"].astype(str).str.strip()
 
+    # Salaire => int (accepte "9 000 000 $" etc.)
     df["Salaire"] = (
         df["Salaire"]
         .astype(str)
@@ -91,12 +94,15 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0).astype(int)
 
+    # Positions => F/D/G
     df["Pos"] = df["Pos"].apply(normalize_pos)
 
+    # Retire séparateurs Fantrax
     forbidden = {"none", "skaters", "goalies", "player", "null"}
     df = df[~df["Joueur"].str.lower().isin(forbidden)]
     df = df[df["Joueur"].str.len() > 2]
 
+    # Retire ligne fantôme typique: salaire 0 + équipe vide/none
     df = df[
         ~(
             (df["Salaire"] <= 0)
@@ -108,34 +114,23 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
     df.loc[mask_gc_default, "Slot"] = "Actif"
 
-    # si Club École => Slot vide
+    # Si Club École => Slot vide
     mask_ce = (df["Statut"] == "Club École")
     df.loc[mask_ce, "Slot"] = ""
 
-    # -------------------------------------------------
-    # ✅ AUCUN DOUBLON: (Propriétaire, Joueur) unique
-    # On garde la dernière occurrence (la plus récente)
-    # -------------------------------------------------
+    # Aucun doublon par propriétaire
     df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
 
     return df.reset_index(drop=True)
 
-
-    # Slot par défaut si GC
-    mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
-    df.loc[mask_gc_default, "Slot"] = "Actif"
-
-    # si Club École => Slot vide
-    mask_ce = (df["Statut"] == "Club École")
-    df.loc[mask_ce, "Slot"] = ""
-
-    return df.reset_index(drop=True)
-
 # =====================================================
-# PARSER FANTRAX (Skaters + Goalies)
+# PARSER FANTRAX (Skaters + Goalies séparés par ligne vide)
+# - Ajoute Equipe (Team)
+# - Salaire en milliers -> x1000
 # =====================================================
 def parse_fantrax(upload):
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
+    # retire caractères invisibles (incluant U+007F)
     raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
     def detect_sep(lines):
@@ -158,10 +153,10 @@ def parse_fantrax(upload):
 
     def read_section(start, end):
         lines = raw_lines[start:end]
+        # conserve uniquement les lignes non vides
         lines = [l for l in lines if l.strip() != ""]
         if len(lines) < 2:
             return None
-
         dfp = pd.read_csv(
             io.StringIO("\n".join(lines)),
             sep=sep,
@@ -223,11 +218,10 @@ def parse_fantrax(upload):
 
     out["Slot"] = out["Statut"].apply(lambda s: "Actif" if s == "Grand Club" else "")
 
-    out = clean_data(out)
-    return out
+    return clean_data(out)
 
 # =====================================================
-# SIDEBAR
+# SIDEBAR - Saison + plafonds
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -240,6 +234,7 @@ if auto not in saisons:
 season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
 LOCKED = saison_verrouillee(season)
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
+HISTORY_FILE = f"{DATA_DIR}/history_{season}.csv"
 
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
@@ -258,17 +253,67 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
 
-# =========================
-# ✅ BLOC 2 — DATA COMPLET (avec sauvegarde immédiate après nettoyage)
-# Remplace TOUT ton bloc DATA actuel par celui-ci.
-# =========================
+# =====================================================
+# HISTORIQUE - helpers
+# =====================================================
+def load_history() -> pd.DataFrame:
+    if os.path.exists(HISTORY_FILE):
+        h = pd.read_csv(HISTORY_FILE)
+    else:
+        h = pd.DataFrame(columns=[
+            "id", "timestamp", "season",
+            "proprietaire", "joueur", "pos", "equipe",
+            "from_statut", "from_slot",
+            "to_statut", "to_slot",
+            "action"
+        ])
+    return h
+
+def save_history(h: pd.DataFrame):
+    h.to_csv(HISTORY_FILE, index=False)
+
+def ensure_history_loaded():
+    if "history_season" not in st.session_state or st.session_state["history_season"] != season:
+        st.session_state["history"] = load_history()
+        st.session_state["history_season"] = season
+
+def next_hist_id(h: pd.DataFrame) -> int:
+    if h.empty or "id" not in h.columns:
+        return 1
+    return int(pd.to_numeric(h["id"], errors="coerce").fillna(0).max()) + 1
+
+def log_history(proprietaire, joueur, pos, equipe,
+                from_statut, from_slot,
+                to_statut, to_slot,
+                action):
+    ensure_history_loaded()
+    h = st.session_state["history"].copy()
+
+    row = {
+        "id": next_hist_id(h),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "season": season,
+        "proprietaire": proprietaire,
+        "joueur": joueur,
+        "pos": pos,
+        "equipe": equipe,
+        "from_statut": from_statut,
+        "from_slot": from_slot,
+        "to_statut": to_statut,
+        "to_slot": to_slot,
+        "action": action,
+    }
+
+    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+    st.session_state["history"] = h
+    save_history(h)
+
+# =====================================================
+# DATA - load season file
+# =====================================================
 if "season" not in st.session_state or st.session_state["season"] != season:
     if os.path.exists(DATA_FILE):
         st.session_state["data"] = pd.read_csv(DATA_FILE)
-        st.session_state["data"] = clean_data(st.session_state["data"])
-
-        # ✅ Sauvegarde immédiate après nettoyage (retire les doublons du fichier)
-        st.session_state["data"].to_csv(DATA_FILE, index=False)
     else:
         st.session_state["data"] = pd.DataFrame(
             columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe"]
@@ -278,14 +323,17 @@ if "season" not in st.session_state or st.session_state["season"] != season:
         st.session_state["data"]["Slot"] = ""
 
     st.session_state["data"] = clean_data(st.session_state["data"])
+    # sauvegarde immédiate du nettoyage (enlève doublons / None)
+    st.session_state["data"].to_csv(DATA_FILE, index=False)
+
     st.session_state["season"] = season
 
+ensure_history_loaded()
 
 # =====================================================
-# IMPORT FANTRAX (uploader toujours visible)
+# IMPORT FANTRAX
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
-
 uploaded = st.sidebar.file_uploader(
     "CSV Fantrax",
     type=["csv", "txt"],
@@ -298,7 +346,7 @@ if uploaded:
     else:
         try:
             df_import = parse_fantrax(uploaded)
-            if df_import is None or not isinstance(df_import, pd.DataFrame) or df_import.empty:
+            if df_import.empty:
                 st.sidebar.error("❌ Import invalide : aucune donnée Fantrax exploitable.")
                 st.stop()
 
@@ -307,10 +355,9 @@ if uploaded:
 
             st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
             st.session_state["data"] = clean_data(st.session_state["data"])
-
             st.session_state["data"].to_csv(DATA_FILE, index=False)
-            st.sidebar.success("✅ Import réussi")
 
+            st.sidebar.success("✅ Import réussi")
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
             st.stop()
@@ -327,7 +374,7 @@ if df.empty:
     st.stop()
 
 # =====================================================
-# CALCULS (plafonds par propriétaire)
+# CALCULS - plafonds par propriétaire
 # =====================================================
 resume = []
 for p in df["Propriétaire"].unique():
@@ -350,21 +397,18 @@ for p in df["Propriétaire"].unique():
             "Restant CE": st.session_state["PLAFOND_CE"] - ce_sum,
         }
     )
-
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
 # ONGLETs
 # =====================================================
-tab1, tab4, tab2, tab3 = st.tabs(
-    ["📊 Tableau", "🧾 Alignement", "⚖️ Transactions", "🧠 Recommandations"]
+tab1, tabA, tabH, tab2, tab3 = st.tabs(
+    ["📊 Tableau", "🧾 Alignement", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
 )
 
-# =========================
-# ✅ BLOC 3 — TAB1 (Tableau) COMPLET avec BONUS:
-# Restant GC collé à Grand Club (ordre changé)
-# Remplace TOUT ton bloc "with tab1:" par celui-ci.
-# =========================
+# =====================================================
+# TABLEAU (bonus: Restant GC collé à GC)
+# =====================================================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipe**")
@@ -387,17 +431,16 @@ with tab1:
                 a.markdown("—")
             b.markdown(f"**{owner}**")
 
-        # ✅ Ordre: GC, Restant GC, CE, Restant CE
         cols[1].markdown(money(r["GC"]))
         cols[2].markdown(money(r["Restant GC"]))
         cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Restant CE"]))
 
-
 # =====================================================
-# ALIGNEMENT (Actifs: 12F / 6D / 2G = 20) + Banc illimité (F/D/G autorisés)
+# ALIGNEMENT (Actifs: 12F / 6D / 2G = 20) + Banc illimité (F/D/G)
+# + Historique des mouvements
 # =====================================================
-with tab4:
+with tabA:
     st.subheader("🧾 Alignement")
     st.caption("Règles Actifs : **12 F**, **6 D**, **2 G** (=20). Banc : illimité (F/D/G autorisés).")
 
@@ -407,6 +450,7 @@ with tab4:
         key="align_owner",
     )
 
+    # refresh clean
     st.session_state["data"] = clean_data(st.session_state["data"])
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
@@ -414,50 +458,33 @@ with tab4:
     gc_all = dprop[dprop["Statut"] == "Grand Club"].copy()
     ce_all = dprop[dprop["Statut"] == "Club École"].copy()
 
-    if "Slot" not in st.session_state["data"].columns:
-        st.session_state["data"]["Slot"] = ""
-
-    # Default: GC & Slot vide => Actif
-    mask_default = (gc_all["Slot"].fillna("").eq(""))
-    if mask_default.any():
-        mask_all = (
-            (st.session_state["data"]["Propriétaire"] == proprietaire)
-            & (st.session_state["data"]["Statut"] == "Grand Club")
-            & (st.session_state["data"]["Slot"].fillna("").eq(""))
-        )
-        st.session_state["data"].loc[mask_all, "Slot"] = "Actif"
-        st.session_state["data"] = clean_data(st.session_state["data"])
-        st.session_state["data"].to_csv(DATA_FILE, index=False)
-        dprop = st.session_state["data"][st.session_state["data"]["Propriétaire"] == proprietaire].copy()
-        gc_all = dprop[dprop["Statut"] == "Grand Club"].copy()
-        ce_all = dprop[dprop["Statut"] == "Club École"].copy()
-
     gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
     gc_banc = gc_all[gc_all["Slot"] == "Banc"].copy()
 
-    nb_F = (gc_actif["Pos"] == "F").sum()
-    nb_D = (gc_actif["Pos"] == "D").sum()
-    nb_G = (gc_actif["Pos"] == "G").sum()
-    total_actifs = int(nb_F + nb_D + nb_G)
+    # Compteurs actifs
+    nb_F = int((gc_actif["Pos"] == "F").sum())
+    nb_D = int((gc_actif["Pos"] == "D").sum())
+    nb_G = int((gc_actif["Pos"] == "G").sum())
+    total_actifs = nb_F + nb_D + nb_G
 
-    nb_banc = len(gc_banc)
+    # Totaux salaires / restants
+    total_gc = int(gc_all["Salaire"].sum())
+    total_ce = int(ce_all["Salaire"].sum())
+    restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
+    restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
 
-    total_gc = gc_all["Salaire"].sum()
-    total_ce = ce_all["Salaire"].sum()
-    restant_gc = st.session_state["PLAFOND_GC"] - total_gc
-    restant_ce = st.session_state["PLAFOND_CE"] - total_ce
-
+    # Metrics (Restant GC à côté de Total GC)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🏒 Total GC", money(total_gc))
-    m2.metric("🏫 Total CE", money(total_ce))
-    m3.metric("✅ Restant GC", money(restant_gc))
+    m2.metric("✅ Restant GC", money(restant_gc))
+    m3.metric("🏫 Total CE", money(total_ce))
     m4.metric("✅ Restant CE", money(restant_ce))
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("F actifs", f"{int(nb_F)}/12")
-    c2.metric("D actifs", f"{int(nb_D)}/6")
-    c3.metric("G actifs", f"{int(nb_G)}/2")
-    c4.metric("Banc", f"{int(nb_banc)}")
+    c1.metric("F actifs", f"{nb_F}/12")
+    c2.metric("D actifs", f"{nb_D}/6")
+    c3.metric("G actifs", f"{nb_G}/2")
+    c4.metric("Total actifs", f"{total_actifs}/20")
 
     if nb_F != 12:
         st.warning("⚠️ Il doit y avoir exactement **12 F** actifs.")
@@ -509,10 +536,6 @@ with tab4:
             return False, "🚫 Déjà 2 G actifs."
         return True, ""
 
-    def can_add_to_banc(pos: str):
-        # Banc illimité et positions F/D/G autorisées
-        return True, ""
-
     a1, a2, a3 = st.columns(3)
 
     # 1) Club École -> GC (Actif/Banc)
@@ -534,33 +557,45 @@ with tab4:
         )
 
         if st.button("Rappeler", disabled=(len(ce_players) == 0), key="btn_recall"):
-            row = ce_all[ce_all["Joueur"] == ce_choice].iloc[0]
-            pos = normalize_pos(row["Pos"])
+            # état avant
+            mask0 = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == ce_choice)
+            before = st.session_state["data"][mask0].iloc[0]
+            from_statut, from_slot = str(before["Statut"]), str(before["Slot"])
+            pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
 
             if dest == "Actif":
-                ok, msg = can_add_to_actif(pos)
+                ok, msg = can_add_to_actif(pos0)
                 if not ok:
                     st.error(msg)
                 else:
-                    mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == ce_choice)
-                    st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
-                    st.session_state["data"].loc[mask, "Slot"] = "Actif"
+                    st.session_state["data"].loc[mask0, "Statut"] = "Grand Club"
+                    st.session_state["data"].loc[mask0, "Slot"] = "Actif"
                     st.session_state["data"] = clean_data(st.session_state["data"])
                     st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+                    log_history(
+                        proprietaire, ce_choice, pos0, equipe0,
+                        from_statut, from_slot,
+                        "Grand Club", "Actif",
+                        action="Min → GC (Actif)"
+                    )
                     st.success(f"✅ {ce_choice} rappelé au Grand Club (Actif)")
                     st.rerun()
             else:
-                ok, msg = can_add_to_banc(pos)
-                if not ok:
-                    st.error(msg)
-                else:
-                    mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == ce_choice)
-                    st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
-                    st.session_state["data"].loc[mask, "Slot"] = "Banc"
-                    st.session_state["data"] = clean_data(st.session_state["data"])
-                    st.session_state["data"].to_csv(DATA_FILE, index=False)
-                    st.success(f"✅ {ce_choice} rappelé au Grand Club (Banc)")
-                    st.rerun()
+                # Banc illimité, aucune restriction pos
+                st.session_state["data"].loc[mask0, "Statut"] = "Grand Club"
+                st.session_state["data"].loc[mask0, "Slot"] = "Banc"
+                st.session_state["data"] = clean_data(st.session_state["data"])
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+                log_history(
+                    proprietaire, ce_choice, pos0, equipe0,
+                    from_statut, from_slot,
+                    "Grand Club", "Banc",
+                    action="Min → GC (Banc)"
+                )
+                st.success(f"✅ {ce_choice} rappelé au Grand Club (Banc)")
+                st.rerun()
 
     # 2) GC -> Club École
     with a2:
@@ -574,11 +609,22 @@ with tab4:
         )
 
         if st.button("Envoyer au Club École", disabled=(len(gc_players) == 0), key="btn_senddown"):
-            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == gc_choice)
-            st.session_state["data"].loc[mask, "Statut"] = "Club École"
-            st.session_state["data"].loc[mask, "Slot"] = ""
+            mask0 = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == gc_choice)
+            before = st.session_state["data"][mask0].iloc[0]
+            from_statut, from_slot = str(before["Statut"]), str(before["Slot"])
+            pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
+
+            st.session_state["data"].loc[mask0, "Statut"] = "Club École"
+            st.session_state["data"].loc[mask0, "Slot"] = ""
             st.session_state["data"] = clean_data(st.session_state["data"])
             st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+            log_history(
+                proprietaire, gc_choice, pos0, equipe0,
+                from_statut, from_slot,
+                "Club École", "",
+                action="GC → Min"
+            )
             st.success(f"✅ {gc_choice} envoyé au Club École (Min)")
             st.rerun()
 
@@ -596,10 +642,21 @@ with tab4:
             key="actif_to_banc",
         )
         if st.button("Mettre sur le banc", disabled=(len(actifs_list) == 0), key="btn_actif_to_banc"):
-            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_actif)
-            st.session_state["data"].loc[mask, "Slot"] = "Banc"
+            mask0 = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_actif)
+            before = st.session_state["data"][mask0].iloc[0]
+            from_statut, from_slot = str(before["Statut"]), str(before["Slot"])
+            pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
+
+            st.session_state["data"].loc[mask0, "Slot"] = "Banc"
             st.session_state["data"] = clean_data(st.session_state["data"])
             st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+            log_history(
+                proprietaire, sel_actif, pos0, equipe0,
+                from_statut, from_slot,
+                "Grand Club", "Banc",
+                action="Actif → Banc"
+            )
             st.success(f"✅ {sel_actif} déplacé vers Banc")
             st.rerun()
 
@@ -612,18 +669,132 @@ with tab4:
             key="banc_to_actif",
         )
         if st.button("Rendre actif", disabled=(len(banc_list) == 0), key="btn_banc_to_actif"):
+            # vérifier quotas actifs selon la position du joueur
             row = gc_banc[gc_banc["Joueur"] == sel_banc].iloc[0]
-            pos = normalize_pos(row["Pos"])
+            pos = str(row["Pos"])
+
             ok, msg = can_add_to_actif(pos)
             if not ok:
                 st.error(msg)
             else:
-                mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_banc)
-                st.session_state["data"].loc[mask, "Slot"] = "Actif"
+                mask0 = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_banc)
+                before = st.session_state["data"][mask0].iloc[0]
+                from_statut, from_slot = str(before["Statut"]), str(before["Slot"])
+                pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
+
+                st.session_state["data"].loc[mask0, "Slot"] = "Actif"
                 st.session_state["data"] = clean_data(st.session_state["data"])
                 st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+                log_history(
+                    proprietaire, sel_banc, pos0, equipe0,
+                    from_statut, from_slot,
+                    "Grand Club", "Actif",
+                    action="Banc → Actif"
+                )
                 st.success(f"✅ {sel_banc} déplacé vers Actif")
                 st.rerun()
+
+# =====================================================
+# HISTORIQUE (filtre propriétaire + undo + delete)
+# =====================================================
+with tabH:
+    st.subheader("🕘 Historique des changements d’alignement")
+    ensure_history_loaded()
+    h = st.session_state["history"].copy()
+
+    if h.empty:
+        st.info("Aucune entrée d’historique pour cette saison.")
+        st.stop()
+
+    owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
+    owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
+
+    if owner_filter != "Tous":
+        h = h[h["proprietaire"].astype(str) == owner_filter]
+
+    if h.empty:
+        st.info("Aucune entrée pour ce propriétaire.")
+        st.stop()
+
+    h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
+    h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"])
+
+    st.caption("↩️ = annuler ce changement (retour à l’état précédent). ❌ = supprimer l’entrée (sans modifier l’alignement).")
+
+    head = st.columns([1.6, 1.6, 2.6, 1.1, 1.6, 1.6, 1.6, 0.9, 0.7])
+    head[0].markdown("**Date/Heure**")
+    head[1].markdown("**Propriétaire**")
+    head[2].markdown("**Joueur**")
+    head[3].markdown("**Pos**")
+    head[4].markdown("**De**")
+    head[5].markdown("**Vers**")
+    head[6].markdown("**Action**")
+    head[7].markdown("**↩️**")
+    head[8].markdown("**❌**")
+
+    for _, r in h.iterrows():
+        rid = int(r["id"])
+        cols = st.columns([1.6, 1.6, 2.6, 1.1, 1.6, 1.6, 1.6, 0.9, 0.7])
+
+        cols[0].markdown(str(r["timestamp"]))
+        cols[1].markdown(str(r["proprietaire"]))
+        cols[2].markdown(str(r["joueur"]))
+        cols[3].markdown(str(r["pos"]))
+
+        de = f"{r['from_statut']}" + (f" ({r['from_slot']})" if str(r["from_slot"]).strip() else "")
+        vers = f"{r['to_statut']}" + (f" ({r['to_slot']})" if str(r["to_slot"]).strip() else "")
+        cols[4].markdown(de)
+        cols[5].markdown(vers)
+        cols[6].markdown(str(r.get("action", "")))
+
+        # UNDO
+        if cols[7].button("↩️", key=f"undo_{rid}"):
+            if LOCKED:
+                st.error("🔒 Saison verrouillée : annulation impossible.")
+                st.stop()
+
+            owner = str(r["proprietaire"])
+            joueur = str(r["joueur"])
+
+            mask = (
+                (st.session_state["data"]["Propriétaire"] == owner) &
+                (st.session_state["data"]["Joueur"] == joueur)
+            )
+
+            if st.session_state["data"][mask].empty:
+                st.error("Impossible d'annuler : joueur introuvable dans les données.")
+            else:
+                # état actuel avant undo (pour log)
+                before = st.session_state["data"][mask].iloc[0]
+                cur_statut, cur_slot = str(before["Statut"]), str(before["Slot"])
+                pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
+
+                st.session_state["data"].loc[mask, "Statut"] = str(r["from_statut"])
+                st.session_state["data"].loc[mask, "Slot"] = str(r["from_slot"]) if str(r["from_slot"]).strip() else ""
+                st.session_state["data"] = clean_data(st.session_state["data"])
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+                log_history(
+                    owner, joueur, pos0, equipe0,
+                    cur_statut, cur_slot,
+                    str(r["from_statut"]),
+                    (str(r["from_slot"]) if str(r["from_slot"]).strip() else ""),
+                    action=f"UNDO #{rid}"
+                )
+
+                st.success("✅ Annulation effectuée.")
+                st.rerun()
+
+        # DELETE entry (no roster change)
+        if cols[8].button("❌", key=f"del_{rid}"):
+            ensure_history_loaded()
+            h2 = st.session_state["history"].copy()
+            h2 = h2[h2["id"] != rid]
+            st.session_state["history"] = h2
+            save_history(h2)
+            st.success("🗑️ Entrée supprimée.")
+            st.rerun()
 
 # =====================================================
 # TRANSACTIONS
