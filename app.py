@@ -401,10 +401,16 @@ def log_history_row(proprietaire, joueur, pos, equipe,
                     to_statut, to_slot,
                     action):
     h = st.session_state["history"].copy()
-    row = {
+
+    def next_hist_id(hh: pd.DataFrame) -> int:
+        if hh.empty or "id" not in hh.columns:
+            return 1
+        return int(pd.to_numeric(hh["id"], errors="coerce").fillna(0).max()) + 1
+
+    row_hist = {
         "id": next_hist_id(h),
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "season": season,
+        "season": st.session_state.get("season", ""),
         "proprietaire": proprietaire,
         "joueur": joueur,
         "pos": pos,
@@ -415,37 +421,93 @@ def log_history_row(proprietaire, joueur, pos, equipe,
         "to_slot": to_slot,
         "action": action,
     }
-    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+    h = pd.concat([h, pd.DataFrame([row_hist])], ignore_index=True)
+
     st.session_state["history"] = h
+    # HISTORY_FILE doit exister dans ton code (comme tu l'as déjà)
     save_history(HISTORY_FILE, h)
 
-def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str):
-    mask = (
-        (st.session_state["data"]["Propriétaire"] == proprietaire)
-        & (st.session_state["data"]["Joueur"] == joueur)
-    )
-    if st.session_state["data"][mask].empty:
-        st.error("Joueur introuvable.")
+
+def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
+    """
+    Déplace un joueur vers (to_statut, to_slot), en enregistrant dans l'historique.
+    - Empêche les doublons par (Propriétaire, Joueur)
+    - Sauvegarde dans le fichier de saison (DATA_FILE)
+    """
+    if LOCKED:
+        st.error("🔒 Saison verrouillée : modification impossible.")
         return False
 
-    before = st.session_state["data"][mask].iloc[0]
-    from_statut = str(before["Statut"])
+    df0 = st.session_state.get("data")
+    if df0 is None or df0.empty:
+        st.error("Aucune donnée en mémoire.")
+        return False
+
+    # Normalisation
+    to_statut = str(to_statut).strip()
+    to_slot = str(to_slot).strip()
+
+    # Sécurité: slots autorisés
+    allowed_slots_gc = {"Actif", "Banc", "Blessé"}
+    allowed_slots_ce = {"", "Blessé"}
+
+    if to_statut == "Grand Club" and to_slot not in allowed_slots_gc:
+        st.error(f"Slot invalide pour Grand Club: {to_slot}")
+        return False
+    if to_statut == "Club École" and to_slot not in allowed_slots_ce:
+        st.error(f"Slot invalide pour Club École: {to_slot}")
+        return False
+
+    # Trouver le joueur
+    mask = (df0["Propriétaire"] == proprietaire) & (df0["Joueur"] == joueur)
+    if df0[mask].empty:
+        st.error("Joueur introuvable pour ce propriétaire.")
+        return False
+
+    before = df0[mask].iloc[0]
+    from_statut = str(before.get("Statut", "")).strip()
     from_slot = str(before.get("Slot", "")).strip()
-    pos0 = str(before.get("Pos", "F"))
-    equipe0 = str(before.get("Equipe", ""))
+    pos0 = str(before.get("Pos", "F")).strip()
+    equipe0 = str(before.get("Equipe", "")).strip()
 
-    st.session_state["data"].loc[mask, "Statut"] = to_statut
-    st.session_state["data"].loc[mask, "Slot"] = to_slot if str(to_slot).strip() else ""
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    st.session_state["data"].to_csv(DATA_FILE, index=False)
+    # Appliquer mouvement
+    df0.loc[mask, "Statut"] = to_statut
+    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
 
-    log_history_row(
-        proprietaire, joueur, pos0, equipe0,
-        from_statut, from_slot,
-        to_statut, (to_slot if str(to_slot).strip() else ""),
-        action=action_label
-    )
+    # Nettoyage global (enlève None, normalise pos, dédoublonne, etc.)
+    df0 = clean_data(df0)
+
+    # ⚠️ Dédoublonnage forcé (sécurité ultime)
+    # Si jamais un import ou bug a créé des duplicates, on garde le dernier (celui modifié)
+    df0 = df0.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
+
+    # Sauvegarde en mémoire + CSV
+    st.session_state["data"] = df0
+    try:
+        df0.to_csv(DATA_FILE, index=False)
+    except Exception as e:
+        st.error(f"Erreur sauvegarde CSV: {e}")
+        return False
+
+    # Historique
+    try:
+        log_history_row(
+            proprietaire=proprietaire,
+            joueur=joueur,
+            pos=pos0,
+            equipe=equipe0,
+            from_statut=from_statut,
+            from_slot=from_slot,
+            to_statut=to_statut,
+            to_slot=(to_slot if to_slot else ""),
+            action=action_label,
+        )
+    except Exception as e:
+        # On n'empêche pas le move si l'historique plante, mais on avertit
+        st.warning(f"⚠️ Déplacement OK, mais historique non écrit: {e}")
+
     return True
+
 
 # =====================================================
 # POP-UP SIMPLE + ROBUSTE
