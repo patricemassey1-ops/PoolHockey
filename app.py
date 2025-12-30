@@ -54,89 +54,105 @@ def money(v):
 # =====================================================
 # PARSER FANTRAX
 # =====================================================
+import csv
+import re
+
 def parse_fantrax(upload):
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
+    # Enlève les caractères invisibles (ça évite plusieurs bugs)
+    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
-    # Enlève les lignes complètement vides (mais on garde l'information de séparation)
-    # Fantrax: souvent 1 ligne d'entête "Skaters" puis un tableau CSV, puis une ligne vide,
-    # puis "Goalies" + un autre tableau CSV.
-    #
-    # Stratégie:
-    # - On repère les index des lignes vides (séparateurs)
-    # - On tente de lire 1 ou 2 blocs CSV
-    # - On fusionne
+    # Détecte le séparateur à partir d'une ligne qui ressemble à un header
+    def detect_sep(lines):
+        candidates = []
+        for l in lines:
+            s = l.strip()
+            if not s:
+                continue
+            low = s.lower()
+            if ("player" in low and "salary" in low) and ("," in s or ";" in s or "\t" in s):
+                candidates.append(s)
+        sample = "\n".join(candidates[:5] if candidates else [l for l in lines if l.strip()][:5])
+        if not sample.strip():
+            return ","
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"])
+            return dialect.delimiter
+        except Exception:
+            # fallback: le plus fréquent
+            if ";" in sample and sample.count(";") >= sample.count(","):
+                return ";"
+            return ","
 
-    # 1) Trouver les séparateurs (lignes vides)
-    blank_idx = [i for i, line in enumerate(raw_lines) if str(line).strip() == ""]
+    sep = detect_sep(raw_lines)
 
-    # 2) Définir les blocs (avant et après la première ligne vide "réelle")
-    #    Si pas de ligne vide => on traite en un seul bloc (fallback).
-    blocks = []
-    if blank_idx:
-        cut = blank_idx[0]
-        block1 = raw_lines[:cut]
-        block2 = raw_lines[cut + 1 :]
-        # Nettoyage: enlever les lignes vides résiduelles aux extrémités
-        block1 = [l for l in block1 if str(l).strip() != ""]
-        block2 = [l for l in block2 if str(l).strip() != ""]
-        if len(block1) > 2:
-            blocks.append(block1)
-        if len(block2) > 2:
-            blocks.append(block2)
-    else:
-        blocks = [[l for l in raw_lines if str(l).strip() != ""]]
+    # Trouver les index des headers contenant Player + Salary
+    header_idxs = []
+    for i, line in enumerate(raw_lines):
+        s = line.strip()
+        if not s:
+            continue
+        low = s.lower()
+        # header probable
+        if "player" in low and "salary" in low:
+            # doit contenir un séparateur pour être un vrai header csv
+            if sep in s:
+                header_idxs.append(i)
 
-    def read_one_block(lines):
-        """
-        Fantrax ajoute souvent une première ligne 'Skaters' / 'Goalies' ou autre.
-        Ton ancien code faisait raw[1:] : on garde cette logique MAIS on la sécurise.
-        """
-        # Si la 1re ligne n'a pas de virgule, c'est probablement un titre (Skaters/Goalies)
-        if lines and ("," not in lines[0]):
+    if not header_idxs:
+        raise ValueError(
+            "Impossible de trouver une ligne d’en-tête contenant 'Player' et 'Salary'. "
+            "Vérifie que c’est bien l’export Fantrax (Roster export) et non un autre format."
+        )
+
+    # Fonction qui lit une section depuis un header jusqu'à la prochaine séparation
+    def read_section(start_idx, end_idx):
+        lines = raw_lines[start_idx:end_idx]
+        # Nettoyage: retire lignes vides au début/fin
+        while lines and not lines[0].strip():
             lines = lines[1:]
+        while lines and not lines[-1].strip():
+            lines = lines[:-1]
+        if len(lines) < 2:
+            return None
 
         csv_text = "\n".join(lines)
-        dfx = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
+
+        dfx = pd.read_csv(
+            io.StringIO(csv_text),
+            sep=sep,
+            engine="python",
+            on_bad_lines="skip",
+        )
         dfx.columns = [c.replace('"', "").strip() for c in dfx.columns]
         return dfx
 
-    # 3) Lire chaque bloc
+    # Construire les sections (Skaters/Goalies etc.)
     dfs = []
-    for b in blocks:
-        try:
-            dfs.append(read_one_block(b))
-        except Exception:
-            # si un bloc ne se lit pas, on l'ignore
-            pass
+    for idx_pos, h in enumerate(header_idxs):
+        end = header_idxs[idx_pos + 1] if idx_pos + 1 < len(header_idxs) else len(raw_lines)
+
+        # option: coupe aussi à la première ligne vide "longue" après le tableau
+        # mais sans briser si Fantrax ne met pas de ligne vide
+        # (on lit jusqu'au prochain header de toute façon)
+        dfx = read_section(h, end)
+        if dfx is not None and not dfx.empty:
+            dfs.append(dfx)
 
     if not dfs:
-        raise ValueError("Impossible de lire le fichier Fantrax (format inattendu).")
+        raise ValueError("Sections Fantrax détectées mais aucune donnée lisible.")
 
     df = pd.concat(dfs, ignore_index=True)
 
-    # 4) Validation colonnes
-    if "Player" not in df.columns or "Salary" not in df.columns:
-        raise ValueError("Colonnes Fantrax non détectées (Player/Salary).")
+    # Normaliser les noms de colonnes (au cas où)
+    cols_lower = {c.lower(): c for c in df.columns}
+    player_col = cols_lower.get("player")
+    salary_col = cols_lower.get("salary")
 
-    # 5) Normalisation vers ton format app
-    out = pd.DataFrame()
-    out["Joueur"] = df["Player"].astype(str)
-    out["Pos"] = df.get("Pos", "N/A")
-    out["Equipe"] = df.get("Team", "N/A")
+    if not player_col or not salary_col:
+        # Debug utile: montre les colonnes trouvées
+        raise ValueError(f"Colonnes Fantrax non détectées (Player/Salary). Colonnes trouvées: {list(df.columns)}")
 
-    sal = (
-        df["Salary"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .replace(["None", "nan", "NaN", ""], "0")
-    )
-
-    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
-    out["Statut"] = df.get("Status", "").apply(
-        lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
-    )
-
-    return out[out["Joueur"].str.len() > 2]
 
 
 # =====================================================
