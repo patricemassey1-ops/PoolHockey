@@ -66,6 +66,7 @@ def pos_sort_key(pos: str) -> int:
 
 # =====================================================
 # NETTOYAGE GLOBAL (anti None/Goalies + aucun doublon)
+# + support Slot="Blessé"
 # =====================================================
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -82,6 +83,12 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df["Statut"] = df["Statut"].astype(str).str.strip()
     df["Slot"] = df["Slot"].astype(str).str.strip()
 
+    # Normalise Slot (tolère plusieurs écritures)
+    df["Slot"] = df["Slot"].replace(
+        {"IR": "Blessé", "Blesse": "Blessé", "Blesses": "Blessé", "Injured": "Blessé"}
+    )
+
+    # Salaire => int (accepte "9 000 000 $" etc.)
     df["Salaire"] = (
         df["Salaire"]
         .astype(str)
@@ -92,12 +99,15 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0).astype(int)
 
+    # Positions => F/D/G
     df["Pos"] = df["Pos"].apply(normalize_pos)
 
+    # Retire séparateurs Fantrax
     forbidden = {"none", "skaters", "goalies", "player", "null"}
     df = df[~df["Joueur"].str.lower().isin(forbidden)]
     df = df[df["Joueur"].str.len() > 2]
 
+    # Retire ligne fantôme typique: salaire 0 + équipe vide/none
     df = df[
         ~(
             (df["Salaire"] <= 0)
@@ -105,13 +115,17 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         )
     ]
 
+    # Slot par défaut si GC et slot vide
     mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
     df.loc[mask_gc_default, "Slot"] = "Actif"
 
-    mask_ce = (df["Statut"] == "Club École")
-    df.loc[mask_ce, "Slot"] = ""
+    # Si Club École => Slot vide, SAUF si Blessé
+    mask_ce_not_inj = (df["Statut"] == "Club École") & (df["Slot"] != "Blessé")
+    df.loc[mask_ce_not_inj, "Slot"] = ""
 
+    # Aucun doublon par propriétaire
     df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
     return df.reset_index(drop=True)
 
 # =====================================================
@@ -359,12 +373,21 @@ if df.empty:
     st.stop()
 
 # =====================================================
-# HELPERS - moves
+# HELPERS - cap: blessé non compté
 # =====================================================
+def counted_bucket(statut: str, slot: str):
+    if str(slot).strip() == "Blessé":
+        return None
+    if statut == "Grand Club":
+        return "GC"
+    if statut == "Club École":
+        return "CE"
+    return None
+
+def is_counted_label(statut: str, slot: str) -> str:
+    return "✅ Comptabilisé" if counted_bucket(statut, slot) in ("GC", "CE") else "🩹 Non comptabilisé (Blessé)"
+
 def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str):
-    """
-    Applique un déplacement (Statut/Slot) + sauvegarde + log historique.
-    """
     mask = (
         (st.session_state["data"]["Propriétaire"] == proprietaire)
         & (st.session_state["data"]["Joueur"] == joueur)
@@ -391,13 +414,13 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     return True
 
 # =====================================================
-# CALCULS - plafonds par propriétaire
+# CALCULS - plafonds par propriétaire (EXCLUT Blessé)
 # =====================================================
 resume = []
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
-    gc_sum = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
-    ce_sum = d[d["Statut"] == "Club École"]["Salaire"].sum()
+    gc_sum = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+    ce_sum = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
     logo = ""
     for k, v in LOGOS.items():
@@ -424,7 +447,7 @@ tab1, tabA, tabH, tab2, tab3 = st.tabs(
 )
 
 # =====================================================
-# TABLEAU (bonus: Restant GC collé à GC)
+# TABLEAU
 # =====================================================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
@@ -454,12 +477,14 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# ALIGNEMENT (clic joueur -> popup -> déplacement)
+# ALIGNEMENT (clic -> popup compact)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-    st.caption("Clique sur un joueur (Actifs / Banc / Club École) pour ouvrir un pop-up de déplacement. "
-               "Règles Actifs : **12 F**, **6 D**, **2 G** (=20). Banc : illimité (F/D/G).")
+    st.caption(
+        "Clique sur un joueur (Actifs / Banc / Min / Blessés) pour le déplacer. "
+        "Actifs : 12F / 6D / 2G. Banc : illimité. Blessés : salaire non comptabilisé."
+    )
 
     proprietaire = st.selectbox(
         "Propriétaire",
@@ -467,54 +492,39 @@ with tabA:
         key="align_owner",
     )
 
-    # refresh clean + subset
     st.session_state["data"] = clean_data(st.session_state["data"])
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
-    gc_all = dprop[dprop["Statut"] == "Grand Club"].copy()
-    ce_all = dprop[dprop["Statut"] == "Club École"].copy()
+    injured_all = dprop[dprop["Slot"] == "Blessé"].copy()
+    dprop_not_inj = dprop[dprop["Slot"] != "Blessé"].copy()
 
+    gc_all = dprop_not_inj[dprop_not_inj["Statut"] == "Grand Club"].copy()
+    ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
     gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
     gc_banc = gc_all[gc_all["Slot"] == "Banc"].copy()
 
-    # Compteurs actifs
     nb_F = int((gc_actif["Pos"] == "F").sum())
     nb_D = int((gc_actif["Pos"] == "D").sum())
     nb_G = int((gc_actif["Pos"] == "G").sum())
     total_actifs = nb_F + nb_D + nb_G
 
-    # Totaux salaires / restants
     total_gc = int(gc_all["Salaire"].sum())
     total_ce = int(ce_all["Salaire"].sum())
     restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
     restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
 
-    # Metrics (Restant GC à côté de Total GC)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🏒 Total GC", money(total_gc))
-    m2.metric("✅ Restant GC", money(restant_gc))
-    m3.metric("🏫 Total CE", money(total_ce))
-    m4.metric("✅ Restant CE", money(restant_ce))
+    # Metrics (compact)
+    top = st.columns([1.2, 1.2, 1.2, 1.2])
+    top[0].metric("Total GC", money(total_gc))
+    top[1].metric("Restant GC", money(restant_gc))
+    top[2].metric("Total CE", money(total_ce))
+    top[3].metric("Restant CE", money(restant_ce))
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("F actifs", f"{nb_F}/12")
-    c2.metric("D actifs", f"{nb_D}/6")
-    c3.metric("G actifs", f"{nb_G}/2")
-    c4.metric("Total actifs", f"{total_actifs}/20")
-
-    if nb_F != 12:
-        st.warning("⚠️ Il doit y avoir exactement **12 F** actifs.")
-    if nb_D != 6:
-        st.warning("⚠️ Il doit y avoir exactement **6 D** actifs.")
-    if nb_G != 2:
-        st.warning("⚠️ Il doit y avoir exactement **2 G** actifs.")
-    if total_actifs != 20:
-        st.warning("⚠️ Total des actifs invalide (doit être **20**).")
+    st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2 • Total {total_actifs}/20")
 
     st.divider()
 
-    # ---- UI tables (clickable) ----
     def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
         if x is None or x.empty:
             return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
@@ -524,64 +534,55 @@ with tabA:
         y["Salaire"] = y["Salaire"].apply(money)
         return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
 
-    colL, colM, colR = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
-    with colL:
-        st.markdown("### 🟢 Actifs (clique un joueur)")
+    with col1:
+        st.markdown("### 🟢 Actifs")
         df_actifs_ui = view_for_click(gc_actif)
-        st.dataframe(
-            df_actifs_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_actifs",
-        )
+        st.dataframe(df_actifs_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_actifs")
 
-    with colM:
-        st.markdown("### 🟡 Banc (clique un joueur)")
+    with col2:
+        st.markdown("### 🟡 Banc")
         df_banc_ui = view_for_click(gc_banc)
-        st.dataframe(
-            df_banc_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_banc",
-        )
+        st.dataframe(df_banc_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_banc")
 
-    with colR:
-        st.markdown("### 🔵 Club École (clique un joueur)")
+    with col3:
+        st.markdown("### 🔵 Min")
         df_min_ui = view_for_click(ce_all)
-        st.dataframe(
-            df_min_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_min",
-        )
+        st.dataframe(df_min_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_min")
 
-    # ---- helpers sélection + dialog ----
+    with col4:
+        st.markdown("### 🩹 Blessés")
+        df_inj_ui = view_for_click(injured_all)
+        st.dataframe(df_inj_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_inj")
+
     def clear_selections():
-        for k in ["sel_actifs", "sel_banc", "sel_min"]:
+        for k in ["sel_actifs", "sel_banc", "sel_min", "sel_inj"]:
             if k in st.session_state and isinstance(st.session_state[k], dict):
                 st.session_state[k]["selection"] = {"rows": []}
 
     def get_selected_player():
         if st.session_state.get("sel_actifs") and st.session_state["sel_actifs"].get("selection", {}).get("rows"):
-            idx = st.session_state["sel_actifs"]["selection"]["rows"][0]
-            if idx < len(df_actifs_ui):
-                return ("Actif", str(df_actifs_ui.iloc[idx]["Joueur"]))
+            i = st.session_state["sel_actifs"]["selection"]["rows"][0]
+            if i < len(df_actifs_ui):
+                return "Actif", str(df_actifs_ui.iloc[i]["Joueur"])
         if st.session_state.get("sel_banc") and st.session_state["sel_banc"].get("selection", {}).get("rows"):
-            idx = st.session_state["sel_banc"]["selection"]["rows"][0]
-            if idx < len(df_banc_ui):
-                return ("Banc", str(df_banc_ui.iloc[idx]["Joueur"]))
+            i = st.session_state["sel_banc"]["selection"]["rows"][0]
+            if i < len(df_banc_ui):
+                return "Banc", str(df_banc_ui.iloc[i]["Joueur"])
         if st.session_state.get("sel_min") and st.session_state["sel_min"].get("selection", {}).get("rows"):
-            idx = st.session_state["sel_min"]["selection"]["rows"][0]
-            if idx < len(df_min_ui):
-                return ("Min", str(df_min_ui.iloc[idx]["Joueur"]))
-        return (None, None)
+            i = st.session_state["sel_min"]["selection"]["rows"][0]
+            if i < len(df_min_ui):
+                return "Min", str(df_min_ui.iloc[i]["Joueur"])
+        if st.session_state.get("sel_inj") and st.session_state["sel_inj"].get("selection", {}).get("rows"):
+            i = st.session_state["sel_inj"]["selection"]["rows"][0]
+            if i < len(df_inj_ui):
+                return "Blessé", str(df_inj_ui.iloc[i]["Joueur"])
+        return None, None
 
     def can_add_to_actif(pos: str):
         pos = normalize_pos(pos)
@@ -596,32 +597,25 @@ with tabA:
     def projected_counts(cur_statut, cur_slot, pos, to_statut, to_slot):
         f, d, g = nb_F, nb_D, nb_G
         pos = normalize_pos(pos)
-
-        # retire du groupe actif si actuellement actif GC
         if cur_statut == "Grand Club" and cur_slot == "Actif":
             if pos == "F": f -= 1
             elif pos == "D": d -= 1
             else: g -= 1
-
-        # ajoute au groupe actif si destination actif GC
         if to_statut == "Grand Club" and to_slot == "Actif":
             if pos == "F": f += 1
             elif pos == "D": d += 1
             else: g += 1
-
         return f, d, g
 
-    def projected_totals(salaire_player, cur_statut, to_statut):
+    def projected_totals(salaire_player, cur_statut, cur_slot, to_statut, to_slot):
         pgc, pce = total_gc, total_ce
-        salaire_player = int(salaire_player)
-
-        if cur_statut == "Club École" and to_statut == "Grand Club":
-            pgc += salaire_player
-            pce -= salaire_player
-        elif cur_statut == "Grand Club" and to_statut == "Club École":
-            pgc -= salaire_player
-            pce += salaire_player
-
+        s = int(salaire_player)
+        from_bucket = counted_bucket(cur_statut, cur_slot)
+        to_bucket = counted_bucket(to_statut, to_slot)
+        if from_bucket == "GC": pgc -= s
+        elif from_bucket == "CE": pce -= s
+        if to_bucket == "GC": pgc += s
+        elif to_bucket == "CE": pce += s
         return int(pgc), int(pce)
 
     src, joueur_sel = get_selected_player()
@@ -648,68 +642,74 @@ with tabA:
 
                 @st.dialog(f"Déplacement — {joueur_sel}")
                 def move_dialog():
-                    st.write(
-                        f"**Position :** {cur_pos}  \n"
-                        f"**Équipe :** {cur_equipe}  \n"
-                        f"**Salaire :** {money(cur_salaire)}  \n"
-                        f"**Statut/Slot actuel :** {cur_statut} ({cur_slot if cur_slot else '—'})"
+                    # Ligne d'info compacte + badge
+                    st.markdown(
+                        f"**{joueur_sel}** • Pos **{cur_pos}** • Équipe **{cur_equipe}** • Salaire **{money(cur_salaire)}**  \n"
+                        f"Statut: **{cur_statut}** • Slot: **{cur_slot if cur_slot else '—'}** • {is_counted_label(cur_statut, cur_slot)}"
                     )
 
                     st.divider()
 
-                    # Options selon l’état
                     options = []
-                    if cur_statut == "Club École":
-                        options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Min → GC (Actif)")))
-                        options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Min → GC (Banc)")))
+
+                    # Blessé
+                    if cur_slot != "Blessé":
+                        options.append(("🩹 Mettre Blessé (IR)", (cur_statut, "Blessé", "→ Blessé (IR)")))
                     else:
-                        # Grand Club
-                        if cur_slot == "Actif":
-                            options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Actif → Banc")))
-                            options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
-                        elif cur_slot == "Banc":
-                            options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Banc → Actif")))
-                            options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
+                        # Retirer de blessé => choix
+                        options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Blessé → GC (Actif)")))
+                        options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Blessé → GC (Banc)")))
+                        options.append(("Club École (Min)", ("Club École", "", "Blessé → Min")))
+
+                    # Si non blessé, options normales
+                    if cur_slot != "Blessé":
+                        if cur_statut == "Club École":
+                            options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Min → GC (Actif)")))
+                            options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Min → GC (Banc)")))
                         else:
-                            options.append(("Grand Club / Actif", ("Grand Club", "Actif", "GC → Actif")))
-                            options.append(("Grand Club / Banc", ("Grand Club", "Banc", "GC → Banc")))
-                            options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
+                            if cur_slot == "Actif":
+                                options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Actif → Banc")))
+                                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
+                            elif cur_slot == "Banc":
+                                options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Banc → Actif")))
+                                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
+                            else:
+                                options.append(("Grand Club / Actif", ("Grand Club", "Actif", "GC → Actif")))
+                                options.append(("Grand Club / Banc", ("Grand Club", "Banc", "GC → Banc")))
+                                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
 
                     labels = [o[0] for o in options]
-                    choice = st.radio("Choisir la destination", labels)
+                    choice = st.radio("Destination", labels)
 
                     to_statut, to_slot, action_label = dict(options)[choice]
 
-                    # Prévisualisation quotas + plafonds
+                    # Aperçu compact
                     pf, pd_, pg = projected_counts(cur_statut, cur_slot, cur_pos, to_statut, to_slot)
-                    p_total_actifs = pf + pd_ + pg
-
-                    pgc, pce = projected_totals(cur_salaire, cur_statut, to_statut)
+                    pgc, pce = projected_totals(cur_salaire, cur_statut, cur_slot, to_statut, to_slot)
                     pr_gc = int(st.session_state["PLAFOND_GC"] - pgc)
                     pr_ce = int(st.session_state["PLAFOND_CE"] - pce)
 
-                    st.markdown("#### 🔎 Aperçu après déplacement")
-                    a1, a2, a3, a4 = st.columns(4)
-                    a1.metric("F actifs", f"{pf}/12")
-                    a2.metric("D actifs", f"{pd_}/6")
-                    a3.metric("G actifs", f"{pg}/2")
-                    a4.metric("Total actifs", f"{p_total_actifs}/20")
+                    st.caption("Aperçu après déplacement")
+                    row1 = st.columns([1, 1, 1, 1])
+                    row1[0].metric("F", f"{pf}/12")
+                    row1[1].metric("D", f"{pd_}/6")
+                    row1[2].metric("G", f"{pg}/2")
+                    row1[3].metric("Actifs", f"{pf+pd_+pg}/20")
 
-                    b1, b2, b3, b4 = st.columns(4)
-                    b1.metric("Total GC", money(pgc))
-                    b2.metric("Restant GC", money(pr_gc))
-                    b3.metric("Total CE", money(pce))
-                    b4.metric("Restant CE", money(pr_ce))
+                    row2 = st.columns([1, 1, 1, 1])
+                    row2[0].metric("GC", money(pgc))
+                    row2[1].metric("R GC", money(pr_gc))
+                    row2[2].metric("CE", money(pce))
+                    row2[3].metric("R CE", money(pr_ce))
 
                     if pr_gc < 0:
-                        st.warning("🚨 Après ce déplacement, le **plafond GC** serait dépassé.")
+                        st.warning("🚨 Plafond GC dépassé.")
                     if pr_ce < 0:
-                        st.warning("🚨 Après ce déplacement, le **plafond CE** serait dépassé.")
+                        st.warning("🚨 Plafond CE dépassé.")
 
                     st.divider()
 
-                    if st.button("✅ Confirmer le déplacement"):
-                        # validation quotas si destination Actif
+                    if st.button("✅ Confirmer"):
                         if to_statut == "Grand Club" and to_slot == "Actif":
                             ok, msg = can_add_to_actif(cur_pos)
                             if not ok:
@@ -735,7 +735,7 @@ with tabA:
                 move_dialog()
 
 # =====================================================
-# HISTORIQUE (filtre propriétaire + undo + delete)
+# HISTORIQUE
 # =====================================================
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
@@ -759,9 +759,9 @@ with tabH:
     h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
     h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"])
 
-    st.caption("↩️ = annuler ce changement (retour à l’état précédent). ❌ = supprimer l’entrée (sans modifier l’alignement).")
+    st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
 
-    head = st.columns([1.6, 1.6, 2.6, 1.1, 1.6, 1.6, 1.6, 0.9, 0.7])
+    head = st.columns([1.5, 1.4, 2.4, 1.0, 1.5, 1.5, 1.6, 0.8, 0.7])
     head[0].markdown("**Date/Heure**")
     head[1].markdown("**Propriétaire**")
     head[2].markdown("**Joueur**")
@@ -774,7 +774,7 @@ with tabH:
 
     for _, r in h.iterrows():
         rid = int(r["id"])
-        cols = st.columns([1.6, 1.6, 2.6, 1.1, 1.6, 1.6, 1.6, 0.9, 0.7])
+        cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.5, 1.5, 1.6, 0.8, 0.7])
 
         cols[0].markdown(str(r["timestamp"]))
         cols[1].markdown(str(r["proprietaire"]))
@@ -801,7 +801,7 @@ with tabH:
             )
 
             if st.session_state["data"][mask].empty:
-                st.error("Impossible d'annuler : joueur introuvable dans les données.")
+                st.error("Impossible d'annuler : joueur introuvable.")
             else:
                 before = st.session_state["data"][mask].iloc[0]
                 cur_statut, cur_slot = str(before["Statut"]), str(before["Slot"])
