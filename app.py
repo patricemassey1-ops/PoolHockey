@@ -4,7 +4,6 @@ import io
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from streamlit_sortables import sort_items
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Calculateur Fantrax 2025", layout="wide")
@@ -18,7 +17,7 @@ DEFAULT_PLAFOND_GRAND_CLUB = 95_500_000
 DEFAULT_PLAFOND_CLUB_ECOLE = 47_750_000
 
 # --- FONCTIONS DE CHARGEMENT / SAUVEGARDE ---
-@st.cache_data(ttl=3600, show_spinner=False)  # Cache pour 1 heure
+@st.cache_data(ttl=3600, show_spinner=False)
 def charger_donnees(file, columns):
     if os.path.exists(file):
         df = pd.read_csv(file, dtype={'Salaire': 'float64'}).fillna(0)
@@ -27,7 +26,6 @@ def charger_donnees(file, columns):
 
 def sauvegarder_donnees(df, file):
     df.drop_duplicates().to_csv(file, index=False)
-    # Invalider le cache après sauvegarde
     charger_donnees.clear()
 
 def format_currency(val):
@@ -105,50 +103,98 @@ st.sidebar.divider()
 fichiers_telecharges = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
 
 if fichiers_telecharges:
-    with st.spinner("⏳ Import en cours..."):
-        dfs_a_ajouter = []
-        # Utiliser le fuseau horaire de Montréal
-        montreal_tz = ZoneInfo("America/Montreal")
-        horodatage = datetime.now(montreal_tz).strftime("%d-%m %H:%M")
-        for fichier in fichiers_telecharges:
-            try:
-                content = fichier.getvalue().decode('utf-8-sig')
-                lines = content.splitlines()
+    # Barre de progression
+    progress_bar = st.sidebar.progress(0)
+    status_text = st.sidebar.empty()
+    
+    status_text.text("⏳ Début de l'import...")
+    progress_bar.progress(10)
+    
+    dfs_a_ajouter = []
+    # Utiliser le fuseau horaire de Montréal
+    montreal_tz = ZoneInfo("America/Montreal")
+    horodatage = datetime.now(montreal_tz).strftime("%d-%m %H:%M")
+    
+    status_text.text("📂 Lecture des fichiers...")
+    progress_bar.progress(30)
+    
+    for idx, fichier in enumerate(fichiers_telecharges):
+        try:
+            content = fichier.getvalue().decode('utf-8-sig')
+            lines = content.splitlines()
 
-                def extract_table(lines, keyword):
-                    idx = next((i for i, l in enumerate(lines) if keyword in l), -1)
-                    if idx == -1: return pd.DataFrame()
-                    h_idx = next((i for i in range(idx + 1, len(lines)) if any(kw in lines[i] for kw in ["ID", "Player", "Salary"])), -1)
-                    if h_idx == -1: return pd.DataFrame()
-                    return pd.read_csv(io.StringIO("\n".join(lines[h_idx:])), sep=None, engine='python', on_bad_lines='skip')
+            def extract_table(lines, keyword):
+                idx = next((i for i, l in enumerate(lines) if keyword in l), -1)
+                if idx == -1: return pd.DataFrame()
+                h_idx = next((i for i in range(idx + 1, len(lines)) if any(kw in lines[i] for kw in ["ID", "Player", "Salary"])), -1)
+                if h_idx == -1: return pd.DataFrame()
+                return pd.read_csv(io.StringIO("\n".join(lines[h_idx:])), sep=None, engine='python', on_bad_lines='skip')
 
-                df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
+            df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
+            
+            if not df_merged.empty:
+                c_player = next((c for c in df_merged.columns if 'player' in c.lower()), "Player")
+                c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
+                c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
+                c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
+
+                df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
+                df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
                 
-                if not df_merged.empty:
-                    c_player = next((c for c in df_merged.columns if 'player' in c.lower()), "Player")
-                    c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
-                    c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
-                    c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
+                temp_df = pd.DataFrame({
+                    'Joueur': df_merged[c_player].astype(str), 
+                    'Salaire': df_merged[c_salary], 
+                    'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
+                    'Pos': df_merged[c_pos].fillna("N/A").astype(str), 
+                    'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
+                })
+                
+                # Nettoyer les joueurs invalides
+                temp_df = temp_df[
+                    (temp_df['Joueur'].notna()) & 
+                    (temp_df['Joueur'] != '') &
+                    (temp_df['Joueur'] != '0') &
+                    (temp_df['Joueur'].str.strip() != '0') &
+                    (temp_df['Joueur'].str.strip() != '')
+                ]
+                
+                dfs_a_ajouter.append(temp_df)
+                
+            # Mettre à jour la progression par fichier
+            file_progress = 30 + int((idx + 1) / len(fichiers_telecharges) * 40)
+            progress_bar.progress(file_progress)
+            status_text.text(f"📄 Traitement: {idx + 1}/{len(fichiers_telecharges)} fichiers")
+            
+        except Exception as e: 
+            st.error(f"Erreur import {fichier.name}: {e}")
 
-                    df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
-                    df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
-                    
-                    temp_df = pd.DataFrame({
-                        'Joueur': df_merged[c_player].astype(str), 
-                        'Salaire': df_merged[c_salary], 
-                        'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
-                        'Pos': df_merged[c_pos].fillna("N/A").astype(str), 
-                        'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
-                    })
-                    dfs_a_ajouter.append(temp_df)
-            except Exception as e: 
-                st.error(f"Erreur import {fichier.name}: {e}")
-
-        if dfs_a_ajouter:
-            new_data = pd.concat(dfs_a_ajouter, ignore_index=True)
-            st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
-            sauvegarder_donnees(st.session_state['historique'], DB_FILE)
-            st.rerun()
+    if dfs_a_ajouter:
+        status_text.text("💾 Sauvegarde des données...")
+        progress_bar.progress(80)
+        
+        new_data = pd.concat(dfs_a_ajouter, ignore_index=True)
+        st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
+        sauvegarder_donnees(st.session_state['historique'], DB_FILE)
+        
+        status_text.text("✅ Import terminé!")
+        progress_bar.progress(100)
+        
+        # Compte à rebours avec barre de progression
+        import time
+        countdown_bar = st.sidebar.progress(100)
+        countdown_text = st.sidebar.empty()
+        
+        for i in range(10, 0, -1):
+            countdown_text.text(f"🔄 Actualisation dans {i} secondes...")
+            countdown_bar.progress(int(i * 10))
+            time.sleep(1)
+        
+        countdown_text.empty()
+        countdown_bar.empty()
+        status_text.empty()
+        progress_bar.empty()
+        
+        st.rerun()
 
 # --- TABS (Dashboard & Sim) ---
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
@@ -245,14 +291,14 @@ with tab1:
                 for i, col_name in enumerate(row.index):
                     if col_name in ['Grand Club', 'Restant Grand Club']:
                         if gc_depasse:
-                            styles[i] = 'color: #ff0000; font-weight: bold'  # Rouge
+                            styles[i] = 'color: #ff0000; font-weight: bold'
                         else:
-                            styles[i] = 'color: #00cc00; font-weight: bold'  # Vert
+                            styles[i] = 'color: #00cc00; font-weight: bold'
                     elif col_name in ['Club École', 'Restant Club École']:
                         if ce_depasse:
-                            styles[i] = 'color: #ff0000; font-weight: bold'  # Rouge
+                            styles[i] = 'color: #ff0000; font-weight: bold'
                         else:
-                            styles[i] = 'color: #00cc00; font-weight: bold'  # Vert
+                            styles[i] = 'color: #00cc00; font-weight: bold'
             except:
                 pass
             
@@ -265,7 +311,7 @@ with tab1:
         
         st.divider()
         
-        # Section suppression optimisée
+        # Section suppression
         st.subheader("🗑️ Supprimer une importation")
         
         proprietaires_list = summary['Propriétaire'].tolist()
@@ -316,10 +362,9 @@ with tab2:
     st.header("⚖️ Simulateur de Transactions")
     
     if not st.session_state['historique'].empty:
-        # Sélection du propriétaire
         df_hist = st.session_state['historique']
         
-        # Nettoyer les données avant de travailler avec
+        # Nettoyer les données
         df_hist = df_hist[
             (df_hist['Joueur'].notna()) & 
             (df_hist['Joueur'].astype(str).str.strip() != '') &
@@ -327,13 +372,11 @@ with tab2:
             (df_hist['Joueur'].astype(str) != 'nan')
         ].copy()
         
-        # Extraire les propriétaires uniques
         proprietaires_uniques = df_hist['Propriétaire'].unique().tolist()
         
         if not proprietaires_uniques:
             st.warning("Aucun propriétaire trouvé dans les données.")
         else:
-            # Extraire nom et date pour affichage
             proprio_display = {}
             for p in proprietaires_uniques:
                 try:
@@ -354,11 +397,8 @@ with tab2:
                 key="sim_proprio_select"
             )
             
-                            if selected_proprio_full:
-                # Filtrer les joueurs du propriétaire sélectionné
+            if selected_proprio_full:
                 joueurs_proprio = df_hist[df_hist['Propriétaire'] == selected_proprio_full].copy()
-                
-                # Filtrer les joueurs avec un salaire > 0 et un nom valide
                 joueurs_proprio = joueurs_proprio[
                     (joueurs_proprio['Joueur'].notna()) & 
                     (joueurs_proprio['Joueur'] != '') &
@@ -367,20 +407,15 @@ with tab2:
                 
                 joueurs_proprio['Salaire'] = pd.to_numeric(joueurs_proprio['Salaire'], errors='coerce').fillna(0)
                 
-                # Créer une clé unique pour ce propriétaire
                 sim_key = f"sim_{selected_proprio_full}"
                 
-                # Initialiser les listes dans session_state si nécessaire
                 if f'{sim_key}_grand_club' not in st.session_state:
-                    # Filtrer les joueurs invalides dès l'initialisation
                     gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
                     st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
                 if f'{sim_key}_club_ecole' not in st.session_state:
-                    # Filtrer les joueurs invalides dès l'initialisation
                     ce_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
                     st.session_state[f'{sim_key}_club_ecole'] = [j for j in ce_joueurs if j and str(j).strip() != '' and str(j) != '0']
                 
-                # Bouton pour réinitialiser
                 if st.button("🔄 Réinitialiser", key="reset_sim"):
                     gc_joueurs = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
                     st.session_state[f'{sim_key}_grand_club'] = [j for j in gc_joueurs if j and str(j).strip() != '' and str(j) != '0']
@@ -390,18 +425,15 @@ with tab2:
                 
                 st.divider()
                 
-                # Afficher les deux colonnes
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.subheader("🏒 Grand Club (Act)")
                     
-                    # Calculer le total
                     total_gc = 0
                     joueurs_gc_data = []
                     
                     for joueur_nom in st.session_state[f'{sim_key}_grand_club']:
-                        # Filtrer les joueurs invalides
                         if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
                             continue
                             
@@ -426,7 +458,6 @@ with tab2:
                         df_gc = pd.DataFrame(joueurs_gc_data)
                         st.dataframe(df_gc, use_container_width=True, hide_index=True)
                         
-                        # Sélection pour déplacer vers Club École
                         st.write("**Déplacer vers Club École:**")
                         if st.session_state[f'{sim_key}_grand_club']:
                             joueur_to_move = st.selectbox(
@@ -445,12 +476,10 @@ with tab2:
                 with col2:
                     st.subheader("🎓 Club École (Min)")
                     
-                    # Calculer le total
                     total_ce = 0
                     joueurs_ce_data = []
                     
                     for joueur_nom in st.session_state[f'{sim_key}_club_ecole']:
-                        # Filtrer les joueurs invalides
                         if not joueur_nom or joueur_nom == '0' or str(joueur_nom).strip() == '':
                             continue
                             
@@ -475,7 +504,6 @@ with tab2:
                         df_ce = pd.DataFrame(joueurs_ce_data)
                         st.dataframe(df_ce, use_container_width=True, hide_index=True)
                         
-                        # Sélection pour déplacer vers Grand Club
                         st.write("**Déplacer vers Grand Club:**")
                         if st.session_state[f'{sim_key}_club_ecole']:
                             joueur_to_move_gc = st.selectbox(
@@ -493,7 +521,6 @@ with tab2:
                 
                 st.divider()
                 
-                # Résumé comparatif
                 st.subheader("📊 Résumé")
                 col_sum1, col_sum2 = st.columns(2)
                 with col_sum1:
