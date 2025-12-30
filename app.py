@@ -67,8 +67,8 @@ def charger_db_joueurs():
             # Nettoyer les symboles $ et espaces avant conversion
             df_players['Salaire'] = df_players['Salaire'].astype(str).str.replace(r'[\$,\s]', '', regex=True)
             df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
-            # Diviser par 1000 pour retirer les 3 derniers zéros
-            df_players['Salaire'] = df_players['Salaire'] / 1000
+            # Multiplier par 1000 (12,500 devient 12,500,000)
+            df_players['Salaire'] = df_players['Salaire'] * 1000
         else:
             df_players['Salaire'] = 0
         
