@@ -25,10 +25,10 @@ if "PLAFOND_CE" not in st.session_state:
 # =====================================================
 LOGOS = {
     "Nordiques": "Nordiques_Logo.png",
-    "Cracheurs": "Cracheurs.jpeg",  
+    "Cracheurs": "Cracheurs_Logo.png",  
     "Prédateurs": "Prédateurs_Logo.png",
     "Red Wings": "Red_Wings_Logo.png",
-    "Whalers": "Whalers_Logo.jpg",
+    "Whalers": "Whalers_Logo.png",
     "Canadiens": "Canadiens_Logo.png"
 }
 
