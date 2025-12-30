@@ -721,16 +721,48 @@ with tabA:
 
     st.divider()
 
+from urllib.parse import quote, unquote
+
 # =====================================================
-# BLESSÉS (IR) — AFFICHAGE PLUS NET (CARTE + ZEBRA + HOVER)
+# BLESSÉS (IR) — TABLEAU CLIQUABLE (ROW CLICK)
 # =====================================================
 st.markdown("## 🩹 Joueurs Blessés (IR)")
 df_inj_ui = view_for_click(injured_all)
 
+# ---- Helper: lire/effacer query param compatible selon version Streamlit
+def _get_qp(key: str):
+    # Streamlit récent: st.query_params (Mapping)
+    if hasattr(st, "query_params"):
+        v = st.query_params.get(key)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    # Ancien: experimental_get_query_params()
+    qp = st.experimental_get_query_params()
+    v = qp.get(key)
+    return v[0] if v else None
+
+def _clear_qp(key: str):
+    if hasattr(st, "query_params"):
+        try:
+            # supprime la clé si possible
+            st.query_params.pop(key, None)
+        except Exception:
+            st.query_params[key] = ""
+    else:
+        st.experimental_set_query_params()
+
+# ---- Capture clic d’une ligne IR (si présent)
+picked_ir = _get_qp("ir_pick")
+if picked_ir:
+    picked_ir = unquote(picked_ir)
+    set_move_ctx(proprietaire, picked_ir)
+    _clear_qp("ir_pick")
+    st.rerun()
+
 if df_inj_ui.empty:
     st.info("Aucun joueur blessé.")
 else:
-    # CSS ciblé (plus net + hover + zebra)
     st.markdown(
         """
         <style>
@@ -745,14 +777,17 @@ else:
             display:flex;
             align-items:center;
             justify-content:space-between;
+            gap:12px;
             padding:12px 14px;
             border-bottom:1px solid #2a2a2a;
+            background:linear-gradient(180deg,#060606,#000);
           }
           .ir-title{
             color:#ff2d2d;
             font-weight:1000;
             letter-spacing:1px;
             text-transform:uppercase;
+            line-height:1.1;
           }
           .ir-badge{
             color:#ff2d2d;
@@ -761,56 +796,57 @@ else:
             border:1px solid #ff2d2d;
             padding:4px 10px;
             border-radius:999px;
+            white-space:nowrap;
           }
 
-          .ir-table-wrap{
-            max-height:320px;
-            overflow:auto;
+          .ir-table-wrap{ max-height:340px; overflow:auto; }
+          .ir-table-wrap::-webkit-scrollbar{ width:10px; height:10px; }
+          .ir-table-wrap::-webkit-scrollbar-track{ background:#050505; }
+          .ir-table-wrap::-webkit-scrollbar-thumb{
+            background:#2a2a2a; border-radius:999px; border:2px solid #050505;
           }
+          .ir-table-wrap::-webkit-scrollbar-thumb:hover{ background:#3a3a3a; }
+
           .ir-table{
             width:100%;
-            border-collapse:collapse;
+            border-collapse:separate;
+            border-spacing:0;
             color:#ff2d2d;
-            font-weight:700;
+            font-weight:800;
+            font-size:14px;
           }
           .ir-table th{
             text-align:left;
             padding:10px 12px;
             position:sticky;
             top:0;
-            background:#050505;
+            background:rgba(5,5,5,.92);
+            backdrop-filter: blur(6px);
             border-bottom:1px solid #2a2a2a;
-            z-index:1;
+            z-index:2;
             font-weight:1000;
             letter-spacing:.3px;
           }
           .ir-table td{
             padding:10px 12px;
             border-bottom:1px solid #151515;
-          }
-          .ir-table tr:nth-child(odd) td{
-            background:#000;
-          }
-          .ir-table tr:nth-child(even) td{
-            background:#070707;
-          }
-          .ir-table tr:hover td{
-            background:#120000;
-          }
-          .ir-salary{
-            text-align:right;
-            font-weight:1000;
-            white-space:nowrap;
-          }
-          .ir-pos{
-            width:60px;
-          }
-          .ir-team{
-            width:80px;
-            opacity:.95;
+            line-height:1.2;
           }
 
-          /* Boutons IR uniquement (container sous le tableau) */
+          /* zebra + hover */
+          .ir-table tbody tr:nth-child(odd) td{ background:#000; }
+          .ir-table tbody tr:nth-child(even) td{ background:#070707; }
+          .ir-table tbody tr:hover td{
+            background:linear-gradient(90deg,#120000,#070707);
+            cursor:pointer;
+          }
+
+          /* colonnes */
+          .ir-player{ font-weight:1000; }
+          .ir-pos{ width:64px; text-align:center; opacity:.95; }
+          .ir-team{ width:84px; text-align:center; opacity:.95; letter-spacing:.4px; }
+          .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
+
           .ir-actions{
             margin-top:10px;
             padding:12px 14px;
@@ -822,31 +858,30 @@ else:
             color:#ff2d2d;
             font-weight:1000;
             letter-spacing:.6px;
-            margin-bottom:10px;
             text-transform:uppercase;
           }
 
-          /* Style des boutons Streamlit dans cette zone */
-          div.ir-btns button[kind="secondary"]{
-            border:1px solid #ff2d2d !important;
-            background:#000000 !important;
-            color:#ff2d2d !important;
-            font-weight:900 !important;
-          }
-          div.ir-btns button[kind="secondary"]:hover{
-            background:#120000 !important;
+          /* mini hint */
+          .ir-hint{
+            margin-top:6px;
+            color:#ff2d2d;
+            opacity:.75;
+            font-size:12px;
+            font-weight:800;
           }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Table HTML plus nette
+    # Table HTML: chaque <tr> redirige vers ?ir_pick=...
     rows_html = ""
     for _, rr in df_inj_ui.iterrows():
+        name = str(rr["Joueur"])
+        q = quote(name)
         rows_html += f"""
-        <tr>
-          <td>{rr['Joueur']}</td>
+        <tr onclick="window.location.search='?ir_pick={q}'">
+          <td class="ir-player">{name}</td>
           <td class="ir-pos">{rr['Pos']}</td>
           <td class="ir-team">{rr['Equipe']}</td>
           <td class="ir-salary">{rr['Salaire']}</td>
@@ -877,30 +912,15 @@ else:
             </table>
           </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    # Actions claires (boutons)
-    st.markdown(
-        """
         <div class="ir-actions">
-          <div class="ir-actions-title">Clique pour déplacer</div>
+          <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+          <div class="ir-hint">Astuce : le hover indique la ligne cliquable.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # Boutons en grille (2 colonnes = plus net / plus gros)
-    names = df_inj_ui["Joueur"].tolist()
-    st.markdown('<div class="ir-btns">', unsafe_allow_html=True)
-    btn_cols = st.columns(2)
-    for idx, name in enumerate(names):
-        with btn_cols[idx % 2]:
-            if st.button(f"🩹 {name}", use_container_width=True, key=f"inj_btn_{proprietaire}_{idx}"):
-                set_move_ctx(proprietaire, name)
-                st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # =====================================================
