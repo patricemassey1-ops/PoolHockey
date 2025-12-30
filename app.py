@@ -59,6 +59,14 @@ def charger_db_joueurs():
 # Initialisation de la session (optimisée)
 if 'historique' not in st.session_state:
     st.session_state['historique'] = charger_donnees(DB_FILE, ['Joueur', 'Salaire', 'Statut', 'Pos', 'Propriétaire', 'pos_order'])
+    # Nettoyer les données invalides au chargement
+    if not st.session_state['historique'].empty:
+        st.session_state['historique'] = st.session_state['historique'][
+            (st.session_state['historique']['Joueur'].notna()) & 
+            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '') &
+            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '0') &
+            (st.session_state['historique']['Joueur'].astype(str) != 'nan')
+        ]
 
 if 'rachats' not in st.session_state:
     st.session_state['rachats'] = charger_donnees(BUYOUT_FILE, ['Propriétaire', 'Joueur', 'Impact'])
@@ -149,8 +157,13 @@ with tab1:
     if not st.session_state['historique'].empty:
         st.header("📊 Masse Salariale par Propriétaire")
         
-        # Optimisation: traiter directement sans copie excessive
-        df_f = st.session_state['historique']
+        # Nettoyer les données avant traitement
+        df_f = st.session_state['historique'][
+            (st.session_state['historique']['Joueur'].notna()) & 
+            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '') &
+            (st.session_state['historique']['Joueur'].astype(str).str.strip() != '0') &
+            (st.session_state['historique']['Joueur'].astype(str) != 'nan')
+        ].copy()
         
         # Conversion efficace des salaires
         salaires = pd.to_numeric(df_f['Salaire'], errors='coerce').fillna(0)
@@ -305,6 +318,14 @@ with tab2:
     if not st.session_state['historique'].empty:
         # Sélection du propriétaire
         df_hist = st.session_state['historique']
+        
+        # Nettoyer les données avant de travailler avec
+        df_hist = df_hist[
+            (df_hist['Joueur'].notna()) & 
+            (df_hist['Joueur'].astype(str).str.strip() != '') &
+            (df_hist['Joueur'].astype(str).str.strip() != '0') &
+            (df_hist['Joueur'].astype(str) != 'nan')
+        ].copy()
         
         # Extraire les propriétaires uniques
         proprietaires_uniques = df_hist['Propriétaire'].unique().tolist()
