@@ -263,25 +263,46 @@ with tab3:
             st.info(f"{r['Propriétaire']} : rappel possible")
 
 # =====================================================
-# ALIGNEMENT (GC=Act / CE=Min) + DÉPLACEMENT JOUEURS
+# ALIGNEMENT (GC=Act / CE=Min) + DÉPLACEMENT + TOTAUX
 # =====================================================
 with tab4:
     st.subheader("🧾 Alignement (Grand Club = Act | Club École = Min)")
 
-    # Choix du propriétaire
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(df["Propriétaire"].unique()),
         key="align_owner"
     )
 
-    # Données du propriétaire
-    dprop = df[df["Propriétaire"] == proprietaire].copy()
+    # Données du propriétaire (source = session_state)
+    data_all = st.session_state["data"]
+    dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+
+    # Totaux / restants
+    total_gc = dprop[dprop["Statut"] == "Grand Club"]["Salaire"].sum()
+    total_ce = dprop[dprop["Statut"] == "Club École"]["Salaire"].sum()
+    restant_gc = st.session_state["PLAFOND_GC"] - total_gc
+    restant_ce = st.session_state["PLAFOND_CE"] - total_ce
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("🏒 Total Grand Club (Act)", money(total_gc))
+    m2.metric("🏫 Total Club École (Min)", money(total_ce))
+    m3.metric("✅ Restant GC", money(restant_gc))
+    m4.metric("✅ Restant CE", money(restant_ce))
+
+    # Avertissements dépassement
+    if restant_gc < 0 and restant_ce < 0:
+        st.error("🚨 Dépassement des plafonds GC ET CE.")
+    elif restant_gc < 0:
+        st.error("🚨 Dépassement du plafond Grand Club (GC).")
+    elif restant_ce < 0:
+        st.error("🚨 Dépassement du plafond Club École (CE).")
+
+    st.divider()
 
     gc = dprop[dprop["Statut"] == "Grand Club"].sort_values(["Pos", "Joueur"])
     ce = dprop[dprop["Statut"] == "Club École"].sort_values(["Pos", "Joueur"])
 
-    # Affichage en 2 colonnes
     c1, c2 = st.columns(2)
 
     with c1:
@@ -315,7 +336,7 @@ with tab4:
 
     col_move1, col_move2 = st.columns(2)
 
-    # --- Déplacer de GC -> CE (Act -> Min)
+    # --- GC -> CE
     with col_move1:
         joueurs_gc = gc["Joueur"].tolist()
         joueur_gc = st.selectbox(
@@ -335,7 +356,7 @@ with tab4:
             st.success(f"✅ {joueur_gc} déplacé vers **Club École (Min)**")
             st.rerun()
 
-    # --- Déplacer de CE -> GC (Min -> Act)
+    # --- CE -> GC
     with col_move2:
         joueurs_ce = ce["Joueur"].tolist()
         joueur_ce = st.selectbox(
