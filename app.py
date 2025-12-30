@@ -13,7 +13,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =====================================================
-# PLAFONDS
+# PLAFONDS (MODIFIABLES)
 # =====================================================
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -43,13 +43,13 @@ def saison_verrouillee(season):
     return int(season[:4]) < int(saison_auto()[:4])
 
 # =====================================================
-# FORMAT
+# FORMAT $
 # =====================================================
 def money(v):
     return f"{int(v):,}".replace(",", " ") + " $"
 
 # =====================================================
-# PARSE FANTRAX
+# PARSER FANTRAX
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
@@ -143,7 +143,7 @@ if not LOCKED:
 # =====================================================
 # HEADER
 # =====================================================
-st.image("Logo_Pool.png", use_container_width=True)
+st.image("Logo_Pool.png", width=400)
 st.title("🏒 Fantrax – Gestion Salariale")
 
 df = st.session_state["data"]
@@ -182,19 +182,20 @@ plafonds = pd.DataFrame(resume)
 tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
 # =====================================================
-# TABLEAU AVEC LOGOS (IMAGES)
+# TABLEAU AVEC LOGOS (CORRIGÉ)
 # =====================================================
 with tab1:
     headers = st.columns([1.2, 2.5, 2, 2, 2, 2])
     headers[0].markdown("**Logo**")
     headers[1].markdown("**Propriétaire**")
-    headers[2].markdown("**GC**")
-    headers[3].markdown("**CE**")
+    headers[2].markdown("**Grand Club**")
+    headers[3].markdown("**Club École**")
     headers[4].markdown("**Restant GC**")
     headers[5].markdown("**Restant CE**")
 
     for _, r in plafonds.iterrows():
         cols = st.columns([1.2, 2.5, 2, 2, 2, 2])
+
         if r["Logo"] and os.path.exists(r["Logo"]):
             cols[0].image(r["Logo"], width=55)
         else:
