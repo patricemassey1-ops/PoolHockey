@@ -9,6 +9,9 @@ from datetime import datetime
 # =====================================================
 st.set_page_config("Fantrax Pool Hockey", layout="wide")
 
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
 # =====================================================
 # CSS GLOBAL (ALIGNEMENT LOGOS & TEXTE)
 # =====================================================
