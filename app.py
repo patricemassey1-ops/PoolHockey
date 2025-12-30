@@ -35,173 +35,6 @@ LOGOS = {
 LOGO_SIZE = 55
 
 # =====================================================
-# STYLES CSS AMÉLIORÉS
-# =====================================================
-def inject_custom_css():
-    st.markdown("""
-    <style>
-    /* Amélioration globale */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    
-    /* Headers stylisés */
-    .custom-header {
-        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    /* Cards améliorées */
-    .stat-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        transition: transform 0.2s, box-shadow 0.2s;
-        margin-bottom: 1rem;
-    }
-    
-    .stat-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-    }
-    
-    .stat-card h3 {
-        color: white;
-        font-size: 1.1rem;
-        margin: 0 0 0.5rem 0;
-        font-weight: 600;
-    }
-    
-    .stat-card .value {
-        color: white;
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0;
-    }
-    
-    /* Tableaux modernisés */
-    .stDataFrame {
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    
-    /* Boutons améliorés */
-    .stButton > button {
-        border-radius: 8px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 600;
-        transition: all 0.2s;
-        border: none;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    }
-    
-    /* Section blessés */
-    .injured-section {
-        background: #1a1a1a;
-        border: 2px solid #ff2d2d;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1.5rem 0;
-        box-shadow: 0 4px 12px rgba(255,45,45,0.2);
-    }
-    
-    .injured-header {
-        color: #ff2d2d;
-        font-size: 1.3rem;
-        font-weight: 900;
-        margin-bottom: 1rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    /* Badges de position */
-    .pos-badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: 700;
-        font-size: 0.85rem;
-        margin: 0.25rem;
-    }
-    
-    .pos-F { background: #10b981; color: white; }
-    .pos-D { background: #3b82f6; color: white; }
-    .pos-G { background: #f59e0b; color: white; }
-    
-    /* Indicateurs de statut */
-    .status-indicator {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        display: inline-block;
-        margin-right: 0.5rem;
-        animation: pulse 2s infinite;
-    }
-    
-    .status-active { background: #10b981; }
-    .status-bench { background: #f59e0b; }
-    .status-minor { background: #3b82f6; }
-    .status-injured { background: #ef4444; }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.6; }
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        .stat-card {
-            padding: 1rem;
-        }
-        .stat-card .value {
-            font-size: 1.5rem;
-        }
-        .main .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-    }
-    
-    /* Alert boxes */
-    .alert-success {
-        background: #d1fae5;
-        border-left: 4px solid #10b981;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    
-    .alert-warning {
-        background: #fef3c7;
-        border-left: 4px solid #f59e0b;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    
-    .alert-danger {
-        background: #fee2e2;
-        border-left: 4px solid #ef4444;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-inject_custom_css()
-
-# =====================================================
 # SAISON AUTO
 # =====================================================
 def saison_auto():
@@ -215,7 +48,10 @@ def saison_verrouillee(season):
 # FORMAT $
 # =====================================================
 def money(v):
-    return f"{int(v):,}".replace(",", " ") + " $"
+    try:
+        return f"{int(v):,}".replace(",", " ") + " $"
+    except Exception:
+        return "0 $"
 
 # =====================================================
 # POSITIONS (F, D, G) + TRI
@@ -231,13 +67,11 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
-def pos_badge(pos: str) -> str:
-    """Retourne un badge HTML stylisé pour la position"""
-    pos = normalize_pos(pos)
-    return f'<span class="pos-badge pos-{pos}">{pos}</span>'
-
 # =====================================================
 # NETTOYAGE GLOBAL
+# - enlève None/Skaters/Goalies
+# - aucun doublon (Propriétaire, Joueur)
+# - support Slot = Blessé
 # =====================================================
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -249,15 +83,17 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     df["Propriétaire"] = df["Propriétaire"].astype(str).str.strip()
     df["Joueur"] = df["Joueur"].astype(str).str.strip()
-    df["Pos"] = df["Pos"].astype(str).str.strip()
     df["Equipe"] = df["Equipe"].astype(str).str.strip()
     df["Statut"] = df["Statut"].astype(str).str.strip()
     df["Slot"] = df["Slot"].astype(str).str.strip()
+    df["Pos"] = df["Pos"].astype(str).str.strip()
 
+    # Normalise slot blessé
     df["Slot"] = df["Slot"].replace(
-        {"IR": "Blessé", "Blesse": "Blessé", "Blesses": "Blessé", "Injured": "Blessé"}
+        {"IR": "Blessé", "Blesse": "Blessé", "Blesses": "Blessé", "Injured": "Blessé", "INJ": "Blessé"}
     )
 
+    # Salaire -> int (accepte "12 500 000 $" etc.)
     df["Salaire"] = (
         df["Salaire"]
         .astype(str)
@@ -268,12 +104,15 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0).astype(int)
 
+    # Positions
     df["Pos"] = df["Pos"].apply(normalize_pos)
 
+    # Retire lignes parasites / titres de sections
     forbidden = {"none", "skaters", "goalies", "player", "null"}
     df = df[~df["Joueur"].str.lower().isin(forbidden)]
     df = df[df["Joueur"].str.len() > 2]
 
+    # Retire ligne vide typique entre sections: salaire 0 + équipe vide/none
     df = df[
         ~(
             (df["Salaire"] <= 0)
@@ -281,21 +120,27 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         )
     ]
 
+    # Slot par défaut : Grand Club => Actif si vide
     mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
     df.loc[mask_gc_default, "Slot"] = "Actif"
 
-    mask_ce_not_inj = (df["Statut"] == "Club École") & (df["Slot"] != "Blessé")
-    df.loc[mask_ce_not_inj, "Slot"] = ""
+    # Club École => slot vide (sauf Blessé)
+    mask_ce = (df["Statut"] == "Club École") & (df["Slot"] != "Blessé")
+    df.loc[mask_ce, "Slot"] = ""
 
+    # Aucun doublon peu importe le propriétaire
     df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
 
     return df.reset_index(drop=True)
 
 # =====================================================
-# PARSER FANTRAX
+# PARSER FANTRAX (Skaters + Goalies séparés par ligne vide)
+# - Ajoute Equipe (Team)
+# - Salaire en milliers -> x1000
 # =====================================================
 def parse_fantrax(upload):
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
+    # Nettoie chars invisibles
     raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
     def detect_sep(lines):
@@ -314,7 +159,7 @@ def parse_fantrax(upload):
         if ("player" in l.lower() and "salary" in l.lower() and sep in l)
     ]
     if not header_idxs:
-        raise ValueError("Aucune section Fantrax valide détectée (Player / Salary).")
+        raise ValueError("Colonnes Fantrax non détectées (Player/Salary).")
 
     def read_section(start, end):
         lines = raw_lines[start:end]
@@ -361,6 +206,7 @@ def parse_fantrax(upload):
     out = pd.DataFrame()
     out["Joueur"] = df[player_col].astype(str).str.strip()
     out["Equipe"] = df[team_col].astype(str).str.strip() if team_col else "N/A"
+
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "F"
     out["Pos"] = out["Pos"].apply(normalize_pos)
 
@@ -381,10 +227,11 @@ def parse_fantrax(upload):
         out["Statut"] = "Grand Club"
 
     out["Slot"] = out["Statut"].apply(lambda s: "Actif" if s == "Grand Club" else "")
-    return clean_data(out)
+    out = clean_data(out)
+    return out
 
 # =====================================================
-# CAP HELPERS
+# CAP HELPERS (Blessé = non compté)
 # =====================================================
 def counted_bucket(statut: str, slot: str):
     if str(slot).strip() == "Blessé":
@@ -395,11 +242,31 @@ def counted_bucket(statut: str, slot: str):
         return "CE"
     return None
 
-def is_counted_label(statut: str, slot: str) -> str:
-    return "✅ Compté" if counted_bucket(statut, slot) in ("GC", "CE") else "🩹 Non compté (Blessé)"
+# =====================================================
+# SELECTION HELPERS
+# =====================================================
+def clear_df_selections():
+    for k in ["sel_actifs", "sel_banc", "sel_min"]:
+        if k in st.session_state and isinstance(st.session_state[k], dict):
+            st.session_state[k]["selection"] = {"rows": []}
+
+def set_move_ctx(owner: str, joueur: str):
+    st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur}
+
+def clear_move_ctx():
+    st.session_state["move_ctx"] = None
+
+def pick_from_df(df_ui: pd.DataFrame, key_state: str) -> str:
+    sel = st.session_state.get(key_state, {})
+    rows = sel.get("selection", {}).get("rows", [])
+    if rows:
+        i = rows[0]
+        if 0 <= i < len(df_ui):
+            return str(df_ui.iloc[i]["Joueur"])
+    return ""
 
 # =====================================================
-# HISTORIQUE HELPERS
+# HISTORY HELPERS
 # =====================================================
 def load_history(history_file: str) -> pd.DataFrame:
     if os.path.exists(history_file):
@@ -422,59 +289,11 @@ def next_hist_id(h: pd.DataFrame) -> int:
         return 1
     return int(pd.to_numeric(h["id"], errors="coerce").fillna(0).max()) + 1
 
-def log_history_row(proprietaire, joueur, pos, equipe,
-                    from_statut, from_slot,
-                    to_statut, to_slot,
-                    action):
-    h = st.session_state["history"].copy()
-    row = {
-        "id": next_hist_id(h),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "season": st.session_state["season"],
-        "proprietaire": proprietaire,
-        "joueur": joueur,
-        "pos": pos,
-        "equipe": equipe,
-        "from_statut": from_statut,
-        "from_slot": from_slot,
-        "to_statut": to_statut,
-        "to_slot": to_slot,
-        "action": action,
-    }
-    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
-    st.session_state["history"] = h
-    save_history(st.session_state.get("HISTORY_FILE", "history.csv"), h)
-
-def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str):
-    mask = (
-        (st.session_state["data"]["Propriétaire"] == proprietaire)
-        & (st.session_state["data"]["Joueur"] == joueur)
-    )
-    if st.session_state["data"][mask].empty:
-        st.error("Joueur introuvable.")
-        return False
-
-    before = st.session_state["data"][mask].iloc[0]
-    from_statut, from_slot = str(before["Statut"]), str(before["Slot"])
-    pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
-
-    st.session_state["data"].loc[mask, "Statut"] = to_statut
-    st.session_state["data"].loc[mask, "Slot"] = to_slot if str(to_slot).strip() else ""
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    st.session_state["data"].to_csv(st.session_state.get("DATA_FILE", "data.csv"), index=False)
-
-    log_history_row(
-        proprietaire, joueur, pos0, equipe0,
-        from_statut, from_slot,
-        to_statut, (to_slot if str(to_slot).strip() else ""),
-        action=action_label
-    )
-    return True
-
 # =====================================================
-# SIDEBAR
+# SIDEBAR - Saison + plafonds
 # =====================================================
 st.sidebar.header("📅 Saison")
+
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
 if auto not in saisons:
@@ -487,9 +306,6 @@ LOCKED = saison_verrouillee(season)
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 HISTORY_FILE = f"{DATA_DIR}/history_{season}.csv"
 
-st.session_state["DATA_FILE"] = DATA_FILE
-st.session_state["HISTORY_FILE"] = HISTORY_FILE
-
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
 
@@ -498,10 +314,10 @@ if st.sidebar.button("✏️ Modifier les plafonds"):
 
 if st.session_state.get("edit_plafond"):
     st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club", value=st.session_state["PLAFOND_GC"], step=500_000
+        "Plafond Grand Club", value=int(st.session_state["PLAFOND_GC"]), step=500_000
     )
     st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École", value=st.session_state["PLAFOND_CE"], step=250_000
+        "Plafond Club École", value=int(st.session_state["PLAFOND_CE"]), step=250_000
     )
 
 st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
@@ -529,6 +345,9 @@ if "history_season" not in st.session_state or st.session_state["history_season"
     st.session_state["history"] = load_history(HISTORY_FILE)
     st.session_state["history_season"] = season
 
+if "move_ctx" not in st.session_state:
+    st.session_state["move_ctx"] = None
+
 # =====================================================
 # IMPORT FANTRAX
 # =====================================================
@@ -536,7 +355,7 @@ st.sidebar.header("📥 Import Fantrax")
 uploaded = st.sidebar.file_uploader(
     "CSV Fantrax",
     type=["csv", "txt"],
-    help="Import autorisé seulement pour la saison courante ou future",
+    help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
 )
 
 if uploaded:
@@ -546,7 +365,7 @@ if uploaded:
         try:
             df_import = parse_fantrax(uploaded)
             if df_import.empty:
-                st.sidebar.error("❌ Import invalide : aucune donnée Fantrax exploitable.")
+                st.sidebar.error("❌ Import invalide : aucune donnée exploitable.")
                 st.stop()
 
             owner = os.path.splitext(uploaded.name)[0]
@@ -573,7 +392,161 @@ if df.empty:
     st.stop()
 
 # =====================================================
-# CALCULS PLAFONDS
+# MOVES + HISTORY
+# =====================================================
+def log_history_row(proprietaire, joueur, pos, equipe,
+                    from_statut, from_slot,
+                    to_statut, to_slot,
+                    action):
+    h = st.session_state["history"].copy()
+    row = {
+        "id": next_hist_id(h),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "season": season,
+        "proprietaire": proprietaire,
+        "joueur": joueur,
+        "pos": pos,
+        "equipe": equipe,
+        "from_statut": from_statut,
+        "from_slot": from_slot,
+        "to_statut": to_statut,
+        "to_slot": to_slot,
+        "action": action,
+    }
+    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+    st.session_state["history"] = h
+    save_history(HISTORY_FILE, h)
+
+def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str):
+    mask = (
+        (st.session_state["data"]["Propriétaire"] == proprietaire)
+        & (st.session_state["data"]["Joueur"] == joueur)
+    )
+    if st.session_state["data"][mask].empty:
+        st.error("Joueur introuvable.")
+        return False
+
+    before = st.session_state["data"][mask].iloc[0]
+    from_statut = str(before["Statut"])
+    from_slot = str(before.get("Slot", "")).strip()
+    pos0 = str(before.get("Pos", "F"))
+    equipe0 = str(before.get("Equipe", ""))
+
+    st.session_state["data"].loc[mask, "Statut"] = to_statut
+    st.session_state["data"].loc[mask, "Slot"] = to_slot if str(to_slot).strip() else ""
+    st.session_state["data"] = clean_data(st.session_state["data"])
+    st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+    log_history_row(
+        proprietaire, joueur, pos0, equipe0,
+        from_statut, from_slot,
+        to_statut, (to_slot if str(to_slot).strip() else ""),
+        action=action_label
+    )
+    return True
+
+# =====================================================
+# POP-UP SIMPLE + ROBUSTE
+# =====================================================
+def open_move_dialog():
+    ctx = st.session_state.get("move_ctx")
+    if not ctx:
+        return
+
+    if LOCKED:
+        st.warning("🔒 Saison verrouillée : aucun changement permis.")
+        clear_move_ctx()
+        return
+
+    owner = ctx["owner"]
+    joueur = ctx["joueur"]
+
+    df_all = st.session_state["data"]
+    mask = (df_all["Propriétaire"] == owner) & (df_all["Joueur"] == joueur)
+    if df_all[mask].empty:
+        st.error("Joueur introuvable.")
+        clear_move_ctx()
+        return
+
+    row = df_all[mask].iloc[0]
+    cur_statut = str(row["Statut"])
+    cur_slot = str(row.get("Slot", "")).strip()
+    cur_pos = normalize_pos(row.get("Pos", "F"))
+    cur_equipe = str(row.get("Equipe", ""))
+    cur_salaire = int(row.get("Salaire", 0))
+
+    counts = st.session_state.get("align_counts", {"F": 0, "D": 0, "G": 0})
+    f_count = int(counts.get("F", 0))
+    d_count = int(counts.get("D", 0))
+    g_count = int(counts.get("G", 0))
+
+    totals = st.session_state.get("align_totals", {"GC": 0, "CE": 0, "RGC": 0, "RCE": 0})
+    total_gc = int(totals.get("GC", 0))
+    total_ce = int(totals.get("CE", 0))
+    rgc = int(totals.get("RGC", st.session_state["PLAFOND_GC"] - total_gc))
+    rce = int(totals.get("RCE", st.session_state["PLAFOND_CE"] - total_ce))
+
+    def can_go_actif(pos: str) -> tuple[bool, str]:
+        if pos == "F" and f_count >= 12:
+            return False, "🚫 Déjà 12 F actifs."
+        if pos == "D" and d_count >= 6:
+            return False, "🚫 Déjà 6 D actifs."
+        if pos == "G" and g_count >= 2:
+            return False, "🚫 Déjà 2 G actifs."
+        return True, ""
+
+    @st.dialog(f"Déplacement — {joueur}")
+    def _dlg():
+        st.caption(f"**{owner}** • **{joueur}** • Pos **{cur_pos}** • **{cur_equipe}** • Salaire **{money(cur_salaire)}**")
+        st.caption(f"Actuel : **{cur_statut}**" + (f" (**{cur_slot}**)" if cur_slot else ""))
+
+        st.caption(f"Actifs: F {f_count}/12 • D {d_count}/6 • G {g_count}/2")
+        st.caption(f"Cap: GC {money(total_gc)} (R {money(rgc)}) • CE {money(total_ce)} (R {money(rce)})")
+
+        # Destinations simples
+        destinations = [
+            ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
+            ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
+            ("🔵 Mineur", ("Club École", "")),
+            ("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé")),  # garde le statut, slot=Blessé
+        ]
+        if cur_slot == "Blessé":
+            destinations = [
+                ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
+                ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
+                ("🔵 Mineur", ("Club École", "")),
+            ]
+
+        choice = st.radio("Destination", [d[0] for d in destinations], index=0)
+        to_statut, to_slot = dict(destinations)[choice]
+
+        if st.button("✅ Confirmer", use_container_width=True):
+            if to_statut == "Grand Club" and to_slot == "Actif":
+                ok, msg = can_go_actif(cur_pos)
+                if not ok:
+                    st.error(msg)
+                    return
+
+            ok2 = apply_move_with_history(
+                proprietaire=owner,
+                joueur=joueur,
+                to_statut=to_statut,
+                to_slot=to_slot,
+                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+            )
+            if ok2:
+                clear_move_ctx()
+                st.success("✅ Déplacement enregistré.")
+                st.rerun()
+
+        if st.button("Annuler", use_container_width=True):
+            clear_move_ctx()
+            st.rerun()
+
+    _dlg()
+
+# =====================================================
+# CALCULS - plafonds par propriétaire (EXCLUT Blessé)
 # =====================================================
 resume = []
 for p in df["Propriétaire"].unique():
@@ -596,11 +569,10 @@ for p in df["Propriétaire"].unique():
             "Restant CE": int(st.session_state["PLAFOND_CE"] - ce_sum),
         }
     )
-
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# ONGLETS
+# ONGLETs
 # =====================================================
 tab1, tabA, tabH, tab2, tab3 = st.tabs(
     ["📊 Tableau", "🧾 Alignement", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
@@ -612,9 +584,9 @@ tab1, tabA, tabH, tab2, tab3 = st.tabs(
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipe**")
-    headers[1].markdown("**Grand Club**")
+    headers[1].markdown("**Total GC**")
     headers[2].markdown("**Restant GC**")
-    headers[3].markdown("**Club École**")
+    headers[3].markdown("**Total CE**")
     headers[4].markdown("**Restant CE**")
 
     for _, r in plafonds.iterrows():
@@ -637,15 +609,15 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# ALIGNEMENT AMÉLIORÉ
+# ALIGNEMENT
+# - Actifs / Banc / Mineur
+# - Blessés: fond noir + texte rouge + boutons cliquables (ouvre pop-up direct)
+# - Pop-up robuste via move_ctx
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-    
-    # Initialize move_player state
-    if "move_player" not in st.session_state:
-        st.session_state["move_player"] = None
-    
+    st.caption("Clique un joueur (Actifs/Banc/Mineur) ou un bouton Blessé (IR) pour ouvrir le pop-up.")
+
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
@@ -665,441 +637,257 @@ with tabA:
     gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
     gc_banc = gc_all[gc_all["Slot"] == "Banc"].copy()
 
-    nb_F = int((gc_actif["Pos"] == "F").sum())
-    nb_D = int((gc_actif["Pos"] == "D").sum())
-    nb_G = int((gc_actif["Pos"] == "G").sum())
-    total_actifs = nb_F + nb_D + nb_G
+    # Compteurs actifs (GC Actif seulement)
+    nb_F = int((gc_actif["Pos"].apply(normalize_pos) == "F").sum())
+    nb_D = int((gc_actif["Pos"].apply(normalize_pos) == "D").sum())
+    nb_G = int((gc_actif["Pos"].apply(normalize_pos) == "G").sum())
 
+    # Totaux cap (exclut blessés)
     total_gc = int(gc_all["Salaire"].sum())
     total_ce = int(ce_all["Salaire"].sum())
     restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
     restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
 
-    # Stats cards
-    cols_stats = st.columns(5)
-    with cols_stats[0]:
-        st.markdown(f"""
-        <div class="stat-card">
-            <h3>💰 GC Total</h3>
-            <p class="value">{money(total_gc)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols_stats[1]:
-        color = "linear-gradient(135deg, #10b981 0%, #059669 100%)" if restant_gc >= 0 else "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
-        st.markdown(f"""
-        <div class="stat-card" style="background: {color};">
-            <h3>📊 Restant GC</h3>
-            <p class="value">{money(restant_gc)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols_stats[2]:
-        st.markdown(f"""
-        <div class="stat-card">
-            <h3>🏫 CE Total</h3>
-            <p class="value">{money(total_ce)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols_stats[3]:
-        color = "linear-gradient(135deg, #10b981 0%, #059669 100%)" if restant_ce >= 0 else "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
-        st.markdown(f"""
-        <div class="stat-card" style="background: {color};">
-            <h3>📊 Restant CE</h3>
-            <p class="value">{money(restant_ce)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with cols_stats[4]:
-        st.markdown(f"""
-        <div class="stat-card" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">
-            <h3>🩹 Blessés</h3>
-            <p class="value">{len(injured_all)}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Stocke pour le pop-up (robuste)
+    st.session_state["align_counts"] = {"F": nb_F, "D": nb_D, "G": nb_G}
+    st.session_state["align_totals"] = {"GC": total_gc, "CE": total_ce, "RGC": restant_gc, "RCE": restant_ce}
 
-    st.caption(f"**Actifs:** F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2 • Total {total_actifs}/20")
+    top = st.columns([1, 1, 1, 1, 1])
+    top[0].metric("GC", money(total_gc))
+    top[1].metric("R GC", money(restant_gc))
+    top[2].metric("CE", money(total_ce))
+    top[3].metric("R CE", money(restant_ce))
+    top[4].metric("Blessés", f"{len(injured_all)}")
+
+    st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
 
-    def view_for_display(x: pd.DataFrame, show_buttons=True) -> pd.DataFrame:
+    def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
         if x is None or x.empty:
             return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
         y = x.copy()
+        y["Pos"] = y["Pos"].apply(normalize_pos)
         y["_pos_order"] = y["Pos"].apply(pos_sort_key)
         y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
         y["Salaire"] = y["Salaire"].apply(money)
         return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
 
-    # Section des tableaux avec boutons
+    # 3 colonnes
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("### 🟢 Actifs")
-        df_actifs_ui = view_for_display(gc_actif)
-        if not df_actifs_ui.empty:
-            for idx, row in df_actifs_ui.iterrows():
-                cols_row = st.columns([3, 1, 1, 2, 1])
-                cols_row[0].write(row["Joueur"])
-                cols_row[1].markdown(pos_badge(row["Pos"]), unsafe_allow_html=True)
-                cols_row[2].write(row["Equipe"])
-                cols_row[3].write(row["Salaire"])
-                if cols_row[4].button("⚙️", key=f"btn_actif_{idx}", help="Déplacer ce joueur"):
-                    st.session_state["move_player"] = {
-                        "joueur": row["Joueur"],
-                        "source": "Actif",
-                        "proprietaire": proprietaire
-                    }
-                    st.rerun()
-        else:
-            st.info("Aucun joueur actif")
+        df_actifs_ui = view_for_click(gc_actif)
+        st.dataframe(
+            df_actifs_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_actifs",
+        )
 
     with col2:
         st.markdown("### 🟡 Banc")
-        df_banc_ui = view_for_display(gc_banc)
-        if not df_banc_ui.empty:
-            for idx, row in df_banc_ui.iterrows():
-                cols_row = st.columns([3, 1, 1, 2, 1])
-                cols_row[0].write(row["Joueur"])
-                cols_row[1].markdown(pos_badge(row["Pos"]), unsafe_allow_html=True)
-                cols_row[2].write(row["Equipe"])
-                cols_row[3].write(row["Salaire"])
-                if cols_row[4].button("⚙️", key=f"btn_banc_{idx}", help="Déplacer ce joueur"):
-                    st.session_state["move_player"] = {
-                        "joueur": row["Joueur"],
-                        "source": "Banc",
-                        "proprietaire": proprietaire
-                    }
-                    st.rerun()
-        else:
-            st.info("Aucun joueur au banc")
+        df_banc_ui = view_for_click(gc_banc)
+        st.dataframe(
+            df_banc_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_banc",
+        )
 
     with col3:
         st.markdown("### 🔵 Mineur")
-        df_min_ui = view_for_display(ce_all)
-        if not df_min_ui.empty:
-            for idx, row in df_min_ui.iterrows():
-                cols_row = st.columns([3, 1, 1, 2, 1])
-                cols_row[0].write(row["Joueur"])
-                cols_row[1].markdown(pos_badge(row["Pos"]), unsafe_allow_html=True)
-                cols_row[2].write(row["Equipe"])
-                cols_row[3].write(row["Salaire"])
-                if cols_row[4].button("⚙️", key=f"btn_min_{idx}", help="Déplacer ce joueur"):
-                    st.session_state["move_player"] = {
-                        "joueur": row["Joueur"],
-                        "source": "Mineur",
-                        "proprietaire": proprietaire
-                    }
-                    st.rerun()
-        else:
-            st.info("Aucun joueur au mineur")
+        df_min_ui = view_for_click(ce_all)
+        st.dataframe(
+            df_min_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_min",
+        )
 
     st.divider()
 
-    # Section Blessés
-    st.markdown('<div class="injured-section">', unsafe_allow_html=True)
-    st.markdown('<div class="injured-header">🩹 JOUEURS BLESSÉS (IR)</div>', unsafe_allow_html=True)
-    
-    df_inj_ui = view_for_display(injured_all)
+    # Blessés : tableau HTML noir + texte rouge
+    st.markdown("### 🩹 Joueurs Blessés (IR)")
+    df_inj_ui = view_for_click(injured_all)
+
     if df_inj_ui.empty:
-        st.info("Aucun joueur blessé")
+        st.info("Aucun joueur blessé.")
     else:
-        for idx, row in df_inj_ui.iterrows():
-            cols_row = st.columns([3, 1, 1, 2, 1])
-            cols_row[0].markdown(f"**{row['Joueur']}**")
-            cols_row[1].markdown(pos_badge(row["Pos"]), unsafe_allow_html=True)
-            cols_row[2].markdown(f"**{row['Equipe']}**")
-            cols_row[3].markdown(f"**{row['Salaire']}**")
-            if cols_row[4].button("⚙️", key=f"btn_inj_{idx}", help="Déplacer ce joueur"):
-                st.session_state["move_player"] = {
-                    "joueur": row["Joueur"],
-                    "source": "Blessé",
-                    "proprietaire": proprietaire
-                }
-                st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+        rows_html = ""
+        for _, rr in df_inj_ui.iterrows():
+            rows_html += f"""
+            <tr>
+              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Joueur']}</td>
+              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Pos']}</td>
+              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Equipe']}</td>
+              <td style="padding:6px 10px;border-bottom:1px solid #222;text-align:right;font-weight:800;">{rr['Salaire']}</td>
+            </tr>
+            """
 
-    # Interface de déplacement
-    if st.session_state.get("move_player"):
-        move_info = st.session_state["move_player"]
-        joueur_sel = move_info["joueur"]
-        
-        if LOCKED:
-            st.warning("🔒 Saison verrouillée : aucun changement permis.")
-            if st.button("Fermer"):
-                st.session_state["move_player"] = None
-                st.rerun()
-        else:
-            mask_sel = (
-                (st.session_state["data"]["Propriétaire"] == proprietaire)
-                & (st.session_state["data"]["Joueur"] == joueur_sel)
-            )
+        st.markdown(
+            f"""
+            <div style="background:#000;border:1px solid #222;border-radius:12px;overflow:hidden;">
+              <div style="padding:10px 12px;color:#ff2d2d;font-weight:900;border-bottom:1px solid #222;letter-spacing:0.5px;">
+                JOUEURS BLESSÉS
+              </div>
+              <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
+                <thead>
+                  <tr style="border-bottom:1px solid #222;">
+                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Joueur</th>
+                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Pos</th>
+                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Équipe</th>
+                    <th style="text-align:right;padding:10px 10px;color:#ff2d2d;font-weight:900;">Salaire</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows_html}
+                </tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if st.session_state["data"][mask_sel].empty:
-                st.error("Joueur introuvable")
-                st.session_state["move_player"] = None
-            else:
-                cur = st.session_state["data"][mask_sel].iloc[0]
-                cur_statut = str(cur["Statut"])
-                cur_slot = str(cur["Slot"])
-                cur_pos = str(cur["Pos"])
-                cur_equipe = str(cur["Equipe"])
-                cur_salaire = int(cur["Salaire"])
-
-                st.markdown("---")
-                st.markdown(f"### ⚙️ Déplacement de joueur")
-                
-                cols_info = st.columns([2, 1, 1, 2, 2])
-                cols_info[0].markdown(f"**Joueur:** {joueur_sel}")
-                cols_info[1].markdown(pos_badge(cur_pos), unsafe_allow_html=True)
-                cols_info[2].markdown(f"**{cur_equipe}**")
-                cols_info[3].markdown(f"**{money(cur_salaire)}**")
-                cols_info[4].markdown(f"**{cur_statut}** • **{cur_slot if cur_slot else '—'}**")
-
-                def can_add_to_actif(pos: str):
-                    pos = normalize_pos(pos)
-                    if pos == "F" and nb_F >= 12:
-                        return False, "🚫 Déjà 12 F actifs."
-                    if pos == "D" and nb_D >= 6:
-                        return False, "🚫 Déjà 6 D actifs."
-                    if pos == "G" and nb_G >= 2:
-                        return False, "🚫 Déjà 2 G actifs."
-                    return True, ""
-
-                def projected_counts(cur_statut, cur_slot, pos, to_statut, to_slot):
-                    f, d, g = nb_F, nb_D, nb_G
-                    pos = normalize_pos(pos)
-
-                    if cur_statut == "Grand Club" and cur_slot == "Actif":
-                        if pos == "F":
-                            f -= 1
-                        elif pos == "D":
-                            d -= 1
-                        else:
-                            g -= 1
-
-                    if to_statut == "Grand Club" and to_slot == "Actif":
-                        if pos == "F":
-                            f += 1
-                        elif pos == "D":
-                            d += 1
-                        else:
-                            g += 1
-
-                    return f, d, g
-
-                def projected_totals(salaire_player, cur_statut, cur_slot, to_statut, to_slot):
-                    pgc, pce = total_gc, total_ce
-                    s = int(salaire_player)
-
-                    from_bucket = counted_bucket(cur_statut, cur_slot)
-                    to_bucket = counted_bucket(to_statut, to_slot)
-
-                    if from_bucket == "GC":
-                        pgc -= s
-                    elif from_bucket == "CE":
-                        pce -= s
-
-                    if to_bucket == "GC":
-                        pgc += s
-                    elif to_bucket == "CE":
-                        pce += s
-
-                    return int(pgc), int(pce)
-
-                # Options de déplacement
-                options = []
-
-                if cur_slot != "Blessé":
-                    options.append(("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé", "→ Blessé (IR)")))
-
-                ok_actif, _msg = can_add_to_actif(cur_pos)
-
-                if cur_slot == "Blessé":
-                    options.append(("🔵 Mineur", ("Club École", "", "Blessé → Mineur")))
-                    options.append(("🟡 Grand Club / Banc", ("Grand Club", "Banc", "Blessé → GC (Banc)")))
-                    if ok_actif:
-                        options.append(("🟢 Grand Club / Actif", ("Grand Club", "Actif", "Blessé → GC (Actif)")))
-                else:
-                    if cur_statut == "Club École":
-                        options.append(("🔵 Mineur", ("Club École", "", "Rester Mineur")))
-                        options.append(("🟡 Grand Club / Banc", ("Grand Club", "Banc", "Mineur → GC (Banc)")))
-                        if ok_actif:
-                            options.append(("🟢 Grand Club / Actif", ("Grand Club", "Actif", "Mineur → GC (Actif)")))
-                    else:
-                        options.append(("🔵 Mineur", ("Club École", "", "GC → Mineur")))
-                        if cur_slot == "Actif":
-                            options.append(("🟡 Grand Club / Banc", ("Grand Club", "Banc", "Actif → Banc")))
-                        elif cur_slot == "Banc":
-                            if ok_actif:
-                                options.append(("🟢 Grand Club / Actif", ("Grand Club", "Actif", "Banc → Actif")))
-
-                seen = set()
-                final = []
-                for lbl, payload in options:
-                    if lbl not in seen:
-                        seen.add(lbl)
-                        final.append((lbl, payload))
-                options = final
-
-                labels = [o[0] for o in options]
-                choice = st.radio("Choisir la destination", labels, key="move_destination")
-                to_statut, to_slot, action_label = dict(options)[choice]
-
-                # Aperçu
-                pf, pd_, pg = projected_counts(cur_statut, cur_slot, cur_pos, to_statut, to_slot)
-                pgc, pce = projected_totals(cur_salaire, cur_statut, cur_slot, to_statut, to_slot)
-                pr_gc = int(st.session_state["PLAFOND_GC"] - pgc)
-                pr_ce = int(st.session_state["PLAFOND_CE"] - pce)
-
-                st.markdown("**📊 Aperçu après le déplacement:**")
-                cols_preview = st.columns(2)
-                with cols_preview[0]:
-                    st.markdown(f"**Actifs:** F {pf}/12 • D {pd_}/6 • G {pg}/2 • Total {pf+pd_+pg}/20")
-                with cols_preview[1]:
-                    st.markdown(f"**Cap:** GC {money(pgc)} (Restant: {money(pr_gc)}) • CE {money(pce)} (Restant: {money(pr_ce)})")
-
-                if pr_gc < 0:
-                    st.markdown('<div class="alert-danger">🚨 <strong>Attention:</strong> Plafond GC dépassé!</div>', unsafe_allow_html=True)
-                if pr_ce < 0:
-                    st.markdown('<div class="alert-danger">🚨 <strong>Attention:</strong> Plafond CE dépassé!</div>', unsafe_allow_html=True)
-
-                cols_actions = st.columns([1, 1, 4])
-                
-                if cols_actions[0].button("✅ Confirmer", type="primary"):
-                    if to_statut == "Grand Club" and to_slot == "Actif":
-                        ok, msg = can_add_to_actif(cur_pos)
-                        if not ok:
-                            st.error(msg)
-                        else:
-                            ok2 = apply_move_with_history(
-                                proprietaire=proprietaire,
-                                joueur=joueur_sel,
-                                to_statut=to_statut,
-                                to_slot=to_slot,
-                                action_label=action_label,
-                            )
-                            if ok2:
-                                st.session_state["move_player"] = None
-                                st.success("✅ Déplacement enregistré!")
-                                st.rerun()
-                    else:
-                        ok2 = apply_move_with_history(
-                            proprietaire=proprietaire,
-                            joueur=joueur_sel,
-                            to_statut=to_statut,
-                            to_slot=to_slot,
-                            action_label=action_label,
-                        )
-                        if ok2:
-                            st.session_state["move_player"] = None
-                            st.success("✅ Déplacement enregistré!")
-                            st.rerun()
-
-                if cols_actions[1].button("❌ Annuler"):
-                    st.session_state["move_player"] = None
+        # Boutons cliquables (ouvre pop-up direct)
+        st.markdown(
+            """
+            <div style="background:#000;border:1px solid #222;border-radius:12px;padding:10px;margin-top:8px;">
+              <div style="color:#ff2d2d;font-weight:900;margin-bottom:8px;">CLIQUE POUR DÉPLACER</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        names = df_inj_ui["Joueur"].tolist()
+        btn_cols = st.columns(3)
+        for idx, name in enumerate(names):
+            with btn_cols[idx % 3]:
+                if st.button(f"🩹 {name}", use_container_width=True, key=f"inj_btn_{proprietaire}_{idx}"):
+                    set_move_ctx(proprietaire, name)
                     st.rerun()
 
+    # Ouvrir pop-up si clic dans dataframe
+    picked = ""
+    picked = picked or pick_from_df(df_actifs_ui, "sel_actifs")
+    picked = picked or pick_from_df(df_banc_ui, "sel_banc")
+    picked = picked or pick_from_df(df_min_ui, "sel_min")
+
+    if picked:
+        set_move_ctx(proprietaire, picked)
+        clear_df_selections()
+        st.rerun()
+
+    # Affiche le dialog si move_ctx existe
+    open_move_dialog()
+
 # =====================================================
-# HISTORIQUE
+# HISTORIQUE (filtre propriétaire + undo + delete)
 # =====================================================
 with tabH:
-    st.subheader("🕘 Historique des changements d'alignement")
+    st.subheader("🕘 Historique des changements d’alignement")
 
     h = st.session_state["history"].copy()
     if h.empty:
-        st.info("Aucune entrée d'historique pour cette saison.")
-    else:
-        owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
-        owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
+        st.info("Aucune entrée d’historique pour cette saison.")
+        st.stop()
 
-        if owner_filter != "Tous":
-            h = h[h["proprietaire"].astype(str) == owner_filter]
+    owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
+    owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
 
-        if h.empty:
-            st.info("Aucune entrée pour ce propriétaire.")
-        else:
-            h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
-            h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"])
+    if owner_filter != "Tous":
+        h = h[h["proprietaire"].astype(str) == owner_filter]
 
-            st.caption("↩️ = annuler ce changement • ❌ = supprimer l'entrée")
+    if h.empty:
+        st.info("Aucune entrée pour ce propriétaire.")
+        st.stop()
 
-            head = st.columns([1.5, 1.4, 2.4, 1.0, 1.5, 1.5, 1.6, 0.8, 0.7])
-            head[0].markdown("**Date/Heure**")
-            head[1].markdown("**Propriétaire**")
-            head[2].markdown("**Joueur**")
-            head[3].markdown("**Pos**")
-            head[4].markdown("**De**")
-            head[5].markdown("**Vers**")
-            head[6].markdown("**Action**")
-            head[7].markdown("**↩️**")
-            head[8].markdown("**❌**")
+    h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
+    h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"])
 
-            for _, r in h.iterrows():
-                rid = int(r["id"])
-                cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.5, 1.5, 1.6, 0.8, 0.7])
+    st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
 
-                cols[0].markdown(str(r["timestamp"]))
-                cols[1].markdown(str(r["proprietaire"]))
-                cols[2].markdown(str(r["joueur"]))
-                cols[3].markdown(str(r["pos"]))
+    head = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
+    head[0].markdown("**Date/Heure**")
+    head[1].markdown("**Propriétaire**")
+    head[2].markdown("**Joueur**")
+    head[3].markdown("**Pos**")
+    head[4].markdown("**De**")
+    head[5].markdown("**Vers**")
+    head[6].markdown("**Action**")
+    head[7].markdown("**↩️**")
+    head[8].markdown("**❌**")
 
-                de = f"{r['from_statut']}" + (f" ({r['from_slot']})" if str(r["from_slot"]).strip() else "")
-                vers = f"{r['to_statut']}" + (f" ({r['to_slot']})" if str(r["to_slot"]).strip() else "")
-                cols[4].markdown(de)
-                cols[5].markdown(vers)
-                cols[6].markdown(str(r.get("action", "")))
+    for _, r in h.iterrows():
+        rid = int(r["id"])
+        cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
 
-                if cols[7].button("↩️", key=f"undo_{rid}"):
-                    if LOCKED:
-                        st.error("🔒 Saison verrouillée : annulation impossible.")
-                    else:
-                        owner = str(r["proprietaire"])
-                        joueur = str(r["joueur"])
+        cols[0].markdown(str(r["timestamp"]))
+        cols[1].markdown(str(r["proprietaire"]))
+        cols[2].markdown(str(r["joueur"]))
+        cols[3].markdown(str(r["pos"]))
 
-                        mask = (
-                            (st.session_state["data"]["Propriétaire"] == owner)
-                            & (st.session_state["data"]["Joueur"] == joueur)
-                        )
+        de = f"{r['from_statut']}" + (f" ({r['from_slot']})" if str(r["from_slot"]).strip() else "")
+        vers = f"{r['to_statut']}" + (f" ({r['to_slot']})" if str(r["to_slot"]).strip() else "")
+        cols[4].markdown(de)
+        cols[5].markdown(vers)
+        cols[6].markdown(str(r.get("action", "")))
 
-                        if st.session_state["data"][mask].empty:
-                            st.error("Impossible d'annuler : joueur introuvable.")
-                        else:
-                            before = st.session_state["data"][mask].iloc[0]
-                            cur_statut, cur_slot = str(before["Statut"]), str(before["Slot"])
-                            pos0, equipe0 = str(before["Pos"]), str(before["Equipe"])
+        if cols[7].button("↩️", key=f"undo_{rid}"):
+            if LOCKED:
+                st.error("🔒 Saison verrouillée : annulation impossible.")
+                st.stop()
 
-                            st.session_state["data"].loc[mask, "Statut"] = str(r["from_statut"])
-                            st.session_state["data"].loc[mask, "Slot"] = str(r["from_slot"]) if str(r["from_slot"]).strip() else ""
-                            st.session_state["data"] = clean_data(st.session_state["data"])
-                            st.session_state["data"].to_csv(DATA_FILE, index=False)
+            owner = str(r["proprietaire"])
+            joueur = str(r["joueur"])
 
-                            log_history_row(
-                                owner, joueur, pos0, equipe0,
-                                cur_statut, cur_slot,
-                                str(r["from_statut"]),
-                                (str(r["from_slot"]) if str(r["from_slot"]).strip() else ""),
-                                action=f"UNDO #{rid}"
-                            )
+            mask = (
+                (st.session_state["data"]["Propriétaire"] == owner)
+                & (st.session_state["data"]["Joueur"] == joueur)
+            )
 
-                            st.success("✅ Annulation effectuée.")
-                            st.rerun()
+            if st.session_state["data"][mask].empty:
+                st.error("Impossible d'annuler : joueur introuvable.")
+            else:
+                before = st.session_state["data"][mask].iloc[0]
+                cur_statut = str(before["Statut"])
+                cur_slot = str(before.get("Slot", "")).strip()
+                pos0 = str(before.get("Pos", "F"))
+                equipe0 = str(before.get("Equipe", ""))
 
-                if cols[8].button("❌", key=f"del_{rid}"):
-                    h2 = st.session_state["history"].copy()
-                    h2 = h2[h2["id"] != rid]
-                    st.session_state["history"] = h2
-                    save_history(HISTORY_FILE, h2)
-                    st.success("🗑️ Entrée supprimée.")
-                    st.rerun()
+                st.session_state["data"].loc[mask, "Statut"] = str(r["from_statut"])
+                st.session_state["data"].loc[mask, "Slot"] = str(r["from_slot"]) if str(r["from_slot"]).strip() else ""
+                st.session_state["data"] = clean_data(st.session_state["data"])
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+                log_history_row(
+                    owner, joueur, pos0, equipe0,
+                    cur_statut, cur_slot,
+                    str(r["from_statut"]),
+                    (str(r["from_slot"]) if str(r["from_slot"]).strip() else ""),
+                    action=f"UNDO #{rid}"
+                )
+
+                st.success("✅ Annulation effectuée.")
+                st.rerun()
+
+        if cols[8].button("❌", key=f"del_{rid}"):
+            h2 = st.session_state["history"].copy()
+            h2 = h2[h2["id"] != rid]
+            st.session_state["history"] = h2
+            save_history(HISTORY_FILE, h2)
+            st.success("🗑️ Entrée supprimée.")
+            st.rerun()
 
 # =====================================================
 # TRANSACTIONS
 # =====================================================
 with tab2:
-    st.subheader("⚖️ Simulateur de transactions")
-    
     p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
     salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
     statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
@@ -1108,25 +896,16 @@ with tab2:
     reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
 
     if salaire > reste:
-        st.markdown('<div class="alert-danger">🚨 <strong>Transaction invalide:</strong> Dépassement du plafond</div>', unsafe_allow_html=True)
+        st.error("🚨 Dépassement du plafond")
     else:
-        st.markdown('<div class="alert-success">✅ <strong>Transaction valide:</strong> Espace disponible</div>', unsafe_allow_html=True)
+        st.success("✅ Transaction valide")
 
 # =====================================================
 # RECOMMANDATIONS
 # =====================================================
 with tab3:
-    st.subheader("🧠 Recommandations")
-    
-    has_recommendations = False
-    
     for _, r in plafonds.iterrows():
         if r["Restant GC"] < 2_000_000:
-            st.markdown(f'<div class="alert-warning">⚠️ <strong>{r["Propriétaire"]}:</strong> Espace salarial GC limité - rétrogradation recommandée</div>', unsafe_allow_html=True)
-            has_recommendations = True
+            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
         if r["Restant CE"] > 10_000_000:
-            st.markdown(f'<div class="alert-success">💡 <strong>{r["Propriétaire"]}:</strong> Espace CE disponible - rappel possible</div>', unsafe_allow_html=True)
-            has_recommendations = True
-    
-    if not has_recommendations:
-        st.info("Aucune recommandation pour le moment. Tous les plafonds sont bien gérés! 👍")
+            st.info(f"{r['Propriétaire']} : rappel possible")
