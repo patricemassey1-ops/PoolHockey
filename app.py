@@ -36,15 +36,10 @@ def money(v):
         return "0 $"
 
 # =====================================================
-# PARSER FANTRAX (CORRIGÉ NONE / NAN / VIDE)
+# PARSER FANTRAX (STABLE)
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
-
-    if len(raw) < 3:
-        raise ValueError("Fichier Fantrax invalide")
-
-    # Ignorer ligne vide / Skaters
     csv_text = "\n".join(raw[1:])
 
     df = pd.read_csv(
@@ -56,14 +51,13 @@ def parse_fantrax(upload):
     df.columns = [c.replace('"', '').strip() for c in df.columns]
 
     if "Player" not in df.columns or "Salary" not in df.columns:
-        raise ValueError(f"Colonnes trouvées : {list(df.columns)}")
+        raise ValueError("Colonnes Fantrax non détectées")
 
     out = pd.DataFrame()
     out["Joueur"] = df["Player"].astype(str)
     out["Pos"] = df.get("Pos", "N/A")
     out["Equipe"] = df.get("Team", "N/A")
 
-    # 🔥 CORRECTION DÉFINITIVE ICI
     sal = (
         df["Salary"]
         .astype(str)
@@ -72,7 +66,6 @@ def parse_fantrax(upload):
     )
 
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
-
     out["Statut"] = df.get("Status", "").apply(
         lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
     )
@@ -117,7 +110,6 @@ if not LOCKED:
         try:
             df = parse_fantrax(uploaded)
             df["Propriétaire"] = uploaded.name.replace(".csv", "")
-
             st.session_state["data"] = pd.concat(
                 [st.session_state["data"], df],
                 ignore_index=True
@@ -133,20 +125,11 @@ else:
     st.sidebar.warning("🔒 Saison verrouillée")
 
 # =====================================================
-# DASHBOARD
-# =====================================================
-st.title("🏒 Fantrax – Gestion Salariale")
-
-df = st.session_state["data"]
-
-if df.empty:
-    st.info("Aucune donnée")
-    st.stop()
-
-# =====================================================
 # CALCULS
 # =====================================================
+df = st.session_state["data"]
 resume = []
+
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
     gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
@@ -162,78 +145,61 @@ for p in df["Propriétaire"].unique():
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# TABLE
+# UI – ONGLETs
 # =====================================================
-st.subheader("📊 Plafonds salariaux")
-display = plafonds.copy()
-for c in display.columns[1:]:
-    display[c] = display[c].apply(money)
-st.dataframe(display, use_container_width=True)
+st.title("🏒 Fantrax – Gestion Salariale")
 
-# =====================================================
-# 📊 GRAPHIQUE TEMPS RÉEL
-# =====================================================
-st.subheader("📈 Masse salariale – Grand Club")
-
-fig, ax = plt.subplots()
-ax.bar(plafonds["Propriétaire"], plafonds["GC"])
-ax.axhline(PLAFOND_GC, linestyle="--")
-plt.xticks(rotation=45, ha="right")
-st.pyplot(fig)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Tableau",
+    "📈 Graphiques",
+    "⚖️ Transactions",
+    "🧠 Recommandations"
+])
 
 # =====================================================
-# ⚖️ CONTRÔLE TRANSACTION
+# 📊 TABLEAU
 # =====================================================
-st.subheader("⚖️ Validation transaction")
-
-p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
-salaire_test = st.number_input("Salaire du joueur", min_value=0, step=100000)
-statut = st.radio("Statut", ["Grand Club", "Club École"])
-
-ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
-reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
-
-if salaire_test > reste:
-    st.error("🚨 Dépassement du plafond")
-else:
-    st.success("✅ Transaction valide")
+with tab1:
+    display = plafonds.copy()
+    for c in display.columns[1:]:
+        display[c] = display[c].apply(money)
+    st.dataframe(display, use_container_width=True)
 
 # =====================================================
-# 🧠 IA RECOMMANDATIONS
+# 📈 GRAPHIQUES (PLUS PETIT)
 # =====================================================
-st.subheader("🧠 Recommandations IA")
+with tab2:
+    st.subheader("Masse salariale – Grand Club")
 
-for _, r in plafonds.iterrows():
-    if r["Restant GC"] < 2_000_000:
-        st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
-    if r["Restant CE"] > 10_000_000:
-        st.info(f"{r['Propriétaire']} : rappel possible")
+    fig, ax = plt.subplots(figsize=(6, 4))  # 👈 taille réduite
+    ax.bar(plafonds["Propriétaire"], plafonds["GC"])
+    ax.axhline(PLAFOND_GC, linestyle="--")
+    ax.set_ylabel("$")
+    plt.xticks(rotation=30, ha="right")
+    st.pyplot(fig, use_container_width=False)
 
 # =====================================================
-# 📄 EXPORT PDF (OPTIONNEL)
+# ⚖️ TRANSACTIONS
 # =====================================================
-st.subheader("📄 Export PDF")
+with tab3:
+    p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
+    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000)
+    statut = st.radio("Statut", ["Grand Club", "Club École"])
 
-if st.button("Générer PDF"):
-    try:
-        from reportlab.platypus import SimpleDocTemplate, Paragraph
-        from reportlab.lib.styles import getSampleStyleSheet
+    ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
+    reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
 
-        pdf_path = f"{DATA_DIR}/resume_{season}.pdf"
-        doc = SimpleDocTemplate(pdf_path)
-        styles = getSampleStyleSheet()
-        story = [Paragraph("Résumé salarial Fantrax", styles["Title"])]
+    if salaire > reste:
+        st.error("🚨 Dépassement du plafond")
+    else:
+        st.success("✅ Transaction valide")
 
-        for _, r in plafonds.iterrows():
-            story.append(Paragraph(
-                f"{r['Propriétaire']} – GC {money(r['GC'])} / CE {money(r['CE'])}",
-                styles["Normal"]
-            ))
-
-        doc.build(story)
-        st.success("PDF généré")
-        with open(pdf_path, "rb") as f:
-            st.download_button("📥 Télécharger PDF", f, file_name=f"fantrax_{season}.pdf")
-
-    except Exception:
-        st.warning("PDF indisponible (ReportLab non installé)")
+# =====================================================
+# 🧠 IA
+# =====================================================
+with tab4:
+    for _, r in plafonds.iterrows():
+        if r["Restant GC"] < 2_000_000:
+            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
+        if r["Restant CE"] > 10_000_000:
+            st.info(f"{r['Propriétaire']} : rappel possible")
