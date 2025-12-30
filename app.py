@@ -56,10 +56,21 @@ def money(v):
 # - Ajoute Equipe depuis colonne Team
 # - Crée Slot: Actif si Grand Club, sinon vide
 # =====================================================
+
 def parse_fantrax(upload):
+    import re
+    import io
+    import pandas as pd
+
+    # -------------------------------------------------
+    # Lecture brute + nettoyage caractères invisibles
+    # -------------------------------------------------
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
     raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
+    # -------------------------------------------------
+    # Détection automatique du séparateur
+    # -------------------------------------------------
     def detect_sep(lines):
         for l in lines:
             low = l.lower()
@@ -67,23 +78,27 @@ def parse_fantrax(upload):
                 for d in [",", ";", "\t", "|"]:
                     if d in l:
                         return d
-        # fallback (souvent csv virgule)
         return ","
 
     sep = detect_sep(raw_lines)
 
-    header_idxs = []
-    for i, l in enumerate(raw_lines):
-        low = l.lower()
-        if "player" in low and "salary" in low and sep in l:
-            header_idxs.append(i)
+    # -------------------------------------------------
+    # Détection des headers Fantrax (Skaters / Goalies)
+    # -------------------------------------------------
+    header_idxs = [
+        i for i, l in enumerate(raw_lines)
+        if ("player" in l.lower() and "salary" in l.lower() and sep in l)
+    ]
 
     if not header_idxs:
-        raise ValueError("Aucune section Fantrax valide détectée (Player/Salary).")
+        raise ValueError("Aucune section Fantrax valide détectée (Player / Salary).")
 
+    # -------------------------------------------------
+    # Lecture sécurisée d’une section Fantrax
+    # -------------------------------------------------
     def read_section(start, end):
         lines = raw_lines[start:end]
-        lines = [x for x in lines if x.strip() != ""]
+        lines = [l for l in lines if l.strip() != ""]
         if len(lines) < 2:
             return None
 
@@ -91,24 +106,29 @@ def parse_fantrax(upload):
             io.StringIO("\n".join(lines)),
             sep=sep,
             engine="python",
-            on_bad_lines="skip",
+            on_bad_lines="skip"
         )
         dfp.columns = [c.strip().replace('"', "") for c in dfp.columns]
         return dfp
 
+    # -------------------------------------------------
+    # Lecture de toutes les sections
+    # -------------------------------------------------
     parts = []
-    for j, h in enumerate(header_idxs):
-        end = header_idxs[j + 1] if j + 1 < len(header_idxs) else len(raw_lines)
+    for i, h in enumerate(header_idxs):
+        end = header_idxs[i + 1] if i + 1 < len(header_idxs) else len(raw_lines)
         dfp = read_section(h, end)
         if dfp is not None and not dfp.empty:
             parts.append(dfp)
 
     if not parts:
-        raise ValueError("Sections Fantrax détectées, mais aucune donnée exploitable.")
+        raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
 
     df = pd.concat(parts, ignore_index=True)
 
-    # Normalisation colonnes (tolérante)
+    # -------------------------------------------------
+    # Normalisation des colonnes (tolérance Fantrax)
+    # -------------------------------------------------
     def find_col(possibles):
         for p in possibles:
             for c in df.columns:
@@ -118,13 +138,18 @@ def parse_fantrax(upload):
 
     player_col = find_col(["player"])
     salary_col = find_col(["salary"])
-    team_col = find_col(["team"])
-    pos_col = find_col(["pos"])
+    team_col   = find_col(["team"])
+    pos_col    = find_col(["pos"])
     status_col = find_col(["status"])
 
     if not player_col or not salary_col:
-        raise ValueError(f"Colonnes Player/Salary introuvables. Colonnes trouvées: {list(df.columns)}")
+        raise ValueError(
+            f"Colonnes Player/Salary introuvables. Colonnes trouvées: {list(df.columns)}"
+        )
 
+    # -------------------------------------------------
+    # Construction du DataFrame final
+    # -------------------------------------------------
     out = pd.DataFrame()
     out["Joueur"] = df[player_col].astype(str).str.strip()
     out["Equipe"] = df[team_col].astype(str).str.strip() if team_col else "N/A"
@@ -138,9 +163,10 @@ def parse_fantrax(upload):
         .replace(["None", "nan", "NaN", ""], "0")
     )
 
-    # Fantrax = milliers -> dollars
+    # Fantrax = salaires en milliers → on stocke en $
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
 
+    # Statut Fantrax
     if status_col:
         out["Statut"] = df[status_col].apply(
             lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
@@ -148,11 +174,36 @@ def parse_fantrax(upload):
     else:
         out["Statut"] = "Grand Club"
 
-    # Slot par défaut (règles d'alignement)
+    # Slot par défaut
     out["Slot"] = out["Statut"].apply(lambda s: "Actif" if s == "Grand Club" else "")
 
-    out = out[out["Joueur"].str.len() > 2].reset_index(drop=True)
-    return out
+    # -------------------------------------------------
+    # NETTOYAGE FINAL (ANTI LIGNES FANTÔMES)
+    # -------------------------------------------------
+    out["Joueur"] = out["Joueur"].astype(str).str.strip()
+    out["Pos"] = out["Pos"].astype(str).str.strip()
+    out["Equipe"] = out["Equipe"].astype(str).str.strip()
+
+    forbidden = {"none", "skaters", "goalies", "player"}
+
+    out = out[
+        ~out["Joueur"].str.lower().isin(forbidden)
+        & ~out["Pos"].str.lower().isin(forbidden)
+    ]
+
+    # Joueur valide
+    out = out[out["Joueur"].str.len() > 2]
+
+    # Ligne fantôme classique Fantrax
+    out = out[
+        ~(
+            (out["Salaire"] <= 0)
+            & (out["Equipe"].str.lower().isin(["none", "nan", "", "n/a"]))
+        )
+    ]
+
+    return out.reset_index(drop=True)
+
 
 # =====================================================
 # SIDEBAR
