@@ -55,15 +55,70 @@ def money(v):
 # PARSER FANTRAX
 # =====================================================
 def parse_fantrax(upload):
-    raw = upload.read().decode("utf-8", errors="ignore").splitlines()
-    csv_text = "\n".join(raw[1:])
+    raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
 
-    df = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
-    df.columns = [c.replace('"', "").strip() for c in df.columns]
+    # Enlève les lignes complètement vides (mais on garde l'information de séparation)
+    # Fantrax: souvent 1 ligne d'entête "Skaters" puis un tableau CSV, puis une ligne vide,
+    # puis "Goalies" + un autre tableau CSV.
+    #
+    # Stratégie:
+    # - On repère les index des lignes vides (séparateurs)
+    # - On tente de lire 1 ou 2 blocs CSV
+    # - On fusionne
 
+    # 1) Trouver les séparateurs (lignes vides)
+    blank_idx = [i for i, line in enumerate(raw_lines) if str(line).strip() == ""]
+
+    # 2) Définir les blocs (avant et après la première ligne vide "réelle")
+    #    Si pas de ligne vide => on traite en un seul bloc (fallback).
+    blocks = []
+    if blank_idx:
+        cut = blank_idx[0]
+        block1 = raw_lines[:cut]
+        block2 = raw_lines[cut + 1 :]
+        # Nettoyage: enlever les lignes vides résiduelles aux extrémités
+        block1 = [l for l in block1 if str(l).strip() != ""]
+        block2 = [l for l in block2 if str(l).strip() != ""]
+        if len(block1) > 2:
+            blocks.append(block1)
+        if len(block2) > 2:
+            blocks.append(block2)
+    else:
+        blocks = [[l for l in raw_lines if str(l).strip() != ""]]
+
+    def read_one_block(lines):
+        """
+        Fantrax ajoute souvent une première ligne 'Skaters' / 'Goalies' ou autre.
+        Ton ancien code faisait raw[1:] : on garde cette logique MAIS on la sécurise.
+        """
+        # Si la 1re ligne n'a pas de virgule, c'est probablement un titre (Skaters/Goalies)
+        if lines and ("," not in lines[0]):
+            lines = lines[1:]
+
+        csv_text = "\n".join(lines)
+        dfx = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
+        dfx.columns = [c.replace('"', "").strip() for c in dfx.columns]
+        return dfx
+
+    # 3) Lire chaque bloc
+    dfs = []
+    for b in blocks:
+        try:
+            dfs.append(read_one_block(b))
+        except Exception:
+            # si un bloc ne se lit pas, on l'ignore
+            pass
+
+    if not dfs:
+        raise ValueError("Impossible de lire le fichier Fantrax (format inattendu).")
+
+    df = pd.concat(dfs, ignore_index=True)
+
+    # 4) Validation colonnes
     if "Player" not in df.columns or "Salary" not in df.columns:
-        raise ValueError("Colonnes Fantrax non détectées")
+        raise ValueError("Colonnes Fantrax non détectées (Player/Salary).")
 
+    # 5) Normalisation vers ton format app
     out = pd.DataFrame()
     out["Joueur"] = df["Player"].astype(str)
     out["Pos"] = df.get("Pos", "N/A")
@@ -76,15 +131,13 @@ def parse_fantrax(upload):
         .replace(["None", "nan", "NaN", ""], "0")
     )
 
-    # Fantrax = salaire en milliers -> on stocke en dollars
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
-
-    # Status contenant "min" => Club École, sinon Grand Club
     out["Statut"] = df.get("Status", "").apply(
         lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
     )
 
     return out[out["Joueur"].str.len() > 2]
+
 
 # =====================================================
 # SIDEBAR
