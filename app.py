@@ -267,6 +267,7 @@ def get_selected_player(df_actifs_ui, df_banc_ui, df_min_ui):
 
     return None, None
 
+
 # =====================================================
 # HISTORIQUE HELPERS
 # =====================================================
@@ -607,54 +608,57 @@ with tabA:
 
     st.divider()
 
-    # ---- Blessés (HTML noir/rouge + texte bold) ----
-    st.markdown("### 🩹 Joueurs Blessés (IR)")
-    df_inj_ui = view_for_click(injured_all)
+ # ---- Blessés (HTML noir/blanc + texte bold) ----
+st.markdown("### 🩹 Joueurs Blessés (IR)")
+df_inj_ui = view_for_click(injured_all)
 
-    if df_inj_ui.empty:
-        st.info("Aucun joueur blessé.")
+if df_inj_ui.empty:
+    st.info("Aucun joueur blessé.")
+    if "inj_pick_selectbox" in st.session_state:
         st.session_state["inj_pick_selectbox"] = ""
-    else:
-        rows_html = ""
-        for _, rr in df_inj_ui.iterrows():
-            rows_html += f"""
-            <tr>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:600;">{rr['Joueur']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:600;">{rr['Pos']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:600;">{rr['Equipe']}</td>
-              <td style="padding:6px 10px;border-bottom:1px solid #222;text-align:right;font-weight:700;">{rr['Salaire']}</td>
-            </tr>
-            """
+else:
+    rows_html = ""
+    for _, rr in df_inj_ui.iterrows():
+        rows_html += f"""
+        <tr>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Joueur']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Pos']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;font-weight:700;">{rr['Equipe']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;text-align:right;font-weight:800;">{rr['Salaire']}</td>
+        </tr>
+        """
 
-        st.markdown(
-            f"""
-            <div style="background:#000;border:1px solid #222;border-radius:12px;overflow:hidden;">
-              <div style="padding:10px 12px;color:#ff2d2d;font-weight:800;border-bottom:1px solid #222;letter-spacing:0.5px;">
-                JOUEURS BLESSÉS
-              </div>
-              <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
-                <thead>
-                  <tr style="border-bottom:1px solid #222;">
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:800;">Joueur</th>
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:800;">Pos</th>
-                    <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:800;">Équipe</th>
-                    <th style="text-align:right;padding:10px 10px;color:#ff2d2d;font-weight:800;">Salaire</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows_html}
-                </tbody>
-              </table>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f"""
+        <div style="background:#000;border:1px solid #222;border-radius:12px;overflow:hidden;">
+          <div style="padding:10px 12px;color:#ff2d2d;font-weight:900;border-bottom:1px solid #222;letter-spacing:0.5px;">
+            JOUEURS BLESSÉS
+          </div>
+          <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
+            <thead>
+              <tr style="border-bottom:1px solid #222;">
+                <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Joueur</th>
+                <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Pos</th>
+                <th style="text-align:left;padding:10px 10px;color:#ff2d2d;font-weight:900;">Équipe</th>
+                <th style="text-align:right;padding:10px 10px;color:#ff2d2d;font-weight:900;">Salaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows_html}
+            </tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        st.session_state["inj_pick_selectbox"] = st.selectbox(
-            "Déplacer un joueur blessé (IR)",
-            [""] + df_inj_ui["Joueur"].tolist(),
-            key="inj_pick_selectbox",
-        )
+    # ✅ IMPORTANT: ne pas assigner dans session_state si on utilise key=
+    st.selectbox(
+        "Déplacer un joueur blessé (IR)",
+        [""] + df_inj_ui["Joueur"].tolist(),
+        key="inj_pick_selectbox",
+    )
+
 
     # ---- règles + projections ----
     def can_add_to_actif(pos: str):
