@@ -558,35 +558,56 @@ with tabA:
 
     st.divider()
 
-    # ---- Blessés en dessous (fond noir + texte rouge) ----
+# ---- Blessés en dessous (fond noir + texte rouge) ----
 st.markdown("### 🩹 Joueurs Blessés (IR)")
 df_inj_ui = view_for_click(injured_all)
 
 if df_inj_ui.empty:
     st.info("Aucun joueur blessé.")
+    st.session_state["inj_pick"] = ""
 else:
-    sty = (
-        df_inj_ui.style
-        .set_properties(**{
-            "background-color": "#000000",
-            "color": "#ff2d2d",
-            "border-color": "#333333",
-        })
-        .set_table_styles([
-            {"selector": "th", "props": [("background-color", "#000000"), ("color", "#ff2d2d"), ("border-color", "#333333")]},
-            {"selector": "td", "props": [("background-color", "#000000"), ("color", "#ff2d2d"), ("border-color", "#333333")]},
-        ])
+    # Tableau HTML noir/rouge (n'affecte pas la sélection des autres tableaux)
+    rows_html = ""
+    for _, rr in df_inj_ui.iterrows():
+        rows_html += f"""
+        <tr>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;">{rr['Joueur']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;">{rr['Pos']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;">{rr['Equipe']}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #222;text-align:right;">{rr['Salaire']}</td>
+        </tr>
+        """
+
+    st.markdown(
+        f"""
+        <div style="background:#000;border:1px solid #222;border-radius:10px;overflow:hidden;">
+          <div style="padding:8px 12px;color:#ff2d2d;font-weight:700;border-bottom:1px solid #222;">
+            JOUEURS BLESSÉS
+          </div>
+          <table style="width:100%;border-collapse:collapse;color:#ff2d2d;">
+            <thead>
+              <tr style="border-bottom:1px solid #222;">
+                <th style="text-align:left;padding:8px 10px;">Joueur</th>
+                <th style="text-align:left;padding:8px 10px;">Pos</th>
+                <th style="text-align:left;padding:8px 10px;">Équipe</th>
+                <th style="text-align:right;padding:8px 10px;">Salaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows_html}
+            </tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.dataframe(
-        sty,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="sel_inj",
+    # Sélection dédiée pour déclencher le pop-up (fonctionne toujours)
+    st.session_state["inj_pick"] = st.selectbox(
+        "Choisir un joueur blessé à déplacer",
+        [""] + df_inj_ui["Joueur"].tolist(),
+        key="inj_pick_selectbox",
     )
-
 
     # ---- sélection ----
     def clear_selections():
