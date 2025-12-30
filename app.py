@@ -307,149 +307,162 @@ with tab2:
         df_hist = st.session_state['historique']
         
         # Extraire les propriétaires uniques
-        proprietaires_uniques = df_hist['Propriétaire'].unique()
+        proprietaires_uniques = df_hist['Propriétaire'].unique().tolist()
         
-        # Extraire nom et date pour affichage
-        proprio_display = {}
-        for p in proprietaires_uniques:
-            match = pd.Series([p]).str.extract(r'(.+?)\s*\((.+)\)').iloc[0]
-            if pd.notna(match[0]):
-                proprio_display[p] = f"{match[0]} ({match[1]})"
-            else:
-                proprio_display[p] = p
-        
-        selected_proprio_full = st.selectbox(
-            "Sélectionner un propriétaire",
-            options=proprietaires_uniques,
-            format_func=lambda x: proprio_display[x],
-            key="sim_proprio_select"
-        )
-        
-        if selected_proprio_full:
-            # Filtrer les joueurs du propriétaire sélectionné
-            joueurs_proprio = df_hist[df_hist['Propriétaire'] == selected_proprio_full].copy()
-            joueurs_proprio['Salaire'] = pd.to_numeric(joueurs_proprio['Salaire'], errors='coerce').fillna(0)
+        if not proprietaires_uniques:
+            st.warning("Aucun propriétaire trouvé dans les données.")
+        else:
+            # Extraire nom et date pour affichage
+            proprio_display = {}
+            for p in proprietaires_uniques:
+                try:
+                    parts = p.split('(')
+                    if len(parts) >= 2:
+                        nom = parts[0].strip()
+                        date = parts[1].replace(')', '').strip()
+                        proprio_display[p] = f"{nom} ({date})"
+                    else:
+                        proprio_display[p] = p
+                except:
+                    proprio_display[p] = p
             
-            # Initialiser les listes dans session_state si nécessaire
-            if 'sim_grand_club' not in st.session_state:
-                st.session_state['sim_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
-            if 'sim_club_ecole' not in st.session_state:
-                st.session_state['sim_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+            selected_proprio_full = st.selectbox(
+                "Sélectionner un propriétaire",
+                options=proprietaires_uniques,
+                format_func=lambda x: proprio_display.get(x, x),
+                key="sim_proprio_select"
+            )
             
-            # Bouton pour réinitialiser
-            if st.button("🔄 Réinitialiser", key="reset_sim"):
-                st.session_state['sim_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
-                st.session_state['sim_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
-                st.rerun()
-            
-            st.divider()
-            
-            # Afficher les deux colonnes
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("🏒 Grand Club (Act)")
+            if selected_proprio_full:
+                # Filtrer les joueurs du propriétaire sélectionné
+                joueurs_proprio = df_hist[df_hist['Propriétaire'] == selected_proprio_full].copy()
+                joueurs_proprio['Salaire'] = pd.to_numeric(joueurs_proprio['Salaire'], errors='coerce').fillna(0)
                 
-                # Calculer le total
-                total_gc = 0
-                joueurs_gc_data = []
+                # Créer une clé unique pour ce propriétaire
+                sim_key = f"sim_{selected_proprio_full}"
                 
-                for joueur_nom in st.session_state['sim_grand_club']:
-                    joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
-                    if not joueur_info.empty:
-                        j = joueur_info.iloc[0]
-                        salaire = float(j['Salaire'])
-                        total_gc += salaire
-                        joueurs_gc_data.append({
-                            'Joueur': joueur_nom,
-                            'Pos': j['Pos'],
-                            'Salaire': format_currency(salaire)
-                        })
+                # Initialiser les listes dans session_state si nécessaire
+                if f'{sim_key}_grand_club' not in st.session_state:
+                    st.session_state[f'{sim_key}_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
+                if f'{sim_key}_club_ecole' not in st.session_state:
+                    st.session_state[f'{sim_key}_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
                 
-                restant_gc = PLAFOND_GRAND_CLUB - total_gc
-                color_gc = "🟢" if total_gc <= PLAFOND_GRAND_CLUB else "🔴"
+                # Bouton pour réinitialiser
+                if st.button("🔄 Réinitialiser", key="reset_sim"):
+                    st.session_state[f'{sim_key}_grand_club'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Grand Club']['Joueur'].tolist()
+                    st.session_state[f'{sim_key}_club_ecole'] = joueurs_proprio[joueurs_proprio['Statut'] == 'Club École']['Joueur'].tolist()
+                    st.rerun()
                 
-                st.metric("Total Masse Salariale", format_currency(total_gc))
-                st.metric(f"{color_gc} Restant", format_currency(restant_gc))
+                st.divider()
                 
-                if joueurs_gc_data:
-                    df_gc = pd.DataFrame(joueurs_gc_data)
-                    st.dataframe(df_gc, use_container_width=True, hide_index=True)
+                # Afficher les deux colonnes
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("🏒 Grand Club (Act)")
                     
-                    # Sélection pour déplacer vers Club École
-                    st.write("**Déplacer vers Club École:**")
-                    joueur_to_move = st.selectbox(
-                        "Sélectionner un joueur",
-                        options=st.session_state['sim_grand_club'],
-                        key="move_to_ce"
-                    )
-                    if st.button("➡️ Déplacer vers Club École", key="btn_move_ce"):
-                        if joueur_to_move in st.session_state['sim_grand_club']:
-                            st.session_state['sim_grand_club'].remove(joueur_to_move)
-                            st.session_state['sim_club_ecole'].append(joueur_to_move)
-                            st.rerun()
-                else:
-                    st.info("Aucun joueur dans le Grand Club")
-            
-            with col2:
-                st.subheader("🎓 Club École (Min)")
-                
-                # Calculer le total
-                total_ce = 0
-                joueurs_ce_data = []
-                
-                for joueur_nom in st.session_state['sim_club_ecole']:
-                    joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
-                    if not joueur_info.empty:
-                        j = joueur_info.iloc[0]
-                        salaire = float(j['Salaire'])
-                        total_ce += salaire
-                        joueurs_ce_data.append({
-                            'Joueur': joueur_nom,
-                            'Pos': j['Pos'],
-                            'Salaire': format_currency(salaire)
-                        })
-                
-                restant_ce = PLAFOND_CLUB_ECOLE - total_ce
-                color_ce = "🟢" if total_ce <= PLAFOND_CLUB_ECOLE else "🔴"
-                
-                st.metric("Total Masse Salariale", format_currency(total_ce))
-                st.metric(f"{color_ce} Restant", format_currency(restant_ce))
-                
-                if joueurs_ce_data:
-                    df_ce = pd.DataFrame(joueurs_ce_data)
-                    st.dataframe(df_ce, use_container_width=True, hide_index=True)
+                    # Calculer le total
+                    total_gc = 0
+                    joueurs_gc_data = []
                     
-                    # Sélection pour déplacer vers Grand Club
-                    st.write("**Déplacer vers Grand Club:**")
-                    joueur_to_move_gc = st.selectbox(
-                        "Sélectionner un joueur",
-                        options=st.session_state['sim_club_ecole'],
-                        key="move_to_gc"
-                    )
-                    if st.button("⬅️ Déplacer vers Grand Club", key="btn_move_gc"):
-                        if joueur_to_move_gc in st.session_state['sim_club_ecole']:
-                            st.session_state['sim_club_ecole'].remove(joueur_to_move_gc)
-                            st.session_state['sim_grand_club'].append(joueur_to_move_gc)
-                            st.rerun()
-                else:
-                    st.info("Aucun joueur dans le Club École")
-            
-            st.divider()
-            
-            # Résumé comparatif
-            st.subheader("📊 Résumé")
-            col_sum1, col_sum2 = st.columns(2)
-            with col_sum1:
-                st.write("**Grand Club:**")
-                st.write(f"- Total: {format_currency(total_gc)}")
-                st.write(f"- Plafond: {format_currency(PLAFOND_GRAND_CLUB)}")
-                st.write(f"- Restant: {format_currency(restant_gc)}")
-            with col_sum2:
-                st.write("**Club École:**")
-                st.write(f"- Total: {format_currency(total_ce)}")
-                st.write(f"- Plafond: {format_currency(PLAFOND_CLUB_ECOLE)}")
-                st.write(f"- Restant: {format_currency(restant_ce)}")
+                    for joueur_nom in st.session_state[f'{sim_key}_grand_club']:
+                        joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
+                        if not joueur_info.empty:
+                            j = joueur_info.iloc[0]
+                            salaire = float(j['Salaire'])
+                            total_gc += salaire
+                            joueurs_gc_data.append({
+                                'Joueur': joueur_nom,
+                                'Pos': j['Pos'],
+                                'Salaire': format_currency(salaire)
+                            })
+                    
+                    restant_gc = PLAFOND_GRAND_CLUB - total_gc
+                    color_gc = "🟢" if total_gc <= PLAFOND_GRAND_CLUB else "🔴"
+                    
+                    st.metric("Total Masse Salariale", format_currency(total_gc))
+                    st.metric(f"{color_gc} Restant", format_currency(restant_gc))
+                    
+                    if joueurs_gc_data:
+                        df_gc = pd.DataFrame(joueurs_gc_data)
+                        st.dataframe(df_gc, use_container_width=True, hide_index=True)
+                        
+                        # Sélection pour déplacer vers Club École
+                        st.write("**Déplacer vers Club École:**")
+                        if st.session_state[f'{sim_key}_grand_club']:
+                            joueur_to_move = st.selectbox(
+                                "Sélectionner un joueur",
+                                options=st.session_state[f'{sim_key}_grand_club'],
+                                key="move_to_ce"
+                            )
+                            if st.button("➡️ Déplacer", key="btn_move_ce"):
+                                if joueur_to_move in st.session_state[f'{sim_key}_grand_club']:
+                                    st.session_state[f'{sim_key}_grand_club'].remove(joueur_to_move)
+                                    st.session_state[f'{sim_key}_club_ecole'].append(joueur_to_move)
+                                    st.rerun()
+                    else:
+                        st.info("Aucun joueur dans le Grand Club")
+                
+                with col2:
+                    st.subheader("🎓 Club École (Min)")
+                    
+                    # Calculer le total
+                    total_ce = 0
+                    joueurs_ce_data = []
+                    
+                    for joueur_nom in st.session_state[f'{sim_key}_club_ecole']:
+                        joueur_info = joueurs_proprio[joueurs_proprio['Joueur'] == joueur_nom]
+                        if not joueur_info.empty:
+                            j = joueur_info.iloc[0]
+                            salaire = float(j['Salaire'])
+                            total_ce += salaire
+                            joueurs_ce_data.append({
+                                'Joueur': joueur_nom,
+                                'Pos': j['Pos'],
+                                'Salaire': format_currency(salaire)
+                            })
+                    
+                    restant_ce = PLAFOND_CLUB_ECOLE - total_ce
+                    color_ce = "🟢" if total_ce <= PLAFOND_CLUB_ECOLE else "🔴"
+                    
+                    st.metric("Total Masse Salariale", format_currency(total_ce))
+                    st.metric(f"{color_ce} Restant", format_currency(restant_ce))
+                    
+                    if joueurs_ce_data:
+                        df_ce = pd.DataFrame(joueurs_ce_data)
+                        st.dataframe(df_ce, use_container_width=True, hide_index=True)
+                        
+                        # Sélection pour déplacer vers Grand Club
+                        st.write("**Déplacer vers Grand Club:**")
+                        if st.session_state[f'{sim_key}_club_ecole']:
+                            joueur_to_move_gc = st.selectbox(
+                                "Sélectionner un joueur",
+                                options=st.session_state[f'{sim_key}_club_ecole'],
+                                key="move_to_gc"
+                            )
+                            if st.button("⬅️ Déplacer", key="btn_move_gc"):
+                                if joueur_to_move_gc in st.session_state[f'{sim_key}_club_ecole']:
+                                    st.session_state[f'{sim_key}_club_ecole'].remove(joueur_to_move_gc)
+                                    st.session_state[f'{sim_key}_grand_club'].append(joueur_to_move_gc)
+                                    st.rerun()
+                    else:
+                        st.info("Aucun joueur dans le Club École")
+                
+                st.divider()
+                
+                # Résumé comparatif
+                st.subheader("📊 Résumé")
+                col_sum1, col_sum2 = st.columns(2)
+                with col_sum1:
+                    st.write("**Grand Club:**")
+                    st.write(f"- Total: {format_currency(total_gc)}")
+                    st.write(f"- Plafond: {format_currency(PLAFOND_GRAND_CLUB)}")
+                    st.write(f"- Restant: {format_currency(restant_gc)}")
+                with col_sum2:
+                    st.write("**Club École:**")
+                    st.write(f"- Total: {format_currency(total_ce)}")
+                    st.write(f"- Plafond: {format_currency(PLAFOND_CLUB_ECOLE)}")
+                    st.write(f"- Restant: {format_currency(restant_ce)}")
     else:
         st.info("Aucune donnée disponible. Importez un fichier CSV via la barre latérale.")
 
