@@ -201,8 +201,8 @@ with tab1:
             cols[0].markdown("—")
 
         cols[1].markdown(r["Propriétaire"])
-        cols[2].markdown(money(r["Grand Club"]))
-        cols[3].markdown(money(r["Club École"]))
+        cols[2].markdown(money(r["GC"]))
+        cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Restant GC"]))
         cols[5].markdown(money(r["Restant CE"]))
 
