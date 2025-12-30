@@ -627,7 +627,7 @@ with tab1:
 # =====================================================
 # ALIGNEMENT
 # - Actifs / Banc / Mineur
-# - Blessés: fond noir + texte rouge + boutons cliquables (ouvre pop-up direct)
+# - Blessés: fond noir + texte blanc + boutons cliquables (ouvre pop-up direct)
 # - Pop-up robuste via move_ctx
 # =====================================================
 with tabA:
