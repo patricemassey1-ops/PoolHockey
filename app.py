@@ -610,10 +610,13 @@ else:
     )
 
     # ---- sélection ----
-    def clear_selections():
-        for k in ["sel_actifs", "sel_banc", "sel_min", "sel_inj"]:
-            if k in st.session_state and isinstance(st.session_state[k], dict):
-                st.session_state[k]["selection"] = {"rows": []}
+   def clear_selections():
+    for k in ["sel_actifs", "sel_banc", "sel_min", "sel_inj"]:
+        if k in st.session_state and isinstance(st.session_state[k], dict):
+            st.session_state[k]["selection"] = {"rows": []}
+    if "inj_pick_selectbox" in st.session_state:
+        st.session_state["inj_pick_selectbox"] = ""
+
 
    def get_selected_player():
     if st.session_state.get("sel_actifs") and st.session_state["sel_actifs"].get("selection", {}).get("rows"):
