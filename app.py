@@ -30,10 +30,10 @@ LOGOS = {
     "Prédateurs": "Prédateurs_Logo.png",
     "Red Wings": "Red_Wings_Logo.png",
     "Whalers": "Whalers_Logo.png",
-    "Canadiens": "Canadiens_Logo.png"
+    "Canadiens": "Canadiens_Logo.png",
 }
 
-LOGO_SIZE = 55  # <- ajuste ici la taille des logos (px)
+LOGO_SIZE = 55  # taille des logos (px)
 
 # =====================================================
 # SAISON AUTO
@@ -51,27 +51,49 @@ def saison_verrouillee(season):
 def money(v):
     return f"{int(v):,}".replace(",", " ") + " $"
 
+def salaire_fantrax(v):
+    """
+    Affiche un salaire Fantrax au format: 12,500 $ x 1000
+    (v est stocké en dollars, ex: 12500000)
+    """
+    return f"{int(v/1000):,}" + " $ x 1000"
+
 # =====================================================
-# HTML helpers (logo + cellule centrée)
+# HTML helpers (logo + cellule)
 # =====================================================
 def img_to_base64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def logo_cell(path: str, size: int = 55) -> str:
-    b64 = img_to_base64(path)
-    return f"""
-    <div style="height:{size}px; display:flex; align-items:center; justify-content:center;">
-        <img src="data:image/png;base64,{b64}"
-             style="height:{size}px; width:{size}px; object-fit:contain; display:block;" />
-    </div>
-    """
-
 def text_cell(text: str, size: int = 55, align: str = "left") -> str:
-    # line-height = hauteur du logo => centrage vertical parfait
     return f"""
     <div style="height:{size}px; line-height:{size}px; text-align:{align};">
         {text}
+    </div>
+    """
+
+def owner_cell(owner: str, logo_path: str, size: int = 55) -> str:
+    if logo_path and os.path.exists(logo_path):
+        b64 = img_to_base64(logo_path)
+        img_html = f"""
+        <img src="data:image/png;base64,{b64}"
+             style="height:{size}px; width:{size}px; object-fit:contain; display:block;" />
+        """
+    else:
+        img_html = f"""
+        <div style="height:{size}px; width:{size}px; display:flex; align-items:center; justify-content:center;">
+            —
+        </div>
+        """
+
+    return f"""
+    <div style="height:{size}px; display:flex; align-items:center; gap:12px;">
+        <div style="flex:0 0 {size}px; display:flex; align-items:center; justify-content:center;">
+            {img_html}
+        </div>
+        <div style="line-height:1.1;">
+            <div style="font-weight:600;">{owner}</div>
+        </div>
     </div>
     """
 
@@ -83,7 +105,7 @@ def parse_fantrax(upload):
     csv_text = "\n".join(raw[1:])
 
     df = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
-    df.columns = [c.replace('"', '').strip() for c in df.columns]
+    df.columns = [c.replace('"', "").strip() for c in df.columns]
 
     if "Player" not in df.columns or "Salary" not in df.columns:
         raise ValueError("Colonnes Fantrax non détectées")
@@ -100,7 +122,10 @@ def parse_fantrax(upload):
         .replace(["None", "nan", "NaN", ""], "0")
     )
 
+    # Fantrax = salaire en milliers -> on stocke en dollars
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
+
+    # Status contenant "min" => Club École, sinon Grand Club
     out["Statut"] = df.get("Status", "").apply(
         lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
     )
@@ -158,12 +183,12 @@ st.sidebar.header("📥 Import Fantrax")
 if not LOCKED:
     uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
     if uploaded:
-        df = parse_fantrax(uploaded)
-        df["Propriétaire"] = uploaded.name.replace(".csv", "")
-        st.session_state["data"] = pd.concat(
-            [st.session_state["data"], df],
-            ignore_index=True
-        ).drop_duplicates(subset=["Propriétaire", "Joueur"])
+        df_import = parse_fantrax(uploaded)
+        df_import["Propriétaire"] = uploaded.name.replace(".csv", "")
+        st.session_state["data"] = (
+            pd.concat([st.session_state["data"], df_import], ignore_index=True)
+            .drop_duplicates(subset=["Propriétaire", "Joueur"])
+        )
         st.session_state["data"].to_csv(DATA_FILE, index=False)
         st.sidebar.success("✅ Import réussi")
 
@@ -179,7 +204,7 @@ if df.empty:
     st.stop()
 
 # =====================================================
-# CALCULS
+# CALCULS (plafonds par propriétaire)
 # =====================================================
 resume = []
 for p in df["Propriétaire"].unique():
@@ -192,57 +217,56 @@ for p in df["Propriétaire"].unique():
         if k.lower() in p.lower():
             logo = v
 
-    resume.append({
-        "Propriétaire": p,
-        "Logo": logo,
-        "GC": gc,
-        "CE": ce,
-        "Restant GC": st.session_state["PLAFOND_GC"] - gc,
-        "Restant CE": st.session_state["PLAFOND_CE"] - ce
-    })
+    resume.append(
+        {
+            "Propriétaire": p,
+            "Logo": logo,
+            "GC": gc,
+            "CE": ce,
+            "Restant GC": st.session_state["PLAFOND_GC"] - gc,
+            "Restant CE": st.session_state["PLAFOND_CE"] - ce,
+        }
+    )
 
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
 # ONGLETs
 # =====================================================
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations", "🧾 Alignement"])
-
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations", "🧾 Alignement"]
+)
 
 # =====================================================
-# TABLEAU AVEC LOGOS (ALIGNÉS + TAILLE FIXE)
+# TABLEAU (LOGO + NOM DANS LA MÊME COLONNE)
 # =====================================================
 with tab1:
-    headers = st.columns([1.2, 2.5, 2, 2, 2, 2])
-    headers[0].markdown("**Logo**")
-    headers[1].markdown("**Propriétaire**")
-    headers[2].markdown("**Grand Club**")
-    headers[3].markdown("**Club École**")
-    headers[4].markdown("**Restant GC**")
-    headers[5].markdown("**Restant CE**")
+    headers = st.columns([4, 2, 2, 2, 2])
+    headers[0].markdown("**Équipe**")
+    headers[1].markdown("**Grand Club**")
+    headers[2].markdown("**Club École**")
+    headers[3].markdown("**Restant GC**")
+    headers[4].markdown("**Restant CE**")
 
     for _, r in plafonds.iterrows():
-        cols = st.columns([1.2, 2.5, 2, 2, 2, 2])
+        cols = st.columns([4, 2, 2, 2, 2])
 
+        owner = str(r["Propriétaire"])
         logo_path = str(r["Logo"]).strip()
-        if logo_path and os.path.exists(logo_path):
-            cols[0].markdown(logo_cell(logo_path, LOGO_SIZE), unsafe_allow_html=True)
-        else:
-            cols[0].markdown(text_cell("—", LOGO_SIZE, "center"), unsafe_allow_html=True)
 
-        cols[1].markdown(text_cell(str(r["Propriétaire"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[2].markdown(text_cell(money(r["GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[3].markdown(text_cell(money(r["CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[4].markdown(text_cell(money(r["Restant GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[5].markdown(text_cell(money(r["Restant CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
+        cols[0].markdown(owner_cell(owner, logo_path, LOGO_SIZE), unsafe_allow_html=True)
+        cols[1].markdown(text_cell(money(r["GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
+        cols[2].markdown(text_cell(money(r["CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
+        cols[3].markdown(text_cell(money(r["Restant GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
+        cols[4].markdown(text_cell(money(r["Restant CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
 
 # =====================================================
-# TRANSACTIONS
+# TRANSACTIONS (validation simple)
 # =====================================================
 with tab2:
-    p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
-    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000)
-    statut = st.radio("Statut", ["Grand Club", "Club École"])
+    p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
+    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
+    statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
 
     ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
     reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
@@ -253,7 +277,7 @@ with tab2:
         st.success("✅ Transaction valide")
 
 # =====================================================
-# IA
+# RECOMMANDATIONS (simple)
 # =====================================================
 with tab3:
     for _, r in plafonds.iterrows():
@@ -271,10 +295,9 @@ with tab4:
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(df["Propriétaire"].unique()),
-        key="align_owner"
+        key="align_owner",
     )
 
-    # Données du propriétaire (source = session_state)
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
@@ -290,7 +313,6 @@ with tab4:
     m3.metric("✅ Restant GC", money(restant_gc))
     m4.metric("✅ Restant CE", money(restant_ce))
 
-    # Avertissements dépassement
     if restant_gc < 0 and restant_ce < 0:
         st.error("🚨 Dépassement des plafonds GC ET CE.")
     elif restant_gc < 0:
@@ -310,10 +332,11 @@ with tab4:
         if gc.empty:
             st.info("Aucun joueur dans le Grand Club.")
         else:
+            gc_view = gc.assign(Salaire=gc["Salaire"].apply(salaire_fantrax))
             st.dataframe(
-                gc[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
+                gc_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
 
     with c2:
@@ -321,10 +344,11 @@ with tab4:
         if ce.empty:
             st.info("Aucun joueur dans le Club École.")
         else:
+            ce_view = ce.assign(Salaire=ce["Salaire"].apply(salaire_fantrax))
             st.dataframe(
-                ce[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
+                ce_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
 
     st.divider()
@@ -343,13 +367,12 @@ with tab4:
             "Déplacer du Grand Club vers Club École",
             joueurs_gc if joueurs_gc else ["—"],
             disabled=(len(joueurs_gc) == 0),
-            key="move_gc_to_ce"
+            key="move_gc_to_ce",
         )
 
-        if st.button("➡️ Envoyer au Club École (Min)", disabled=(len(joueurs_gc) == 0)):
-            mask = (
-                (st.session_state["data"]["Propriétaire"] == proprietaire)
-                & (st.session_state["data"]["Joueur"] == joueur_gc)
+        if st.button("➡️ Envoyer au Club École (Min)", disabled=(len(joueurs_gc) == 0), key="btn_gc_to_ce"):
+            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (
+                st.session_state["data"]["Joueur"] == joueur_gc
             )
             st.session_state["data"].loc[mask, "Statut"] = "Club École"
             st.session_state["data"].to_csv(DATA_FILE, index=False)
@@ -363,13 +386,12 @@ with tab4:
             "Déplacer du Club École vers Grand Club",
             joueurs_ce if joueurs_ce else ["—"],
             disabled=(len(joueurs_ce) == 0),
-            key="move_ce_to_gc"
+            key="move_ce_to_gc",
         )
 
-        if st.button("⬅️ Rappeler au Grand Club (Act)", disabled=(len(joueurs_ce) == 0)):
-            mask = (
-                (st.session_state["data"]["Propriétaire"] == proprietaire)
-                & (st.session_state["data"]["Joueur"] == joueur_ce)
+        if st.button("⬅️ Rappeler au Grand Club (Act)", disabled=(len(joueurs_ce) == 0), key="btn_ce_to_gc"):
+            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (
+                st.session_state["data"]["Joueur"] == joueur_ce
             )
             st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
             st.session_state["data"].to_csv(DATA_FILE, index=False)
