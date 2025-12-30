@@ -10,6 +10,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 
+# ======================================================
+# CONFIG
+# ======================================================
 st.set_page_config("Fantrax Ultimate", layout="wide")
 
 DATA_DIR = "data"
@@ -25,46 +28,61 @@ def saison_par_defaut():
     now = datetime.now()
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
 
-def saison_passee(season):
-    return int(season[:4]) < int(saison_par_defaut()[:4])
-
 def season_file(season):
     return f"{DATA_DIR}/fantrax_{season}.csv"
 
 # ======================================================
-# PARSER FANTRAX ROBUSTE
+# PARSER FANTRAX **ANTI-CRASH**
 # ======================================================
 def parse_fantrax_file(uploaded_file):
-    text = uploaded_file.read().decode("utf-8", errors="ignore")
-    lines = text.splitlines()
+    raw = uploaded_file.read().decode("utf-8", errors="ignore")
 
-    header = None
-    for i, l in enumerate(lines):
-        if "Player" in l and "Salary" in l:
-            header = i
-            break
-    if header is None:
+    # on garde uniquement les lignes contenant Player
+    lines = [l for l in raw.splitlines() if "Player" in l or l.startswith("*")]
+
+    if not lines:
         raise ValueError("Aucune donnée Fantrax détectée")
 
-    df = pd.read_csv(io.StringIO("\n".join(lines[header:])), engine="python")
+    df = pd.read_csv(
+        io.StringIO("\n".join(lines)),
+        sep=None,                # détection auto
+        engine="python",
+        on_bad_lines="skip"      # IGNORE lignes cassées
+    )
+
     df.columns = [c.strip() for c in df.columns]
+
+    required = {"Player", "Salary"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Colonnes requises manquantes : {df.columns.tolist()}")
 
     df = df[df["Player"].notna()].copy()
 
-    out = pd.DataFrame({
-        "Joueur": df["Player"],
-        "Salaire": df["Salary"].astype(str)
-            .str.replace(",", "", regex=False)
-            .astype(float) * 1000,
-        "Pos": df.get("Pos", "N/A"),
-        "Statut": df.get("Status", "Act").apply(
+    out = pd.DataFrame()
+    out["Joueur"] = df["Player"].astype(str)
+
+    out["Salaire"] = (
+        df["Salary"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("$", "", regex=False)
+        .astype(float)
+        * 1000
+    )
+
+    out["Pos"] = df["Pos"] if "Pos" in df.columns else "N/A"
+
+    if "Status" in df.columns:
+        out["Statut"] = df["Status"].apply(
             lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
         )
-    })
-    return out
+    else:
+        out["Statut"] = "Grand Club"
+
+    return out.reset_index(drop=True)
 
 # ======================================================
-# CONTROLE PLAFOND (FORCE LES COLONNES)
+# CONTROLE PLAFOND (SAFE)
 # ======================================================
 def controle_plafond(df):
     cols = ["Propriétaire", "GC", "CE", "RGC", "RCE"]
@@ -92,19 +110,15 @@ def controle_plafond(df):
 def ia_reco(df):
     recos = []
     plaf = controle_plafond(df)
-    if plaf.empty:
-        return recos
-
     for _, r in plaf.iterrows():
         if r["RGC"] < 0:
             joueurs = df[
                 (df["Propriétaire"] == r["Propriétaire"]) &
                 (df["Statut"] == "Grand Club")
             ].sort_values("Salaire", ascending=False).head(2)
-
             for _, j in joueurs.iterrows():
                 recos.append(
-                    f"{r['Propriétaire']} : descendre {j['Joueur']} ({int(j['Salaire']):,}$)"
+                    f"{r['Propriétaire']} : rétrograder {j['Joueur']} ({int(j['Salaire']):,}$)"
                 )
     return recos
 
@@ -120,8 +134,8 @@ def export_pdf(season, df):
     ]
 
     plaf = controle_plafond(df)
-
     table_data = [["GM", "GC", "RGC", "CE", "RCE"]]
+
     for _, r in plaf.iterrows():
         table_data.append([
             r["Propriétaire"],
@@ -161,38 +175,32 @@ if os.path.exists(DATA_FILE):
 else:
     data = pd.DataFrame(columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos"])
 
-uploaded = st.file_uploader("Importer CSV Fantrax", type=["csv", "txt"])
+uploaded = st.file_uploader("📥 Importer CSV Fantrax", type=["csv", "txt"])
 if uploaded:
-    df = parse_fantrax_file(uploaded)
-    df["Propriétaire"] = uploaded.name.replace(".csv", "")
-    data = pd.concat([data, df], ignore_index=True)
-    data.to_csv(DATA_FILE, index=False)
-    st.success("Import réussi")
+    try:
+        df = parse_fantrax_file(uploaded)
+        df["Propriétaire"] = uploaded.name.replace(".csv", "")
+        data = pd.concat([data, df], ignore_index=True)
+        data.to_csv(DATA_FILE, index=False)
+        st.success(f"✅ Import réussi : {len(df)} joueurs")
+    except Exception as e:
+        st.error(f"❌ Import impossible : {e}")
 
 plafonds = controle_plafond(data)
 st.dataframe(plafonds, use_container_width=True)
 
-# ================= GRAPH SAFE =================
-if not plafonds.empty and "Propriétaire" in plafonds.columns and "GC" in plafonds.columns:
+if not plafonds.empty:
     fig, ax = plt.subplots()
     ax.bar(plafonds["Propriétaire"], plafonds["GC"])
     ax.axhline(PLAFOND_GRAND_CLUB)
-    ax.set_title("Masse salariale Grand Club")
+    ax.set_title("Masse salariale – Grand Club")
     st.pyplot(fig)
-else:
-    st.info("Graphique indisponible – données insuffisantes")
 
-# ================= IA =================
 st.subheader("🧠 Recommandations IA")
-reco = ia_reco(data)
-if reco:
-    for r in reco:
-        st.error(r)
-else:
-    st.success("Aucun dépassement")
+for r in ia_reco(data):
+    st.error(r)
 
-# ================= PDF =================
-if st.button("📄 Export PDF"):
+if st.button("📄 Export PDF stylé"):
     path = export_pdf(season, data)
     with open(path, "rb") as f:
-        st.download_button("Télécharger PDF", f, file_name=f"fantrax_{season}.pdf")
+        st.download_button("⬇️ Télécharger le PDF", f, file_name=f"fantrax_{season}.pdf")
