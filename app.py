@@ -620,126 +620,110 @@ with tabA:
 
     src, joueur_sel = get_selected_player()
 
-    if joueur_sel:
-        if LOCKED:
-            st.warning("🔒 Saison verrouillée : aucun changement permis.")
-            clear_selections()
-        else:
-            mask_sel = (
-                (st.session_state["data"]["Propriétaire"] == proprietaire)
-                & (st.session_state["data"]["Joueur"] == joueur_sel)
-            )
-            if st.session_state["data"][mask_sel].empty:
-                st.error("Sélection invalide.")
-                clear_selections()
-            else:
-                cur = st.session_state["data"][mask_sel].iloc[0]
-                cur_statut = str(cur["Statut"])
-                cur_slot = str(cur["Slot"])
-                cur_pos = str(cur["Pos"])
-                cur_equipe = str(cur["Equipe"])
-                cur_salaire = int(cur["Salaire"])
-
-                # ====== REMPLACE COMPLETEMENT ton move_dialog() dans l'onglet Alignement par ceci ======
-
-@st.dialog(f"Déplacement — {joueur_sel}")
-def move_dialog():
-    # Ligne d'info compacte + badge compté / non compté
-    st.markdown(
-        f"**{joueur_sel}** • Pos **{cur_pos}** • Équipe **{cur_equipe}** • Salaire **{money(cur_salaire)}**  \n"
-        f"Statut **{cur_statut}** • Slot **{cur_slot if cur_slot else '—'}** • {is_counted_label(cur_statut, cur_slot)}"
-    )
-
-    # -------- Options destinations (inclut Joueurs Blessés) --------
-    options = []
-
-    # Destination Blessé (affiché dans "Choisir la destination")
-    options.append(("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé", "→ Blessé (IR)")))
-
-    if cur_slot == "Blessé":
-        # Depuis Blessé: on peut aller vers GC Actif/Banc ou Min
-        options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Blessé → GC (Actif)")))
-        options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Blessé → GC (Banc)")))
-        options.append(("Club École (Min)", ("Club École", "", "Blessé → Min")))
-    else:
-        # Non blessé
-        if cur_statut == "Club École":
-            options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Min → GC (Actif)")))
-            options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Min → GC (Banc)")))
-        else:
-            # Grand Club
-            if cur_slot == "Actif":
-                options.append(("Grand Club / Banc", ("Grand Club", "Banc", "Actif → Banc")))
-                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
-            elif cur_slot == "Banc":
-                options.append(("Grand Club / Actif", ("Grand Club", "Actif", "Banc → Actif")))
-                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
-            else:
-                options.append(("Grand Club / Actif", ("Grand Club", "Actif", "GC → Actif")))
-                options.append(("Grand Club / Banc", ("Grand Club", "Banc", "GC → Banc")))
-                options.append(("Club École (Min)", ("Club École", "", "GC → Min")))
-
-    # Déduplique labels (au cas où)
-    seen = set()
-    options2 = []
-    for lbl, payload in options:
-        if lbl not in seen:
-            seen.add(lbl)
-            options2.append((lbl, payload))
-    options = options2
-
-    labels = [o[0] for o in options]
-    choice = st.radio("Choisir la destination", labels)
-    to_statut, to_slot, action_label = dict(options)[choice]
-
-    # -------- Aperçu après déplacement (ABRÉGÉ + RÉDUIT) --------
-    pf, pd_, pg = projected_counts(cur_statut, cur_slot, cur_pos, to_statut, to_slot)
-    pgc, pce = projected_totals(cur_salaire, cur_statut, cur_slot, to_statut, to_slot)
-    pr_gc = int(st.session_state["PLAFOND_GC"] - pgc)
-    pr_ce = int(st.session_state["PLAFOND_CE"] - pce)
-
-    # Abrégé en 2 lignes (pas de metrics)
-    st.caption(
-        f"Après: **F {pf}/12 • D {pd_}/6 • G {pg}/2 • A {pf+pd_+pg}/20**"
-    )
-    st.caption(
-        f"Cap: **GC {money(pgc)} (R {money(pr_gc)}) • CE {money(pce)} (R {money(pr_ce)})**"
-    )
-
-    if pr_gc < 0:
-        st.warning("🚨 Plafond GC dépassé.")
-    if pr_ce < 0:
-        st.warning("🚨 Plafond CE dépassé.")
-
-    st.divider()
-
-    # -------- Actions --------
-    if st.button("✅ Confirmer"):
-        # Validation quotas seulement si destination Actif
-        if to_statut == "Grand Club" and to_slot == "Actif":
-            ok, msg = can_add_to_actif(cur_pos)
-            if not ok:
-                st.error(msg)
-                return
-
-        ok2 = apply_move_with_history(
-            proprietaire=proprietaire,
-            joueur=joueur_sel,
-            to_statut=to_statut,
-            to_slot=to_slot,
-            action_label=action_label,
-        )
-        if ok2:
-            clear_selections()
-            st.success("✅ Déplacement enregistré.")
-            st.rerun()
-
-    if st.button("Annuler"):
+if joueur_sel:
+    if LOCKED:
+        st.warning("🔒 Saison verrouillée : aucun changement permis.")
         clear_selections()
-        st.rerun()
+    else:
+        mask_sel = (
+            (st.session_state["data"]["Propriétaire"] == proprietaire)
+            & (st.session_state["data"]["Joueur"] == joueur_sel)
+        )
 
+        if st.session_state["data"][mask_sel].empty:
+            st.error("Sélection invalide.")
+            clear_selections()
+        else:
+            cur = st.session_state["data"][mask_sel].iloc[0]
+            cur_statut = str(cur["Statut"])
+            cur_slot = str(cur["Slot"])
+            cur_pos = str(cur["Pos"])
+            cur_equipe = str(cur["Equipe"])
+            cur_salaire = int(cur["Salaire"])
 
-                move_dialog()
+            @st.dialog(f"Déplacement — {joueur_sel}")
+            def move_dialog():
+                st.markdown(
+                    f"**{joueur_sel}** • Pos **{cur_pos}** • Équipe **{cur_equipe}** • Salaire **{money(cur_salaire)}**  \n"
+                    f"Statut **{cur_statut}** • Slot **{cur_slot if cur_slot else '—'}** • {is_counted_label(cur_statut, cur_slot)}"
+                )
+
+                # ---------- DESTINATIONS ----------
+                options = []
+
+                options.append(("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé", "→ Blessé (IR)")))
+
+                if cur_slot == "Blessé":
+                    options += [
+                        ("Grand Club / Actif", ("Grand Club", "Actif", "Blessé → GC (Actif)")),
+                        ("Grand Club / Banc", ("Grand Club", "Banc", "Blessé → GC (Banc)")),
+                        ("Club École (Min)", ("Club École", "", "Blessé → Min")),
+                    ]
+                else:
+                    if cur_statut == "Club École":
+                        options += [
+                            ("Grand Club / Actif", ("Grand Club", "Actif", "Min → GC (Actif)")),
+                            ("Grand Club / Banc", ("Grand Club", "Banc", "Min → GC (Banc)")),
+                        ]
+                    else:
+                        if cur_slot == "Actif":
+                            options += [
+                                ("Grand Club / Banc", ("Grand Club", "Banc", "Actif → Banc")),
+                                ("Club École (Min)", ("Club École", "", "GC → Min")),
+                            ]
+                        elif cur_slot == "Banc":
+                            options += [
+                                ("Grand Club / Actif", ("Grand Club", "Actif", "Banc → Actif")),
+                                ("Club École (Min)", ("Club École", "", "GC → Min")),
+                            ]
+
+                labels = [o[0] for o in options]
+                choice = st.radio("Choisir la destination", labels)
+
+                to_statut, to_slot, action_label = dict(options)[choice]
+
+                # ---------- APERÇU ABRÉGÉ ----------
+                pf, pd_, pg = projected_counts(cur_statut, cur_slot, cur_pos, to_statut, to_slot)
+                pgc, pce = projected_totals(cur_salaire, cur_statut, cur_slot, to_statut, to_slot)
+                pr_gc = st.session_state["PLAFOND_GC"] - pgc
+                pr_ce = st.session_state["PLAFOND_CE"] - pce
+
+                st.caption(f"Après: F {pf}/12 • D {pd_}/6 • G {pg}/2 • A {pf+pd_+pg}/20")
+                st.caption(f"Cap: GC {money(pgc)} (R {money(pr_gc)}) • CE {money(pce)} (R {money(pr_ce)})")
+
+                if pr_gc < 0:
+                    st.warning("🚨 Plafond GC dépassé.")
+                if pr_ce < 0:
+                    st.warning("🚨 Plafond CE dépassé.")
+
+                st.divider()
+
+                if st.button("✅ Confirmer"):
+                    if to_statut == "Grand Club" and to_slot == "Actif":
+                        ok, msg = can_add_to_actif(cur_pos)
+                        if not ok:
+                            st.error(msg)
+                            return
+
+                    apply_move_with_history(
+                        proprietaire=proprietaire,
+                        joueur=joueur_sel,
+                        to_statut=to_statut,
+                        to_slot=to_slot,
+                        action_label=action_label,
+                    )
+                    clear_selections()
+                    st.success("✅ Déplacement enregistré.")
+                    st.rerun()
+
+                if st.button("Annuler"):
+                    clear_selections()
+                    st.rerun()
+
+            # ✅ L’APPEL DOIT ÊTRE ICI, ALIGNÉ
+            move_dialog()
+
+            
 
 # =====================================================
 # HISTORIQUE
