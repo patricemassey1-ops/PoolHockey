@@ -64,7 +64,12 @@ def charger_db_joueurs():
         
         # Convertir et nettoyer les salaires
         if 'Salaire' in df_players.columns:
+            # Nettoyer les symboles $ et espaces avant conversion
+            df_players['Salaire'] = df_players['Salaire'].astype(str).str.replace(r'[\$,\s]', '', regex=True)
             df_players['Salaire'] = pd.to_numeric(df_players['Salaire'], errors='coerce').fillna(0)
+            # Si les valeurs sont trop petites (ex: 12.5 au lieu de 12500000), multiplier
+            if df_players['Salaire'].max() < 100000:
+                df_players['Salaire'] = df_players['Salaire'] * 1000000
         else:
             df_players['Salaire'] = 0
         
