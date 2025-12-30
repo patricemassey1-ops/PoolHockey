@@ -143,7 +143,7 @@ if not LOCKED:
 # =====================================================
 # HEADER
 # =====================================================
-st.image("Logo_Pool.png", width=400)
+st.image("Logo_Pool.png", width=300)
 st.title("🏒 Fantrax – Gestion Salariale")
 
 df = st.session_state["data"]
