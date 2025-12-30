@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import io
 import os
-import base64
 from datetime import datetime
 
 # =====================================================
@@ -49,53 +48,8 @@ def saison_verrouillee(season):
 # FORMAT $
 # =====================================================
 def money(v):
+    # 12 500 000 $
     return f"{int(v):,}".replace(",", " ") + " $"
-
-def salaire_fantrax(v):
-    """
-    Affiche un salaire Fantrax au format: 12,500 $ x 1000
-    (v est stocké en dollars, ex: 12500000)
-    """
-    return f"{int(v/1000):,}" + " $ x 1000"
-
-# =====================================================
-# HTML helpers (logo + cellule)
-# =====================================================
-def img_to_base64(path: str) -> str:
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
-
-def text_cell(text: str, size: int = 55, align: str = "left") -> str:
-    return f"""
-    <div style="height:{size}px; line-height:{size}px; text-align:{align};">
-        {text}
-    </div>
-    """
-
-def owner_cell(owner: str, logo_path: str, size: int = 55) -> str:
-    if logo_path and os.path.exists(logo_path):
-        b64 = img_to_base64(logo_path)
-        img_html = f"""
-        <img src="data:image/png;base64,{b64}"
-             style="height:{size}px; width:{size}px; object-fit:contain; display:block;" />
-        """
-    else:
-        img_html = f"""
-        <div style="height:{size}px; width:{size}px; display:flex; align-items:center; justify-content:center;">
-            —
-        </div>
-        """
-
-    return f"""
-    <div style="height:{size}px; display:flex; align-items:center; gap:12px;">
-        <div style="flex:0 0 {size}px; display:flex; align-items:center; justify-content:center;">
-            {img_html}
-        </div>
-        <div style="line-height:1.1;">
-            <div style="font-weight:600;">{owner}</div>
-        </div>
-    </div>
-    """
 
 # =====================================================
 # PARSER FANTRAX
@@ -209,8 +163,8 @@ if df.empty:
 resume = []
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
-    gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
-    ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
+    gc_sum = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
+    ce_sum = d[d["Statut"] == "Club École"]["Salaire"].sum()
 
     logo = ""
     for k, v in LOGOS.items():
@@ -221,24 +175,24 @@ for p in df["Propriétaire"].unique():
         {
             "Propriétaire": p,
             "Logo": logo,
-            "GC": gc,
-            "CE": ce,
-            "Restant GC": st.session_state["PLAFOND_GC"] - gc,
-            "Restant CE": st.session_state["PLAFOND_CE"] - ce,
+            "GC": gc_sum,
+            "CE": ce_sum,
+            "Restant GC": st.session_state["PLAFOND_GC"] - gc_sum,
+            "Restant CE": st.session_state["PLAFOND_CE"] - ce_sum,
         }
     )
 
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# ONGLETs
+# ONGLETs (Alignement juste après Tableau)
 # =====================================================
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations", "🧾 Alignement"]
+tab1, tab4, tab2, tab3 = st.tabs(
+    ["📊 Tableau", "🧾 Alignement", "⚖️ Transactions", "🧠 Recommandations"]
 )
 
 # =====================================================
-# TABLEAU (LOGO + NOM DANS LA MÊME COLONNE)
+# TABLEAU (logo + nom sans HTML => corrige l'affichage du <img ...>)
 # =====================================================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
@@ -254,40 +208,23 @@ with tab1:
         owner = str(r["Propriétaire"])
         logo_path = str(r["Logo"]).strip()
 
-        cols[0].markdown(owner_cell(owner, logo_path, LOGO_SIZE), unsafe_allow_html=True)
-        cols[1].markdown(text_cell(money(r["GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[2].markdown(text_cell(money(r["CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[3].markdown(text_cell(money(r["Restant GC"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
-        cols[4].markdown(text_cell(money(r["Restant CE"]), LOGO_SIZE, "left"), unsafe_allow_html=True)
+        # Colonne Équipe: logo + propriétaire
+        with cols[0]:
+            a, b = st.columns([1, 4])
+            if logo_path and os.path.exists(logo_path):
+                a.image(logo_path, width=LOGO_SIZE)
+            else:
+                a.markdown("—")
+            b.markdown(f"**{owner}**")
 
-# =====================================================
-# TRANSACTIONS (validation simple)
-# =====================================================
-with tab2:
-    p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
-    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
-    statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
-
-    ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
-    reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
-
-    if salaire > reste:
-        st.error("🚨 Dépassement du plafond")
-    else:
-        st.success("✅ Transaction valide")
-
-# =====================================================
-# RECOMMANDATIONS (simple)
-# =====================================================
-with tab3:
-    for _, r in plafonds.iterrows():
-        if r["Restant GC"] < 2_000_000:
-            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
-        if r["Restant CE"] > 10_000_000:
-            st.info(f"{r['Propriétaire']} : rappel possible")
+        cols[1].markdown(money(r["GC"]))
+        cols[2].markdown(money(r["CE"]))
+        cols[3].markdown(money(r["Restant GC"]))
+        cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
 # ALIGNEMENT (GC=Act / CE=Min) + DÉPLACEMENT + TOTAUX
+# Salaires affichés en dollars complets: 12 500 000 $
 # =====================================================
 with tab4:
     st.subheader("🧾 Alignement (Grand Club = Act | Club École = Min)")
@@ -301,7 +238,6 @@ with tab4:
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
-    # Totaux / restants
     total_gc = dprop[dprop["Statut"] == "Grand Club"]["Salaire"].sum()
     total_ce = dprop[dprop["Statut"] == "Club École"]["Salaire"].sum()
     restant_gc = st.session_state["PLAFOND_GC"] - total_gc
@@ -332,7 +268,8 @@ with tab4:
         if gc.empty:
             st.info("Aucun joueur dans le Grand Club.")
         else:
-            gc_view = gc.assign(Salaire=gc["Salaire"].apply(salaire_fantrax))
+            gc_view = gc.copy()
+            gc_view["Salaire"] = gc_view["Salaire"].apply(money)
             st.dataframe(
                 gc_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
                 use_container_width=True,
@@ -344,7 +281,8 @@ with tab4:
         if ce.empty:
             st.info("Aucun joueur dans le Club École.")
         else:
-            ce_view = ce.assign(Salaire=ce["Salaire"].apply(salaire_fantrax))
+            ce_view = ce.copy()
+            ce_view["Salaire"] = ce_view["Salaire"].apply(money)
             st.dataframe(
                 ce_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
                 use_container_width=True,
@@ -397,3 +335,29 @@ with tab4:
             st.session_state["data"].to_csv(DATA_FILE, index=False)
             st.success(f"✅ {joueur_ce} déplacé vers **Grand Club (Act)**")
             st.rerun()
+
+# =====================================================
+# TRANSACTIONS (validation simple)
+# =====================================================
+with tab2:
+    p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
+    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
+    statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
+
+    ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
+    reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
+
+    if salaire > reste:
+        st.error("🚨 Dépassement du plafond")
+    else:
+        st.success("✅ Transaction valide")
+
+# =====================================================
+# RECOMMANDATIONS (simple)
+# =====================================================
+with tab3:
+    for _, r in plafonds.iterrows():
+        if r["Restant GC"] < 2_000_000:
+            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
+        if r["Restant CE"] > 10_000_000:
+            st.info(f"{r['Propriétaire']} : rappel possible")
