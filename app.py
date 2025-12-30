@@ -13,32 +13,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =====================================================
-# CSS GLOBAL (ALIGNEMENT LOGOS & TEXTE)
-# =====================================================
-st.markdown("""
-<style>
-.logo-cell {
-    display: flex;
-    align-items: center;
-    height: 40px;
-}
-.logo-cell img {
-    height: 32px;
-    width: auto;
-}
-.text-cell {
-    display: flex;
-    align-items: center;
-    height: 40px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# =====================================================
-# PLAFONDS
+# PLAFONDS (MODIFIABLES)
 # =====================================================
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -50,15 +25,16 @@ if "PLAFOND_CE" not in st.session_state:
 # =====================================================
 LOGOS = {
     "Nordiques": "Nordiques_Logo.png",
-    "Cracheurs": "Cracheurs_Logo.png",
+    "Cracheurs": "Cracheurs_Logo.png",  
     "Prédateurs": "Prédateurs_Logo.png",
     "Red Wings": "Red_Wings_Logo.png",
     "Whalers": "Whalers_Logo.png",
     "Canadiens": "Canadiens_Logo.png"
 }
 
+
 # =====================================================
-# SAISON
+# SAISON AUTO
 # =====================================================
 def saison_auto():
     now = datetime.now()
@@ -82,6 +58,9 @@ def parse_fantrax(upload):
 
     df = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
     df.columns = [c.replace('"', '').strip() for c in df.columns]
+
+    if "Player" not in df.columns or "Salary" not in df.columns:
+        raise ValueError("Colonnes Fantrax non détectées")
 
     out = pd.DataFrame()
     out["Joueur"] = df["Player"].astype(str)
@@ -147,6 +126,22 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     st.session_state["season"] = season
 
 # =====================================================
+# IMPORT
+# =====================================================
+st.sidebar.header("📥 Import Fantrax")
+if not LOCKED:
+    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
+    if uploaded:
+        df = parse_fantrax(uploaded)
+        df["Propriétaire"] = uploaded.name.replace(".csv", "")
+        st.session_state["data"] = pd.concat(
+            [st.session_state["data"], df],
+            ignore_index=True
+        ).drop_duplicates(subset=["Propriétaire", "Joueur"])
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        st.sidebar.success("✅ Import réussi")
+
+# =====================================================
 # HEADER
 # =====================================================
 st.image("Logo_Pool.png", use_container_width=True)
@@ -183,10 +178,13 @@ for p in df["Propriétaire"].unique():
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# ONGLET TABLEAU
+# ONGLETs
 # =====================================================
 tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
+# =====================================================
+# TABLEAU AVEC LOGOS (CORRIGÉ)
+# =====================================================
 with tab1:
     headers = st.columns([1.2, 2.5, 2, 2, 2, 2])
     headers[0].markdown("**Logo**")
@@ -200,21 +198,11 @@ with tab1:
         cols = st.columns([1.2, 2.5, 2, 2, 2, 2])
 
         if r["Logo"] and os.path.exists(r["Logo"]):
-            cols[0].markdown(
-                f"""
-                <div class="logo-cell">
-                    <img src="{r['Logo']}">
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            cols[0].image(r["Logo"], width=55)
         else:
-            cols[0].markdown('<div class="logo-cell">—</div>', unsafe_allow_html=True)
+            cols[0].markdown("—")
 
-        cols[1].markdown(
-            f'<div class="text-cell">{r["Propriétaire"]}</div>',
-            unsafe_allow_html=True
-        )
+        cols[1].markdown(r["Propriétaire"])
         cols[2].markdown(money(r["GC"]))
         cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Restant GC"]))
