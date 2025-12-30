@@ -258,6 +258,11 @@ def set_move_ctx(owner: str, joueur: str):
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
 
+# =====================================================
+# CLIC JOUEUR -> OUVERTURE POP-UP (ROBUSTE)
+# =====================================================
+
+# 1) Détecte une sélection dans un dataframe
 def pick_from_df(df_ui: pd.DataFrame, key_state: str) -> str:
     sel = st.session_state.get(key_state, {})
     rows = sel.get("selection", {}).get("rows", [])
@@ -266,6 +271,26 @@ def pick_from_df(df_ui: pd.DataFrame, key_state: str) -> str:
         if 0 <= i < len(df_ui):
             return str(df_ui.iloc[i]["Joueur"])
     return ""
+
+
+# 2) Récupère le premier joueur sélectionné (priorité: Actifs -> Banc -> Mineur)
+picked = ""
+picked = picked or pick_from_df(df_actifs_ui, "sel_actifs")
+picked = picked or pick_from_df(df_banc_ui, "sel_banc")
+picked = picked or pick_from_df(df_min_ui, "sel_min")
+
+# 3) Si un joueur a été cliqué, on stocke le contexte et on rerun pour ouvrir le dialog
+if picked:
+    set_move_ctx(proprietaire, picked)
+
+    # IMPORTANT: effacer les sélections sinon Streamlit peut relancer le pop-up en boucle
+    clear_df_selections()
+
+    st.rerun()
+
+# 4) Ouvre le pop-up si un move_ctx existe (ex: venant d'un bouton Blessé)
+open_move_dialog()
+
 
 # =====================================================
 # HISTORY HELPERS
