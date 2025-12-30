@@ -28,7 +28,7 @@ LOGOS = {
     "Cracheurs": "Cracheurs.jpeg",  
     "Prédateurs": "Prédateurs_Logo.png",
     "Red Wings": "Red_Wings_Logo.png",
-    "Whalers": "Whalers_Logo.png",
+    "Whalers": "Whalers_Logo.jpg",
     "Canadiens": "Canadiens_Logo.png"
 }
 
