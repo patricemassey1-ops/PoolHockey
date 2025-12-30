@@ -29,7 +29,28 @@ def sauvegarder_donnees(df, file):
     df.drop_duplicates().to_csv(file, index=False)
     charger_donnees.clear()
 
-def format_currency(val):
+def ajouter_action_historique(proprio, action, joueur, details):
+    """Ajoute une action dans l'historique"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    montreal_tz = ZoneInfo("America/Montreal")
+    now = datetime.now(montreal_tz)
+    
+    nouvelle_action = pd.DataFrame({
+        'Date': [now.strftime("%Y-%m-%d")],
+        'Heure': [now.strftime("%H:%M:%S")],
+        'Propriétaire': [proprio],
+        'Action': [action],
+        'Joueur': [joueur],
+        'Details': [details]
+    })
+    
+    st.session_state['historique_actions'] = pd.concat(
+        [st.session_state['historique_actions'], nouvelle_action],
+        ignore_index=True
+    )
+    sauvegarder_donnees(st.session_state['historique_actions'], HISTORIQUE_FILE)
     if pd.isna(val) or val == "": 
         return "0 $"
     try:
@@ -102,6 +123,11 @@ if 'rachats' not in st.session_state:
 
 if 'db_joueurs' not in st.session_state:
     st.session_state['db_joueurs'] = charger_db_joueurs()
+
+# Initialiser l'historique des actions
+HISTORIQUE_FILE = "historique_actions.csv"
+if 'historique_actions' not in st.session_state:
+    st.session_state['historique_actions'] = charger_donnees(HISTORIQUE_FILE, ['Date', 'Heure', 'Propriétaire', 'Action', 'Joueur', 'Details'])
 
 # --- LOGIQUE D'IMPORTATION ---
 st.sidebar.header("⚙️ Configuration")
@@ -231,7 +257,7 @@ if fichiers_telecharges:
         progress_bar.empty()
 
 # --- TABS (Dashboard & Sim) ---
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion", "📜 Historique"])
 
 with tab1:
     if not st.session_state['historique'].empty:
@@ -505,6 +531,16 @@ with tab2:
                                 if joueur_to_move in st.session_state[f'{sim_key}_grand_club']:
                                     st.session_state[f'{sim_key}_grand_club'].remove(joueur_to_move)
                                     st.session_state[f'{sim_key}_club_ecole'].append(joueur_to_move)
+                                    
+                                    # Enregistrer dans l'historique
+                                    proprio_nom = selected_proprio_full.split('(')[0].strip()
+                                    ajouter_action_historique(
+                                        proprio_nom,
+                                        "Changement d'alignement",
+                                        joueur_to_move,
+                                        "Grand Club → Club École"
+                                    )
+                                    
                                     st.rerun()
                     else:
                         st.info("Aucun joueur dans le Grand Club")
@@ -553,6 +589,16 @@ with tab2:
                                 if joueur_to_move_gc in st.session_state[f'{sim_key}_club_ecole']:
                                     st.session_state[f'{sim_key}_club_ecole'].remove(joueur_to_move_gc)
                                     st.session_state[f'{sim_key}_grand_club'].append(joueur_to_move_gc)
+                                    
+                                    # Enregistrer dans l'historique
+                                    proprio_nom = selected_proprio_full.split('(')[0].strip()
+                                    ajouter_action_historique(
+                                        proprio_nom,
+                                        "Changement d'alignement",
+                                        joueur_to_move_gc,
+                                        "Club École → Grand Club"
+                                    )
+                                    
                                     st.rerun()
                     else:
                         st.info("Aucun joueur dans le Club École")
@@ -841,9 +887,112 @@ with tab3:
                         sauvegarder_donnees(st.session_state['historique'], DB_FILE)
                         sauvegarder_donnees(st.session_state['rachats'], BUYOUT_FILE)
                         
+                        # Enregistrer dans l'historique des actions
+                        proprio_nom = selected_proprio_rachat.split('(')[0].strip()
+                        ajouter_action_historique(
+                            proprio_nom,
+                            "Rachat de contrat",
+                            joueur_rachat['joueur'],
+                            f"Pénalité: {format_currency(penalite)} sur {masse_penalite}"
+                        )
+                        
                         st.success(f"✅ Rachat effectué! {joueur_rachat['joueur']} est marqué comme racheté (salaire à 0$) et une pénalité de {format_currency(penalite)} a été ajoutée au {masse_penalite}.")
                         st.balloons()
                 else:
                     st.info("Aucun joueur trouvé pour ce propriétaire.")
         else:
             st.info("Importez d'abord un fichier CSV pour gérer les rachats.")
+
+with tab4:
+    st.header("📜 Historique des Actions")
+    
+    if not st.session_state['historique_actions'].empty:
+        # Filtres
+        col_filtre1, col_filtre2 = st.columns(2)
+        
+        with col_filtre1:
+            # Filtre par propriétaire
+            proprietaires = ["Tous"] + sorted(st.session_state['historique_actions']['Propriétaire'].unique().tolist())
+            filtre_proprio = st.selectbox("Filtrer par propriétaire", proprietaires, key="filtre_histo_proprio")
+        
+        with col_filtre2:
+            # Filtre par type d'action
+            actions = ["Toutes"] + sorted(st.session_state['historique_actions']['Action'].unique().tolist())
+            filtre_action = st.selectbox("Filtrer par action", actions, key="filtre_histo_action")
+        
+        # Appliquer les filtres
+        df_histo = st.session_state['historique_actions'].copy()
+        
+        if filtre_proprio != "Tous":
+            df_histo = df_histo[df_histo['Propriétaire'] == filtre_proprio]
+        
+        if filtre_action != "Toutes":
+            df_histo = df_histo[df_histo['Action'] == filtre_action]
+        
+        # Trier par date et heure décroissant (plus récent en haut)
+        df_histo = df_histo.sort_values(by=['Date', 'Heure'], ascending=False)
+        
+        st.divider()
+        
+        # Afficher le nombre d'actions
+        st.write(f"**{len(df_histo)} action(s) trouvée(s)**")
+        
+        # Afficher l'historique
+        if not df_histo.empty:
+            # Reformater pour l'affichage
+            df_display = df_histo.copy()
+            df_display['Date/Heure'] = df_display['Date'] + ' ' + df_display['Heure']
+            df_display = df_display[['Date/Heure', 'Propriétaire', 'Action', 'Joueur', 'Details']]
+            
+            # Style selon le type d'action
+            def color_action(row):
+                styles = [''] * len(row)
+                action = row['Action']
+                
+                if action == "Rachat de contrat":
+                    styles = ['background-color: #ffe6e6'] * len(row)  # Rouge clair
+                elif action == "Changement d'alignement":
+                    styles = ['background-color: #e6f3ff'] * len(row)  # Bleu clair
+                
+                return styles
+            
+            styled_df = df_display.style.apply(color_action, axis=1)
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            # Bouton pour exporter
+            csv = df_display.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Télécharger l'historique (CSV)",
+                data=csv,
+                file_name=f"historique_actions_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("Aucune action correspondant aux filtres.")
+        
+        st.divider()
+        
+        # Statistiques
+        st.subheader("📊 Statistiques")
+        
+        if not st.session_state['historique_actions'].empty:
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            
+            with col_stat1:
+                total_actions = len(st.session_state['historique_actions'])
+                st.metric("Total des actions", total_actions)
+            
+            with col_stat2:
+                total_rachats = len(st.session_state['historique_actions'][
+                    st.session_state['historique_actions']['Action'] == "Rachat de contrat"
+                ])
+                st.metric("Rachats de contrat", total_rachats)
+            
+            with col_stat3:
+                total_changements = len(st.session_state['historique_actions'][
+                    st.session_state['historique_actions']['Action'] == "Changement d'alignement"
+                ])
+                st.metric("Changements d'alignement", total_changements)
+    else:
+        st.info("Aucune action enregistrée pour le moment. Les actions effectuées dans le simulateur et les rachats apparaîtront ici.")
