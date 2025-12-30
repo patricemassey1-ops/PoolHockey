@@ -64,9 +64,9 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
-# =====================================================
-# NETTOYAGE GLOBAL (retire None/Goalies etc.)
-# =====================================================
+# =========================
+# ✅ BLOC 1 — clean_data() COMPLET (avec suppression de doublons)
+# =========================
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
@@ -103,6 +103,23 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
             & (df["Equipe"].str.lower().isin(["none", "nan", "", "n/a"]))
         )
     ]
+
+    # Slot par défaut si GC
+    mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
+    df.loc[mask_gc_default, "Slot"] = "Actif"
+
+    # si Club École => Slot vide
+    mask_ce = (df["Statut"] == "Club École")
+    df.loc[mask_ce, "Slot"] = ""
+
+    # -------------------------------------------------
+    # ✅ AUCUN DOUBLON: (Propriétaire, Joueur) unique
+    # On garde la dernière occurrence (la plus récente)
+    # -------------------------------------------------
+    df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+    return df.reset_index(drop=True)
+
 
     # Slot par défaut si GC
     mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
@@ -241,13 +258,17 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
 
-# =====================================================
-# DATA
-# =====================================================
+# =========================
+# ✅ BLOC 2 — DATA COMPLET (avec sauvegarde immédiate après nettoyage)
+# Remplace TOUT ton bloc DATA actuel par celui-ci.
+# =========================
 if "season" not in st.session_state or st.session_state["season"] != season:
     if os.path.exists(DATA_FILE):
         st.session_state["data"] = pd.read_csv(DATA_FILE)
         st.session_state["data"] = clean_data(st.session_state["data"])
+
+        # ✅ Sauvegarde immédiate après nettoyage (retire les doublons du fichier)
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
     else:
         st.session_state["data"] = pd.DataFrame(
             columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe"]
@@ -258,6 +279,7 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 
     st.session_state["data"] = clean_data(st.session_state["data"])
     st.session_state["season"] = season
+
 
 # =====================================================
 # IMPORT FANTRAX (uploader toujours visible)
@@ -338,15 +360,17 @@ tab1, tab4, tab2, tab3 = st.tabs(
     ["📊 Tableau", "🧾 Alignement", "⚖️ Transactions", "🧠 Recommandations"]
 )
 
-# =====================================================
-# TABLEAU
-# =====================================================
+# =========================
+# ✅ BLOC 3 — TAB1 (Tableau) COMPLET avec BONUS:
+# Restant GC collé à Grand Club (ordre changé)
+# Remplace TOUT ton bloc "with tab1:" par celui-ci.
+# =========================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipe**")
     headers[1].markdown("**Grand Club**")
-    headers[2].markdown("**Club École**")
-    headers[3].markdown("**Restant GC**")
+    headers[2].markdown("**Restant GC**")
+    headers[3].markdown("**Club École**")
     headers[4].markdown("**Restant CE**")
 
     for _, r in plafonds.iterrows():
@@ -363,10 +387,12 @@ with tab1:
                 a.markdown("—")
             b.markdown(f"**{owner}**")
 
+        # ✅ Ordre: GC, Restant GC, CE, Restant CE
         cols[1].markdown(money(r["GC"]))
-        cols[2].markdown(money(r["CE"]))
-        cols[3].markdown(money(r["Restant GC"]))
+        cols[2].markdown(money(r["Restant GC"]))
+        cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Restant CE"]))
+
 
 # =====================================================
 # ALIGNEMENT (Actifs: 12F / 6D / 2G = 20) + Banc illimité (F/D/G autorisés)
