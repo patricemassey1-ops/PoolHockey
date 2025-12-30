@@ -141,7 +141,13 @@ if fichiers_telecharges:
                 c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
                 c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
                 c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
-                c_team = next((c for c in df_merged.columns if 'team' in c.lower()), None)
+                
+                # Chercher la colonne TEAM (insensible à la casse)
+                c_team = None
+                for col in df_merged.columns:
+                    if col.upper() == 'TEAM':
+                        c_team = col
+                        break
 
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
                 df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
@@ -151,7 +157,7 @@ if fichiers_telecharges:
                     'Salaire': df_merged[c_salary], 
                     'Statut': df_merged[c_status].apply(lambda x: "Club École" if "MIN" in str(x).upper() else "Grand Club"),
                     'Pos': df_merged[c_pos].fillna("N/A").astype(str),
-                    'Equipe': df_merged[c_team].astype(str) if c_team else "N/A",
+                    'Equipe': df_merged[c_team].fillna("N/A").astype(str) if c_team else "N/A",
                     'Propriétaire': f"{fichier.name.replace('.csv', '')} ({horodatage})"
                 })
                 
