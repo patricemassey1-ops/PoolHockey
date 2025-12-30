@@ -106,6 +106,11 @@ st.sidebar.divider()
 
 fichiers_telecharges = st.sidebar.file_uploader("📥 Importer CSV Fantrax", type="csv", accept_multiple_files=True)
 
+# Afficher message si import vient d'être effectué
+if 'import_done' in st.session_state and st.session_state['import_done']:
+    st.sidebar.success("✅ Import réussi!")
+    st.session_state['import_done'] = False
+
 if fichiers_telecharges:
     # Barre de progression
     progress_bar = st.sidebar.progress(0)
@@ -198,15 +203,14 @@ if fichiers_telecharges:
         status_text.text("✅ Import terminé!")
         progress_bar.progress(100)
         
-        # Attendre 2 secondes puis nettoyer
         import time
-        time.sleep(2)
+        time.sleep(1)
         
         status_text.empty()
         progress_bar.empty()
         
-        st.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s) avec succès! La page va se rafraîchir...")
-        time.sleep(1)
+        # Marquer qu'un import vient d'être fait
+        st.session_state['import_done'] = True
         st.rerun()
 
 # --- TABS (Dashboard & Sim) ---
