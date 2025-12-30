@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io, os, tempfile, csv
+import os, tempfile, csv
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -32,53 +32,68 @@ def season_file(season):
     return f"{DATA_DIR}/fantrax_{season}.csv"
 
 # ======================================================
-# PARSER FANTRAX **BULLETPROOF**
+# PARSER FANTRAX — AUTO FORMAT (LA CLE)
 # ======================================================
 def parse_fantrax_file(uploaded_file):
-    content = uploaded_file.read().decode("utf-8", errors="ignore").splitlines()
+    text = uploaded_file.read().decode("utf-8", errors="ignore")
+    lines = [l for l in text.splitlines() if l.strip()]
 
-    reader = csv.reader(content, delimiter="\t")
-    rows = list(reader)
+    if not lines:
+        raise ValueError("Fichier vide")
 
-    header = None
-    for i, row in enumerate(rows):
-        if "Player" in row and "Salary" in row:
-            header = row
-            start = i + 1
-            break
+    # on teste les séparateurs possibles Fantrax
+    for sep in ["\t", ",", ";"]:
+        reader = csv.reader(lines, delimiter=sep)
+        rows = list(reader)
 
-    if header is None:
-        raise ValueError("Aucune donnée Fantrax détectée")
+        header_idx = None
+        for i, row in enumerate(rows):
+            if "Player" in row and "Salary" in row:
+                header_idx = i
+                header = row
+                break
 
-    col_idx = {name: header.index(name) for name in header if name in header}
+        if header_idx is None:
+            continue  # mauvais séparateur
 
-    joueurs = []
+        idx = {name: header.index(name) for name in header}
 
-    for r in rows[start:]:
-        if len(r) <= max(col_idx.values()):
-            continue
-        if not r[col_idx["Player"]]:
-            continue
+        joueurs = []
+        for r in rows[header_idx + 1:]:
+            if len(r) <= max(idx.values()):
+                continue
+            if not r[idx["Player"]].strip():
+                continue
 
-        try:
-            salaire = float(r[col_idx["Salary"]].replace(",", "").replace("$", "")) * 1000
-        except:
-            salaire = 0
+            try:
+                salaire = float(
+                    r[idx["Salary"]]
+                    .replace(",", "")
+                    .replace("$", "")
+                    .strip()
+                ) * 1000
+            except:
+                salaire = 0
 
-        joueurs.append({
-            "Joueur": r[col_idx["Player"]],
-            "Salaire": salaire,
-            "Pos": r[col_idx["Pos"]] if "Pos" in col_idx else "N/A",
-            "Statut": "Club École" if "min" in r[col_idx.get("Status", "")].lower() else "Grand Club"
-        })
+            joueurs.append({
+                "Joueur": r[idx["Player"]],
+                "Salaire": salaire,
+                "Pos": r[idx["Pos"]] if "Pos" in idx else "N/A",
+                "Statut": (
+                    "Club École"
+                    if "min" in r[idx.get("Status", "")].lower()
+                    else "Grand Club"
+                )
+            })
 
-    if not joueurs:
-        raise ValueError("Aucun joueur valide trouvé")
+        if joueurs:
+            return pd.DataFrame(joueurs)
 
-    return pd.DataFrame(joueurs)
+    # si aucun séparateur ne fonctionne
+    raise ValueError("Format Fantrax non reconnu (séparateur inconnu)")
 
 # ======================================================
-# PLAFOND (SAFE)
+# PLAFOND SALARIAL
 # ======================================================
 def controle_plafond(df):
     cols = ["Propriétaire", "GC", "CE", "RGC", "RCE"]
@@ -122,7 +137,7 @@ def ia_reco(df):
 # ======================================================
 def export_pdf(season, df):
     styles = getSampleStyleSheet()
-    elements = [Paragraph(f"<b>Rapport Fantrax {season}</b>", styles["Title"])]
+    elements = [Paragraph(f"<b>Rapport Fantrax – Saison {season}</b>", styles["Title"])]
 
     plaf = controle_plafond(df)
     table_data = [["GM", "GC", "RGC", "CE", "RCE"]]
@@ -185,6 +200,7 @@ if not plafonds.empty:
     fig, ax = plt.subplots()
     ax.bar(plafonds["Propriétaire"], plafonds["GC"])
     ax.axhline(PLAFOND_GRAND_CLUB)
+    ax.set_title("Masse salariale – Grand Club")
     st.pyplot(fig)
 
 st.subheader("🧠 Recommandations IA")
