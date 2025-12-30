@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+import re
+import csv
 from datetime import datetime
 
 # =====================================================
@@ -31,8 +33,7 @@ LOGOS = {
     "Whalers": "Whalers_Logo.png",
     "Canadiens": "Canadiens_Logo.png",
 }
-
-LOGO_SIZE = 55  # taille des logos (px)
+LOGO_SIZE = 55
 
 # =====================================================
 # SAISON AUTO
@@ -48,21 +49,17 @@ def saison_verrouillee(season):
 # FORMAT $
 # =====================================================
 def money(v):
-    # 12 500 000 $
     return f"{int(v):,}".replace(",", " ") + " $"
 
 # =====================================================
-# PARSER FANTRAX
+# PARSER FANTRAX (Skaters + Goalies séparés par ligne vide / entêtes multiples)
+# - Ajoute Equipe depuis colonne Team
+# - Crée Slot: Actif si Grand Club, sinon vide
 # =====================================================
-
 def parse_fantrax(upload):
-    import csv
-    import re
-
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
     raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
-    # Détecte un séparateur probable
     def detect_sep(lines):
         for l in lines:
             low = l.lower()
@@ -70,11 +67,11 @@ def parse_fantrax(upload):
                 for d in [",", ";", "\t", "|"]:
                     if d in l:
                         return d
+        # fallback (souvent csv virgule)
         return ","
 
     sep = detect_sep(raw_lines)
 
-    # Repère toutes les lignes header contenant player+salary
     header_idxs = []
     for i, l in enumerate(raw_lines):
         low = l.lower()
@@ -94,7 +91,7 @@ def parse_fantrax(upload):
             io.StringIO("\n".join(lines)),
             sep=sep,
             engine="python",
-            on_bad_lines="skip"
+            on_bad_lines="skip",
         )
         dfp.columns = [c.strip().replace('"', "") for c in dfp.columns]
         return dfp
@@ -111,10 +108,7 @@ def parse_fantrax(upload):
 
     df = pd.concat(parts, ignore_index=True)
 
-    # Normalisation des colonnes (insensible à la casse)
-    cols = {c.lower(): c for c in df.columns}
-
-    # Tolérance: parfois 'Player Name' ou 'Salary ($)' etc.
+    # Normalisation colonnes (tolérante)
     def find_col(possibles):
         for p in possibles:
             for c in df.columns:
@@ -122,19 +116,17 @@ def parse_fantrax(upload):
                     return c
         return None
 
-    player_col = cols.get("player") or find_col(["player"])
-    salary_col = cols.get("salary") or find_col(["salary"])
-    team_col   = cols.get("team")   or find_col(["team"])
-    pos_col    = cols.get("pos")    or find_col(["pos"])
-    status_col = cols.get("status") or find_col(["status"])
+    player_col = find_col(["player"])
+    salary_col = find_col(["salary"])
+    team_col = find_col(["team"])
+    pos_col = find_col(["pos"])
+    status_col = find_col(["status"])
 
     if not player_col or not salary_col:
         raise ValueError(f"Colonnes Player/Salary introuvables. Colonnes trouvées: {list(df.columns)}")
 
     out = pd.DataFrame()
     out["Joueur"] = df[player_col].astype(str).str.strip()
-
-    # ✅ Équipe du joueur depuis la colonne Team
     out["Equipe"] = df[team_col].astype(str).str.strip() if team_col else "N/A"
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "N/A"
 
@@ -145,6 +137,8 @@ def parse_fantrax(upload):
         .str.replace(" ", "", regex=False)
         .replace(["None", "nan", "NaN", ""], "0")
     )
+
+    # Fantrax = milliers -> dollars
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
 
     if status_col:
@@ -154,11 +148,11 @@ def parse_fantrax(upload):
     else:
         out["Statut"] = "Grand Club"
 
+    # Slot par défaut (règles d'alignement)
+    out["Slot"] = out["Statut"].apply(lambda s: "Actif" if s == "Grand Club" else "")
+
     out = out[out["Joueur"].str.len() > 2].reset_index(drop=True)
-
-    # ✅ Retour garanti DataFrame
     return out
-
 
 # =====================================================
 # SIDEBAR
@@ -200,8 +194,17 @@ if "season" not in st.session_state or st.session_state["season"] != season:
         st.session_state["data"] = pd.read_csv(DATA_FILE)
     else:
         st.session_state["data"] = pd.DataFrame(
-            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos", "Equipe"]
+            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe"]
         )
+
+    # Compatibilité si anciens fichiers sans Slot
+    if "Slot" not in st.session_state["data"].columns:
+        st.session_state["data"]["Slot"] = ""
+
+    # Default: GC + Slot vide => Actif
+    mask_gc = (st.session_state["data"]["Statut"] == "Grand Club") & (st.session_state["data"]["Slot"].fillna("").eq(""))
+    st.session_state["data"].loc[mask_gc, "Slot"] = "Actif"
+
     st.session_state["season"] = season
 
 # =====================================================
@@ -223,7 +226,7 @@ if uploaded:
             df_import = parse_fantrax(uploaded)
 
             if df_import is None or not isinstance(df_import, pd.DataFrame):
-                st.sidebar.error("❌ Erreur interne : données invalides.")
+                st.sidebar.error("❌ Erreur: données invalides (parse_fantrax).")
                 st.stop()
 
             if df_import.empty:
@@ -243,8 +246,7 @@ if uploaded:
 
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
-
-
+            st.stop()
 
 # =====================================================
 # HEADER
@@ -292,7 +294,7 @@ tab1, tab4, tab2, tab3 = st.tabs(
 )
 
 # =====================================================
-# TABLEAU (logo + nom sans HTML => corrige l'affichage du <img ...>)
+# TABLEAU (logo + propriétaire)
 # =====================================================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
@@ -308,7 +310,6 @@ with tab1:
         owner = str(r["Propriétaire"])
         logo_path = str(r["Logo"]).strip()
 
-        # Colonne Équipe: logo + propriétaire
         with cols[0]:
             a, b = st.columns([1, 4])
             if logo_path and os.path.exists(logo_path):
@@ -323,118 +324,228 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# ALIGNEMENT (GC=Act / CE=Min) + DÉPLACEMENT + TOTAUX
-# Salaires affichés en dollars complets: 12 500 000 $
+# ALIGNEMENT (20 Actifs + Banc(3) + 2 G; pas de gardien sur banc)
 # =====================================================
 with tab4:
-    st.subheader("🧾 Alignement (Grand Club = Act | Club École = Min)")
+    st.subheader("🧾 Alignement")
+    st.caption("Règles : **20 patineurs Actifs**, **max 3 sur le Banc**, **2 Gardiens Actifs** (pas de gardien sur le banc).")
 
     proprietaire = st.selectbox(
         "Propriétaire",
-        sorted(df["Propriétaire"].unique()),
+        sorted(st.session_state["data"]["Propriétaire"].unique()),
         key="align_owner",
     )
 
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
-    total_gc = dprop[dprop["Statut"] == "Grand Club"]["Salaire"].sum()
-    total_ce = dprop[dprop["Statut"] == "Club École"]["Salaire"].sum()
+    def is_goalie_pos(pos):
+        return "g" in str(pos).lower()
+
+    def is_goalie_series(s):
+        return s.astype(str).str.lower().str.contains("g", na=False)
+
+    # Sécurise Slot
+    if "Slot" not in st.session_state["data"].columns:
+        st.session_state["data"]["Slot"] = ""
+
+    # Default Slot: GC + Slot vide => Actif
+    mask_gc_default = (dprop["Statut"] == "Grand Club") & (dprop["Slot"].fillna("").eq(""))
+    if mask_gc_default.any():
+        mask_all = (
+            (st.session_state["data"]["Propriétaire"] == proprietaire)
+            & (st.session_state["data"]["Statut"] == "Grand Club")
+            & (st.session_state["data"]["Slot"].fillna("").eq(""))
+        )
+        st.session_state["data"].loc[mask_all, "Slot"] = "Actif"
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        dprop = st.session_state["data"][st.session_state["data"]["Propriétaire"] == proprietaire].copy()
+
+    gc_all = dprop[dprop["Statut"] == "Grand Club"].copy()
+    ce_all = dprop[dprop["Statut"] == "Club École"].copy()
+
+    gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
+    gc_banc = gc_all[gc_all["Slot"] == "Banc"].copy()
+
+    actif_goalies = gc_actif[is_goalie_series(gc_actif["Pos"])].copy()
+    actif_skaters = gc_actif[~is_goalie_series(gc_actif["Pos"])].copy()
+
+    banc_goalies = gc_banc[is_goalie_series(gc_banc["Pos"])].copy()
+    banc_skaters = gc_banc[~is_goalie_series(gc_banc["Pos"])].copy()
+
+    nb_actif_skaters = len(actif_skaters)
+    nb_actif_goalies = len(actif_goalies)
+    nb_banc_skaters = len(banc_skaters)
+
+    total_gc = gc_all["Salaire"].sum()
+    total_ce = ce_all["Salaire"].sum()
     restant_gc = st.session_state["PLAFOND_GC"] - total_gc
     restant_ce = st.session_state["PLAFOND_CE"] - total_ce
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🏒 Total Grand Club (Act)", money(total_gc))
-    m2.metric("🏫 Total Club École (Min)", money(total_ce))
+    m1.metric("🏒 Total GC", money(total_gc))
+    m2.metric("🏫 Total CE", money(total_ce))
     m3.metric("✅ Restant GC", money(restant_gc))
     m4.metric("✅ Restant CE", money(restant_ce))
 
-    if restant_gc < 0 and restant_ce < 0:
-        st.error("🚨 Dépassement des plafonds GC ET CE.")
-    elif restant_gc < 0:
-        st.error("🚨 Dépassement du plafond Grand Club (GC).")
-    elif restant_ce < 0:
-        st.error("🚨 Dépassement du plafond Club École (CE).")
+    cA, cB, cC, cD = st.columns(4)
+    cA.metric("Actifs (patineurs)", f"{nb_actif_skaters}/20")
+    cB.metric("Gardiens (actifs)", f"{nb_actif_goalies}/2")
+    cC.metric("Banc (patineurs)", f"{nb_banc_skaters}/3")
+    cD.metric("Gardiens sur banc", f"{len(banc_goalies)}/0")
+
+    if len(banc_goalies) > 0:
+        st.error("🚨 Gardien sur le banc interdit. Déplace-le en Actif ou en Club École.")
+    if nb_banc_skaters > 3:
+        st.error("🚨 Trop de joueurs sur le banc (max 3).")
+    if nb_actif_skaters != 20:
+        st.warning("⚠️ Il doit y avoir exactement **20 patineurs actifs**.")
+    if nb_actif_goalies != 2:
+        st.warning("⚠️ Il doit y avoir exactement **2 gardiens actifs**.")
 
     st.divider()
 
-    gc = dprop[dprop["Statut"] == "Grand Club"].sort_values(["Pos", "Joueur"])
-    ce = dprop[dprop["Statut"] == "Club École"].sort_values(["Pos", "Joueur"])
+    def view_df(x):
+        if x.empty:
+            return x
+        y = x.copy()
+        y["Salaire"] = y["Salaire"].apply(money)
+        return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
 
-    c1, c2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
-        st.markdown("### 🏒 Grand Club (**Act**)")
-        if gc.empty:
-            st.info("Aucun joueur dans le Grand Club.")
+    with col1:
+        st.markdown("### 🟢 Actifs")
+        st.caption("20 patineurs + 2 gardiens")
+        if gc_actif.empty:
+            st.info("Aucun joueur actif.")
         else:
-            gc_view = gc.copy()
-            gc_view["Salaire"] = gc_view["Salaire"].apply(money)
-            st.dataframe(
-                gc_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(view_df(gc_actif.sort_values(["Pos", "Joueur"])), use_container_width=True, hide_index=True)
 
-    with c2:
-        st.markdown("### 🏫 Club École (**Min**)")
-        if ce.empty:
-            st.info("Aucun joueur dans le Club École.")
+    with col2:
+        st.markdown("### 🟡 Banc")
+        st.caption("Max 3 (patineurs seulement)")
+        if gc_banc.empty:
+            st.info("Aucun joueur sur le banc.")
         else:
-            ce_view = ce.copy()
-            ce_view["Salaire"] = ce_view["Salaire"].apply(money)
-            st.dataframe(
-                ce_view[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(view_df(gc_banc.sort_values(["Pos", "Joueur"])), use_container_width=True, hide_index=True)
+
+    with col3:
+        st.markdown("### 🔵 Club École (Min)")
+        if ce_all.empty:
+            st.info("Aucun joueur au Club École.")
+        else:
+            st.dataframe(view_df(ce_all.sort_values(["Pos", "Joueur"])), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.markdown("### 🔁 Déplacer un joueur")
+    st.markdown("### 🔁 Déplacements")
 
     if LOCKED:
-        st.warning("Saison verrouillée : aucun changement d’alignement n’est permis.")
+        st.warning("🔒 Saison verrouillée : aucun changement d’alignement n’est permis.")
         st.stop()
 
-    col_move1, col_move2 = st.columns(2)
+    a1, a2, a3 = st.columns(3)
 
-    # --- GC -> CE
-    with col_move1:
-        joueurs_gc = gc["Joueur"].tolist()
-        joueur_gc = st.selectbox(
-            "Déplacer du Grand Club vers Club École",
-            joueurs_gc if joueurs_gc else ["—"],
-            disabled=(len(joueurs_gc) == 0),
-            key="move_gc_to_ce",
+    # Club École -> Grand Club (Actif ou Banc; gardien => Actif seulement)
+    with a1:
+        st.markdown("**⬆️ Rappel (Min → GC)**")
+        ce_players = ce_all["Joueur"].tolist()
+        ce_choice = st.selectbox(
+            "Joueur (Club École)",
+            ce_players if ce_players else ["—"],
+            disabled=(len(ce_players) == 0),
+            key="recall_player",
         )
 
-        if st.button("➡️ Envoyer au Club École (Min)", disabled=(len(joueurs_gc) == 0), key="btn_gc_to_ce"):
-            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (
-                st.session_state["data"]["Joueur"] == joueur_gc
-            )
+        dest = st.radio(
+            "Destination",
+            ["Actif", "Banc"],
+            horizontal=True,
+            key="recall_dest",
+            disabled=(len(ce_players) == 0),
+        )
+
+        if st.button("Rappeler", disabled=(len(ce_players) == 0), key="btn_recall"):
+            row = ce_all[ce_all["Joueur"] == ce_choice].iloc[0]
+            goalie = is_goalie_pos(row["Pos"])
+
+            if goalie and dest == "Banc":
+                st.error("🚫 Un gardien ne peut pas aller sur le banc.")
+            elif goalie and nb_actif_goalies >= 2:
+                st.error("🚫 Déjà 2 gardiens actifs.")
+            elif (not goalie) and dest == "Actif" and nb_actif_skaters >= 20:
+                st.error("🚫 Déjà 20 patineurs actifs.")
+            elif (not goalie) and dest == "Banc" and nb_banc_skaters >= 3:
+                st.error("🚫 Banc plein (max 3).")
+            else:
+                mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == ce_choice)
+                st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
+                st.session_state["data"].loc[mask, "Slot"] = "Actif" if goalie else dest
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+                st.success(f"✅ {ce_choice} rappelé au Grand Club ({'Actif' if goalie else dest})")
+                st.rerun()
+
+    # Grand Club -> Club École
+    with a2:
+        st.markdown("**⬇️ Rétrogradation (GC → Min)**")
+        gc_players = gc_all["Joueur"].tolist()
+        gc_choice = st.selectbox(
+            "Joueur (Grand Club)",
+            gc_players if gc_players else ["—"],
+            disabled=(len(gc_players) == 0),
+            key="senddown_player",
+        )
+
+        if st.button("Envoyer au Club École", disabled=(len(gc_players) == 0), key="btn_senddown"):
+            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == gc_choice)
             st.session_state["data"].loc[mask, "Statut"] = "Club École"
+            st.session_state["data"].loc[mask, "Slot"] = ""
             st.session_state["data"].to_csv(DATA_FILE, index=False)
-            st.success(f"✅ {joueur_gc} déplacé vers **Club École (Min)**")
+            st.success(f"✅ {gc_choice} envoyé au Club École (Min)")
             st.rerun()
 
-    # --- CE -> GC
-    with col_move2:
-        joueurs_ce = ce["Joueur"].tolist()
-        joueur_ce = st.selectbox(
-            "Déplacer du Club École vers Grand Club",
-            joueurs_ce if joueurs_ce else ["—"],
-            disabled=(len(joueurs_ce) == 0),
-            key="move_ce_to_gc",
+    # Actif <-> Banc (patineurs seulement)
+    with a3:
+        st.markdown("**↔️ Actif ⇄ Banc** (patineurs seulement)")
+
+        actifs_list = actif_skaters["Joueur"].tolist()
+        banc_list = banc_skaters["Joueur"].tolist()
+
+        sel_actif = st.selectbox(
+            "Actif → Banc",
+            actifs_list if actifs_list else ["—"],
+            disabled=(len(actifs_list) == 0),
+            key="actif_to_banc",
         )
 
-        if st.button("⬅️ Rappeler au Grand Club (Act)", disabled=(len(joueurs_ce) == 0), key="btn_ce_to_gc"):
-            mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (
-                st.session_state["data"]["Joueur"] == joueur_ce
-            )
-            st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
-            st.session_state["data"].to_csv(DATA_FILE, index=False)
-            st.success(f"✅ {joueur_ce} déplacé vers **Grand Club (Act)**")
-            st.rerun()
+        if st.button("Mettre sur le banc", disabled=(len(actifs_list) == 0), key="btn_actif_to_banc"):
+            if nb_banc_skaters >= 3:
+                st.error("🚫 Banc plein (max 3).")
+            else:
+                mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_actif)
+                st.session_state["data"].loc[mask, "Slot"] = "Banc"
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+                st.success(f"✅ {sel_actif} déplacé vers Banc")
+                st.rerun()
+
+        st.divider()
+
+        sel_banc = st.selectbox(
+            "Banc → Actif",
+            banc_list if banc_list else ["—"],
+            disabled=(len(banc_list) == 0),
+            key="banc_to_actif",
+        )
+
+        if st.button("Rendre actif", disabled=(len(banc_list) == 0), key="btn_banc_to_actif"):
+            if nb_actif_skaters >= 20:
+                st.error("🚫 Déjà 20 patineurs actifs.")
+            else:
+                mask = (st.session_state["data"]["Propriétaire"] == proprietaire) & (st.session_state["data"]["Joueur"] == sel_banc)
+                st.session_state["data"].loc[mask, "Slot"] = "Actif"
+                st.session_state["data"].to_csv(DATA_FILE, index=False)
+                st.success(f"✅ {sel_banc} déplacé vers Actif")
+                st.rerun()
 
 # =====================================================
 # TRANSACTIONS (validation simple)
