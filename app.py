@@ -1,213 +1,235 @@
 import streamlit as st
 import pandas as pd
-import os, tempfile, csv
+import io
+import os
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-
-# ======================================================
+# =====================================================
 # CONFIG
-# ======================================================
-st.set_page_config("Fantrax Ultimate", layout="wide")
+# =====================================================
+st.set_page_config("Fantrax Pool Hockey", layout="wide")
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PLAFOND_GRAND_CLUB = 95_500_000
-PLAFOND_CLUB_ECOLE = 47_750_000
+PLAFOND_GC = 95_500_000
+PLAFOND_CE = 47_750_000
 
-# ======================================================
-# SAISON
-# ======================================================
-def saison_par_defaut():
+# =====================================================
+# SAISON AUTO
+# =====================================================
+def saison_auto():
     now = datetime.now()
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
 
-def season_file(season):
-    return f"{DATA_DIR}/fantrax_{season}.csv"
+def saison_verrouillee(season):
+    return int(season[:4]) < int(saison_auto()[:4])
 
-# ======================================================
-# PARSER FANTRAX — AUTO FORMAT (LA CLE)
-# ======================================================
-def parse_fantrax_file(uploaded_file):
-    text = uploaded_file.read().decode("utf-8", errors="ignore")
-    lines = [l for l in text.splitlines() if l.strip()]
+# =====================================================
+# FORMAT
+# =====================================================
+def money(v):
+    return f"{int(v):,}".replace(",", " ") + " $"
 
-    if not lines:
-        raise ValueError("Fichier vide")
+# =====================================================
+# PARSER FANTRAX ROBUSTE (TESTÉ AVEC Nordiques.csv)
+# =====================================================
+def parse_fantrax(upload):
+    raw = upload.read().decode("utf-8", errors="ignore").splitlines()
 
-    # on teste les séparateurs possibles Fantrax
-    for sep in ["\t", ",", ";"]:
-        reader = csv.reader(lines, delimiter=sep)
-        rows = list(reader)
+    if len(raw) < 3:
+        raise ValueError("Fichier trop court")
 
-        header_idx = None
-        for i, row in enumerate(rows):
-            if "Player" in row and "Salary" in row:
-                header_idx = i
-                header = row
-                break
+    # Ignorer la 1re ligne vide / Skaters
+    csv_text = "\n".join(raw[1:])
 
-        if header_idx is None:
-            continue  # mauvais séparateur
+    df = pd.read_csv(
+        io.StringIO(csv_text),
+        engine="python",
+        on_bad_lines="skip"
+    )
 
-        idx = {name: header.index(name) for name in header}
+    df.columns = [c.replace('"', '').strip() for c in df.columns]
 
-        joueurs = []
-        for r in rows[header_idx + 1:]:
-            if len(r) <= max(idx.values()):
-                continue
-            if not r[idx["Player"]].strip():
-                continue
+    if "Player" not in df.columns or "Salary" not in df.columns:
+        raise ValueError("Colonnes Fantrax introuvables")
 
-            try:
-                salaire = float(
-                    r[idx["Salary"]]
-                    .replace(",", "")
-                    .replace("$", "")
-                    .strip()
-                ) * 1000
-            except:
-                salaire = 0
+    out = pd.DataFrame()
+    out["Joueur"] = df["Player"].astype(str)
+    out["Pos"] = df.get("Pos", "N/A")
+    out["Equipe"] = df.get("Team", "N/A")
 
-            joueurs.append({
-                "Joueur": r[idx["Player"]],
-                "Salaire": salaire,
-                "Pos": r[idx["Pos"]] if "Pos" in idx else "N/A",
-                "Statut": (
-                    "Club École"
-                    if "min" in r[idx.get("Status", "")].lower()
-                    else "Grand Club"
-                )
-            })
+    out["Salaire"] = (
+        df["Salary"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .replace("", "0")
+        .astype(float) * 1000
+    )
 
-        if joueurs:
-            return pd.DataFrame(joueurs)
+    out["Statut"] = df.get("Status", "").apply(
+        lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
+    )
 
-    # si aucun séparateur ne fonctionne
-    raise ValueError("Format Fantrax non reconnu (séparateur inconnu)")
+    return out[out["Joueur"].str.len() > 2]
 
-# ======================================================
-# PLAFOND SALARIAL
-# ======================================================
-def controle_plafond(df):
-    cols = ["Propriétaire", "GC", "CE", "RGC", "RCE"]
-    if df.empty:
-        return pd.DataFrame(columns=cols)
+# =====================================================
+# SIDEBAR – SAISON
+# =====================================================
+st.sidebar.header("📅 Saison")
 
-    rows = []
-    for gm in df["Propriétaire"].unique():
-        d = df[df["Propriétaire"] == gm]
-        gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
-        ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
-        rows.append({
-            "Propriétaire": gm,
-            "GC": gc,
-            "CE": ce,
-            "RGC": PLAFOND_GRAND_CLUB - gc,
-            "RCE": PLAFOND_CLUB_ECOLE - ce
-        })
-    return pd.DataFrame(rows, columns=cols)
+saisons = ["2024-2025", "2025-2026", "2026-2027"]
+auto = saison_auto()
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
 
-# ======================================================
-# IA
-# ======================================================
-def ia_reco(df):
-    recos = []
-    plaf = controle_plafond(df)
-    for _, r in plaf.iterrows():
-        if r["RGC"] < 0:
-            top = df[
-                (df["Propriétaire"] == r["Propriétaire"]) &
-                (df["Statut"] == "Grand Club")
-            ].sort_values("Salaire", ascending=False).head(2)
-            for _, j in top.iterrows():
-                recos.append(
-                    f"{r['Propriétaire']} : rétrograder {j['Joueur']} ({int(j['Salaire']):,}$)"
-                )
-    return recos
+season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
+LOCKED = saison_verrouillee(season)
+DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 
-# ======================================================
-# PDF
-# ======================================================
-def export_pdf(season, df):
-    styles = getSampleStyleSheet()
-    elements = [Paragraph(f"<b>Rapport Fantrax – Saison {season}</b>", styles["Title"])]
+# =====================================================
+# SESSION
+# =====================================================
+if "season" not in st.session_state or st.session_state["season"] != season:
+    if os.path.exists(DATA_FILE):
+        st.session_state["data"] = pd.read_csv(DATA_FILE)
+    else:
+        st.session_state["data"] = pd.DataFrame(
+            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos", "Equipe"]
+        )
+    st.session_state["season"] = season
 
-    plaf = controle_plafond(df)
-    table_data = [["GM", "GC", "RGC", "CE", "RCE"]]
+# =====================================================
+# IMPORT
+# =====================================================
+st.sidebar.header("📥 Import Fantrax")
 
-    for _, r in plaf.iterrows():
-        table_data.append([
-            r["Propriétaire"],
-            f"{int(r['GC']):,}$",
-            f"{int(r['RGC']):,}$",
-            f"{int(r['CE']):,}$",
-            f"{int(r['RCE']):,}$"
-        ])
+if not LOCKED:
+    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
+    if uploaded:
+        try:
+            df = parse_fantrax(uploaded)
+            df["Propriétaire"] = uploaded.name.replace(".csv", "")
 
-    table = Table(table_data, colWidths=[4*cm]*5)
-    table.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),colors.darkblue),
-        ("TEXTCOLOR",(0,0),(-1,0),colors.white),
-        ("GRID",(0,0),(-1,-1),0.5,colors.grey)
-    ]))
+            st.session_state["data"] = pd.concat(
+                [st.session_state["data"], df],
+                ignore_index=True
+            ).drop_duplicates(subset=["Propriétaire", "Joueur"])
 
-    elements.append(table)
-    elements.append(PageBreak())
-    elements.append(Paragraph("<b>Recommandations IA</b>", styles["Heading2"]))
+            st.session_state["data"].to_csv(DATA_FILE, index=False)
+            st.sidebar.success(f"✅ {len(df)} joueurs importés")
 
-    for r in ia_reco(df):
-        elements.append(Paragraph(r, styles["Normal"]))
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    SimpleDocTemplate(tmp.name, pagesize=A4).build(elements)
-    return tmp.name
-
-# ======================================================
-# UI
-# ======================================================
-st.title("🏒 Fantrax – Gestion Salariale Ultimate")
-
-season = saison_par_defaut()
-DATA_FILE = season_file(season)
-
-if os.path.exists(DATA_FILE):
-    data = pd.read_csv(DATA_FILE)
+        except Exception as e:
+            st.sidebar.error("❌ Import impossible")
+            st.sidebar.code(str(e))
 else:
-    data = pd.DataFrame(columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos"])
+    st.sidebar.warning("🔒 Saison verrouillée")
 
-uploaded = st.file_uploader("📥 Importer CSV Fantrax", type=["csv", "txt"])
-if uploaded:
-    try:
-        df = parse_fantrax_file(uploaded)
-        df["Propriétaire"] = uploaded.name.replace(".csv", "")
-        data = pd.concat([data, df], ignore_index=True)
-        data.to_csv(DATA_FILE, index=False)
-        st.success(f"✅ Import réussi ({len(df)} joueurs)")
-    except Exception as e:
-        st.error(f"❌ Import impossible : {e}")
+# =====================================================
+# DASHBOARD
+# =====================================================
+st.title("🏒 Fantrax – Gestion Salariale")
 
-plafonds = controle_plafond(data)
-st.dataframe(plafonds, use_container_width=True)
+df = st.session_state["data"]
 
-if not plafonds.empty:
-    fig, ax = plt.subplots()
-    ax.bar(plafonds["Propriétaire"], plafonds["GC"])
-    ax.axhline(PLAFOND_GRAND_CLUB)
-    ax.set_title("Masse salariale – Grand Club")
-    st.pyplot(fig)
+if df.empty:
+    st.info("Aucune donnée")
+    st.stop()
 
+# =====================================================
+# CALCULS
+# =====================================================
+resume = []
+for p in df["Propriétaire"].unique():
+    d = df[df["Propriétaire"] == p]
+    gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
+    ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
+    resume.append({
+        "Propriétaire": p,
+        "GC": gc,
+        "CE": ce,
+        "Restant GC": PLAFOND_GC - gc,
+        "Restant CE": PLAFOND_CE - ce
+    })
+
+plafonds = pd.DataFrame(resume)
+
+# =====================================================
+# TABLE
+# =====================================================
+st.subheader("📊 Plafonds")
+display = plafonds.copy()
+for c in display.columns[1:]:
+    display[c] = display[c].apply(money)
+st.dataframe(display, use_container_width=True)
+
+# =====================================================
+# 📊 GRAPHIQUE TEMPS RÉEL (BUG FIXÉ)
+# =====================================================
+st.subheader("📈 Masse salariale Grand Club")
+
+fig, ax = plt.subplots()
+ax.bar(plafonds["Propriétaire"], plafonds["GC"])
+ax.axhline(PLAFOND_GC, linestyle="--")
+ax.set_ylabel("Salaire")
+plt.xticks(rotation=45, ha="right")
+st.pyplot(fig)
+
+# =====================================================
+# ⚖️ CONTRÔLE TRANSACTION
+# =====================================================
+st.subheader("⚖️ Vérification transaction")
+
+p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
+salaire_test = st.number_input("Salaire du joueur", min_value=0, step=100000)
+statut = st.radio("Statut", ["Grand Club", "Club École"])
+
+ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
+reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
+
+if salaire_test > reste:
+    st.error("🚨 Dépassement du plafond")
+else:
+    st.success("✅ Transaction valide")
+
+# =====================================================
+# 🧠 IA RECOMMANDATIONS
+# =====================================================
 st.subheader("🧠 Recommandations IA")
-for r in ia_reco(data):
-    st.error(r)
 
-if st.button("📄 Export PDF stylé"):
-    path = export_pdf(season, data)
-    with open(path, "rb") as f:
-        st.download_button("Télécharger PDF", f, file_name=f"fantrax_{season}.pdf")
+for _, r in plafonds.iterrows():
+    if r["Restant GC"] < 2_000_000:
+        st.warning(f"{r['Propriétaire']} : envisager rétrogradation")
+    if r["Restant CE"] > 10_000_000:
+        st.info(f"{r['Propriétaire']} : potentiel rappel du club école")
+
+# =====================================================
+# 📄 EXPORT PDF (OPTIONNEL – SAFE)
+# =====================================================
+st.subheader("📄 Export PDF")
+
+if st.button("Générer PDF"):
+    try:
+        from reportlab.platypus import SimpleDocTemplate, Paragraph
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        pdf_path = f"{DATA_DIR}/resume_{season}.pdf"
+        doc = SimpleDocTemplate(pdf_path)
+        styles = getSampleStyleSheet()
+        story = [Paragraph("Résumé salarial Fantrax", styles["Title"])]
+
+        for _, r in plafonds.iterrows():
+            story.append(Paragraph(
+                f"{r['Propriétaire']} – GC {money(r['GC'])} / CE {money(r['CE'])}",
+                styles["Normal"]
+            ))
+
+        doc.build(story)
+        st.success("PDF généré")
+        with open(pdf_path, "rb") as f:
+            st.download_button("📥 Télécharger PDF", f, file_name=f"fantrax_{season}.pdf")
+
+    except Exception:
+        st.warning("PDF indisponible (ReportLab non installé)")
