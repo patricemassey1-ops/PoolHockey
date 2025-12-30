@@ -13,7 +13,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =====================================================
-# PLAFONDS (SESSION)
+# PLAFONDS
 # =====================================================
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -21,7 +21,7 @@ if "PLAFOND_CE" not in st.session_state:
     st.session_state["PLAFOND_CE"] = 47_750_000
 
 # =====================================================
-# LOGOS ÉQUIPES
+# LOGOS
 # =====================================================
 LOGOS = {
     "Nordiques": "Nordiques_Logo.png",
@@ -49,7 +49,7 @@ def money(v):
     return f"{int(v):,}".replace(",", " ") + " $"
 
 # =====================================================
-# PARSER FANTRAX
+# PARSE FANTRAX
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
@@ -81,7 +81,7 @@ def parse_fantrax(upload):
     return out[out["Joueur"].str.len() > 2]
 
 # =====================================================
-# SIDEBAR – SAISON
+# SIDEBAR
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -95,11 +95,8 @@ season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
 LOCKED = saison_verrouillee(season)
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 
-# =====================================================
-# SIDEBAR – MODIFICATION PLAFONDS
-# =====================================================
 st.sidebar.divider()
-st.sidebar.header("💰 Plafonds salariaux")
+st.sidebar.header("💰 Plafonds")
 
 if st.sidebar.button("✏️ Modifier les plafonds"):
     st.session_state["edit_plafond"] = True
@@ -116,7 +113,7 @@ st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
 
 # =====================================================
-# SESSION DATA
+# DATA
 # =====================================================
 if "season" not in st.session_state or st.session_state["season"] != season:
     if os.path.exists(DATA_FILE):
@@ -131,7 +128,6 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 # IMPORT
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
-
 if not LOCKED:
     uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
     if uploaded:
@@ -163,9 +159,15 @@ for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
     gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
     ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
+
+    logo = ""
+    for k, v in LOGOS.items():
+        if k.lower() in p.lower():
+            logo = v
+
     resume.append({
         "Propriétaire": p,
-        "Logo": next((v for k, v in LOGOS.items() if k.lower() in p.lower()), ""),
+        "Logo": logo,
         "GC": gc,
         "CE": ce,
         "Restant GC": st.session_state["PLAFOND_GC"] - gc,
@@ -180,19 +182,29 @@ plafonds = pd.DataFrame(resume)
 tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
 # =====================================================
-# TABLEAU STRUCTURÉ
+# TABLEAU AVEC LOGOS (IMAGES)
 # =====================================================
 with tab1:
-    affichage = plafonds.copy()
-    affichage["GC"] = affichage["GC"].apply(money)
-    affichage["CE"] = affichage["CE"].apply(money)
-    affichage["Restant GC"] = affichage["Restant GC"].apply(money)
-    affichage["Restant CE"] = affichage["Restant CE"].apply(money)
+    headers = st.columns([1.2, 2.5, 2, 2, 2, 2])
+    headers[0].markdown("**Logo**")
+    headers[1].markdown("**Propriétaire**")
+    headers[2].markdown("**GC**")
+    headers[3].markdown("**CE**")
+    headers[4].markdown("**Restant GC**")
+    headers[5].markdown("**Restant CE**")
 
-    st.dataframe(
-        affichage[["Logo", "Propriétaire", "GC", "CE", "Restant GC", "Restant CE"]],
-        use_container_width=True
-    )
+    for _, r in plafonds.iterrows():
+        cols = st.columns([1.2, 2.5, 2, 2, 2, 2])
+        if r["Logo"] and os.path.exists(r["Logo"]):
+            cols[0].image(r["Logo"], width=55)
+        else:
+            cols[0].markdown("—")
+
+        cols[1].markdown(r["Propriétaire"])
+        cols[2].markdown(money(r["Grand Club"]))
+        cols[3].markdown(money(r["Club École"]))
+        cols[4].markdown(money(r["Restant GC"]))
+        cols[5].markdown(money(r["Restant CE"]))
 
 # =====================================================
 # TRANSACTIONS
