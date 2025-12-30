@@ -102,6 +102,7 @@ def charger_db_joueurs():
 def preparer_db_joueurs(df_players):
     """Prépare la base de données avec les labels de recherche"""
     if not df_players.empty:
+        df_players = df_players.copy()  # Créer une copie pour éviter de modifier le cache
         df_players['search_label'] = (
             df_players['Joueur'].astype(str) + 
             " (" + df_players['Equipe_NHL'].astype(str).fillna("N/A") + ") - " + 
