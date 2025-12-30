@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import os
 import re
+import html
 from datetime import datetime
 from urllib.parse import quote, unquote
 
@@ -14,9 +15,8 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =====================================================
-# SESSION DEFAULTS
+# SESSION DEFAULTS + RERUN COMPAT + UPLOADER RESET
 # =====================================================
-
 if "uploader_nonce" not in st.session_state:
     st.session_state["uploader_nonce"] = 0
 
@@ -25,7 +25,6 @@ def do_rerun():
         st.rerun()
     else:
         st.experimental_rerun()
-
 
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -238,6 +237,10 @@ def parse_fantrax(upload):
 # UI HELPERS
 # =====================================================
 def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
+    """
+    IMPORTANT: on ne modifie PAS le champ Joueur (pas de '🩹 ' dedans),
+    sinon les sélections/liens deviennent incohérents.
+    """
     if x is None or x.empty:
         return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire", "État"])
 
@@ -245,39 +248,27 @@ def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
     y["Pos"] = y["Pos"].apply(normalize_pos)
 
     # État visible
-    slot = y.get("Slot", "")
     y["État"] = ""
     if "Slot" in y.columns:
         y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "État"] = "🩹 BLESSÉ"
-
-    # Rend le nom + visible si blessé
-    if "Slot" in y.columns:
-        y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "Joueur"] = (
-            "🩹 " + y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "Joueur"].astype(str)
-        )
 
     y["_pos_order"] = y["Pos"].apply(pos_sort_key)
     y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
 
     y["Salaire"] = y["Salaire"].apply(money)
 
-    # Mets État à la fin (lisible)
     cols = ["Joueur", "Pos", "Equipe", "Salaire", "État"]
     for c in cols:
         if c not in y.columns:
             y[c] = ""
     return y[cols].reset_index(drop=True)
 
-
 def clear_df_selections():
     for k in ["sel_actifs", "sel_banc", "sel_min"]:
         if k in st.session_state and isinstance(st.session_state[k], dict):
             st.session_state[k]["selection"] = {"rows": []}
 
-def pick_from_df(df_ui: pd.DataFrame, key: str) -> str | None:
-    """
-    Retourne le nom du joueur sélectionné dans un st.dataframe(selection_mode="single-row")
-    """
+def pick_from_df(df_ui: pd.DataFrame, key: str):
     ss = st.session_state.get(key)
     if not ss or not isinstance(ss, dict):
         return None
@@ -290,7 +281,7 @@ def pick_from_df(df_ui: pd.DataFrame, key: str) -> str | None:
         return None
     if idx < 0 or idx >= len(df_ui):
         return None
-    return str(df_ui.iloc[idx]["Joueur"])
+    return str(df_ui.iloc[idx]["Joueur"]).strip()
 
 def set_move_ctx(owner: str, joueur: str):
     st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
@@ -487,7 +478,7 @@ def open_move_dialog():
             ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
             ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
             ("🔵 Mineur", ("Club École", "")),
-            ("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé")),  # garde statut, slot=Blessé
+            ("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé")),
         ]
 
         current = (cur_statut, cur_slot if cur_slot else "")
@@ -531,7 +522,6 @@ def open_move_dialog():
             if ok2:
                 clear_move_ctx()
 
-                # Toast intelligent
                 if to_slot == "Blessé":
                     st.toast(f"🩹 {joueur} placé sur la liste des blessés (IR)", icon="🩹")
                 elif to_statut == "Grand Club" and to_slot == "Actif":
@@ -602,7 +592,7 @@ if "history_season" not in st.session_state or st.session_state["history_season"
     st.session_state["history_season"] = season
 
 # =====================================================
-# IMPORT FANTRAX
+# IMPORT FANTRAX (FIX: pas besoin de refresh)
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
 
@@ -619,29 +609,23 @@ if uploaded is not None:
     else:
         try:
             df_import = parse_fantrax(uploaded)
-
             if df_import is None or df_import.empty:
                 st.sidebar.error("❌ Import invalide : aucune donnée exploitable.")
             else:
                 owner = os.path.splitext(uploaded.name)[0]
                 df_import["Propriétaire"] = owner
 
-                st.session_state["data"] = pd.concat(
-                    [st.session_state["data"], df_import],
-                    ignore_index=True
-                )
+                st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
                 st.session_state["data"] = clean_data(st.session_state["data"])
                 st.session_state["data"].to_csv(DATA_FILE, index=False)
 
                 st.sidebar.success("✅ Import réussi")
 
-                # ✅ Reset uploader + rerun pour afficher tout de suite
                 st.session_state["uploader_nonce"] += 1
                 do_rerun()
 
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
-
 
 # =====================================================
 # HEADER
@@ -717,7 +701,7 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# TAB A - ALIGNEMENT (FIX: POPUP + IR DANS ONGLET)
+# TAB A - ALIGNEMENT
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -766,7 +750,6 @@ with tabA:
     st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
 
-    # Build UI dfs BEFORE st.dataframe
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui = view_for_click(gc_banc)
     df_min_ui = view_for_click(ce_all)
@@ -774,36 +757,17 @@ with tabA:
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🟢 Actifs")
-        st.dataframe(
-            df_actifs_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_actifs",
-        )
+        st.dataframe(df_actifs_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_actifs")
     with c2:
         st.markdown("### 🟡 Banc")
-        st.dataframe(
-            df_banc_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_banc",
-        )
+        st.dataframe(df_banc_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_banc")
     with c3:
         st.markdown("### 🔵 Mineur")
-        st.dataframe(
-            df_min_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_min",
-        )
+        st.dataframe(df_min_ui, use_container_width=True, hide_index=True,
+                     selection_mode="single-row", on_select="rerun", key="sel_min")
 
-    # ---- FIX: détecter sélection dans les dataframes et ouvrir popup
     picked = (
         pick_from_df(df_actifs_ui, "sel_actifs")
         or pick_from_df(df_banc_ui, "sel_banc")
@@ -814,18 +778,18 @@ with tabA:
         set_move_ctx(proprietaire, picked)
 
     # =====================================================
-    # IR — TABLEAU CLIQUABLE (SANS JS) DANS TAB A
+    # IR — AFFICHAGE PROPRE (FIX </tbody></table>)
     # =====================================================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
     df_inj_ui = view_for_click(injured_all)
 
-    # Capture clic IR via query param
     picked_ir = _get_qp("ir_pick")
     if picked_ir:
         picked_ir = unquote(picked_ir)
         set_move_ctx(proprietaire, picked_ir)
-        _clear_qp("ir_pick")  # on nettoie l'URL
+        _clear_qp("ir_pick")
+        st.rerun()
 
     if df_inj_ui.empty:
         st.info("Aucun joueur blessé.")
@@ -847,7 +811,7 @@ with tabA:
                 gap:12px;
                 padding:12px 14px;
                 border-bottom:1px solid #2a2a2a;
-                background:linear-gradient(180deg,#060606,#000);
+                background:linear-gradient(180deg,#080808,#000);
               }
               .ir-title{
                 color:#ff2d2d;
@@ -858,48 +822,50 @@ with tabA:
               .ir-badge{
                 color:#ff2d2d;
                 font-size:12px;
-                opacity:.9;
+                opacity:.95;
                 border:1px solid #ff2d2d;
                 padding:4px 10px;
                 border-radius:999px;
                 white-space:nowrap;
               }
 
-              .ir-table-wrap{ max-height:340px; overflow:auto; }
-            .ir-table{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  color:#f5f5f5;        /* ✅ texte lisible */
-  font-weight:800;
-  font-size:14px;
-}
-.ir-table th{
-  color:#ff2d2d;        /* ✅ headers rouge */
-}
-.ir-player{ color:#ffffff; font-weight:1000; }
-.ir-pos, .ir-team, .ir-salary{ color:#ff2d2d; } /* ✅ accents rouge */
-
+              .ir-table-wrap{ max-height:360px; overflow:auto; }
+              .ir-table{
+                width:100%;
+                border-collapse:separate;
+                border-spacing:0;
+                color:#f5f5f5;
+                font-weight:800;
+                font-size:14px;
+              }
+              .ir-table th{
+                text-align:left;
+                padding:10px 12px;
+                position:sticky;
+                top:0;
+                background:rgba(5,5,5,.92);
+                border-bottom:1px solid #2a2a2a;
+                z-index:2;
+                font-weight:1000;
+                color:#ff2d2d;
               }
               .ir-table td{
                 padding:10px 12px;
                 border-bottom:1px solid #151515;
                 line-height:1.2;
               }
-
               .ir-table tbody tr:nth-child(odd) td{ background:#000; }
               .ir-table tbody tr:nth-child(even) td{ background:#070707; }
               .ir-table tbody tr:hover td{
-                background:linear-gradient(90deg,#120000,#070707);
+                background:linear-gradient(90deg,#1a0000,#070707);
                 cursor:pointer;
               }
 
-              .ir-player{ font-weight:1000; }
-              .ir-pos{ width:64px; text-align:center; }
-              .ir-team{ width:84px; text-align:center; opacity:.95; }
-              .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
+              .ir-player{ color:#ffffff; font-weight:1000; }
+              .ir-pos{ width:64px; text-align:center; color:#ff2d2d; }
+              .ir-team{ width:84px; text-align:center; opacity:.95; color:#ff2d2d; }
+              .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; color:#ff2d2d; }
 
-              /* overlay link (valide car dans le 1er td) */
               .ir-table tbody tr{ position:relative; }
               .ir-rowlink{
                 position:absolute;
@@ -938,54 +904,55 @@ with tabA:
 
         rows_html = ""
         for _, rr in df_inj_ui.iterrows():
-            name = str(rr["Joueur"])
-            q = quote(name)
+            raw_name = str(rr.get("Joueur", ""))
+            name = html.escape(raw_name)
+            pos = html.escape(str(rr.get("Pos", "")))
+            team = html.escape(str(rr.get("Equipe", "")))
+            sal = html.escape(str(rr.get("Salaire", "")))
+            q = quote(raw_name)
+
             rows_html += f"""
             <tr>
               <td class="ir-player">
                 <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
-                {name}
+                🩹 {name}
               </td>
-              <td class="ir-pos">{rr['Pos']}</td>
-              <td class="ir-team">{rr['Equipe']}</td>
-              <td class="ir-salary">{rr['Salaire']}</td>
+              <td class="ir-pos">{pos}</td>
+              <td class="ir-team">{team}</td>
+              <td class="ir-salary">{sal}</td>
             </tr>
             """
 
-        st.markdown(
-            f"""
-            <div class="ir-card">
-              <div class="ir-head">
-                <div class="ir-title">JOUEURS BLESSÉS</div>
-                <div class="ir-badge">Salaire non comptabilisé</div>
-              </div>
+        block = f"""
+        <div class="ir-card">
+          <div class="ir-head">
+            <div class="ir-title">JOUEURS BLESSÉS</div>
+            <div class="ir-badge">Salaire non comptabilisé</div>
+          </div>
+          <div class="ir-table-wrap">
+            <table class="ir-table">
+              <thead>
+                <tr>
+                  <th>Joueur</th>
+                  <th class="ir-pos">Pos</th>
+                  <th class="ir-team">Équipe</th>
+                  <th class="ir-salary">Salaire</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows_html}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-              <div class="ir-table-wrap">
-                <table class="ir-table">
-                  <thead>
-                    <tr>
-                      <th>Joueur</th>
-                      <th class="ir-pos">Pos</th>
-                      <th class="ir-team">Équipe</th>
-                      <th class="ir-salary">Salaire</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows_html}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        <div class="ir-actions">
+          <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+          <div class="ir-hint">Sélection Actifs/Banc/Mineur = pop-up • IR = clic ligne.</div>
+        </div>
+        """
+        st.markdown(block, unsafe_allow_html=True)
 
-            <div class="ir-actions">
-              <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
-              <div class="ir-hint">Sélection Actifs/Banc/Mineur = pop-up • IR = clic ligne.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # ---- IMPORTANT: on ouvre le pop-up à la fin de l’onglet (après avoir capté toutes les sélections)
     open_move_dialog()
 
 # =====================================================
