@@ -95,13 +95,19 @@ def charger_db_joueurs():
         
         df_players = df_players.drop_duplicates(subset=['Joueur', 'Equipe_NHL'])
         
+        return df_players
+    return pd.DataFrame()
+
+# Fonction pour créer le search_label (appelée après le chargement)
+def preparer_db_joueurs(df_players):
+    """Prépare la base de données avec les labels de recherche"""
+    if not df_players.empty:
         df_players['search_label'] = (
             df_players['Joueur'].astype(str) + 
             " (" + df_players['Equipe_NHL'].astype(str).fillna("N/A") + ") - " + 
             df_players['Salaire'].apply(format_currency)
         )
-        return df_players
-    return pd.DataFrame()
+    return df_players
 
 # Initialisation de la session (optimisée)
 if 'historique' not in st.session_state:
@@ -122,7 +128,7 @@ if 'rachats' not in st.session_state:
     st.session_state['rachats'] = charger_donnees(BUYOUT_FILE, ['Propriétaire', 'Joueur', 'Impact'])
 
 if 'db_joueurs' not in st.session_state:
-    st.session_state['db_joueurs'] = charger_db_joueurs()
+    st.session_state['db_joueurs'] = preparer_db_joueurs(charger_db_joueurs())
 
 # Initialiser l'historique des actions
 HISTORIQUE_FILE = "historique_actions.csv"
