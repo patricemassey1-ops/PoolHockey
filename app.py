@@ -25,11 +25,11 @@ if "PLAFOND_CE" not in st.session_state:
 # =====================================================
 LOGOS = {
     "Nordiques": "Nordiques_Logo.png",
-    "Lama": "Lama_Logo.png",
+    "Cracheurs": "Cracheurs_Logo.png",
     "Prédateurs": "Prédateurs_Logo.png",
     "Red Wings": "Red_Wings_Logo.png",
     "Whalers": "Whalers_Logo.png",
-    "Canadiens": "Canadiens_Logo.png"   # ✅ AJOUT ICI
+    "Canadiens": "Canadiens_Logo.png"
 }
 
 # =====================================================
@@ -145,7 +145,7 @@ if not LOCKED:
         st.sidebar.success("✅ Import réussi")
 
 # =====================================================
-# HEADER LOGO
+# HEADER
 # =====================================================
 st.image("Logo_Pool.png", use_container_width=True)
 st.title("🏒 Fantrax – Gestion Salariale")
@@ -165,6 +165,7 @@ for p in df["Propriétaire"].unique():
     ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
     resume.append({
         "Propriétaire": p,
+        "Logo": next((v for k, v in LOGOS.items() if k.lower() in p.lower()), ""),
         "GC": gc,
         "CE": ce,
         "Restant GC": st.session_state["PLAFOND_GC"] - gc,
@@ -179,24 +180,19 @@ plafonds = pd.DataFrame(resume)
 tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
 # =====================================================
-# TABLEAU AVEC LOGOS
+# TABLEAU STRUCTURÉ
 # =====================================================
 with tab1:
-    for _, r in plafonds.iterrows():
-        col1, col2 = st.columns([1, 6])
-        with col1:
-            for nom, logo in LOGOS.items():
-                if nom.lower() in r["Propriétaire"].lower():
-                    st.image(logo, width=80)
-        with col2:
-            st.markdown(
-                f"""
-                **{r['Propriétaire']}**  
-                🏒 GC : {money(r['GC'])} (reste {money(r['Restant GC'])})  
-                🏫 CE : {money(r['CE'])} (reste {money(r['Restant CE'])})
-                """
-            )
-        st.divider()
+    affichage = plafonds.copy()
+    affichage["GC"] = affichage["GC"].apply(money)
+    affichage["CE"] = affichage["CE"].apply(money)
+    affichage["Restant GC"] = affichage["Restant GC"].apply(money)
+    affichage["Restant CE"] = affichage["Restant CE"].apply(money)
+
+    st.dataframe(
+        affichage[["Logo", "Propriétaire", "GC", "CE", "Restant GC", "Restant CE"]],
+        use_container_width=True
+    )
 
 # =====================================================
 # TRANSACTIONS
