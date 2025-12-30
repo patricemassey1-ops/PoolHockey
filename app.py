@@ -142,7 +142,7 @@ if fichiers_telecharges:
                 c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
                 c_pos = next((c for c in df_merged.columns if 'pos' in c.lower()), "Pos")
                 
-                # Chercher la colonne TEAM de plusieurs façons
+                # Chercher la colonne TEAM
                 c_team = None
                 for col in df_merged.columns:
                     if 'TEAM' in col.upper() or col.upper() == 'TM':
@@ -178,7 +178,7 @@ if fichiers_telecharges:
             status_text.text(f"📄 Traitement: {idx + 1}/{len(fichiers_telecharges)} fichiers")
             
         except Exception as e: 
-            st.error(f"Erreur import {fichier.name}: {e}")
+            st.sidebar.error(f"Erreur: {fichier.name}")
 
     if dfs_a_ajouter:
         status_text.text("💾 Sauvegarde des données...")
@@ -188,17 +188,20 @@ if fichiers_telecharges:
         st.session_state['historique'] = pd.concat([st.session_state['historique'], new_data], ignore_index=True).drop_duplicates(subset=['Joueur', 'Propriétaire'], keep='last')
         sauvegarder_donnees(st.session_state['historique'], DB_FILE)
         
-        status_text.text("✅ Import terminé!")
         progress_bar.progress(100)
+        status_text.text("✅ Import terminé!")
         
         import time
         time.sleep(1)
         
+        # Nettoyer complètement tous les éléments de la sidebar
         status_text.empty()
         progress_bar.empty()
         
         st.sidebar.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s)!")
-        st.sidebar.info("🔄 Cliquez sur un onglet pour voir les données")
+    else:
+        status_text.empty()
+        progress_bar.empty()
 
 # --- TABS (Dashboard & Sim) ---
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "⚖️ Simulateur", "🛠️ Gestion"])
