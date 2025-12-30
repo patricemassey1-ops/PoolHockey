@@ -137,9 +137,6 @@ if fichiers_telecharges:
             df_merged = pd.concat([extract_table(lines, 'Skaters'), extract_table(lines, 'Goalies')], ignore_index=True)
             
             if not df_merged.empty:
-                # Afficher les colonnes disponibles pour diagnostic
-                st.sidebar.write("📋 Colonnes détectées:", list(df_merged.columns))
-                
                 c_player = next((c for c in df_merged.columns if 'player' in c.lower()), "Player")
                 c_status = next((c for c in df_merged.columns if 'status' in c.lower()), "Status")
                 c_salary = next((c for c in df_merged.columns if 'salary' in c.lower()), "Salary")
@@ -150,11 +147,7 @@ if fichiers_telecharges:
                 for col in df_merged.columns:
                     if 'TEAM' in col.upper() or col.upper() == 'TM':
                         c_team = col
-                        st.sidebar.write(f"✅ Colonne équipe trouvée: {col}")
                         break
-                
-                if not c_team:
-                    st.sidebar.warning("⚠️ Colonne TEAM non trouvée")
 
                 df_merged[c_salary] = pd.to_numeric(df_merged[c_salary].astype(str).replace(r'[\$,\s]', '', regex=True), errors='coerce').fillna(0)
                 df_merged[c_salary] = df_merged[c_salary].apply(lambda x: x*1000 if x < 100000 else x)
