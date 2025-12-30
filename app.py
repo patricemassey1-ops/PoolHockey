@@ -198,9 +198,15 @@ if fichiers_telecharges:
         status_text.text("✅ Import terminé!")
         progress_bar.progress(100)
         
+        # Attendre 2 secondes puis nettoyer
+        import time
+        time.sleep(2)
+        
         status_text.empty()
         progress_bar.empty()
         
+        st.success(f"✅ {len(fichiers_telecharges)} fichier(s) importé(s) avec succès! La page va se rafraîchir...")
+        time.sleep(1)
         st.rerun()
 
 # --- TABS (Dashboard & Sim) ---
