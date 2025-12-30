@@ -858,24 +858,20 @@ with tabA:
               }
 
               .ir-table-wrap{ max-height:340px; overflow:auto; }
-              .ir-table{
-                width:100%;
-                border-collapse:separate;
-                border-spacing:0;
-                color:#ff2d2d;
-                font-weight:800;
-                font-size:14px;
-              }
-              .ir-table th{
-                text-align:left;
-                padding:10px 12px;
-                position:sticky;
-                top:0;
-                background:rgba(5,5,5,.92);
-                backdrop-filter: blur(6px);
-                border-bottom:1px solid #2a2a2a;
-                z-index:2;
-                font-weight:1000;
+            .ir-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  color:#f5f5f5;        /* ✅ texte lisible */
+  font-weight:800;
+  font-size:14px;
+}
+.ir-table th{
+  color:#ff2d2d;        /* ✅ headers rouge */
+}
+.ir-player{ color:#ffffff; font-weight:1000; }
+.ir-pos, .ir-team, .ir-salary{ color:#ff2d2d; } /* ✅ accents rouge */
+
               }
               .ir-table td{
                 padding:10px 12px;
