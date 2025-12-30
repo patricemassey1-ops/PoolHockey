@@ -724,20 +724,17 @@ with tabA:
 from urllib.parse import quote, unquote
 
 # =====================================================
-# BLESSÉS (IR) — TABLEAU CLIQUABLE (ROW CLICK)
+# BLESSÉS (IR) — TABLEAU CLIQUABLE (SANS JS, ROW OVERLAY LINK)
 # =====================================================
 st.markdown("## 🩹 Joueurs Blessés (IR)")
 df_inj_ui = view_for_click(injured_all)
 
-# ---- Helper: lire/effacer query param compatible selon version Streamlit
 def _get_qp(key: str):
-    # Streamlit récent: st.query_params (Mapping)
     if hasattr(st, "query_params"):
         v = st.query_params.get(key)
         if isinstance(v, list):
             return v[0] if v else None
         return v
-    # Ancien: experimental_get_query_params()
     qp = st.experimental_get_query_params()
     v = qp.get(key)
     return v[0] if v else None
@@ -745,7 +742,6 @@ def _get_qp(key: str):
 def _clear_qp(key: str):
     if hasattr(st, "query_params"):
         try:
-            # supprime la clé si possible
             st.query_params.pop(key, None)
         except Exception:
             st.query_params[key] = ""
@@ -800,13 +796,6 @@ else:
           }
 
           .ir-table-wrap{ max-height:340px; overflow:auto; }
-          .ir-table-wrap::-webkit-scrollbar{ width:10px; height:10px; }
-          .ir-table-wrap::-webkit-scrollbar-track{ background:#050505; }
-          .ir-table-wrap::-webkit-scrollbar-thumb{
-            background:#2a2a2a; border-radius:999px; border:2px solid #050505;
-          }
-          .ir-table-wrap::-webkit-scrollbar-thumb:hover{ background:#3a3a3a; }
-
           .ir-table{
             width:100%;
             border-collapse:separate;
@@ -838,7 +827,6 @@ else:
           .ir-table tbody tr:nth-child(even) td{ background:#070707; }
           .ir-table tbody tr:hover td{
             background:linear-gradient(90deg,#120000,#070707);
-            cursor:pointer;
           }
 
           /* colonnes */
@@ -846,6 +834,20 @@ else:
           .ir-pos{ width:64px; text-align:center; opacity:.95; }
           .ir-team{ width:84px; text-align:center; opacity:.95; letter-spacing:.4px; }
           .ir-salary{ text-align:right; font-weight:1000; white-space:nowrap; }
+
+          /* ---- IMPORTANT: overlay link sur toute la ligne ---- */
+          .ir-table tbody tr{ position:relative; cursor:pointer; }
+          .ir-rowlink{
+            position:absolute;
+            inset:0;                 /* top:0; right:0; bottom:0; left:0 */
+            z-index:5;
+            text-decoration:none;
+            color:inherit;
+            background:transparent;
+          }
+
+          /* Le texte reste visible sous le lien */
+          .ir-table tbody td{ position:relative; z-index:1; }
 
           .ir-actions{
             margin-top:10px;
@@ -860,8 +862,6 @@ else:
             letter-spacing:.6px;
             text-transform:uppercase;
           }
-
-          /* mini hint */
           .ir-hint{
             margin-top:6px;
             color:#ff2d2d;
@@ -874,13 +874,13 @@ else:
         unsafe_allow_html=True,
     )
 
-    # Table HTML: chaque <tr> redirige vers ?ir_pick=...
     rows_html = ""
     for _, rr in df_inj_ui.iterrows():
         name = str(rr["Joueur"])
         q = quote(name)
         rows_html += f"""
-        <tr onclick="window.location.search='?ir_pick={q}'">
+        <tr>
+          <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
           <td class="ir-player">{name}</td>
           <td class="ir-pos">{rr['Pos']}</td>
           <td class="ir-team">{rr['Equipe']}</td>
@@ -915,11 +915,12 @@ else:
 
         <div class="ir-actions">
           <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
-          <div class="ir-hint">Astuce : le hover indique la ligne cliquable.</div>
+          <div class="ir-hint">Le clic fonctionne sans JavaScript (lien overlay).</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 
