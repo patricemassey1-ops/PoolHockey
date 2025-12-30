@@ -1,23 +1,24 @@
 import streamlit as st
 import pandas as pd
-import io, os
+import io
+import os
 from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import LETTER
 
 # =====================================================
 # CONFIG
 # =====================================================
-st.set_page_config("Pool Hockey – GM", layout="wide")
+st.set_page_config("Fantrax Pool Hockey", layout="wide")
+
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =====================================================
-# PLAFONDS (SESSION)
+# PLAFONDS (MODIFIABLES)
 # =====================================================
-st.session_state.setdefault("PLAFOND_GC", 95_500_000)
-st.session_state.setdefault("PLAFOND_CE", 47_750_000)
+if "PLAFOND_GC" not in st.session_state:
+    st.session_state["PLAFOND_GC"] = 95_500_000
+if "PLAFOND_CE" not in st.session_state:
+    st.session_state["PLAFOND_CE"] = 47_750_000
 
 # =====================================================
 # LOGOS
@@ -32,88 +33,120 @@ LOGOS = {
 }
 
 # =====================================================
-# UTILS
+# SAISON AUTO
 # =====================================================
-def money(v): return f"{int(v):,}".replace(",", " ") + " $"
-
 def saison_auto():
     now = datetime.now()
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
 
-def saison_verrouillee(s): return int(s[:4]) < int(saison_auto()[:4])
+def saison_verrouillee(season):
+    return int(season[:4]) < int(saison_auto()[:4])
+
+# =====================================================
+# FORMAT $
+# =====================================================
+def money(v):
+    return f"{int(v):,}".replace(",", " ") + " $"
 
 # =====================================================
 # PARSER FANTRAX
 # =====================================================
 def parse_fantrax(upload):
     raw = upload.read().decode("utf-8", errors="ignore").splitlines()
-    df = pd.read_csv(io.StringIO("\n".join(raw[1:])), engine="python", on_bad_lines="skip")
-    df.columns = [c.strip() for c in df.columns]
+    csv_text = "\n".join(raw[1:])
+
+    df = pd.read_csv(io.StringIO(csv_text), engine="python", on_bad_lines="skip")
+    df.columns = [c.replace('"', '').strip() for c in df.columns]
+
+    if "Player" not in df.columns or "Salary" not in df.columns:
+        raise ValueError("Colonnes Fantrax non détectées")
 
     out = pd.DataFrame()
-    out["Joueur"] = df["Player"]
-    out["Salaire"] = (
-        df["Salary"].astype(str)
-        .str.replace(",", "")
-        .replace(["None", "nan", ""], "0")
-        .astype(float) * 1000
+    out["Joueur"] = df["Player"].astype(str)
+    out["Pos"] = df.get("Pos", "N/A")
+    out["Equipe"] = df.get("Team", "N/A")
+
+    sal = (
+        df["Salary"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .replace(["None", "nan", "NaN", ""], "0")
     )
+
+    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
     out["Statut"] = df.get("Status", "").apply(
         lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
     )
-    return out
+
+    return out[out["Joueur"].str.len() > 2]
 
 # =====================================================
-# SIDEBAR – SAISON & PLAFONDS
+# SIDEBAR
 # =====================================================
 st.sidebar.header("📅 Saison")
+
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
-if auto not in saisons: saisons.append(auto)
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
+
 season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
 LOCKED = saison_verrouillee(season)
-
-DATA_FILE = f"{DATA_DIR}/data_{season}.csv"
-HIST_FILE = f"{DATA_DIR}/history_{season}.csv"
+DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 
 st.sidebar.divider()
-if st.sidebar.button("✏️ Modifier plafonds"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input("Plafond GC", value=st.session_state["PLAFOND_GC"])
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input("Plafond CE", value=st.session_state["PLAFOND_CE"])
+st.sidebar.header("💰 Plafonds")
+
+if st.sidebar.button("✏️ Modifier les plafonds"):
+    st.session_state["edit_plafond"] = True
+
+if st.session_state.get("edit_plafond"):
+    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
+        "Plafond Grand Club", value=st.session_state["PLAFOND_GC"], step=500_000
+    )
+    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
+        "Plafond Club École", value=st.session_state["PLAFOND_CE"], step=250_000
+    )
 
 st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
 
 # =====================================================
-# DATA LOAD
+# DATA
 # =====================================================
-if "data" not in st.session_state:
-    st.session_state["data"] = pd.read_csv(DATA_FILE) if os.path.exists(DATA_FILE) else pd.DataFrame(
-        columns=["Propriétaire", "Joueur", "Salaire", "Statut"]
-    )
-
-df = st.session_state["data"]
+if "season" not in st.session_state or st.session_state["season"] != season:
+    if os.path.exists(DATA_FILE):
+        st.session_state["data"] = pd.read_csv(DATA_FILE)
+    else:
+        st.session_state["data"] = pd.DataFrame(
+            columns=["Propriétaire", "Joueur", "Salaire", "Statut", "Pos", "Equipe"]
+        )
+    st.session_state["season"] = season
 
 # =====================================================
 # IMPORT
 # =====================================================
 st.sidebar.header("📥 Import Fantrax")
 if not LOCKED:
-    up = st.sidebar.file_uploader("CSV Fantrax", type="csv")
-    if up:
-        temp = parse_fantrax(up)
-        temp["Propriétaire"] = up.name.replace(".csv", "")
-        df = pd.concat([df, temp]).drop_duplicates(["Propriétaire", "Joueur"])
-        df.to_csv(DATA_FILE, index=False)
-        st.session_state["data"] = df
-        st.sidebar.success("Import OK")
+    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
+    if uploaded:
+        df = parse_fantrax(uploaded)
+        df["Propriétaire"] = uploaded.name.replace(".csv", "")
+        st.session_state["data"] = pd.concat(
+            [st.session_state["data"], df],
+            ignore_index=True
+        ).drop_duplicates(subset=["Propriétaire", "Joueur"])
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        st.sidebar.success("✅ Import réussi")
 
 # =====================================================
 # HEADER
 # =====================================================
-st.image("Logo_Pool.png", width=400)
-st.title("🏒 Gestion GM – Pool Hockey")
+st.image("Logo_Pool.png", use_container_width=True)
+st.title("🏒 Fantrax – Gestion Salariale")
 
+df = st.session_state["data"]
 if df.empty:
     st.info("Aucune donnée")
     st.stop()
@@ -126,7 +159,12 @@ for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
     gc = d[d["Statut"] == "Grand Club"]["Salaire"].sum()
     ce = d[d["Statut"] == "Club École"]["Salaire"].sum()
-    logo = next((v for k,v in LOGOS.items() if k.lower() in p.lower()), "")
+
+    logo = ""
+    for k, v in LOGOS.items():
+        if k.lower() in p.lower():
+            logo = v
+
     resume.append({
         "Propriétaire": p,
         "Logo": logo,
@@ -135,84 +173,62 @@ for p in df["Propriétaire"].unique():
         "Restant GC": st.session_state["PLAFOND_GC"] - gc,
         "Restant CE": st.session_state["PLAFOND_CE"] - ce
     })
+
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
-# TABS
+# ONGLETs
 # =====================================================
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Tableau",
-    "🔄 Alignement",
-    "📜 Historique",
-    "📄 Export PDF"
-])
+tab1, tab2, tab3 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations"])
 
 # =====================================================
-# 📊 TABLEAU
+# TABLEAU AVEC LOGOS (CORRIGÉ)
 # =====================================================
 with tab1:
+    headers = st.columns([1.2, 2.5, 2, 2, 2, 2])
+    headers[0].markdown("**Logo**")
+    headers[1].markdown("**Propriétaire**")
+    headers[2].markdown("**Grand Club**")
+    headers[3].markdown("**Club École**")
+    headers[4].markdown("**Restant GC**")
+    headers[5].markdown("**Restant CE**")
+
     for _, r in plafonds.iterrows():
-        c = st.columns([1,2,2,2,2,2])
-        c[0].image(r["Logo"], width=50) if r["Logo"] else c[0].markdown("—")
-        c[1].markdown(f"**{r['Propriétaire']}**")
-        c[2].markdown(money(r["GC"]))
-        c[3].markdown(money(r["CE"]))
-        c[4].markdown(money(r["Restant GC"]))
-        c[5].markdown(money(r["Restant CE"]))
+        cols = st.columns([1.2, 2.5, 2, 2, 2, 2])
+
+        if r["Logo"] and os.path.exists(r["Logo"]):
+            cols[0].image(r["Logo"], width=55)
+        else:
+            cols[0].markdown("—")
+
+        cols[1].markdown(r["Propriétaire"])
+        cols[2].markdown(money(r["GC"]))
+        cols[3].markdown(money(r["CE"]))
+        cols[4].markdown(money(r["Restant GC"]))
+        cols[5].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# 🔄 DRAG & DROP (GC / CE)
+# TRANSACTIONS
 # =====================================================
 with tab2:
-    prop = st.selectbox("Propriétaire", df["Propriétaire"].unique())
-    d = df[df["Propriétaire"] == prop]
+    p = st.selectbox("Propriétaire", plafonds["Propriétaire"])
+    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000)
+    statut = st.radio("Statut", ["Grand Club", "Club École"])
 
-    col1, col2 = st.columns(2)
-    with col1:
-        gc_player = st.selectbox("🏒 Grand Club", d[d["Statut"]=="Grand Club"]["Joueur"])
-    with col2:
-        ce_player = st.selectbox("🏫 Club École", d[d["Statut"]=="Club École"]["Joueur"])
+    ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
+    reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
 
-    if st.button("⇄ Basculer"):
-        joueur = gc_player or ce_player
-        new = "Club École" if gc_player else "Grand Club"
-        df.loc[(df["Propriétaire"]==prop)&(df["Joueur"]==joueur),"Statut"]=new
-        df.to_csv(DATA_FILE, index=False)
-
-        hist = pd.DataFrame([{
-            "Date": datetime.now(),
-            "Propriétaire": prop,
-            "Joueur": joueur,
-            "Vers": new
-        }])
-        hist.to_csv(HIST_FILE, mode="a", header=not os.path.exists(HIST_FILE), index=False)
-        st.success("Alignement mis à jour")
-        st.rerun()
+    if salaire > reste:
+        st.error("🚨 Dépassement du plafond")
+    else:
+        st.success("✅ Transaction valide")
 
 # =====================================================
-# 📜 HISTORIQUE
+# IA
 # =====================================================
 with tab3:
-    if os.path.exists(HIST_FILE):
-        st.dataframe(pd.read_csv(HIST_FILE))
-    else:
-        st.info("Aucun mouvement")
-
-# =====================================================
-# 📄 EXPORT PDF
-# =====================================================
-with tab4:
-    p = st.selectbox("Exporter pour", df["Propriétaire"].unique())
-    if st.button("📄 Générer PDF"):
-        pdf_path = f"/tmp/{p}.pdf"
-        doc = SimpleDocTemplate(pdf_path, pagesize=LETTER)
-        styles = getSampleStyleSheet()
-        elements = [Paragraph(f"<b>{p}</b>", styles["Title"]), Spacer(1,12)]
-
-        data = df[df["Propriétaire"]==p][["Joueur","Statut","Salaire"]]
-        table = Table([data.columns.tolist()] + data.values.tolist())
-        elements.append(table)
-
-        doc.build(elements)
-        with open(pdf_path,"rb") as f:
-            st.download_button("⬇️ Télécharger PDF", f, file_name=f"{p}.pdf")
+    for _, r in plafonds.iterrows():
+        if r["Restant GC"] < 2_000_000:
+            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
+        if r["Restant CE"] > 10_000_000:
+            st.info(f"{r['Propriétaire']} : rappel possible")
