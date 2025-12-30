@@ -9,7 +9,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.lib.units import cm
 
 # ======================================================
 # CONFIG
@@ -42,60 +41,47 @@ def season_file(season):
     return f"{DATA_DIR}/fantrax_{season}.csv"
 
 # ======================================================
-# PARSER FANTRAX ROBUSTE (SKATERS + GOALIES)
+# 🔥 PARSER FANTRAX DÉFINITIF
 # ======================================================
 def parse_fantrax_file(uploaded_file):
     text = uploaded_file.read().decode("utf-8", errors="ignore")
     lines = text.splitlines()
 
-    header_line = None
+    header_index = None
     for i, line in enumerate(lines):
-        if (
-            "Player" in line
-            and "Salary" in line
-            and "Pos" in line
-        ):
-            header_line = i
+        if line.startswith("ID") and "Player" in line and "Salary" in line:
+            header_index = i
             break
 
-    if header_line is None:
-        raise ValueError("En-tête Fantrax introuvable")
+    if header_index is None:
+        raise ValueError("Ligne d’en-tête Fantrax introuvable")
 
     df = pd.read_csv(
-        io.StringIO("\n".join(lines[header_line:])),
+        io.StringIO("\n".join(lines[header_index:])),
         sep="\t",
         engine="python"
     )
 
-    df.columns = [c.strip().lower() for c in df.columns]
+    df.columns = [c.strip() for c in df.columns]
 
-    def find_col(keywords):
-        for c in df.columns:
-            for k in keywords:
-                if k in c:
-                    return c
-        return None
-
-    col_player = find_col(["player"])
-    col_salary = find_col(["salary"])
-    col_pos = find_col(["pos"])
-    col_status = find_col(["status", "eligible"])
-
-    if not col_player or not col_salary:
-        raise ValueError("Colonnes Player ou Salary manquantes")
+    if "Player" not in df.columns or "Salary" not in df.columns:
+        raise ValueError(f"Colonnes détectées : {list(df.columns)}")
 
     out = pd.DataFrame()
-    out["Joueur"] = df[col_player]
+    out["Joueur"] = df["Player"].astype(str)
+
     out["Salaire"] = (
-        df[col_salary]
+        df["Salary"]
         .astype(str)
         .str.replace(",", "")
+        .replace("", "0")
         .astype(float) * 1000
     )
-    out["Pos"] = df[col_pos] if col_pos else "N/A"
 
-    if col_status:
-        out["Statut"] = out[col_status].apply(
+    out["Pos"] = df["Pos"] if "Pos" in df.columns else "N/A"
+
+    if "Status" in df.columns:
+        out["Statut"] = out["Status"].apply(
             lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
         )
     else:
@@ -116,7 +102,6 @@ if default not in saisons:
 
 season = st.sidebar.selectbox("Choisir la saison", saisons, index=saisons.index(default))
 LOCKED = saison_passee(season)
-
 DATA_FILE = season_file(season)
 
 # ======================================================
@@ -132,12 +117,12 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     st.session_state["season"] = season
 
 # ======================================================
-# IMPORT FANTRAX
+# IMPORT
 # ======================================================
 st.sidebar.header("📥 Import Fantrax")
 
 if not LOCKED:
-    file = st.sidebar.file_uploader("Exporter Fantrax Skaters / Goalies", type=["csv", "txt"])
+    file = st.sidebar.file_uploader("Exporter Fantrax (Skaters / Goalies)", type=["csv", "txt"])
     if file:
         try:
             df = parse_fantrax_file(file)
@@ -158,7 +143,7 @@ else:
     st.sidebar.warning("🔒 Saison verrouillée")
 
 # ======================================================
-# CONTRÔLE PLAFOND
+# PLAFOND SALARIAL LIVE
 # ======================================================
 def controle_plafond(df):
     rows = []
@@ -178,7 +163,7 @@ def controle_plafond(df):
 # ======================================================
 # UI
 # ======================================================
-st.title("🏒 Fantrax – Gestion Salariale Ultimate")
+st.title("🏒 Fantrax – Gestion Salariale")
 
 if st.session_state["data"].empty:
     st.info("Aucune donnée importée")
