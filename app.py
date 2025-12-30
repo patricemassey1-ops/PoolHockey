@@ -333,9 +333,17 @@ with tab2:
                 key="sim_proprio_select"
             )
             
-            if selected_proprio_full:
+                            if selected_proprio_full:
                 # Filtrer les joueurs du propriétaire sélectionné
                 joueurs_proprio = df_hist[df_hist['Propriétaire'] == selected_proprio_full].copy()
+                
+                # Filtrer les joueurs avec un salaire > 0 et un nom valide
+                joueurs_proprio = joueurs_proprio[
+                    (joueurs_proprio['Joueur'].notna()) & 
+                    (joueurs_proprio['Joueur'] != '') &
+                    (joueurs_proprio['Joueur'] != '0')
+                ].copy()
+                
                 joueurs_proprio['Salaire'] = pd.to_numeric(joueurs_proprio['Salaire'], errors='coerce').fillna(0)
                 
                 # Créer une clé unique pour ce propriétaire
