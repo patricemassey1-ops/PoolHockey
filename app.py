@@ -194,21 +194,110 @@ if "season" not in st.session_state or st.session_state["season"] != season:
         )
     st.session_state["season"] = season
 
-# =====================================================
-# IMPORT
-# =====================================================
-st.sidebar.header("📥 Import Fantrax")
-if not LOCKED:
-    uploaded = st.sidebar.file_uploader("CSV Fantrax", type=["csv", "txt"])
-    if uploaded:
-        df_import = parse_fantrax(uploaded)
-        df_import["Propriétaire"] = uploaded.name.replace(".csv", "")
-        st.session_state["data"] = (
-            pd.concat([st.session_state["data"], df_import], ignore_index=True)
-            .drop_duplicates(subset=["Propriétaire", "Joueur"])
+def parse_fantrax(upload):
+    import csv
+    import re
+
+    raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
+    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
+
+    # Détecte un séparateur probable
+    def detect_sep(lines):
+        for l in lines:
+            low = l.lower()
+            if "player" in low and "salary" in low:
+                for d in [",", ";", "\t", "|"]:
+                    if d in l:
+                        return d
+        return ","
+
+    sep = detect_sep(raw_lines)
+
+    # Repère toutes les lignes header contenant player+salary
+    header_idxs = []
+    for i, l in enumerate(raw_lines):
+        low = l.lower()
+        if "player" in low and "salary" in low and sep in l:
+            header_idxs.append(i)
+
+    if not header_idxs:
+        raise ValueError("Aucune section Fantrax valide détectée (Player/Salary).")
+
+    def read_section(start, end):
+        lines = raw_lines[start:end]
+        lines = [x for x in lines if x.strip() != ""]
+        if len(lines) < 2:
+            return None
+
+        dfp = pd.read_csv(
+            io.StringIO("\n".join(lines)),
+            sep=sep,
+            engine="python",
+            on_bad_lines="skip"
         )
-        st.session_state["data"].to_csv(DATA_FILE, index=False)
-        st.sidebar.success("✅ Import réussi")
+        dfp.columns = [c.strip().replace('"', "") for c in dfp.columns]
+        return dfp
+
+    parts = []
+    for j, h in enumerate(header_idxs):
+        end = header_idxs[j + 1] if j + 1 < len(header_idxs) else len(raw_lines)
+        dfp = read_section(h, end)
+        if dfp is not None and not dfp.empty:
+            parts.append(dfp)
+
+    if not parts:
+        raise ValueError("Sections Fantrax détectées, mais aucune donnée exploitable.")
+
+    df = pd.concat(parts, ignore_index=True)
+
+    # Normalisation des colonnes (insensible à la casse)
+    cols = {c.lower(): c for c in df.columns}
+
+    # Tolérance: parfois 'Player Name' ou 'Salary ($)' etc.
+    def find_col(possibles):
+        for p in possibles:
+            for c in df.columns:
+                if p in c.lower():
+                    return c
+        return None
+
+    player_col = cols.get("player") or find_col(["player"])
+    salary_col = cols.get("salary") or find_col(["salary"])
+    team_col   = cols.get("team")   or find_col(["team"])
+    pos_col    = cols.get("pos")    or find_col(["pos"])
+    status_col = cols.get("status") or find_col(["status"])
+
+    if not player_col or not salary_col:
+        raise ValueError(f"Colonnes Player/Salary introuvables. Colonnes trouvées: {list(df.columns)}")
+
+    out = pd.DataFrame()
+    out["Joueur"] = df[player_col].astype(str).str.strip()
+
+    # ✅ Équipe du joueur depuis la colonne Team
+    out["Equipe"] = df[team_col].astype(str).str.strip() if team_col else "N/A"
+    out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "N/A"
+
+    sal = (
+        df[salary_col]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace(" ", "", regex=False)
+        .replace(["None", "nan", "NaN", ""], "0")
+    )
+    out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0) * 1000
+
+    if status_col:
+        out["Statut"] = df[status_col].apply(
+            lambda x: "Club École" if "min" in str(x).lower() else "Grand Club"
+        )
+    else:
+        out["Statut"] = "Grand Club"
+
+    out = out[out["Joueur"].str.len() > 2].reset_index(drop=True)
+
+    # ✅ Retour garanti DataFrame
+    return out
+
 
 # =====================================================
 # HEADER
