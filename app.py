@@ -805,15 +805,17 @@ with tab3:
                     
                     # Bouton de confirmation
                     if st.button("💸 Confirmer le rachat", type="primary", use_container_width=True):
-                        # Retirer le joueur
-                        st.session_state['historique'] = st.session_state['historique'].drop(joueur_rachat['index'])
+                        # Ne pas retirer le joueur, juste le marquer comme racheté
+                        # Modifier le joueur existant pour indiquer le rachat
+                        st.session_state['historique'].loc[joueur_rachat['index'], 'Joueur'] = f"[RACHETÉ] {joueur_rachat['joueur']}"
+                        st.session_state['historique'].loc[joueur_rachat['index'], 'Salaire'] = 0
                         
-                        # Ajouter la pénalité comme entrée spéciale
+                        # Ajouter la pénalité comme entrée séparée
                         penalite_entry = pd.DataFrame({
-                            'Joueur': [f"RACHAT - {joueur_rachat['joueur']}"],
+                            'Joueur': [f"Pénalité rachat - {joueur_rachat['joueur']}"],
                             'Salaire': [penalite],
                             'Statut': [masse_penalite],
-                            'Pos': ['RACHAT'],
+                            'Pos': ['PÉNALITÉ'],
                             'Equipe': ['RACHAT'],
                             'Propriétaire': [selected_proprio_rachat]
                         })
@@ -839,7 +841,7 @@ with tab3:
                         sauvegarder_donnees(st.session_state['historique'], DB_FILE)
                         sauvegarder_donnees(st.session_state['rachats'], BUYOUT_FILE)
                         
-                        st.success(f"✅ Rachat effectué! {joueur_rachat['joueur']} a été retiré et une pénalité de {format_currency(penalite)} a été ajoutée au {masse_penalite}.")
+                        st.success(f"✅ Rachat effectué! {joueur_rachat['joueur']} est marqué comme racheté (salaire à 0$) et une pénalité de {format_currency(penalite)} a été ajoutée au {masse_penalite}.")
                         st.balloons()
                 else:
                     st.info("Aucun joueur trouvé pour ce propriétaire.")
