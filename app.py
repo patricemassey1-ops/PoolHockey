@@ -206,7 +206,7 @@ plafonds = pd.DataFrame(resume)
 # =====================================================
 # ONGLETs
 # =====================================================
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Tableau", "🧾 Alignement", "⚖️ Transactions", "🧠 Recommandations"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Tableau", "⚖️ Transactions", "🧠 Recommandations", "🧾 Alignement"])
 
 
 # =====================================================
