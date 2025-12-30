@@ -251,7 +251,9 @@ def clear_df_selections():
             st.session_state[k]["selection"] = {"rows": []}
 
 def set_move_ctx(owner: str, joueur: str):
-    st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur}
+    # nonce unique pour éviter conflits de keys dans le dialog
+    st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
+    st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur, "nonce": st.session_state["move_nonce"]}
 
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
@@ -460,6 +462,7 @@ def open_move_dialog():
 
     owner = ctx["owner"]
     joueur = ctx["joueur"]
+    nonce = ctx.get("nonce", 0)
 
     df_all = st.session_state["data"]
     mask = (df_all["Propriétaire"] == owner) & (df_all["Joueur"] == joueur)
@@ -475,16 +478,11 @@ def open_move_dialog():
     cur_equipe = str(row.get("Equipe", ""))
     cur_salaire = int(row.get("Salaire", 0))
 
+    # Compteurs (pré-calculés dans Alignement)
     counts = st.session_state.get("align_counts", {"F": 0, "D": 0, "G": 0})
     f_count = int(counts.get("F", 0))
     d_count = int(counts.get("D", 0))
     g_count = int(counts.get("G", 0))
-
-    totals = st.session_state.get("align_totals", {"GC": 0, "CE": 0, "RGC": 0, "RCE": 0})
-    total_gc = int(totals.get("GC", 0))
-    total_ce = int(totals.get("CE", 0))
-    rgc = int(totals.get("RGC", st.session_state["PLAFOND_GC"] - total_gc))
-    rce = int(totals.get("RCE", st.session_state["PLAFOND_CE"] - total_ce))
 
     def can_go_actif(pos: str) -> tuple[bool, str]:
         if pos == "F" and f_count >= 12:
@@ -500,27 +498,42 @@ def open_move_dialog():
         st.caption(f"**{owner}** • **{joueur}** • Pos **{cur_pos}** • **{cur_equipe}** • Salaire **{money(cur_salaire)}**")
         st.caption(f"Actuel : **{cur_statut}**" + (f" (**{cur_slot}**)" if cur_slot else ""))
 
-        st.caption(f"Actifs: F {f_count}/12 • D {d_count}/6 • G {g_count}/2")
-        st.caption(f"Cap: GC {money(total_gc)} (R {money(rgc)}) • CE {money(total_ce)} (R {money(rce)})")
-
-        # Destinations simples
+        # Destinations possibles (simples)
         destinations = [
             ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
             ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
             ("🔵 Mineur", ("Club École", "")),
             ("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé")),  # garde le statut, slot=Blessé
         ]
-        if cur_slot == "Blessé":
-            destinations = [
-                ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
-                ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
-                ("🔵 Mineur", ("Club École", "")),
-            ]
 
-        choice = st.radio("Destination", [d[0] for d in destinations], index=0)
+        # 1) Enlève l'option correspondant à la position actuelle
+        current = (cur_statut, cur_slot if cur_slot else "")
+        destinations = [d for d in destinations if d[1] != current]
+
+        # 2) Si déjà Blessé, on n’affiche pas l’option Blessé
+        if cur_slot == "Blessé":
+            destinations = [d for d in destinations if d[1][1] != "Blessé"]
+
+        # 3) Si plus aucune option (cas rare), on sort
+        if not destinations:
+            st.info("Aucune destination disponible.")
+            if st.button("Fermer", key=f"close_{nonce}", use_container_width=True):
+                clear_move_ctx()
+                st.rerun()
+            return
+
+        choice = st.radio(
+            "Destination",
+            [d[0] for d in destinations],
+            index=0,
+            key=f"dest_{owner}_{joueur}_{nonce}",  # ✅ key unique
+        )
         to_statut, to_slot = dict(destinations)[choice]
 
-        if st.button("✅ Confirmer", use_container_width=True):
+        c1, c2 = st.columns(2)
+
+        if c1.button("✅ Confirmer", key=f"confirm_{owner}_{joueur}_{nonce}", use_container_width=True):
+            # Vérifie quotas si vers GC/Actif
             if to_statut == "Grand Club" and to_slot == "Actif":
                 ok, msg = can_go_actif(cur_pos)
                 if not ok:
@@ -534,16 +547,19 @@ def open_move_dialog():
                 to_slot=to_slot,
                 action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
             )
+
             if ok2:
                 clear_move_ctx()
                 st.success("✅ Déplacement enregistré.")
                 st.rerun()
 
-        if st.button("Annuler", use_container_width=True):
+        if c2.button("Annuler", key=f"cancel_{owner}_{joueur}_{nonce}", use_container_width=True):
             clear_move_ctx()
             st.rerun()
 
     _dlg()
+
+
 
 # =====================================================
 # CALCULS - plafonds par propriétaire (EXCLUT Blessé)
