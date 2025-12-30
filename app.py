@@ -16,6 +16,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # =====================================================
 # SESSION DEFAULTS
 # =====================================================
+if "uploader_nonce" not in st.session_state:
+    st.session_state["uploader_nonce"] = 0
+
+def do_rerun():
+    # compat Streamlit (ancien: experimental_rerun)
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
 if "PLAFOND_CE" not in st.session_state:
@@ -228,13 +238,35 @@ def parse_fantrax(upload):
 # =====================================================
 def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
     if x is None or x.empty:
-        return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
+        return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire", "État"])
+
     y = x.copy()
     y["Pos"] = y["Pos"].apply(normalize_pos)
+
+    # État visible
+    slot = y.get("Slot", "")
+    y["État"] = ""
+    if "Slot" in y.columns:
+        y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "État"] = "🩹 BLESSÉ"
+
+    # Rend le nom + visible si blessé
+    if "Slot" in y.columns:
+        y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "Joueur"] = (
+            "🩹 " + y.loc[y["Slot"].astype(str).str.strip().eq("Blessé"), "Joueur"].astype(str)
+        )
+
     y["_pos_order"] = y["Pos"].apply(pos_sort_key)
     y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
+
     y["Salaire"] = y["Salaire"].apply(money)
-    return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
+
+    # Mets État à la fin (lisible)
+    cols = ["Joueur", "Pos", "Equipe", "Salaire", "État"]
+    for c in cols:
+        if c not in y.columns:
+            y[c] = ""
+    return y[cols].reset_index(drop=True)
+
 
 def clear_df_selections():
     for k in ["sel_actifs", "sel_banc", "sel_min"]:
@@ -576,7 +608,9 @@ uploaded = st.sidebar.file_uploader(
     "CSV Fantrax",
     type=["csv", "txt"],
     help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
+    key=f"fantrax_uploader_{st.session_state['uploader_nonce']}",
 )
+
 if uploaded:
     if LOCKED:
         st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
@@ -594,7 +628,9 @@ if uploaded:
             st.session_state["data"] = clean_data(st.session_state["data"])
             st.session_state["data"].to_csv(DATA_FILE, index=False)
             st.sidebar.success("✅ Import réussi")
-            st.rerun()
+            st.session_state["uploader_nonce"] += 1   # reset uploader (évite l’état “sticky”)
+do_rerun()
+
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
             st.stop()
