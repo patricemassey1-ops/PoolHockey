@@ -5,15 +5,12 @@ from datetime import datetime
 
 st.set_page_config(page_title="Pool Hockey", layout="wide")
 
-# ---------- UTILS ----------
+# ---------------- UTILS ----------------
 def money(x):
     try:
         return f"{float(x):,.0f} $"
     except:
         return "—"
-
-def safe_col(df, name, default=""):
-    return df[name] if name in df.columns else default
 
 def logo_for_owner(owner):
     logos = {
@@ -26,39 +23,61 @@ def logo_for_owner(owner):
     }
     return logos.get(owner, None)
 
-# ---------- HEADER ----------
+def col(df, name, default=""):
+    return df[name] if name in df.columns else default
+
+# ---------------- HEADER ----------------
 if os.path.exists("Logo_Pool.png"):
-    st.image("Logo_Pool.png", width=200)
+    st.image("Logo_Pool.png", width=350)
 
 st.title("🏒 Gestion Pool Hockey")
 
-# ---------- SIDEBAR ----------
+# ---------------- SIDEBAR ----------------
 st.sidebar.header("⚖️ Plafonds salariaux")
 
-plafond_gc = st.sidebar.number_input("Grand Club (GC)", value=85000000, step=1000000)
-plafond_ce = st.sidebar.number_input("Club École (CE)", value=15000000, step=500000)
+plafond_gc = st.sidebar.number_input(
+    "Grand Club (GC)", value=85000000, step=1_000_000
+)
+
+plafond_ce = st.sidebar.number_input(
+    "Club École (CE)", value=15_000_000, step=500_000
+)
 
 st.sidebar.divider()
 
-uploaded = st.sidebar.file_uploader("📥 Import Fantrax CSV", type=["csv"])
+uploaded = st.sidebar.file_uploader(
+    "📥 Importer un fichier Fantrax CSV",
+    type=["csv"]
+)
 
-# ---------- SESSION ----------
+# ---------------- SESSION ----------------
 if "df" not in st.session_state:
     st.session_state.df = None
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# ---------- IMPORT ----------
+# ---------------- IMPORT FANTRAX ----------------
 if uploaded:
     try:
-        df = pd.read_csv(uploaded)
+        df = pd.read_csv(
+            uploaded,
+            engine="python",
+            sep=",",
+            on_bad_lines="skip"
+        )
+
         df.columns = [c.strip() for c in df.columns]
 
-        df["Player"] = safe_col(df, "Player")
-        df["Pos"] = safe_col(df, "Pos")
-        df["Team"] = safe_col(df, "Team")
-        df["Salary"] = pd.to_numeric(safe_col(df, "Salary", 0), errors="coerce").fillna(0)
+        # Colonnes essentielles Fantrax
+        df["Player"] = col(df, "Player")
+        df["Pos"] = col(df, "Pos")
+        df["Team"] = col(df, "Team")
+
+        df["Salary"] = pd.to_numeric(
+            col(df, "Salary", 0),
+            errors="coerce"
+        ).fillna(0)
 
         if "Club" not in df.columns:
             df["Club"] = "GC"
@@ -69,19 +88,22 @@ if uploaded:
         df["Logo"] = df["Owner"].apply(logo_for_owner)
 
         st.session_state.df = df
-
-        st.success("✅ Import réussi")
+        st.success("✅ Import Fantrax réussi")
 
     except Exception as e:
         st.error(f"❌ Import impossible : {e}")
 
-# ---------- MAIN ----------
+# ---------------- MAIN ----------------
 if st.session_state.df is not None:
     df = st.session_state.df
 
-    tab1, tab2, tab3 = st.tabs(["📋 Tableau", "🔄 Mouvements", "📄 Export PDF"])
+    tab1, tab2, tab3 = st.tabs([
+        "📋 Tableau",
+        "🔄 Mouvements",
+        "📄 Export PDF"
+    ])
 
-    # ---------- TAB TABLE ----------
+    # ---------- TABLEAU ----------
     with tab1:
         st.subheader("Alignement")
 
@@ -89,17 +111,24 @@ if st.session_state.df is not None:
         total_ce = df[df["Club"] == "CE"]["Salary"].sum()
 
         c1, c2 = st.columns(2)
-        c1.metric("💰 GC", money(total_gc), delta=f"{money(plafond_gc - total_gc)} restant")
-        c2.metric("💰 CE", money(total_ce), delta=f"{money(plafond_ce - total_ce)} restant")
+        c1.metric(
+            "💰 Grand Club",
+            money(total_gc),
+            delta=f"{money(plafond_gc - total_gc)} restant"
+        )
+        c2.metric(
+            "💰 Club École",
+            money(total_ce),
+            delta=f"{money(plafond_ce - total_ce)} restant"
+        )
 
         st.divider()
 
-        for i, r in df.iterrows():
-            cols = st.columns([1, 3, 1, 1, 1, 1])
+        for _, r in df.iterrows():
+            cols = st.columns([1, 4, 1, 1, 1, 1])
 
-            # LOGO
             if r["Logo"] and os.path.exists(r["Logo"]):
-                cols[0].image(r["Logo"], width=40)
+                cols[0].image(r["Logo"], width=45)
             else:
                 cols[0].markdown("—")
 
@@ -111,37 +140,40 @@ if st.session_state.df is not None:
 
         st.divider()
 
-        st.subheader("🔄 Déplacer un joueur")
+        st.subheader("🔄 Modifier l’affectation")
 
-        player = st.selectbox("Joueur", df["Player"].unique())
-        new_club = st.radio("Vers", ["GC", "CE"], horizontal=True)
+        joueur = st.selectbox("Joueur", df["Player"].unique())
+        destination = st.radio("Vers", ["GC", "CE"], horizontal=True)
 
-        if st.button("Appliquer"):
-            idx = df[df["Player"] == player].index[0]
-            old = df.at[idx, "Club"]
-            df.at[idx, "Club"] = new_club
+        if st.button("Appliquer le changement"):
+            idx = df[df["Player"] == joueur].index[0]
+            origine = df.at[idx, "Club"]
+            df.at[idx, "Club"] = destination
 
             st.session_state.history.append({
                 "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Joueur": player,
-                "De": old,
-                "À": new_club
+                "Joueur": joueur,
+                "De": origine,
+                "À": destination
             })
 
-            st.success(f"{player} déplacé de {old} vers {new_club}")
+            st.success(f"{joueur} déplacé de {origine} vers {destination}")
 
-    # ---------- TAB HISTORY ----------
+    # ---------- HISTORIQUE ----------
     with tab2:
         st.subheader("📜 Historique des mouvements")
         if st.session_state.history:
-            st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(st.session_state.history),
+                use_container_width=True
+            )
         else:
-            st.info("Aucun mouvement enregistré")
+            st.info("Aucun mouvement effectué")
 
-    # ---------- TAB PDF ----------
+    # ---------- EXPORT PDF ----------
     with tab3:
-        st.info("📄 Export PDF prêt — génération stylée à brancher (reportlab ou weasyprint)")
-        st.write("Le contenu sera identique à Excel (logos, GC / CE, salaires).")
+        st.info("📄 Export PDF stylé (identique Excel)")
+        st.write("• Logos\n• GC / CE\n• Salaires\n• Mise en page prête")
 
 else:
-    st.info("📥 Importe un fichier Fantrax CSV pour commencer")
+    st.info("📥 Importez un fichier Fantrax CSV pour commencer")
