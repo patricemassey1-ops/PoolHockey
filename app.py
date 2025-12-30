@@ -261,3 +261,96 @@ with tab3:
             st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
         if r["Restant CE"] > 10_000_000:
             st.info(f"{r['Propriétaire']} : rappel possible")
+
+# =====================================================
+# ALIGNEMENT (GC=Act / CE=Min) + DÉPLACEMENT JOUEURS
+# =====================================================
+with tab4:
+    st.subheader("🧾 Alignement (Grand Club = Act | Club École = Min)")
+
+    # Choix du propriétaire
+    proprietaire = st.selectbox(
+        "Propriétaire",
+        sorted(df["Propriétaire"].unique()),
+        key="align_owner"
+    )
+
+    # Données du propriétaire
+    dprop = df[df["Propriétaire"] == proprietaire].copy()
+
+    gc = dprop[dprop["Statut"] == "Grand Club"].sort_values(["Pos", "Joueur"])
+    ce = dprop[dprop["Statut"] == "Club École"].sort_values(["Pos", "Joueur"])
+
+    # Affichage en 2 colonnes
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("### 🏒 Grand Club (**Act**)")
+        if gc.empty:
+            st.info("Aucun joueur dans le Grand Club.")
+        else:
+            st.dataframe(
+                gc[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True
+            )
+
+    with c2:
+        st.markdown("### 🏫 Club École (**Min**)")
+        if ce.empty:
+            st.info("Aucun joueur dans le Club École.")
+        else:
+            st.dataframe(
+                ce[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True
+            )
+
+    st.divider()
+    st.markdown("### 🔁 Déplacer un joueur")
+
+    if LOCKED:
+        st.warning("Saison verrouillée : aucun changement d’alignement n’est permis.")
+        st.stop()
+
+    col_move1, col_move2 = st.columns(2)
+
+    # --- Déplacer de GC -> CE (Act -> Min)
+    with col_move1:
+        joueurs_gc = gc["Joueur"].tolist()
+        joueur_gc = st.selectbox(
+            "Déplacer du Grand Club vers Club École",
+            joueurs_gc if joueurs_gc else ["—"],
+            disabled=(len(joueurs_gc) == 0),
+            key="move_gc_to_ce"
+        )
+
+        if st.button("➡️ Envoyer au Club École (Min)", disabled=(len(joueurs_gc) == 0)):
+            mask = (
+                (st.session_state["data"]["Propriétaire"] == proprietaire)
+                & (st.session_state["data"]["Joueur"] == joueur_gc)
+            )
+            st.session_state["data"].loc[mask, "Statut"] = "Club École"
+            st.session_state["data"].to_csv(DATA_FILE, index=False)
+            st.success(f"✅ {joueur_gc} déplacé vers **Club École (Min)**")
+            st.rerun()
+
+    # --- Déplacer de CE -> GC (Min -> Act)
+    with col_move2:
+        joueurs_ce = ce["Joueur"].tolist()
+        joueur_ce = st.selectbox(
+            "Déplacer du Club École vers Grand Club",
+            joueurs_ce if joueurs_ce else ["—"],
+            disabled=(len(joueurs_ce) == 0),
+            key="move_ce_to_gc"
+        )
+
+        if st.button("⬅️ Rappeler au Grand Club (Act)", disabled=(len(joueurs_ce) == 0)):
+            mask = (
+                (st.session_state["data"]["Propriétaire"] == proprietaire)
+                & (st.session_state["data"]["Joueur"] == joueur_ce)
+            )
+            st.session_state["data"].loc[mask, "Statut"] = "Grand Club"
+            st.session_state["data"].to_csv(DATA_FILE, index=False)
+            st.success(f"✅ {joueur_ce} déplacé vers **Grand Club (Act)**")
+            st.rerun()
