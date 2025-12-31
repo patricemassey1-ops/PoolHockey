@@ -1241,166 +1241,229 @@ def nhl_headshot(player_name: str) -> str:
 
 
 # =====================================================
-# TAB J - JOUEURS AUTONOME (RECHERCHE)
+# TAB J - JOUEURS (AUTONOME) — RECHERCHE + TABLE (NO "...")
 # =====================================================
 with tabJ:
-    st.subheader("👤 Joueurs")
-    st.caption("Recherche par Nom/Prénom/Équipe/Level. Les résultats apparaissent seulement après filtrage.")
+    st.subheader("👤 Joueurs (Autonome)")
+    st.caption("Utilise les champs de recherche pour filtrer. (Nom, Prénom, Équipe, Level)")
 
-    # --- Hot reload CSV (optionnel)
+    # -------------------------------------------------
+    # 1) Helpers (local au tabJ)
+    # -------------------------------------------------
+    def must_exist(path: str):
+        if not os.path.exists(path):
+            st.error(f"❌ Fichier manquant : {path}\n\n➡️ Dépose ton CSV dans le dossier `data/` (Streamlit Cloud) ou utilise le chargeur ci-dessous.")
+            st.stop()
+
+    def _norm(s: str) -> str:
+        s = str(s or "").strip()
+        s = re.sub(r"\s+", " ", s)
+        return s
+
+    # -------------------------------------------------
+    # 2) Source CSV (Streamlit Cloud)
+    #    - Fichier attendu: data/Hockey.Players.csv
+    #    - + uploader pour hot-reload sans redeploy
+    # -------------------------------------------------
+    st.markdown("### 📄 Source des joueurs")
+
     uploaded_players = st.file_uploader(
-        "🔁 Mettre à jour la liste des joueurs (CSV)",
+        "Dépose ici ton fichier Hockey.Players.csv (optionnel, remplace temporairement celui du dossier data/)",
         type=["csv"],
-        key="players_uploader"
+        key="players_db_uploader",
+        help="Si tu ne veux pas redeploy, tu peux uploader ici et tout se met à jour tout de suite.",
     )
 
-    PLAYERS_PATH = "data/Hockey.Players.csv"
+    players_path = "data/Hockey.Players.csv"
+    if uploaded_players is None:
+        # mode fichier sur disque (Streamlit Cloud repo)
+        must_exist(players_path)
+
+    @st.cache_data(show_spinner=False)
+    def load_players_df_from_disk(path: str) -> pd.DataFrame:
+        df0 = pd.read_csv(path)
+        return df0
+
+    @st.cache_data(show_spinner=False)
+    def load_players_df_from_upload(file_bytes: bytes) -> pd.DataFrame:
+        return pd.read_csv(io.BytesIO(file_bytes))
 
     if uploaded_players is not None:
-        df_players = pd.read_csv(uploaded_players)
+        df_players = load_players_df_from_upload(uploaded_players.getvalue())
+        st.success("✅ CSV chargé via uploader (hot-reload).")
     else:
-        must_exist(PLAYERS_PATH)
-        df_players = pd.read_csv(PLAYERS_PATH)
+        df_players = load_players_df_from_disk(players_path)
 
     if df_players is None or df_players.empty:
-        st.info("Aucun joueur à afficher.")
+        st.warning("Aucun joueur dans le fichier.")
         st.stop()
 
-    # ------------------------------
-    # Détection colonnes (robuste)
-    # ------------------------------
-    def first_existing(cols):
-        return next((c for c in cols if c in df_players.columns), None)
-
+    # -------------------------------------------------
+    # 3) Détecte les colonnes (Nom/Prénom/Équipe/Level)
+    # -------------------------------------------------
     # Nom complet
-    player_col = first_existing(["Player", "Joueur", "Name", "Full Name"])
-    # Nom / Prénom séparés (si existants)
-    last_col  = first_existing(["Last Name", "Nom", "Surname", "Family Name"])
-    first_col = first_existing(["First Name", "Prénom", "Prenom", "Given Name"])
+    name_col_candidates = ["Player", "Joueur", "Name", "Full Name", "Nom"]
+    name_col = next((c for c in name_col_candidates if c in df_players.columns), None)
 
-    team_col  = first_existing(["Team", "Équipe", "Equipe", "NHL Team"])
-    level_col = first_existing(["Level", "League", "Ligue", "Niveau"])
+    # Prénom / Nom (si disponibles)
+    first_candidates = ["First Name", "Prenom", "Prénom", "First"]
+    last_candidates  = ["Last Name", "Nom de famille", "NomFamille", "Last"]
 
-    if not (player_col or (first_col and last_col)):
-        st.error(f"Impossible de trouver des colonnes de nom. Colonnes: {list(df_players.columns)}")
+    first_col = next((c for c in first_candidates if c in df_players.columns), None)
+    last_col  = next((c for c in last_candidates if c in df_players.columns), None)
+
+    # Équipe
+    team_candidates = ["Team", "NHL Team", "Équipe", "Equipe"]
+    team_col = next((c for c in team_candidates if c in df_players.columns), None)
+
+    # Level
+    level_candidates = ["Level", "League", "Niveau"]
+    level_col = next((c for c in level_candidates if c in df_players.columns), None)
+
+    # Si pas de First/Last, on laisse recherche Nom/Prénom sur le champ name_col
+    if not name_col and (not first_col or not last_col):
+        st.error(
+            "Impossible de trouver une colonne de nom joueur.\n"
+            f"Colonnes trouvées: {list(df_players.columns)}"
+        )
         st.stop()
 
-    # ------------------------------
-    # Champs de recherche
-    # ------------------------------
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+    # -------------------------------------------------
+    # 4) Champs de recherche
+    # -------------------------------------------------
+    st.markdown("### 🔎 Recherche")
+
+    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.0])
 
     with c1:
-        q_last = st.text_input("Nom", value="", placeholder="ex: Suzuki")
+        q_last = st.text_input("Nom", value="", placeholder="ex: Crosby", key="q_last")
+
     with c2:
-        q_first = st.text_input("Prénom", value="", placeholder="ex: Nick")
+        q_first = st.text_input("Prénom", value="", placeholder="ex: Sidney", key="q_first")
+
     with c3:
         if team_col:
             teams = sorted([t for t in df_players[team_col].dropna().astype(str).unique().tolist() if t.strip()])
-            team_choice = st.selectbox("Équipe", ["(Toutes)"] + teams, index=0)
+            team_pick = st.selectbox("Équipe", ["Toutes"] + teams, index=0, key="q_team")
         else:
-            team_choice = "(Toutes)"
-            st.text_input("Équipe", value="", disabled=True, help="Colonne équipe introuvable dans le CSV.")
+            team_pick = "Toutes"
+            st.text_input("Équipe", value="", disabled=True, key="q_team_disabled")
+
     with c4:
         if level_col:
             levels = sorted([t for t in df_players[level_col].dropna().astype(str).unique().tolist() if t.strip()])
-            level_choice = st.selectbox("Level", ["(Tous)"] + levels, index=0)
+            level_pick = st.selectbox("Level", ["Tous"] + levels, index=0, key="q_level")
         else:
-            level_choice = "(Tous)"
-            st.text_input("Level", value="", disabled=True, help="Colonne Level introuvable dans le CSV.")
+            level_pick = "Tous"
+            st.text_input("Level", value="", disabled=True, key="q_level_disabled")
 
-    # ------------------------------
-    # Filtrage
-    # ------------------------------
-    def norm(s: str) -> str:
-        return re.sub(r"\s+", " ", str(s or "").strip().lower())
-
+    # -------------------------------------------------
+    # 5) Filtrage
+    # -------------------------------------------------
     dff = df_players.copy()
 
-    # Nom / Prénom
-    if last_col and first_col:
-        if q_last.strip():
-            dff = dff[dff[last_col].astype(str).apply(lambda x: norm(q_last) in norm(x))]
-        if q_first.strip():
-            dff = dff[dff[first_col].astype(str).apply(lambda x: norm(q_first) in norm(x))]
-        # colonne affichée
-        dff["_display_name"] = dff[first_col].astype(str).str.strip() + " " + dff[last_col].astype(str).str.strip()
+    # Construit un champ "FullName" stable si besoin
+    if name_col:
+        dff["_full"] = dff[name_col].astype(str).map(_norm)
+    elif first_col and last_col:
+        dff["_full"] = (dff[first_col].astype(str).map(_norm) + " " + dff[last_col].astype(str).map(_norm)).str.strip()
     else:
-        # Nom complet dans player_col
-        if q_last.strip() or q_first.strip():
-            q = norm((q_first + " " + q_last).strip())
-            # si un seul champ est rempli, on recherche ce morceau
-            if not q:
-                q = norm(q_last.strip() or q_first.strip())
-            dff = dff[dff[player_col].astype(str).apply(lambda x: q in norm(x))]
-        dff["_display_name"] = dff[player_col].astype(str).str.strip()
+        dff["_full"] = ""
 
-    # Équipe
-    if team_col and team_choice != "(Toutes)":
-        dff = dff[dff[team_col].astype(str).str.strip() == str(team_choice).strip()]
+    # Filtre Nom/Prénom (contient, insensitive)
+    q_last_n = _norm(q_last).lower()
+    q_first_n = _norm(q_first).lower()
 
-    # Level
-    if level_col and level_choice != "(Tous)":
-        dff = dff[dff[level_col].astype(str).str.strip() == str(level_choice).strip()]
+    if q_last_n:
+        # cherche dans full + last si dispo
+        if last_col:
+            dff = dff[dff[last_col].astype(str).str.lower().str.contains(q_last_n, na=False)]
+        else:
+            dff = dff[dff["_full"].str.lower().str.contains(q_last_n, na=False)]
 
-    # ------------------------------
-    # Ne pas afficher tout si aucun filtre
-    # ------------------------------
-    any_filter = bool(q_last.strip() or q_first.strip() or (team_col and team_choice != "(Toutes)") or (level_col and level_choice != "(Tous)"))
+    if q_first_n:
+        if first_col:
+            dff = dff[dff[first_col].astype(str).str.lower().str.contains(q_first_n, na=False)]
+        else:
+            dff = dff[dff["_full"].str.lower().str.contains(q_first_n, na=False)]
 
-    st.divider()
+    # Filtre équipe
+    if team_col and team_pick != "Toutes":
+        dff = dff[dff[team_col].astype(str) == team_pick]
 
-    if not any_filter:
-        st.info("🔎 Entre au moins un critère (Nom, Prénom, Équipe ou Level) pour afficher des résultats.")
-        st.stop()
+    # Filtre level
+    if level_col and level_pick != "Tous":
+        dff = dff[dff[level_col].astype(str) == level_pick]
 
-    # Limite résultats (évite de spammer)
-    MAX_ROWS = 200
-    total = len(dff)
+    # -------------------------------------------------
+    # 6) Colonnes à afficher (propre)
+    # -------------------------------------------------
+    # On essaie d'afficher: Nom complet / Équipe / Level / Position / Cap Hit si dispo
+    display_cols = []
 
-    if total == 0:
-        st.warning("Aucun résultat.")
-        st.stop()
+    # 1) Nom (colonne stable à afficher)
+    if name_col:
+        display_name_col = name_col
+    else:
+        # fallback: on crée une colonne "Player"
+        display_name_col = "Player"
+        dff[display_name_col] = dff["_full"]
 
-    if total > MAX_ROWS:
-        st.warning(f"{total} résultats trouvés. Affichage limité à {MAX_ROWS}. Raffine tes filtres.")
-        dff = dff.head(MAX_ROWS)
+    display_cols.append(display_name_col)
 
-    # ------------------------------
-    # Affichage résultats (clic -> popup alignement)
-    # ------------------------------
-    show_cols = ["_display_name"]
-    if team_col:  show_cols.append(team_col)
-    if level_col: show_cols.append(level_col)
+    for c in [team_col, level_col, "Position", "Pos", "Cap Hit", "CapHit", "AAV"]:
+        if c and c in dff.columns and c not in display_cols:
+            display_cols.append(c)
 
-    # Ajoute quelques colonnes utiles si elles existent
-    for c in ["Pos", "Position", "Cap Hit", "Age", "Born", "DOB", "Country"]:
-        if c in dff.columns and c not in show_cols:
-            show_cols.append(c)
-        if len(show_cols) >= 6:
-            break
+    # limite pour rester clean
+    display_cols = display_cols[:6]
 
-    # Renomme l'en-tête du nom
-    dff_disp = dff[show_cols].rename(columns={"_display_name": "Joueur"}).reset_index(drop=True)
+    dff_disp = dff[display_cols].copy()
 
-    st.caption(f"Résultats: **{len(dff_disp)}**")
-    st.dataframe(dff_disp, use_container_width=True, hide_index=True)
+    # -------------------------------------------------
+    # 7) FIX "ELLIPSIS ..." + AFFICHAGE TABLEAU
+    # -------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 📋 Résultats")
 
-    st.caption("💡 Clique sur un joueur ci-dessous pour ouvrir le pop-up Alignement.")
-    # Boutons cliquables (évite les limites de clic sur dataframe)
-    for _, r in dff.head(50).iterrows():  # limite boutons
-        pname = str(r["_display_name"]).strip()
-        if st.button(f"➡️ {pname}", key=f"pickJ_{pname}"):
-            # Ici, on envoie au popup d’alignement (utilise ton owner sélectionné dans tabA si dispo)
-            owner = st.session_state.get("align_owner")
-            if not owner:
-                st.warning("Sélectionne d'abord un propriétaire dans l’onglet Alignement (pour savoir à qui appliquer le move).")
-            else:
-                set_move_ctx(owner, pname)
-                st.rerun()
+    st.markdown(
+        """
+        <style>
+          /* Force l'affichage complet du texte dans st.dataframe */
+          div[data-testid="stDataFrame"] td div {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            line-height: 1.25 !important;
+          }
 
-    # Popup Alignement (doit rester DANS tabJ)
-    open_move_dialog()
+          /* Agrandit la première colonne (souvent le nom du joueur) */
+          div[data-testid="stDataFrame"] th:first-child,
+          div[data-testid="stDataFrame"] td:first-child {
+            min-width: 280px !important;
+            max-width: 520px !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.dataframe(
+        dff_disp,
+        use_container_width=True,
+        hide_index=True,
+        height=560,
+        column_config={
+            display_name_col: st.column_config.TextColumn(
+                "Joueur",
+                width="large",
+                help="Nom complet du joueur"
+            ),
+        },
+    )
+
+    st.caption(f"✅ {len(dff_disp)} joueur(s) trouvé(s).")
+
 
 
 
