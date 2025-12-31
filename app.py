@@ -506,6 +506,13 @@ def selectable_roster_table(df_src: pd.DataFrame, key: str, title: str) -> str |
 # =====================================================
 # POP-UP DÉPLACEMENT (infos joueur)
 # =====================================================
+
+def _pick(d: dict, candidates: list[str], default=""):
+    for k in candidates:
+        if k in d and pd.notna(d[k]) and str(d[k]).strip() != "":
+            return str(d[k]).strip()
+    return default
+
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
