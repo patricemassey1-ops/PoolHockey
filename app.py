@@ -27,10 +27,9 @@ def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
 
 @st.cache_data(show_spinner=False)
-def load_players_db(path: str) -> pd.DataFrame:
-    if not os.path.exists(path):
-        return pd.DataFrame()
-    dfp = pd.read_csv(path)
+def load_players_db(path: str):
+    return pd.read_csv(path)
+
 
     # Normalize player name column guess
     # Expecting something like "Player" or "Joueur" or "Name"
@@ -1240,6 +1239,10 @@ else:
     # ---------------------------
     # Helpers: query params (compat)
     # ---------------------------
+    def nhl_headshot(player_name: str) -> str:
+    slug = player_name.lower().replace(" ", "-").replace(".", "")
+    return f"https://cms.nhl.bamgrid.com/images/headshots/current/168x168/{slug}.png"
+    
     def _get_qp(key: str):
         if hasattr(st, "query_params"):
             v = st.query_params.get(key)
@@ -1336,7 +1339,8 @@ else:
 df_players = pd.read_csv("data/Hockey.Players.csv")
 
 must_exist("data/Hockey_Players.csv")
-df_db = pd.read_csv("data/Hockey_Players.csv")
+df_db = load_players_db("data/Hockey_Players.csv")
+
 
 
 
@@ -1453,18 +1457,21 @@ df_db = pd.read_csv("data/Hockey_Players.csv")
         safe_headshot = _html.escape(headshot_url or "")
 
         # Header: headshot + flag + name + country (like your screenshot vibe)
-        header = f"""
-          <div class="tt-head">
-            <img class="tt-face" src="{safe_headshot}" alt="{safe_name}" />
-            <div class="tt-headtext">
-              <div class="tt-name">
-                <img class="tt-flag" src="{safe_flag}" alt="{safe_country}" />
-                <span class="tt-player">{safe_name}</span>
-              </div>
-              <div class="tt-countryline">{safe_country}</div>
-            </div>
-          </div>
-        """
+        headshot_url = nhl_headshot(player_name)
+
+header = f"""
+  <div class="tt-head">
+    <img src="{headshot_url}" class="tt-photo" />
+    <div class="tt-name">
+      <div>
+        <img class="tt-flag" src="{safe_flag}" />
+        <span class="tt-player">{safe_name}</span>
+        <span class="tt-country">• {safe_country}</span>
+      </div>
+    </div>
+  </div>
+"""
+
 
         rows = []
         for label, cols in preferred_fields:
@@ -1541,6 +1548,15 @@ df_db = pd.read_csv("data/Hockey_Players.csv")
             box-shadow:0 14px 30px rgba(0,0,0,.55);
             z-index:9999;
           }
+
+.tt-head{display:flex;gap:12px;align-items:center}
+.tt-photo{
+  width:64px;height:64px;
+  border-radius:50%;
+  border:2px solid #ff2d2d;
+  background:#111;
+}
+
           .tt-wrap:hover .tt-bubble{display:block}
 
           /* Tooltip header */
@@ -1597,7 +1613,7 @@ df_db = pd.read_csv("data/Hockey_Players.csv")
           <td class="namecell">
             <a class="rowlink" href="?player_pick={q}" aria-label="Choisir {safe_name}"></a>
             <span class="tt-wrap">
-              <span class="tt-trigger">{safe_name}</span>
+              <a class="tt-trigger" href="?pick_player={safe_name}">{safe_name}</a>
               <div class="tt-bubble">{tooltip}</div>
             </span>
           </td>
@@ -1627,6 +1643,14 @@ df_db = pd.read_csv("data/Hockey_Players.csv")
     )
 
     # ✅ Popup must be called at the end INSIDE tabJ
+
+   picked_from_j = _get_qp("pick_player")
+if picked_from_j:
+    set_move_ctx(proprietaire, picked_from_j)
+    _clear_qp("pick_player")
+    st.rerun()
+
+    
     open_move_dialog()
 
 
