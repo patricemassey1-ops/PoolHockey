@@ -949,125 +949,215 @@ with tabA:
     # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
 
-# =====================================================
-# TAB J - JOUEURS (CapWages)
-# =====================================================
-import requests
+import pandas as pd
+import re
+import html
 
-def _cw_api_key() -> str | None:
-    # 1) secrets.toml (recommandé)
-    try:
-        k = st.secrets.get("CAPWAGES_API_KEY")
-        if k:
-            return str(k).strip()
-    except Exception:
-        pass
-    # 2) variable d'environnement
-    k = os.getenv("CAPWAGES_API_KEY")
-    return str(k).strip() if k else None
+# =====================================================
+# JOUEURS AUTONOME — TABLE + HOVER TOOLTIP (NO JS)
+# =====================================================
+st.subheader("🌍 Joueurs (Autonome)")
+st.caption("Survole le nom d’un joueur pour voir son résumé (tiré de Hockey_Players.csv).")
 
-def _slugify_player_id(name: str) -> str:
-    # CapWages semble utiliser un id style "connor-mcdavid" (exemple) :contentReference[oaicite:3]{index=3}
-    s = re.sub(r"[^a-zA-Z0-9]+", "-", name.strip().lower()).strip("-")
+# --- Load: list to display (your merged file with flag URLs)
+players_path = "/mnt/data/Merged_Hockey_Players_WITH_FLAG_IMAGES_NORMALIZED.csv"
+df_players = pd.read_csv(players_path)
+
+# --- Load: pool database (the master info source for tooltip)
+db_path = "/mnt/data/Hockey_Players.csv"
+df_db = pd.read_csv(db_path)
+
+def _norm_name(x: str) -> str:
+    s = str(x or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
     return s
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def capwages_get_player(player_id: str, api_key: str) -> dict:
-    base = "https://capwages.com"
-    url = f"{base}/v1/players/{player_id}"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-        "User-Agent": "fantrax-poolhockey/1.0",
-    }
-    r = requests.get(url, headers=headers, timeout=20)
-    if r.status_code == 404:
-        return {"_not_found": True, "_status": 404}
-    r.raise_for_status()
-    return r.json()
+# Build lookup from Hockey_Players.csv by player name
+# (change "Player" to your real column name if needed)
+name_col_candidates = ["Player", "Joueur", "Name", "Full Name"]
+db_name_col = next((c for c in name_col_candidates if c in df_db.columns), None)
+if not db_name_col:
+    st.error(f"Impossible de trouver une colonne joueur dans Hockey_Players.csv. Colonnes: {list(df_db.columns)}")
+    st.stop()
 
-with tabJ:
-    st.subheader("👥 Joueurs (CapWages)")
-    st.caption("Recherche un joueur et récupère ses infos (salaire/contrat/équipe).")
+db_lookup = {}
+for _, r in df_db.iterrows():
+    key = _norm_name(r.get(db_name_col, ""))
+    if key:
+        db_lookup[key] = r.to_dict()
 
-    api_key = _cw_api_key()
-    if not api_key:
-        st.warning(
-            "Aucune clé API CapWages détectée.\n\n"
-            "➡️ Ajoute `CAPWAGES_API_KEY` dans `.streamlit/secrets.toml` "
-            "ou comme variable d’environnement `CAPWAGES_API_KEY`."
-        )
-        st.stop()
+# --- Choose what columns to show in the hover popup (tooltip)
+# Only keep fields that exist in Hockey_Players.csv
+preferred_fields = [
+    ("Team", ["Team", "NHL Team", "Équipe", "Equipe"]),
+    ("Position", ["Position", "Pos"]),
+    ("Shoots", ["Shoots", "Shot", "Tire", "Hand"]),
+    ("Height", ["Height", "Hgt", "Taille"]),
+    ("Weight", ["Weight", "W(lbs)", "Poids"]),
+    ("Birthdate", ["Birthdate", "DOB", "Date de naissance"]),
+    ("Draft", ["Draft", "Draft Year", "DraftYear", "Année Repêchage"]),
+    ("NHL GP", ["NHL GP", "GP NHL"]),
+    ("NHL P", ["NHL P", "NHL Points", "PTS NHL"]),
+    ("Cap Hit", ["Cap Hit", "CapHit", "AAV"]),
+    ("Contract", ["Contract", "Term", "Years", "Signed"]),
+]
 
-    # UI
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        query_name = st.text_input("Nom du joueur", placeholder="Ex: Connor McDavid, Jack Eichel…")
-    with c2:
-        query_id = st.text_input("ID CapWages (optionnel)", placeholder="ex: connor-mcdavid")
+def _pick_field(d: dict, candidates: list[str]) -> str:
+    for c in candidates:
+        if c in d and pd.notna(d[c]) and str(d[c]).strip() != "":
+            return str(d[c]).strip()
+    return ""
 
-    colA, colB = st.columns([1, 1])
-    with colA:
-        btn_search = st.button("🔎 Rechercher", use_container_width=True)
-    with colB:
-        btn_clear = st.button("🧹 Effacer", use_container_width=True)
+def _build_tooltip_html(player_name: str, db_row: dict, flag_url: str, country: str) -> str:
+    # Header: flag + name + country
+    safe_name = html.escape(player_name)
+    safe_country = html.escape(country or "")
+    safe_flag = html.escape(flag_url or "")
 
-    if btn_clear:
-        st.session_state.pop("cw_last", None)
-        st.session_state.pop("cw_err", None)
-        do_rerun()
+    header = f"""
+      <div class="tt-head">
+        <div class="tt-name">
+          <img class="tt-flag" src="{safe_flag}" alt="{safe_country}" />
+          <span class="tt-player">{safe_name}</span>
+          <span class="tt-country">• {safe_country}</span>
+        </div>
+      </div>
+    """
 
-    if btn_search:
-        pid = query_id.strip() if query_id.strip() else _slugify_player_id(query_name)
-        if not pid:
-            st.error("Entre un nom ou un ID.")
-        else:
-            try:
-                data = capwages_get_player(pid, api_key)
-                if data.get("_not_found"):
-                    st.session_state["cw_err"] = f"Joueur introuvable pour id: {pid}"
-                    st.session_state.pop("cw_last", None)
-                else:
-                    st.session_state["cw_last"] = data
-                    st.session_state.pop("cw_err", None)
-            except requests.HTTPError as e:
-                st.session_state["cw_err"] = f"Erreur HTTP CapWages: {e}"
-                st.session_state.pop("cw_last", None)
-            except Exception as e:
-                st.session_state["cw_err"] = f"Erreur CapWages: {e}"
-                st.session_state.pop("cw_last", None)
-            do_rerun()
+    # Body: key/value grid
+    rows = []
+    for label, cols in preferred_fields:
+        v = _pick_field(db_row, cols)
+        if v:
+            rows.append(
+                f"<div class='tt-row'><div class='tt-k'>{html.escape(label)}</div><div class='tt-v'>{html.escape(v)}</div></div>"
+            )
 
-    # Résultat
-    if st.session_state.get("cw_err"):
-        st.error(st.session_state["cw_err"])
+    if not rows:
+        rows_html = "<div class='tt-muted'>Aucune info trouvée dans Hockey_Players.csv</div>"
+    else:
+        rows_html = "<div class='tt-grid'>" + "".join(rows) + "</div>"
 
-    data = st.session_state.get("cw_last")
-    if data:
-        # petite normalisation selon l’exemple (id, name, team, position, salary, contract) :contentReference[oaicite:4]{index=4}
-        name = data.get("name", "—")
-        team = data.get("team", "—")
-        pos = data.get("position", "—")
-        salary = data.get("salary", None)
-        contract = data.get("contract", "—")
+    return header + rows_html
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Joueur", name)
-        m2.metric("Équipe", team)
-        m3.metric("Position", pos)
-        m4.metric("Contrat", contract)
+# --- Build table rows
+# Choose which columns exist in your displayed df
+player_name_col_candidates = ["Player", "Joueur", "Name"]
+p_name_col = next((c for c in player_name_col_candidates if c in df_players.columns), None)
+if not p_name_col:
+    st.error(f"Impossible de trouver une colonne joueur dans la table affichée. Colonnes: {list(df_players.columns)}")
+    st.stop()
 
-        if salary is not None:
-            st.metric("Salaire (base annuel)", money(salary))
+# Flag + Country columns from your merged file
+flag_col = "Flag" if "Flag" in df_players.columns else None
+country_col = "Country" if "Country" in df_players.columns else None
 
-        with st.expander("📦 JSON complet (debug)"):
-            st.json(data)
+# Optional columns to display in the list
+display_cols = []
+for c in [p_name_col, "Team", "NHL Team", "Cap Hit", "Pos", "Position"]:
+    if c in df_players.columns and c not in display_cols:
+        display_cols.append(c)
+display_cols = display_cols[:4]  # keep list clean
 
-    st.divider()
-    st.caption(
-        "Note: CapWages interdit notamment le bulk-download / redistribution / copycat apps via leurs données API. "
-        "Assure-toi que ton usage respecte leurs conditions."  # :contentReference[oaicite:5]{index=5}
+# CSS tooltip
+st.markdown(
+    """
+    <style>
+      .players-card{background:#000;border:1px solid #222;border-radius:14px;overflow:hidden}
+      .players-head{padding:10px 12px;border-bottom:1px solid #222;color:#ff2d2d;font-weight:900;letter-spacing:.5px}
+      .players-table{width:100%;border-collapse:collapse;color:#eee;font-weight:700}
+      .players-table th{padding:10px 12px;text-align:left;color:#ff2d2d;background:#060606;border-bottom:1px solid #222;position:sticky;top:0;z-index:1}
+      .players-table td{padding:10px 12px;border-bottom:1px solid #141414}
+      .players-table tr:nth-child(even) td{background:#050505}
+      .players-table tr:hover td{background:#120000}
+
+      /* Tooltip container on the name cell */
+      .tt-wrap{position:relative;display:inline-block}
+      .tt-trigger{color:#fff;text-decoration:none}
+      .tt-bubble{
+        display:none;
+        position:absolute;
+        left:0;
+        top:110%;
+        width:420px;
+        max-width:60vw;
+        background:#0b0b0b;
+        border:1px solid #ff2d2d;
+        border-radius:14px;
+        padding:12px;
+        box-shadow:0 14px 30px rgba(0,0,0,.55);
+        z-index:9999;
+      }
+      .tt-wrap:hover .tt-bubble{display:block}
+
+      .tt-head{margin-bottom:10px}
+      .tt-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .tt-flag{width:22px;height:auto;border-radius:4px;border:1px solid #222}
+      .tt-player{font-weight:1000;color:#fff}
+      .tt-country{color:#ff2d2d;font-weight:900;opacity:.95}
+
+      .tt-grid{display:grid;grid-template-columns: 140px 1fr;gap:6px 10px}
+      .tt-row{display:contents}
+      .tt-k{color:#ff2d2d;font-weight:900}
+      .tt-v{color:#eaeaea;font-weight:800}
+      .tt-muted{color:#aaa;font-weight:700}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+rows_html = ""
+for _, pr in df_players.iterrows():
+    player_name = str(pr.get(p_name_col, "")).strip()
+    if not player_name:
+        continue
+
+    key = _norm_name(player_name)
+    db_row = db_lookup.get(key, {})
+
+    flag_url = str(pr.get(flag_col, "")).strip() if flag_col else ""
+    country = str(pr.get(country_col, "")).strip() if country_col else ""
+
+    tooltip = _build_tooltip_html(player_name, db_row, flag_url, country)
+
+    # Build row cells
+    row_cells = []
+    # Name cell with tooltip
+    safe_name = html.escape(player_name)
+    row_cells.append(
+        f"""
+        <td>
+          <span class="tt-wrap">
+            <span class="tt-trigger">{safe_name}</span>
+            <div class="tt-bubble">{tooltip}</div>
+          </span>
+        </td>
+        """
     )
+
+    # Other columns
+    for c in display_cols[1:]:
+        row_cells.append(f"<td>{html.escape(str(pr.get(c, '')).strip())}</td>")
+
+    rows_html += "<tr>" + "".join(row_cells) + "</tr>"
+
+# Header for table
+ths = "".join([f"<th>{html.escape(c)}</th>" for c in display_cols])
+
+st.markdown(
+    f"""
+    <div class="players-card">
+      <div class="players-head">JOUEURS — survole le nom pour le résumé</div>
+      <div style="max-height:560px; overflow:auto;">
+        <table class="players-table">
+          <thead><tr>{ths}</tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 
