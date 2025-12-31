@@ -1268,7 +1268,7 @@ with tabJ:
         )
 
     # Default repo paths (Streamlit Cloud)
-    DEFAULT_PLAYERS_PATH = "data/Merged_Hockey_Players_WITH_FLAG_IMAGES_NORMALIZED.csv"
+    DEFAULT_PLAYERS_PATH = "data/Hockey_Players.csv"
     DEFAULT_DB_PATH = "data/Hockey_Players.csv"
 
     # Store uploaded bytes in session (so it persists across reruns)
