@@ -1077,11 +1077,11 @@ with tabA:
 
 
 # =====================================================
-# TAB J - JOUEURS (RECHERCHE + TOOLTIP HOVER)
+# 👤 TAB J — JOUEURS (RECHERCHE + HOVER + CLICK → ALIGNEMENT)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonome)")
-    st.caption("Recherche un joueur — survole son nom pour voir son profil complet.")
+    st.caption("Recherche un joueur • survole pour le résumé • clique pour gérer l’alignement")
 
     # -------------------------------------------------
     # LOAD DATA (CACHE)
@@ -1098,7 +1098,7 @@ with tabJ:
     c1, c2, c3 = st.columns([2, 1, 1])
 
     with c1:
-        search_name = st.text_input("Nom / Prénom", placeholder="Ex: Zibanejad")
+        search_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel")
 
     with c2:
         teams = sorted(df_players["Team"].dropna().unique())
@@ -1109,7 +1109,7 @@ with tabJ:
         level = st.selectbox("Level", ["Tous"] + levels)
 
     # -------------------------------------------------
-    # FILTER DATA
+    # FILTER
     # -------------------------------------------------
     df = df_players.copy()
 
@@ -1126,26 +1126,26 @@ with tabJ:
         st.info("Aucun joueur trouvé.")
         st.stop()
 
-    df = df.head(200)  # sécurité perf
+    df = df.head(200)
 
     # -------------------------------------------------
-    # STYLES
+    # CSS
     # -------------------------------------------------
     st.markdown(
         """
         <style>
         .player-row:hover{background:#120000;}
-        .tt-wrap{position:relative;display:inline-block}
+        .tt-wrap{position:relative;display:inline-block;cursor:pointer}
         .tt-bubble{
             display:none;position:absolute;left:0;top:110%;
-            width:420px;background:#0b0b0b;border:1px solid #ff2d2d;
+            width:440px;background:#0b0b0b;border:1px solid #ff2d2d;
             border-radius:14px;padding:12px;z-index:9999;
             box-shadow:0 14px 30px rgba(0,0,0,.55)
         }
         .tt-wrap:hover .tt-bubble{display:block}
-        .tt-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-        .tt-flag{width:26px;border-radius:4px;border:1px solid #222}
-        .tt-name{font-weight:1000;color:white}
+        .tt-head{display:flex;gap:12px;margin-bottom:10px}
+        .tt-photo{width:96px;border-radius:10px;border:1px solid #222}
+        .tt-name{font-weight:1000;color:white;font-size:18px}
         .tt-country{color:#ff2d2d;font-weight:900}
         .tt-grid{display:grid;grid-template-columns:130px 1fr;gap:6px 10px}
         .tt-k{color:#ff2d2d;font-weight:900}
@@ -1161,21 +1161,32 @@ with tabJ:
     rows = ""
 
     for _, r in df.iterrows():
-        flag = r.get("Flag", "")
-        country = r.get("Country", "")
-        name = r.get("Player", "")
-        team = r.get("Team", "")
-        pos = r.get("Position", "")
-        cap = r.get("Cap Hit", "")
+        name = str(r.get("Player", ""))
+        team = str(r.get("Team", ""))
+        pos = str(r.get("Position", ""))
+        cap = str(r.get("Cap Hit", ""))
+        country = str(r.get("Country", ""))
+        flag = str(r.get("Flag", ""))
+        nhl_id = str(r.get("NHL ID", "")).replace(".0", "").strip()
+
+        # NHL official headshot
+        photo = (
+            f"https://assets.nhle.com/mugs/nhl/20242025/{nhl_id}.png"
+            if nhl_id.isdigit()
+            else "https://assets.nhle.com/mugs/nhl/default.png"
+        )
 
         tooltip = f"""
         <div class="tt-head">
-            <img src="{flag}" class="tt-flag">
+            <img src="{photo}" class="tt-photo">
             <div>
                 <div class="tt-name">{name}</div>
-                <div class="tt-country">{country}</div>
+                <div class="tt-country">
+                    <img src="{flag}" width="20"> {country}
+                </div>
             </div>
         </div>
+
         <div class="tt-grid">
             <div class="tt-k">Équipe</div><div class="tt-v">{team}</div>
             <div class="tt-k">Position</div><div class="tt-v">{pos}</div>
@@ -1183,17 +1194,21 @@ with tabJ:
             <div class="tt-k">Poids</div><div class="tt-v">{r.get("W(lbs)", "")} lbs</div>
             <div class="tt-k">Âge</div><div class="tt-v">{r.get("Age", "")}</div>
             <div class="tt-k">Cap Hit</div><div class="tt-v">{cap}</div>
-            <div class="tt-k">Contrat</div><div class="tt-v">{r.get("Expiry Year", "")} ({r.get("Expiry Status", "")})</div>
         </div>
         """
 
         rows += f"""
         <tr class="player-row">
             <td>
-                <span class="tt-wrap">
-                    {name}
-                    <div class="tt-bubble">{tooltip}</div>
-                </span>
+                <form method="post">
+                    <button name="pick_player" value="{name}"
+                            style="all:unset;cursor:pointer;color:white">
+                        <span class="tt-wrap">
+                            {name}
+                            <div class="tt-bubble">{tooltip}</div>
+                        </span>
+                    </button>
+                </form>
             </td>
             <td>{team}</td>
             <td>{pos}</td>
@@ -1217,6 +1232,17 @@ with tabJ:
         """,
         unsafe_allow_html=True
     )
+
+    # -------------------------------------------------
+    # CLICK → ALIGNEMENT POPUP
+    # -------------------------------------------------
+    picked = st.query_params.get("pick_player")
+    if picked:
+        set_move_ctx(None, picked)
+        st.session_state["active_tab"] = "Alignement"
+        st.query_params.clear()
+        st.rerun()
+
 
 
 
