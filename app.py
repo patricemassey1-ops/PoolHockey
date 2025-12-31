@@ -1378,7 +1378,6 @@ with tabJ:
     # HELPERS
     # -------------------------------------------------
     def _clean_intlike(x):
-        """Convertit '17.0' -> '17' et garde le texte si non numérique."""
         s = str(x).strip()
         if s == "" or s.lower() in {"nan", "none"}:
             return ""
@@ -1387,12 +1386,6 @@ with tabJ:
         return s
 
     def _cap_to_int(v) -> int:
-        """
-        Convertit un Cap Hit texte vers int:
-        '$4,750,000.00' -> 4750000
-        '4 750 000 $'    -> 4750000
-        '4750000'        -> 4750000
-        """
         s = str(v if v is not None else "").strip()
         if s == "" or s.lower() in {"nan", "none"}:
             return 0
@@ -1410,39 +1403,64 @@ with tabJ:
             return "0 $"
 
     # -------------------------------------------------
+    # CALLBACKS (NE PAS MODIFIER session_state D'UN WIDGET DIRECTEMENT DANS LE RUN)
+    # -------------------------------------------------
+    def clear_j_name():
+        st.session_state["j_name"] = ""
+
+    def clear_cmp_a():
+        st.session_state["compare_p1"] = None
+        st.session_state["cmp_q1"] = ""
+        st.session_state["cmp_sel_1"] = "—"
+
+    def clear_cmp_b():
+        st.session_state["compare_p2"] = None
+        st.session_state["cmp_q2"] = ""
+        st.session_state["cmp_sel_2"] = "—"
+
+    def add_cmp_a():
+        sel = st.session_state.get("cmp_sel_1", "—")
+        st.session_state["compare_p1"] = None if sel == "—" else sel
+
+    def add_cmp_b():
+        sel = st.session_state.get("cmp_sel_2", "—")
+        st.session_state["compare_p2"] = None if sel == "—" else sel
+
+    # -------------------------------------------------
     # SEARCH CONTROLS (NO RESULTS UNTIL FILTER SET)
     # -------------------------------------------------
-c1, c2, c3 = st.columns([2, 1, 1])
+    c1, c2, c3 = st.columns([2, 1, 1])
 
-with c1:
-    # ✅ Champ + X rouge pour effacer
-    name_col1, name_col2 = st.columns([12, 1])
-    with name_col1:
-        q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
-    with name_col2:
-        # bouton X rouge (efface le champ)
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom", use_container_width=True):
-            st.session_state["j_name"] = ""
-            st.rerun()
+    with c1:
+        name_col1, name_col2 = st.columns([12, 1])
+        with name_col1:
+            q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
+        with name_col2:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            st.button(
+                "❌",
+                key="j_name_clear",
+                help="Effacer Nom / Prénom",
+                use_container_width=True,
+                on_click=clear_j_name,
+            )
 
-with c2:
-    if "Team" in df_db.columns:
-        teams = sorted(df_db["Team"].dropna().astype(str).unique())
-        q_team = st.selectbox("Équipe", ["Toutes"] + teams, key="j_team")
-    else:
-        q_team = "Toutes"
-        st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
+    with c2:
+        if "Team" in df_db.columns:
+            teams = sorted(df_db["Team"].dropna().astype(str).unique())
+            q_team = st.selectbox("Équipe", ["Toutes"] + teams, key="j_team")
+        else:
+            q_team = "Toutes"
+            st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
 
-with c3:
-    level_col = "Level" if "Level" in df_db.columns else None
-    if level_col:
-        levels = sorted(df_db[level_col].dropna().astype(str).unique())
-        q_level = st.selectbox("Level (Contrat)", ["Tous"] + levels, key="j_level")
-    else:
-        q_level = "Tous"
-        st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
-
+    with c3:
+        level_col = "Level" if "Level" in df_db.columns else None
+        if level_col:
+            levels = sorted(df_db[level_col].dropna().astype(str).unique())
+            q_level = st.selectbox("Level (Contrat)", ["Tous"] + levels, key="j_level")
+        else:
+            q_level = "Tous"
+            st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
 
     st.divider()
     st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
@@ -1461,13 +1479,10 @@ with c3:
         cap_max = 0
     else:
         cap_enabled = True
-
-        # colonne numérique cap hit
         df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
 
         cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
 
-        # ✅ plage max à 30 000 000 $ (selon ta demande)
         slider_min = 0
         slider_max = 30_000_000
 
@@ -1484,173 +1499,156 @@ with c3:
 
         st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
 
-    # 👉 IMPORTANT: résultats seulement si filtre rempli OU cap_apply activé
     has_any_filter = bool(q_name.strip()) or (q_team != "Toutes") or (q_level != "Tous") or bool(cap_apply)
 
     if not has_any_filter:
         st.info("Entre au moins un filtre (Nom/Prénom, Équipe, Level/Contrat ou active Cap Hit) pour afficher les résultats.")
-        st.stop()
+    else:
+        # -------------------------------------------------
+        # APPLY FILTERS
+        # -------------------------------------------------
+        df = df_db.copy()
+
+        if q_name.strip():
+            df = df[df["Player"].astype(str).str.contains(q_name, case=False, na=False)]
+
+        if q_team != "Toutes" and "Team" in df.columns:
+            df = df[df["Team"].astype(str) == str(q_team)]
+
+        if q_level != "Tous" and level_col and level_col in df.columns:
+            df = df[df[level_col].astype(str) == str(q_level)]
+
+        if cap_enabled and cap_apply:
+            if "_cap_int" not in df.columns:
+                df["_cap_int"] = df[cap_col].apply(_cap_to_int)
+            df = df[(df["_cap_int"] >= int(cap_min)) & (df["_cap_int"] <= int(cap_max))]
+
+        if df.empty:
+            st.warning("Aucun joueur trouvé avec ces critères.")
+        else:
+            df = df.head(250).reset_index(drop=True)
+
+            # -------------------------------------------------
+            # RESULTS TABLE — GP = NHL GP (carrière)
+            # -------------------------------------------------
+            st.divider()
+            st.markdown("### Résultats")
+
+            nhl_gp_col = "NHL GP" if "NHL GP" in df.columns else None
+
+            show_cols = []
+            for c in ["Player", "Team", "Position", cap_col, "Level"]:
+                if c and c in df.columns and c not in show_cols:
+                    show_cols.append(c)
+
+            df_show = df[show_cols].copy()
+
+            if nhl_gp_col:
+                insert_at = 3 if ("Position" in df_show.columns) else 1
+                df_show.insert(insert_at, "GP", df[nhl_gp_col])
+            else:
+                st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
+
+            if cap_col and cap_col in df_show.columns:
+                df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+                df_show = df_show.rename(columns={cap_col: "Cap Hit"})
+
+            for c in df_show.columns:
+                df_show[c] = df_show[c].apply(_clean_intlike)
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     # -------------------------------------------------
-    # APPLY FILTERS
-    # -------------------------------------------------
-    df = df_db.copy()
-
-    if q_name.strip():
-        df = df[df["Player"].astype(str).str.contains(q_name, case=False, na=False)]
-
-    if q_team != "Toutes" and "Team" in df.columns:
-        df = df[df["Team"].astype(str) == str(q_team)]
-
-    if q_level != "Tous" and level_col and level_col in df.columns:
-        df = df[df[level_col].astype(str) == str(q_level)]
-
-    if cap_enabled and cap_apply:
-        if "_cap_int" not in df.columns:
-            df["_cap_int"] = df[cap_col].apply(_cap_to_int)
-        df = df[(df["_cap_int"] >= int(cap_min)) & (df["_cap_int"] <= int(cap_max))]
-
-    if df.empty:
-        st.warning("Aucun joueur trouvé avec ces critères.")
-        st.stop()
-
-    # Limite pratique
-    df = df.head(250).reset_index(drop=True)
-
-    # -------------------------------------------------
-    # RESULTS TABLE — GP = NHL GP (carrière)
+    # COMPARE 2 PLAYERS — recherche A/B + tableau comme "Résultats"
     # -------------------------------------------------
     st.divider()
-    st.markdown("### Résultats")
+    st.markdown("### 📊 Comparer 2 joueurs")
+    st.caption("Recherche un joueur dans chaque champ (A et B). Le résultat s’affiche sous forme de tableau comme la section Résultats.")
 
-    nhl_gp_col = "NHL GP" if "NHL GP" in df.columns else None
+    players_list = sorted(df_db["Player"].dropna().astype(str).unique().tolist())
 
-    show_cols = []
-    for c in ["Player", "Team", "Position", cap_col, "Level"]:
-        if c and c in df.columns and c not in show_cols:
-            show_cols.append(c)
+    def _filter_names(q: str, names: list[str], limit: int = 40) -> list[str]:
+        q = str(q or "").strip().lower()
+        if not q:
+            return names[:limit]
+        out = [n for n in names if q in n.lower()]
+        return out[:limit]
 
-    df_show = df[show_cols].copy()
-
-    # ✅ GP (affiché) = NHL GP (valeur)
-    if nhl_gp_col:
-        # place GP juste après Position si possible
-        insert_at = 3 if ("Position" in df_show.columns) else 1
-        df_show.insert(insert_at, "GP", df[nhl_gp_col])
-    else:
-        st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
-
-    # Format Cap Hit (4 750 000 $)
-    if cap_col and cap_col in df_show.columns:
-        df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-        df_show = df_show.rename(columns={cap_col: "Cap Hit"})
-
-    # Nettoyage visuel : enlever ".0"
-    for c in df_show.columns:
-        df_show[c] = df_show[c].apply(lambda x: _clean_intlike(x))
-
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-# -------------------------------------------------
-# COMPARE 2 PLAYERS — recherche A/B + tableau comme "Résultats"
-# -------------------------------------------------
-st.divider()
-st.markdown("### 📊 Comparer 2 joueurs")
-st.caption("Recherche un joueur dans chaque champ (A et B). Le résultat s’affiche sous forme de tableau comme la section Résultats.")
-
-players_list = sorted(df_db["Player"].dropna().astype(str).unique().tolist())
-
-def _filter_names(q: str, names: list[str], limit: int = 40) -> list[str]:
-    q = str(q or "").strip().lower()
-    if not q:
-        return names[:limit]
-    out = [n for n in names if q in n.lower()]
-    return out[:limit]
-
-# États persistants
-if "cmp_q1" not in st.session_state:
-    st.session_state["cmp_q1"] = ""
-if "cmp_q2" not in st.session_state:
-    st.session_state["cmp_q2"] = ""
-if "compare_p1" not in st.session_state:
-    st.session_state["compare_p1"] = None
-if "compare_p2" not in st.session_state:
-    st.session_state["compare_p2"] = None
-
-cA, cB = st.columns(2)
-
-with cA:
-    st.markdown("**Joueur A**")
-    q1 = st.text_input("Rechercher A", placeholder="Tape un nom…", key="cmp_q1")
-    opt1 = ["—"] + _filter_names(q1, players_list, limit=40)
-    p1_sel = st.selectbox("Sélection A", opt1, key="cmp_sel_1")
-    b1, b2 = st.columns(2)
-    if b1.button("➕ Ajouter A", use_container_width=True, key="cmp_add_a"):
-        st.session_state["compare_p1"] = None if p1_sel == "—" else p1_sel
-    if b2.button("🧹 Effacer A", use_container_width=True, key="cmp_clear_a"):
-        st.session_state["compare_p1"] = None
+    # Init états si absents
+    if "cmp_q1" not in st.session_state:
         st.session_state["cmp_q1"] = ""
-        st.rerun()
-
-with cB:
-    st.markdown("**Joueur B**")
-    q2 = st.text_input("Rechercher B", placeholder="Tape un nom…", key="cmp_q2")
-    opt2 = ["—"] + _filter_names(q2, players_list, limit=40)
-    p2_sel = st.selectbox("Sélection B", opt2, key="cmp_sel_2")
-    b3, b4 = st.columns(2)
-    if b3.button("➕ Ajouter B", use_container_width=True, key="cmp_add_b"):
-        st.session_state["compare_p2"] = None if p2_sel == "—" else p2_sel
-    if b4.button("🧹 Effacer B", use_container_width=True, key="cmp_clear_b"):
-        st.session_state["compare_p2"] = None
+    if "cmp_q2" not in st.session_state:
         st.session_state["cmp_q2"] = ""
-        st.rerun()
+    if "compare_p1" not in st.session_state:
+        st.session_state["compare_p1"] = None
+    if "compare_p2" not in st.session_state:
+        st.session_state["compare_p2"] = None
+    if "cmp_sel_1" not in st.session_state:
+        st.session_state["cmp_sel_1"] = "—"
+    if "cmp_sel_2" not in st.session_state:
+        st.session_state["cmp_sel_2"] = "—"
 
-p1 = st.session_state["compare_p1"]
-p2 = st.session_state["compare_p2"]
+    cA, cB = st.columns(2)
 
-if not p1 or not p2:
-    st.info("Choisis 2 joueurs (A et B) pour afficher la comparaison.")
-elif p1 == p2:
-    st.warning("Choisis 2 joueurs différents.")
-else:
-    # Récupère les 2 lignes depuis la DB (ou depuis df si tu préfères limiter à la recherche)
-    r1 = df_db[df_db["Player"].astype(str) == str(p1)].head(1)
-    r2 = df_db[df_db["Player"].astype(str) == str(p2)].head(1)
+    with cA:
+        st.markdown("**Joueur A**")
+        q1 = st.text_input("Rechercher A", placeholder="Tape un nom…", key="cmp_q1")
+        opt1 = ["—"] + _filter_names(q1, players_list, limit=40)
+        st.selectbox("Sélection A", opt1, key="cmp_sel_1")
+        b1, b2 = st.columns(2)
+        b1.button("➕ Ajouter A", use_container_width=True, key="cmp_add_a", on_click=add_cmp_a)
+        b2.button("🧹 Effacer A", use_container_width=True, key="cmp_clear_a", on_click=clear_cmp_a)
 
-    if r1.empty or r2.empty:
-        st.error("Impossible de trouver un des joueurs dans la base.")
+    with cB:
+        st.markdown("**Joueur B**")
+        q2 = st.text_input("Rechercher B", placeholder="Tape un nom…", key="cmp_q2")
+        opt2 = ["—"] + _filter_names(q2, players_list, limit=40)
+        st.selectbox("Sélection B", opt2, key="cmp_sel_2")
+        b3, b4 = st.columns(2)
+        b3.button("➕ Ajouter B", use_container_width=True, key="cmp_add_b", on_click=add_cmp_b)
+        b4.button("🧹 Effacer B", use_container_width=True, key="cmp_clear_b", on_click=clear_cmp_b)
+
+    p1 = st.session_state.get("compare_p1")
+    p2 = st.session_state.get("compare_p2")
+
+    if not p1 or not p2:
+        st.info("Choisis 2 joueurs (A et B) pour afficher la comparaison.")
+    elif p1 == p2:
+        st.warning("Choisis 2 joueurs différents.")
     else:
-        df_cmp = pd.concat([r1, r2], ignore_index=True)
+        r1 = df_db[df_db["Player"].astype(str) == str(p1)].head(1)
+        r2 = df_db[df_db["Player"].astype(str) == str(p2)].head(1)
 
-        # ✅ Construire un tableau comme "Résultats" (mêmes colonnes / GP = NHL GP)
-        nhl_gp_col = "NHL GP" if "NHL GP" in df_cmp.columns else None
-
-        # Reprend la logique d'affichage: Player, Team, Position, GP (NHL GP), Cap Hit, Level
-        cmp_show_cols = []
-        for c in ["Player", "Team", "Position", cap_col, "Level"]:
-            if c and c in df_cmp.columns and c not in cmp_show_cols:
-                cmp_show_cols.append(c)
-
-        df_cmp_show = df_cmp[cmp_show_cols].copy()
-
-        # GP = NHL GP
-        if nhl_gp_col:
-            insert_at = 3 if ("Position" in df_cmp_show.columns) else 1
-            df_cmp_show.insert(insert_at, "GP", df_cmp[nhl_gp_col])
+        if r1.empty or r2.empty:
+            st.error("Impossible de trouver un des joueurs dans la base.")
         else:
-            st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
+            df_cmp = pd.concat([r1, r2], ignore_index=True)
 
-        # Format Cap Hit (4 750 000 $)
-        if cap_col and cap_col in df_cmp_show.columns:
-            df_cmp_show[cap_col] = df_cmp[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-            df_cmp_show = df_cmp_show.rename(columns={cap_col: "Cap Hit"})
+            nhl_gp_col = "NHL GP" if "NHL GP" in df_cmp.columns else None
 
-        # Nettoyage visuel : enlever ".0"
-        for c in df_cmp_show.columns:
-            df_cmp_show[c] = df_cmp_show[c].apply(lambda x: _clean_intlike(x))
+            cmp_show_cols = []
+            for c in ["Player", "Team", "Position", cap_col, "Level"]:
+                if c and c in df_cmp.columns and c not in cmp_show_cols:
+                    cmp_show_cols.append(c)
 
-        st.markdown("#### Comparaison (tableau)")
-        st.dataframe(df_cmp_show, use_container_width=True, hide_index=True)
+            df_cmp_show = df_cmp[cmp_show_cols].copy()
+
+            if nhl_gp_col:
+                insert_at = 3 if ("Position" in df_cmp_show.columns) else 1
+                df_cmp_show.insert(insert_at, "GP", df_cmp[nhl_gp_col])
+            else:
+                st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
+
+            if cap_col and cap_col in df_cmp_show.columns:
+                df_cmp_show[cap_col] = df_cmp[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+                df_cmp_show = df_cmp_show.rename(columns={cap_col: "Cap Hit"})
+
+            for c in df_cmp_show.columns:
+                df_cmp_show[c] = df_cmp_show[c].apply(_clean_intlike)
+
+            st.markdown("#### Comparaison (tableau)")
+            st.dataframe(df_cmp_show, use_container_width=True, hide_index=True)
+
 
 
 
