@@ -1241,13 +1241,13 @@ def nhl_headshot(player_name: str) -> str:
 
 
 # =====================================================
-# TAB J - JOUEURS AUTONOME
+# TAB J - JOUEURS AUTONOME (RECHERCHE)
 # =====================================================
 with tabJ:
-    st.subheader("👤 Joueurs Autonome")
-    st.caption("Survole un joueur pour voir son résumé • Clique pour ouvrir l’alignement")
+    st.subheader("👤 Joueurs")
+    st.caption("Recherche par Nom/Prénom/Équipe/Level. Les résultats apparaissent seulement après filtrage.")
 
-    # --- Hot reload CSV
+    # --- Hot reload CSV (optionnel)
     uploaded_players = st.file_uploader(
         "🔁 Mettre à jour la liste des joueurs (CSV)",
         type=["csv"],
@@ -1255,7 +1255,6 @@ with tabJ:
     )
 
     PLAYERS_PATH = "data/Hockey.Players.csv"
-    DB_PATH = "data/Hockey_Players.csv"
 
     if uploaded_players is not None:
         df_players = pd.read_csv(uploaded_players)
@@ -1263,43 +1262,146 @@ with tabJ:
         must_exist(PLAYERS_PATH)
         df_players = pd.read_csv(PLAYERS_PATH)
 
-    must_exist(DB_PATH)
-    df_db = load_players_db(DB_PATH)
-
-    # ------------------------------
-    # Helpers
-    # ------------------------------
-    def _norm_name(x: str) -> str:
-        return re.sub(r"\s+", " ", str(x or "").strip().lower())
-
-    # Build DB lookup
-    name_col = next((c for c in ["Player", "Joueur", "Name"] if c in df_db.columns), None)
-    if not name_col:
-        st.error("Colonne joueur introuvable dans Hockey_Players.csv")
+    if df_players is None or df_players.empty:
+        st.info("Aucun joueur à afficher.")
         st.stop()
 
-    db_lookup = {
-        _norm_name(r[name_col]): r.to_dict()
-        for _, r in df_db.iterrows()
-        if str(r.get(name_col, "")).strip()
-    }
+    # ------------------------------
+    # Détection colonnes (robuste)
+    # ------------------------------
+    def first_existing(cols):
+        return next((c for c in cols if c in df_players.columns), None)
+
+    # Nom complet
+    player_col = first_existing(["Player", "Joueur", "Name", "Full Name"])
+    # Nom / Prénom séparés (si existants)
+    last_col  = first_existing(["Last Name", "Nom", "Surname", "Family Name"])
+    first_col = first_existing(["First Name", "Prénom", "Prenom", "Given Name"])
+
+    team_col  = first_existing(["Team", "Équipe", "Equipe", "NHL Team"])
+    level_col = first_existing(["Level", "League", "Ligue", "Niveau"])
+
+    if not (player_col or (first_col and last_col)):
+        st.error(f"Impossible de trouver des colonnes de nom. Colonnes: {list(df_players.columns)}")
+        st.stop()
 
     # ------------------------------
-    # TABLE
+    # Champs de recherche
     # ------------------------------
-    st.markdown("### 🌍 Liste des joueurs")
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
 
-    for _, row in df_players.iterrows():
-        player = str(row.get("Player", "")).strip()
-        if not player:
-            continue
+    with c1:
+        q_last = st.text_input("Nom", value="", placeholder="ex: Suzuki")
+    with c2:
+        q_first = st.text_input("Prénom", value="", placeholder="ex: Nick")
+    with c3:
+        if team_col:
+            teams = sorted([t for t in df_players[team_col].dropna().astype(str).unique().tolist() if t.strip()])
+            team_choice = st.selectbox("Équipe", ["(Toutes)"] + teams, index=0)
+        else:
+            team_choice = "(Toutes)"
+            st.text_input("Équipe", value="", disabled=True, help="Colonne équipe introuvable dans le CSV.")
+    with c4:
+        if level_col:
+            levels = sorted([t for t in df_players[level_col].dropna().astype(str).unique().tolist() if t.strip()])
+            level_choice = st.selectbox("Level", ["(Tous)"] + levels, index=0)
+        else:
+            level_choice = "(Tous)"
+            st.text_input("Level", value="", disabled=True, help="Colonne Level introuvable dans le CSV.")
 
-        if st.button(player, key=f"pick_{player}"):
-            set_move_ctx(st.session_state.get("align_owner"), player)
-            st.rerun()
+    # ------------------------------
+    # Filtrage
+    # ------------------------------
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s or "").strip().lower())
 
-    # --- Popup Alignement
+    dff = df_players.copy()
+
+    # Nom / Prénom
+    if last_col and first_col:
+        if q_last.strip():
+            dff = dff[dff[last_col].astype(str).apply(lambda x: norm(q_last) in norm(x))]
+        if q_first.strip():
+            dff = dff[dff[first_col].astype(str).apply(lambda x: norm(q_first) in norm(x))]
+        # colonne affichée
+        dff["_display_name"] = dff[first_col].astype(str).str.strip() + " " + dff[last_col].astype(str).str.strip()
+    else:
+        # Nom complet dans player_col
+        if q_last.strip() or q_first.strip():
+            q = norm((q_first + " " + q_last).strip())
+            # si un seul champ est rempli, on recherche ce morceau
+            if not q:
+                q = norm(q_last.strip() or q_first.strip())
+            dff = dff[dff[player_col].astype(str).apply(lambda x: q in norm(x))]
+        dff["_display_name"] = dff[player_col].astype(str).str.strip()
+
+    # Équipe
+    if team_col and team_choice != "(Toutes)":
+        dff = dff[dff[team_col].astype(str).str.strip() == str(team_choice).strip()]
+
+    # Level
+    if level_col and level_choice != "(Tous)":
+        dff = dff[dff[level_col].astype(str).str.strip() == str(level_choice).strip()]
+
+    # ------------------------------
+    # Ne pas afficher tout si aucun filtre
+    # ------------------------------
+    any_filter = bool(q_last.strip() or q_first.strip() or (team_col and team_choice != "(Toutes)") or (level_col and level_choice != "(Tous)"))
+
+    st.divider()
+
+    if not any_filter:
+        st.info("🔎 Entre au moins un critère (Nom, Prénom, Équipe ou Level) pour afficher des résultats.")
+        st.stop()
+
+    # Limite résultats (évite de spammer)
+    MAX_ROWS = 200
+    total = len(dff)
+
+    if total == 0:
+        st.warning("Aucun résultat.")
+        st.stop()
+
+    if total > MAX_ROWS:
+        st.warning(f"{total} résultats trouvés. Affichage limité à {MAX_ROWS}. Raffine tes filtres.")
+        dff = dff.head(MAX_ROWS)
+
+    # ------------------------------
+    # Affichage résultats (clic -> popup alignement)
+    # ------------------------------
+    show_cols = ["_display_name"]
+    if team_col:  show_cols.append(team_col)
+    if level_col: show_cols.append(level_col)
+
+    # Ajoute quelques colonnes utiles si elles existent
+    for c in ["Pos", "Position", "Cap Hit", "Age", "Born", "DOB", "Country"]:
+        if c in dff.columns and c not in show_cols:
+            show_cols.append(c)
+        if len(show_cols) >= 6:
+            break
+
+    # Renomme l'en-tête du nom
+    dff_disp = dff[show_cols].rename(columns={"_display_name": "Joueur"}).reset_index(drop=True)
+
+    st.caption(f"Résultats: **{len(dff_disp)}**")
+    st.dataframe(dff_disp, use_container_width=True, hide_index=True)
+
+    st.caption("💡 Clique sur un joueur ci-dessous pour ouvrir le pop-up Alignement.")
+    # Boutons cliquables (évite les limites de clic sur dataframe)
+    for _, r in dff.head(50).iterrows():  # limite boutons
+        pname = str(r["_display_name"]).strip()
+        if st.button(f"➡️ {pname}", key=f"pickJ_{pname}"):
+            # Ici, on envoie au popup d’alignement (utilise ton owner sélectionné dans tabA si dispo)
+            owner = st.session_state.get("align_owner")
+            if not owner:
+                st.warning("Sélectionne d'abord un propriétaire dans l’onglet Alignement (pour savoir à qui appliquer le move).")
+            else:
+                set_move_ctx(owner, pname)
+                st.rerun()
+
+    # Popup Alignement (doit rester DANS tabJ)
     open_move_dialog()
+
 
 
 
