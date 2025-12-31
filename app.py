@@ -1355,171 +1355,194 @@ with tabA:
 
 
 # =====================================================
-# 👤 TAB J — JOUEURS (RECHERCHE + HOVER + CLICK → ALIGNEMENT)
+# 👤 TAB J — JOUEURS (RECHERCHE À LA DEMANDE + FILTRE CAP HIT)
 # =====================================================
 with tabJ:
-    st.subheader("👤 Joueurs (Autonome)")
-    st.caption("Recherche un joueur • survole pour le résumé • clique pour gérer l’alignement")
+    st.subheader("👤 Joueurs (Autonomes)")
+    st.caption("Aucun résultat ne s’affiche tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
 
     # -------------------------------------------------
     # LOAD DATA (CACHE)
     # -------------------------------------------------
     @st.cache_data(show_spinner=False)
-    def load_players():
+    def load_players_db():
         return pd.read_csv("data/Hockey.Players.csv")
 
-    df_players = load_players()
+    df_db = load_players_db()
+
+    if "Player" not in df_db.columns:
+        st.error(f"Colonne 'Player' introuvable dans Hockey.Players.csv. Colonnes: {list(df_db.columns)}")
+        st.stop()
 
     # -------------------------------------------------
-    # SEARCH CONTROLS
+    # HELPERS
+    # -------------------------------------------------
+    def _clean_intlike(x):
+        """Convertit '17.0' -> '17' et garde le texte si non numérique."""
+        s = str(x).strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return ""
+        if re.match(r"^\d+\.0$", s):
+            return s.split(".")[0]
+        return s
+
+    def _cap_to_int(v) -> int:
+        """
+        Convertit un Cap Hit texte vers int:
+        '$4,750,000.00' -> 4750000
+        '4 750 000 $'    -> 4750000
+        '4750000'        -> 4750000
+        """
+        s = str(v if v is not None else "").strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return 0
+        s = s.replace("$", "").replace("€", "").replace("£", "")
+        s = s.replace(",", "").replace(" ", "")
+        # drop trailing .00
+        s = re.sub(r"\.0+$", "", s)
+        s = re.sub(r"\.00$", "", s)
+        # keep digits only
+        s2 = re.sub(r"[^\d]", "", s)
+        return int(s2) if s2.isdigit() else 0
+
+    def _money_space(v: int) -> str:
+        try:
+            return f"{int(v):,}".replace(",", " ") + " $"
+        except Exception:
+            return "0 $"
+
+    def nhl_headshot_url(nhl_id: str) -> str:
+        nid = _clean_intlike(nhl_id)
+        if nid.isdigit():
+            return f"https://assets.nhle.com/mugs/nhl/20242025/{nid}.png"
+        return "https://assets.nhle.com/mugs/nhl/default.png"
+
+    def safe(x):
+        import html as _html
+        return _html.escape(str(x if x is not None else "").strip())
+
+    # -------------------------------------------------
+    # SEARCH CONTROLS (NO RESULTS UNTIL FILTER SET)
     # -------------------------------------------------
     c1, c2, c3 = st.columns([2, 1, 1])
 
     with c1:
-        search_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel")
+        q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
 
     with c2:
-        teams = sorted(df_players["Team"].dropna().unique())
-        team = st.selectbox("Équipe", ["Toutes"] + teams)
+        if "Team" in df_db.columns:
+            teams = sorted(df_db["Team"].dropna().astype(str).unique())
+            q_team = st.selectbox("Équipe", ["Toutes"] + teams, key="j_team")
+        else:
+            q_team = "Toutes"
+            st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
 
     with c3:
-        levels = sorted(df_players["Level"].dropna().unique())
-        level = st.selectbox("Level", ["Tous"] + levels)
+        level_col = "Level" if "Level" in df_db.columns else None
+        if level_col:
+            levels = sorted(df_db[level_col].dropna().astype(str).unique())
+            q_level = st.selectbox("Level (Contrat)", ["Tous"] + levels, key="j_level")
+        else:
+            q_level = "Tous"
+            st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
 
-    # -------------------------------------------------
-    # FILTER
-    # -------------------------------------------------
-    df = df_players.copy()
+    st.divider()
+    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
 
-    if search_name:
-        df = df[df["Player"].str.contains(search_name, case=False, na=False)]
+    cap_col = None
+    for cand in ["Cap Hit", "CapHit", "AAV"]:
+        if cand in df_db.columns:
+            cap_col = cand
+            break
 
-    if team != "Toutes":
-        df = df[df["Team"] == team]
+    if not cap_col:
+        st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée dans Hockey.Players.csv → filtre salaire désactivé.")
+        cap_enabled = False
+        cap_apply = False
+        cap_min = 0
+        cap_max = 0
+    else:
+        cap_enabled = True
 
-    if level != "Tous":
-        df = df[df["Level"] == level]
+        # prépare une colonne numérique (sans modifier ton CSV)
+        df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
 
-    if df.empty:
-        st.info("Aucun joueur trouvé.")
-        st.stop()
+        cap_min_all = int(df_db["_cap_int"].min())
+        cap_max_all = int(df_db["_cap_int"].max())
 
-    df = df.head(200)
+        # checkbox: n'est considéré "filtre actif" que si coché
+        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
 
-    # -------------------------------------------------
-    # CSS
-    # -------------------------------------------------
-    st.markdown(
-        """
-        <style>
-        .player-row:hover{background:#120000;}
-        .tt-wrap{position:relative;display:inline-block;cursor:pointer}
-        .tt-bubble{
-            display:none;position:absolute;left:0;top:110%;
-            width:440px;background:#0b0b0b;border:1px solid #ff2d2d;
-            border-radius:14px;padding:12px;z-index:9999;
-            box-shadow:0 14px 30px rgba(0,0,0,.55)
-        }
-        .tt-wrap:hover .tt-bubble{display:block}
-        .tt-head{display:flex;gap:12px;margin-bottom:10px}
-        .tt-photo{width:96px;border-radius:10px;border:1px solid #222}
-        .tt-name{font-weight:1000;color:white;font-size:18px}
-        .tt-country{color:#ff2d2d;font-weight:900}
-        .tt-grid{display:grid;grid-template-columns:130px 1fr;gap:6px 10px}
-        .tt-k{color:#ff2d2d;font-weight:900}
-        .tt-v{color:#eee;font-weight:800}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # -------------------------------------------------
-    # TABLE
-    # -------------------------------------------------
-    rows = ""
-
-    for _, r in df.iterrows():
-        name = str(r.get("Player", ""))
-        team = str(r.get("Team", ""))
-        pos = str(r.get("Position", ""))
-        cap = str(r.get("Cap Hit", ""))
-        country = str(r.get("Country", ""))
-        flag = str(r.get("Flag", ""))
-        nhl_id = str(r.get("NHL ID", "")).replace(".0", "").strip()
-
-        # NHL official headshot
-        photo = (
-            f"https://assets.nhle.com/mugs/nhl/20242025/{nhl_id}.png"
-            if nhl_id.isdigit()
-            else "https://assets.nhle.com/mugs/nhl/default.png"
+        cap_min, cap_max = st.slider(
+            "Plage Cap Hit",
+            min_value=cap_min_all,
+            max_value=cap_max_all,
+            value=(cap_min_all, cap_max_all),
+            step=250000,
+            format="%d",
+            disabled=(not cap_apply),
+            key="cap_slider",
         )
 
-        tooltip = f"""
-        <div class="tt-head">
-            <img src="{photo}" class="tt-photo">
-            <div>
-                <div class="tt-name">{name}</div>
-                <div class="tt-country">
-                    <img src="{flag}" width="20"> {country}
-                </div>
-            </div>
-        </div>
+        st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
 
-        <div class="tt-grid">
-            <div class="tt-k">Équipe</div><div class="tt-v">{team}</div>
-            <div class="tt-k">Position</div><div class="tt-v">{pos}</div>
-            <div class="tt-k">Taille</div><div class="tt-v">{r.get("H(f)", "")}</div>
-            <div class="tt-k">Poids</div><div class="tt-v">{r.get("W(lbs)", "")} lbs</div>
-            <div class="tt-k">Âge</div><div class="tt-v">{r.get("Age", "")}</div>
-            <div class="tt-k">Cap Hit</div><div class="tt-v">{cap}</div>
-        </div>
-        """
+    # 👉 IMPORTANT: afficher les résultats seulement si un filtre est rempli
+    has_any_filter = bool(q_name.strip()) or (q_team != "Toutes") or (q_level != "Tous") or bool(cap_apply)
 
-        rows += f"""
-        <tr class="player-row">
-            <td>
-                <form method="post">
-                    <button name="pick_player" value="{name}"
-                            style="all:unset;cursor:pointer;color:white">
-                        <span class="tt-wrap">
-                            {name}
-                            <div class="tt-bubble">{tooltip}</div>
-                        </span>
-                    </button>
-                </form>
-            </td>
-            <td>{team}</td>
-            <td>{pos}</td>
-            <td style="text-align:right">{cap}</td>
-        </tr>
-        """
-
-    st.markdown(
-        f"""
-        <table style="width:100%;border-collapse:collapse">
-            <thead>
-                <tr style="color:#ff2d2d">
-                    <th>Joueur</th>
-                    <th>Équipe</th>
-                    <th>Pos</th>
-                    <th style="text-align:right">Cap Hit</th>
-                </tr>
-            </thead>
-            <tbody>{rows}</tbody>
-        </table>
-        """,
-        unsafe_allow_html=True
-    )
+    if not has_any_filter:
+        st.info("Entre au moins un filtre (Nom/Prénom, Équipe, Level/Contrat ou active Cap Hit) pour afficher les résultats.")
+        st.stop()
 
     # -------------------------------------------------
-    # CLICK → ALIGNEMENT POPUP
+    # APPLY FILTERS
     # -------------------------------------------------
-    picked = st.query_params.get("pick_player")
-    if picked:
-        set_move_ctx(None, picked)
-        st.session_state["active_tab"] = "Alignement"
-        st.query_params.clear()
-        st.rerun()
+    df = df_db.copy()
+
+    if q_name.strip():
+        df = df[df["Player"].astype(str).str.contains(q_name, case=False, na=False)]
+
+    if q_team != "Toutes" and "Team" in df.columns:
+        df = df[df["Team"].astype(str) == str(q_team)]
+
+    if q_level != "Tous" and level_col and level_col in df.columns:
+        df = df[df[level_col].astype(str) == str(q_level)]
+
+    if cap_enabled and cap_apply:
+        if "_cap_int" not in df.columns:
+            df["_cap_int"] = df[cap_col].apply(_cap_to_int)
+        df = df[(df["_cap_int"] >= int(cap_min)) & (df["_cap_int"] <= int(cap_max))]
+
+    if df.empty:
+        st.warning("Aucun joueur trouvé avec ces critères.")
+        st.stop()
+
+    # Limite pratique
+    df = df.head(250).reset_index(drop=True)
+
+    # -------------------------------------------------
+    # RESULTS TABLE
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("### Résultats")
+
+    # Colonnes affichées (si présentes)
+    show_cols = []
+    for c in ["Player", "Team", "Position", cap_col, "Level"]:
+        if c and c in df.columns and c not in show_cols:
+            show_cols.append(c)
+
+    df_show = df[show_cols].copy()
+
+    # format cap hit propre (4 750 000 $)
+    if cap_col and cap_col in df_show.columns:
+        df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+
+    # retirer .0 visuel partout
+    for c in df_show.columns:
+        df_show[c] = df_show[c].apply(lambda x: _clean_intlike(x) if isinstance(x, (int, float, str)) else x)
+
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
 
 
 
