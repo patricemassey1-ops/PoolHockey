@@ -79,6 +79,26 @@ def colored_count(label: str, n: int, limit: int) -> str:
     color = "#16a34a" if n <= limit else "#ef4444"  # vert / rouge
     return f"<span style='font-weight:900;color:{color}'>{label} {n}/{limit}</span>"
 
+def resolve_image_path_or_url(v: str) -> str:
+    """
+    Retourne:
+      - URL inchangée si http(s)
+      - chemin local si existe (data/...)
+      - "" sinon
+    """
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    if os.path.exists(s):
+        return s
+    p2 = os.path.join("data", s)
+    if os.path.exists(p2):
+        return p2
+    return ""
+
+
 # =====================================================
 # CLEAN DATA
 # =====================================================
@@ -514,56 +534,71 @@ def open_move_dialog():
     cur_equipe = str(row.get("Equipe", ""))
     cur_salaire = int(row.get("Salaire", 0))
 
-    # Infos DB joueurs
+    # Infos DB
     info = get_player_row(players_db, joueur) or {}
     pays = _pick(info, ["Country", "Pays"], "")
-    flag_url = _pick(info, ["Flag", "Flag URL", "Flag_Image"], "")
+    flag_raw = _pick(info, ["Flag", "Flag URL", "Flag_Image", "FlagURL"], "")
+    flag_src = resolve_image_path_or_url(flag_raw)
     position_db = _pick(info, ["Position", "Pos"], "")
     taille = _pick(info, ["Height", "Hgt", "Taille"], "")
     poids = _pick(info, ["Weight", "W(lbs)", "Poids"], "")
     caphit = _pick(info, ["Cap Hit", "CapHit", "AAV"], "")
     level = _pick(info, ["Level"], "")
 
-    counts = st.session_state.get("align_counts", {"F": 0, "D": 0, "G": 0})
-    f_count = int(counts.get("F", 0))
-    d_count = int(counts.get("D", 0))
-    g_count = int(counts.get("G", 0))
+    # Chips compactes
+    chips = []
+    def chip(label, val):
+        val = str(val or "").strip()
+        if val:
+            chips.append(f"<span class='chip'><b>{label}</b> {val}</span>")
 
-    def can_go_actif(pos: str):
-        if pos == "F" and f_count >= 12:
-            return False, "🚫 Déjà 12 F actifs."
-        if pos == "D" and d_count >= 6:
-            return False, "🚫 Déjà 6 D actifs."
-        if pos == "G" and g_count >= 2:
-            return False, "🚫 Déjà 2 G actifs."
-        return True, ""
+    chip("Pays", pays)
+    chip("Pos", position_db or cur_pos)
+    chip("Taille", taille)
+    chip("Poids", poids)
+    chip("Cap", caphit)
+    chip("Level", level)
 
-    @st.dialog(f"Déplacement — {joueur}", width="large")
+    css = """
+    <style>
+      .dlg-main{font-weight:900;font-size:16px}
+      .dlg-sub{opacity:.75;font-weight:700;margin-top:-2px}
+      .chipwrap{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+      .chip{display:inline-flex;gap:6px;align-items:center;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.04);
+            border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800}
+      .chip b{opacity:.75}
+    </style>
+    """
+
+    @st.dialog(f"Déplacement — {joueur}", width="small")
     def _dlg():
-        st.markdown(f"**{owner}** • **{joueur}** • **{cur_pos}** • **{cur_equipe}** • **{money(cur_salaire)}**")
-        st.caption(f"Actuel : **{cur_statut}**" + (f" / **{cur_slot}**" if cur_slot else ""))
+        st.markdown(css, unsafe_allow_html=True)
 
-        st.divider()
-        st.markdown("#### 🧾 Informations joueur")
-        left, right = st.columns([3, 2])
+        left, right = st.columns([4, 1])
         with left:
-            st.write(f"**Pays :** {pays or '—'}")
-            st.write(f"**Position (DB) :** {position_db or '—'}")
-            st.write(f"**Grandeur :** {taille or '—'}")
-            st.write(f"**Poids :** {poids or '—'}")
-            st.write(f"**Cap Hit :** {caphit or '—'}")
-            st.write(f"**Level :** {level or '—'}")
+            st.markdown(
+                f"<div class='dlg-main'>{owner} • {joueur}</div>"
+                f"<div class='dlg-sub'>{cur_statut}{(' / ' + cur_slot) if cur_slot else ''} • {cur_pos} • {cur_equipe} • {money(cur_salaire)}</div>",
+                unsafe_allow_html=True
+            )
         with right:
-            if flag_url:
-                st.image(flag_url, width=140)
-            else:
-                st.caption("Flag indisponible")
+            if flag_src:
+                st.image(flag_src, width=44)
+            elif pays:
+                st.caption(pays)
+
+        if chips:
+            st.markdown("<div class='chipwrap'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
+        else:
+            st.caption("ℹ️ Infos joueur non trouvées dans data/Hockey.Players.csv (match nom).")
 
         st.divider()
 
         destinations = [
-            ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
-            ("🔵 Mineur", ("Club École", "")),
+            ("🟡 Banc (Grand Club)", ("Grand Club", "Banc")),
+            ("🔵 Mineur (Club École)", ("Club École", "")),
             ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
         ]
 
@@ -572,32 +607,17 @@ def open_move_dialog():
         if cur_slot == "Blessé":
             destinations = [d for d in destinations if d[1][1] != "Blessé"]
 
-        if not destinations:
-            st.info("Aucune destination disponible pour ce joueur.")
-            if st.button("✖️ Fermer", key=f"close_{owner}_{joueur}_{nonce}", use_container_width=True):
-                clear_move_ctx()
-                do_rerun()
-            return
-
         choice = st.radio(
-            "Choisir la destination :",
+            "Destination",
             [d[0] for d in destinations],
             index=0,
             key=f"dest_{owner}_{joueur}_{nonce}",
+            label_visibility="collapsed",
         )
         to_statut, to_slot = dict(destinations)[choice]
 
-        st.divider()
         c1, c2 = st.columns(2)
-
         if c1.button("✅ Confirmer", key=f"confirm_{owner}_{joueur}_{nonce}", use_container_width=True, type="primary"):
-            # (optionnel) si tu remets Actif un jour
-            if to_statut == "Grand Club" and to_slot == "Actif":
-                ok, msg = can_go_actif(cur_pos)
-                if not ok:
-                    st.error(msg)
-                    return
-
             ok2 = apply_move_with_history(
                 proprietaire=owner,
                 joueur=joueur,
@@ -614,14 +634,15 @@ def open_move_dialog():
                 elif to_statut == "Club École":
                     st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                 else:
-                    st.toast(f"✅ Déplacement enregistré", icon="✅")
+                    st.toast("✅ Déplacement enregistré", icon="✅")
                 do_rerun()
 
-        if c2.button("❌ Annuler", key=f"cancel_{owner}_{joueur}_{nonce}", use_container_width=True):
+        if c2.button("✖️ Annuler", key=f"cancel_{owner}_{joueur}_{nonce}", use_container_width=True):
             clear_move_ctx()
             do_rerun()
 
     _dlg()
+
 
 # =====================================================
 # SIDEBAR — Saison & plafonds
