@@ -950,84 +950,125 @@ with tabA:
     open_move_dialog()
 
 # =====================================================
-# TAB J - JOUEURS (AUTONOME)
+# TAB J - JOUEURS (CapWages)
 # =====================================================
+import requests
+
+def _cw_api_key() -> str | None:
+    # 1) secrets.toml (recommandé)
+    try:
+        k = st.secrets.get("CAPWAGES_API_KEY")
+        if k:
+            return str(k).strip()
+    except Exception:
+        pass
+    # 2) variable d'environnement
+    k = os.getenv("CAPWAGES_API_KEY")
+    return str(k).strip() if k else None
+
+def _slugify_player_id(name: str) -> str:
+    # CapWages semble utiliser un id style "connor-mcdavid" (exemple) :contentReference[oaicite:3]{index=3}
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", name.strip().lower()).strip("-")
+    return s
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def capwages_get_player(player_id: str, api_key: str) -> dict:
+    base = "https://capwages.com"
+    url = f"{base}/v1/players/{player_id}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "User-Agent": "fantrax-poolhockey/1.0",
+    }
+    r = requests.get(url, headers=headers, timeout=20)
+    if r.status_code == 404:
+        return {"_not_found": True, "_status": 404}
+    r.raise_for_status()
+    return r.json()
+
 with tabJ:
-    st.subheader("👥 Joueurs (Autonome)")
-    st.caption("Filtre + sélection d’un joueur → ouvre le pop-up de déplacement.")
+    st.subheader("👥 Joueurs (CapWages)")
+    st.caption("Recherche un joueur et récupère ses infos (salaire/contrat/équipe).")
 
-    # Propriétaire (indépendant de tabA)
-    proprietaire_j = st.selectbox(
-        "Propriétaire",
-        sorted(st.session_state["data"]["Propriétaire"].unique()),
-        key="joueurs_owner",
-    )
+    api_key = _cw_api_key()
+    if not api_key:
+        st.warning(
+            "Aucune clé API CapWages détectée.\n\n"
+            "➡️ Ajoute `CAPWAGES_API_KEY` dans `.streamlit/secrets.toml` "
+            "ou comme variable d’environnement `CAPWAGES_API_KEY`."
+        )
+        st.stop()
 
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    data_all = st.session_state["data"]
-    dprop = data_all[data_all["Propriétaire"] == proprietaire_j].copy()
-
-    # Filtres
-    c0, c1, c2, c3 = st.columns([1.3, 1.3, 1.3, 2.1])
-    with c0:
-        f_statut = st.selectbox("Statut", ["Tous", "Grand Club", "Club École"], key="joueurs_filtre_statut")
+    # UI
+    c1, c2 = st.columns([2, 1])
     with c1:
-        f_slot = st.selectbox("Slot", ["Tous", "Actif", "Banc", "Blessé"], key="joueurs_filtre_slot")
+        query_name = st.text_input("Nom du joueur", placeholder="Ex: Connor McDavid, Jack Eichel…")
     with c2:
-        f_pos = st.selectbox("Pos", ["Toutes", "F", "D", "G"], key="joueurs_filtre_pos")
-    with c3:
-        q = st.text_input("Recherche joueur", "", key="joueurs_search").strip().lower()
+        query_id = st.text_input("ID CapWages (optionnel)", placeholder="ex: connor-mcdavid")
 
-    # Appliquer filtres
-    dj = dprop.copy()
+    colA, colB = st.columns([1, 1])
+    with colA:
+        btn_search = st.button("🔎 Rechercher", use_container_width=True)
+    with colB:
+        btn_clear = st.button("🧹 Effacer", use_container_width=True)
 
-    if f_statut != "Tous":
-        dj = dj[dj["Statut"].astype(str) == f_statut]
+    if btn_clear:
+        st.session_state.pop("cw_last", None)
+        st.session_state.pop("cw_err", None)
+        do_rerun()
 
-    if f_slot != "Tous":
-        # Slot vide = mineur (Club École)
-        if f_slot == "Blessé":
-            dj = dj[dj.get("Slot", "").astype(str).str.strip().eq("Blessé")]
+    if btn_search:
+        pid = query_id.strip() if query_id.strip() else _slugify_player_id(query_name)
+        if not pid:
+            st.error("Entre un nom ou un ID.")
         else:
-            dj = dj[dj.get("Slot", "").astype(str).str.strip().eq(f_slot)]
+            try:
+                data = capwages_get_player(pid, api_key)
+                if data.get("_not_found"):
+                    st.session_state["cw_err"] = f"Joueur introuvable pour id: {pid}"
+                    st.session_state.pop("cw_last", None)
+                else:
+                    st.session_state["cw_last"] = data
+                    st.session_state.pop("cw_err", None)
+            except requests.HTTPError as e:
+                st.session_state["cw_err"] = f"Erreur HTTP CapWages: {e}"
+                st.session_state.pop("cw_last", None)
+            except Exception as e:
+                st.session_state["cw_err"] = f"Erreur CapWages: {e}"
+                st.session_state.pop("cw_last", None)
+            do_rerun()
 
-    if f_pos != "Toutes":
-        dj["Pos"] = dj["Pos"].apply(normalize_pos)
-        dj = dj[dj["Pos"] == f_pos]
+    # Résultat
+    if st.session_state.get("cw_err"):
+        st.error(st.session_state["cw_err"])
 
-    if q:
-        dj = dj[dj["Joueur"].astype(str).str.lower().str.contains(q, na=False)]
+    data = st.session_state.get("cw_last")
+    if data:
+        # petite normalisation selon l’exemple (id, name, team, position, salary, contract) :contentReference[oaicite:4]{index=4}
+        name = data.get("name", "—")
+        team = data.get("team", "—")
+        pos = data.get("position", "—")
+        salary = data.get("salary", None)
+        contract = data.get("contract", "—")
 
-    # Petite info
-    st.caption(f"{len(dj)} joueur(s) trouvé(s)")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Joueur", name)
+        m2.metric("Équipe", team)
+        m3.metric("Position", pos)
+        m4.metric("Contrat", contract)
 
-    # UI dataframe (on garde “État” visible via view_for_click)
-    df_j_ui = view_for_click(dj)
+        if salary is not None:
+            st.metric("Salaire (base annuel)", money(salary))
 
-    st.dataframe(
-        df_j_ui,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="sel_joueurs_autonome",
+        with st.expander("📦 JSON complet (debug)"):
+            st.json(data)
+
+    st.divider()
+    st.caption(
+        "Note: CapWages interdit notamment le bulk-download / redistribution / copycat apps via leurs données API. "
+        "Assure-toi que ton usage respecte leurs conditions."  # :contentReference[oaicite:5]{index=5}
     )
 
-    # Sélection -> ouvre le pop-up
-    picked_j = pick_from_df(df_j_ui, "sel_joueurs_autonome")
-    if picked_j:
-        # sécurité: si jamais view_for_click ajoute des colonnes, on garde seulement le vrai nom
-        picked_j = str(picked_j).replace("🩹", "").strip()
-        # Clear selection
-        ss = st.session_state.get("sel_joueurs_autonome")
-        if isinstance(ss, dict):
-            ss["selection"] = {"rows": []}
-
-        set_move_ctx(proprietaire_j, picked_j)
-        st.rerun()
-
-    # Pop-up (doit être à la fin de l’onglet)
-    open_move_dialog()
 
 
 # =====================================================
