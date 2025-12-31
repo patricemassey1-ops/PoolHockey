@@ -1241,29 +1241,22 @@ def nhl_headshot(player_name: str) -> str:
 
 
 # =====================================================
-# TAB J - JOUEURS (AUTONOME) — RECHERCHE + TABLE (NO "...")
+# TAB J - JOUEURS (AUTONOME) — RECHERCHE + TABLE (CORRIGÉ)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonome)")
     st.caption("Utilise les champs de recherche pour filtrer. (Nom, Prénom, Équipe, Level)")
 
     # -------------------------------------------------
-    # 1) Helpers (local au tabJ)
+    # 1) Helper local pour normalisation
     # -------------------------------------------------
-    def must_exist(path: str):
-        if not os.path.exists(path):
-            st.error(f"❌ Fichier manquant : {path}\n\n➡️ Dépose ton CSV dans le dossier `data/` (Streamlit Cloud) ou utilise le chargeur ci-dessous.")
-            st.stop()
-
-    def _norm(s: str) -> str:
+    def _norm_search(s: str) -> str:
         s = str(s or "").strip()
         s = re.sub(r"\s+", " ", s)
         return s
 
     # -------------------------------------------------
     # 2) Source CSV (Streamlit Cloud)
-    #    - Fichier attendu: data/Hockey.Players.csv
-    #    - + uploader pour hot-reload sans redeploy
     # -------------------------------------------------
     st.markdown("### 📄 Source des joueurs")
 
@@ -1275,14 +1268,12 @@ with tabJ:
     )
 
     players_path = "data/Hockey.Players.csv"
-    if uploaded_players is None:
-        # mode fichier sur disque (Streamlit Cloud repo)
-        must_exist(players_path)
-
+    
     @st.cache_data(show_spinner=False)
     def load_players_df_from_disk(path: str) -> pd.DataFrame:
-        df0 = pd.read_csv(path)
-        return df0
+        if not os.path.exists(path):
+            return pd.DataFrame()
+        return pd.read_csv(path)
 
     @st.cache_data(show_spinner=False)
     def load_players_df_from_upload(file_bytes: bytes) -> pd.DataFrame:
@@ -1293,34 +1284,32 @@ with tabJ:
         st.success("✅ CSV chargé via uploader (hot-reload).")
     else:
         df_players = load_players_df_from_disk(players_path)
+        if df_players.empty:
+            st.warning(f"⚠️ Fichier {players_path} introuvable. Upload un CSV ci-dessus.")
+            st.stop()
 
     if df_players is None or df_players.empty:
         st.warning("Aucun joueur dans le fichier.")
         st.stop()
 
     # -------------------------------------------------
-    # 3) Détecte les colonnes (Nom/Prénom/Équipe/Level)
+    # 3) Détecte les colonnes
     # -------------------------------------------------
-    # Nom complet
     name_col_candidates = ["Player", "Joueur", "Name", "Full Name", "Nom"]
     name_col = next((c for c in name_col_candidates if c in df_players.columns), None)
 
-    # Prénom / Nom (si disponibles)
     first_candidates = ["First Name", "Prenom", "Prénom", "First"]
     last_candidates  = ["Last Name", "Nom de famille", "NomFamille", "Last"]
 
     first_col = next((c for c in first_candidates if c in df_players.columns), None)
     last_col  = next((c for c in last_candidates if c in df_players.columns), None)
 
-    # Équipe
     team_candidates = ["Team", "NHL Team", "Équipe", "Equipe"]
     team_col = next((c for c in team_candidates if c in df_players.columns), None)
 
-    # Level
     level_candidates = ["Level", "League", "Niveau"]
     level_col = next((c for c in level_candidates if c in df_players.columns), None)
 
-    # Si pas de First/Last, on laisse recherche Nom/Prénom sur le champ name_col
     if not name_col and (not first_col or not last_col):
         st.error(
             "Impossible de trouver une colonne de nom joueur.\n"
@@ -1362,20 +1351,19 @@ with tabJ:
     # -------------------------------------------------
     dff = df_players.copy()
 
-    # Construit un champ "FullName" stable si besoin
+    # Construit un champ "FullName" stable
     if name_col:
-        dff["_full"] = dff[name_col].astype(str).map(_norm)
+        dff["_full"] = dff[name_col].astype(str).map(_norm_search)
     elif first_col and last_col:
-        dff["_full"] = (dff[first_col].astype(str).map(_norm) + " " + dff[last_col].astype(str).map(_norm)).str.strip()
+        dff["_full"] = (dff[first_col].astype(str).map(_norm_search) + " " + dff[last_col].astype(str).map(_norm_search)).str.strip()
     else:
         dff["_full"] = ""
 
-    # Filtre Nom/Prénom (contient, insensitive)
-    q_last_n = _norm(q_last).lower()
-    q_first_n = _norm(q_first).lower()
+    # Filtre Nom/Prénom
+    q_last_n = _norm_search(q_last).lower()
+    q_first_n = _norm_search(q_first).lower()
 
     if q_last_n:
-        # cherche dans full + last si dispo
         if last_col:
             dff = dff[dff[last_col].astype(str).str.lower().str.contains(q_last_n, na=False)]
         else:
@@ -1396,16 +1384,13 @@ with tabJ:
         dff = dff[dff[level_col].astype(str) == level_pick]
 
     # -------------------------------------------------
-    # 6) Colonnes à afficher (propre)
+    # 6) Colonnes à afficher
     # -------------------------------------------------
-    # On essaie d'afficher: Nom complet / Équipe / Level / Position / Cap Hit si dispo
     display_cols = []
 
-    # 1) Nom (colonne stable à afficher)
     if name_col:
         display_name_col = name_col
     else:
-        # fallback: on crée une colonne "Player"
         display_name_col = "Player"
         dff[display_name_col] = dff["_full"]
 
@@ -1415,13 +1400,11 @@ with tabJ:
         if c and c in dff.columns and c not in display_cols:
             display_cols.append(c)
 
-    # limite pour rester clean
     display_cols = display_cols[:6]
-
     dff_disp = dff[display_cols].copy()
 
     # -------------------------------------------------
-    # 7) FIX "ELLIPSIS ..." + AFFICHAGE TABLEAU
+    # 7) Affichage tableau (sans Ellipsis)
     # -------------------------------------------------
     st.markdown("---")
     st.markdown("### 📋 Résultats")
@@ -1429,7 +1412,6 @@ with tabJ:
     st.markdown(
         """
         <style>
-          /* Force l'affichage complet du texte dans st.dataframe */
           div[data-testid="stDataFrame"] td div {
             white-space: normal !important;
             overflow: visible !important;
@@ -1437,7 +1419,6 @@ with tabJ:
             line-height: 1.25 !important;
           }
 
-          /* Agrandit la première colonne (souvent le nom du joueur) */
           div[data-testid="stDataFrame"] th:first-child,
           div[data-testid="stDataFrame"] td:first-child {
             min-width: 280px !important;
