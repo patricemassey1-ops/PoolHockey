@@ -1355,7 +1355,7 @@ with tabA:
 
 
 # =====================================================
-# 👤 TAB J — JOUEURS (RECHERCHE À LA DEMANDE + FILTRE CAP HIT)
+# 👤 TAB J — JOUEURS (RECHERCHE À LA DEMANDE + FILTRE CAP HIT + GP=NHL GP + COMPARAISON)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonomes)")
@@ -1398,10 +1398,8 @@ with tabJ:
             return 0
         s = s.replace("$", "").replace("€", "").replace("£", "")
         s = s.replace(",", "").replace(" ", "")
-        # drop trailing .00
         s = re.sub(r"\.0+$", "", s)
         s = re.sub(r"\.00$", "", s)
-        # keep digits only
         s2 = re.sub(r"[^\d]", "", s)
         return int(s2) if s2.isdigit() else 0
 
@@ -1410,16 +1408,6 @@ with tabJ:
             return f"{int(v):,}".replace(",", " ") + " $"
         except Exception:
             return "0 $"
-
-    def nhl_headshot_url(nhl_id: str) -> str:
-        nid = _clean_intlike(nhl_id)
-        if nid.isdigit():
-            return f"https://assets.nhle.com/mugs/nhl/20242025/{nid}.png"
-        return "https://assets.nhle.com/mugs/nhl/default.png"
-
-    def safe(x):
-        import html as _html
-        return _html.escape(str(x if x is not None else "").strip())
 
     # -------------------------------------------------
     # SEARCH CONTROLS (NO RESULTS UNTIL FILTER SET)
@@ -1464,20 +1452,20 @@ with tabJ:
     else:
         cap_enabled = True
 
-        # prépare une colonne numérique (sans modifier ton CSV)
+        # colonne numérique cap hit
         df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
 
-        cap_min_all = int(df_db["_cap_int"].min())
-        cap_max_all = int(df_db["_cap_int"].max())
-
-        # checkbox: n'est considéré "filtre actif" que si coché
         cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
+
+        # ✅ plage max à 30 000 000 $ (selon ta demande)
+        slider_min = 0
+        slider_max = 30_000_000
 
         cap_min, cap_max = st.slider(
             "Plage Cap Hit",
-            min_value=cap_min_all,
-            max_value=cap_max_all,
-            value=(cap_min_all, cap_max_all),
+            min_value=slider_min,
+            max_value=slider_max,
+            value=(slider_min, slider_max),
             step=250000,
             format="%d",
             disabled=(not cap_apply),
@@ -1486,7 +1474,7 @@ with tabJ:
 
         st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
 
-    # 👉 IMPORTANT: afficher les résultats seulement si un filtre est rempli
+    # 👉 IMPORTANT: résultats seulement si filtre rempli OU cap_apply activé
     has_any_filter = bool(q_name.strip()) or (q_team != "Toutes") or (q_level != "Tous") or bool(cap_apply)
 
     if not has_any_filter:
@@ -1519,48 +1507,159 @@ with tabJ:
     # Limite pratique
     df = df.head(250).reset_index(drop=True)
 
-# -------------------------------------------------
-# RESULTS TABLE — GP = NHL GP (carrière)
-# -------------------------------------------------
-st.divider()
-st.markdown("### Résultats")
+    # -------------------------------------------------
+    # RESULTS TABLE — GP = NHL GP (carrière)
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("### Résultats")
 
-# On veut afficher "GP" mais prendre la valeur de "NHL GP"
-nhl_gp_col = "NHL GP" if "NHL GP" in df.columns else None
+    nhl_gp_col = "NHL GP" if "NHL GP" in df.columns else None
 
-# Colonnes affichées (ordre contrôlé)
-show_cols = []
+    show_cols = []
+    for c in ["Player", "Team", "Position", cap_col, "Level"]:
+        if c and c in df.columns and c not in show_cols:
+            show_cols.append(c)
 
-for c in [
-    "Player",
-    "Team",
-    "Position",
-    cap_col,
-    "Level",
-]:
-    if c and c in df.columns and c not in show_cols:
-        show_cols.append(c)
+    df_show = df[show_cols].copy()
 
-df_show = df[show_cols].copy()
+    # ✅ GP (affiché) = NHL GP (valeur)
+    if nhl_gp_col:
+        # place GP juste après Position si possible
+        insert_at = 3 if ("Position" in df_show.columns) else 1
+        df_show.insert(insert_at, "GP", df[nhl_gp_col])
+    else:
+        st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
 
-# Ajouter la colonne GP basée sur NHL GP
-if nhl_gp_col:
-    df_show.insert(3, "GP", df[nhl_gp_col])  # colonne GP juste après Position
-else:
-    st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
+    # Format Cap Hit (4 750 000 $)
+    if cap_col and cap_col in df_show.columns:
+        df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+        df_show = df_show.rename(columns={cap_col: "Cap Hit"})
 
-# Format Cap Hit (4 750 000 $)
-if cap_col and cap_col in df_show.columns:
-    df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-    df_show = df_show.rename(columns={cap_col: "Cap Hit"})
+    # Nettoyage visuel : enlever ".0"
+    for c in df_show.columns:
+        df_show[c] = df_show[c].apply(lambda x: _clean_intlike(x))
 
-# Nettoyage visuel : enlever tous les ".0"
-for c in df_show.columns:
-    df_show[c] = df_show[c].apply(
-        lambda x: _clean_intlike(x) if isinstance(x, (int, float, str)) else x
-    )
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-st.dataframe(df_show, use_container_width=True, hide_index=True)
+    # -------------------------------------------------
+    # COMPARE 2 PLAYERS — boutons + colonnes côte-à-côte
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("### 📊 Comparer 2 joueurs")
+
+    players_list = sorted(df["Player"].dropna().astype(str).unique().tolist())
+
+    if "compare_p1" not in st.session_state:
+        st.session_state["compare_p1"] = None
+    if "compare_p2" not in st.session_state:
+        st.session_state["compare_p2"] = None
+
+    cA, cB, cC = st.columns([1, 1, 1.2])
+
+    with cA:
+        p1_sel = st.selectbox("Joueur A", ["—"] + players_list, index=0, key="cmp_sel_1")
+        if st.button("➕ Ajouter A", use_container_width=True):
+            st.session_state["compare_p1"] = None if p1_sel == "—" else p1_sel
+
+    with cB:
+        p2_sel = st.selectbox("Joueur B", ["—"] + players_list, index=0, key="cmp_sel_2")
+        if st.button("➕ Ajouter B", use_container_width=True):
+            st.session_state["compare_p2"] = None if p2_sel == "—" else p2_sel
+
+    with cC:
+        if st.button("🧹 Réinitialiser", use_container_width=True):
+            st.session_state["compare_p1"] = None
+            st.session_state["compare_p2"] = None
+
+    p1 = st.session_state["compare_p1"]
+    p2 = st.session_state["compare_p2"]
+
+    if not p1 or not p2:
+        st.caption("Choisis 2 joueurs (A et B) pour afficher la comparaison.")
+    elif p1 == p2:
+        st.warning("Choisis 2 joueurs différents.")
+    else:
+        # champs à comparer
+        compare_fields = [
+            ("Nom", "Player"),
+            ("Équipe", "Team"),
+            ("Position", "Position"),
+            ("Level", level_col if level_col else "Level"),
+            ("GP (carrière NHL)", "NHL GP"),
+            ("Cap Hit", cap_col),
+            ("Shoots", "Shoots"),
+            ("Height", "Height"),
+            ("Weight", "W(lbs)"),
+            ("Draft Year", "Draft Year"),
+        ]
+
+        def _get_val(row: dict, col: str) -> str:
+            if not col or col not in row:
+                return ""
+            v = row.get(col, "")
+            if col == cap_col:
+                return _money_space(_cap_to_int(v))
+            if col == "NHL GP":
+                return _clean_intlike(v)
+            return _clean_intlike(v)
+
+        r1 = df[df["Player"].astype(str) == str(p1)].head(1)
+        r2 = df[df["Player"].astype(str) == str(p2)].head(1)
+
+        if r1.empty or r2.empty:
+            st.error("Impossible de trouver un des joueurs dans les résultats.")
+        else:
+            row1 = r1.iloc[0].to_dict()
+            row2 = r2.iloc[0].to_dict()
+
+            def build_rows_html(row: dict) -> str:
+                out = []
+                for label, col in compare_fields:
+                    if col == cap_col and (not cap_col or cap_col not in row):
+                        continue
+                    if col and col not in row:
+                        continue
+                    val = _get_val(row, col)
+                    if str(val).strip() == "":
+                        continue
+                    out.append(
+                        f"<div style='color:#ff2d2d;font-weight:900'>{safe(label)}</div>"
+                        f"<div style='color:#f5f5f5;font-weight:800'>{safe(val)}</div>"
+                    )
+                return "".join(out) if out else "<div style='color:#aaa'>Aucune info</div>"
+
+            left, right = st.columns(2)
+
+            with left:
+                st.markdown(
+                    f"""
+                    <div style="background:#0b0b0b;border:1px solid #ff2d2d;border-radius:16px;padding:14px;">
+                      <div style="color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
+                        {safe(p1)}
+                      </div>
+                      <div style="display:grid;grid-template-columns:170px 1fr;gap:8px 10px;">
+                        {build_rows_html(row1)}
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            with right:
+                st.markdown(
+                    f"""
+                    <div style="background:#0b0b0b;border:1px solid #ff2d2d;border-radius:16px;padding:14px;">
+                      <div style="color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
+                        {safe(p2)}
+                      </div>
+                      <div style="display:grid;grid-template-columns:170px 1fr;gap:8px 10px;">
+                        {build_rows_html(row2)}
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
 
 
 
