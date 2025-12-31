@@ -7,6 +7,254 @@ import html
 import textwrap
 from datetime import datetime
 from urllib.parse import quote, unquote
+import base64
+import textwrap
+
+# =====================================================
+# PLAYERS DB (Hockey_Players.csv) + HOVER TOOLTIP CARD
+# =====================================================
+PLAYERS_DB_FILE = "Hockey_Players.csv"  # change if your file is elsewhere
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "").strip()).lower()
+
+@st.cache_data(show_spinner=False)
+def load_players_db(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    dfp = pd.read_csv(path)
+
+    # Normalize player name column guess
+    # Expecting something like "Player" or "Joueur" or "Name"
+    name_col = None
+    for c in dfp.columns:
+        cl = c.strip().lower()
+        if cl in {"player", "joueur", "name", "full name", "fullname"}:
+            name_col = c
+            break
+    if name_col is None:
+        # If we can't detect, just return raw
+        return dfp
+
+    dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
+    return dfp
+
+def get_player_row(players_df: pd.DataFrame, player_name: str) -> dict | None:
+    if players_df is None or players_df.empty:
+        return None
+    key = _norm_name(player_name)
+    if "_name_key" not in players_df.columns:
+        return None
+    hit = players_df[players_df["_name_key"] == key]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+def _pick(d: dict, candidates: list[str], default=""):
+    for k in candidates:
+        if k in d and pd.notna(d[k]) and str(d[k]).strip() != "":
+            return str(d[k]).strip()
+    return default
+
+def player_tooltip_css():
+    st.markdown(
+        textwrap.dedent("""
+        <style>
+          /* Hover container */
+          .ph-wrap{
+            position:relative;
+            display:inline-block;
+          }
+          .ph-name{
+            color:#4aa3ff;
+            font-weight:900;
+            text-decoration:underline;
+            cursor:default;
+          }
+
+          /* Tooltip card (hidden by default) */
+          .ph-tip{
+            display:none;
+            position:absolute;
+            left:0;
+            top:28px;
+            width:520px;
+            max-width:70vw;
+            background:rgba(10,14,18,.98);
+            border:1px solid rgba(255,255,255,.10);
+            box-shadow:0 18px 50px rgba(0,0,0,.55);
+            border-radius:18px;
+            overflow:hidden;
+            z-index:9999;
+          }
+          .ph-wrap:hover .ph-tip{ display:block; }
+
+          /* Header like your screenshot */
+          .ph-head{
+            display:flex;
+            gap:12px;
+            align-items:center;
+            padding:14px 14px 10px 14px;
+            background:linear-gradient(180deg, rgba(12,18,24,1), rgba(7,10,13,1));
+          }
+          .ph-avatar{
+            width:54px;height:54px;border-radius:14px;
+            background:rgba(255,255,255,.06);
+            object-fit:cover;
+            flex:0 0 auto;
+            border:1px solid rgba(255,255,255,.10);
+          }
+          .ph-title{
+            font-size:20px;
+            font-weight:1000;
+            color:#4aa3ff;
+            line-height:1.05;
+            margin-bottom:4px;
+          }
+          .ph-sub{
+            font-size:13px;
+            color:rgba(255,255,255,.72);
+            font-weight:700;
+          }
+          .ph-sub b{ color:rgba(255,255,255,.92); }
+
+          .ph-flag{
+            display:inline-flex;
+            gap:8px;
+            align-items:center;
+            margin-top:6px;
+            font-size:13px;
+            color:rgba(255,255,255,.80);
+            font-weight:800;
+          }
+          .ph-flag img{
+            width:18px;height:12px;border-radius:2px;
+            border:1px solid rgba(255,255,255,.25);
+            object-fit:cover;
+          }
+
+          /* Body stats chips */
+          .ph-body{ padding:12px 14px 14px 14px; }
+          .ph-grid{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap:8px 14px;
+          }
+          .ph-kv{
+            font-size:13px;
+            color:rgba(255,255,255,.75);
+            font-weight:800;
+            padding:8px 10px;
+            border-radius:12px;
+            background:rgba(255,255,255,.04);
+            border:1px solid rgba(255,255,255,.07);
+          }
+          .ph-kv span{
+            color:rgba(255,255,255,.95);
+            font-weight:1000;
+            margin-left:6px;
+          }
+
+          /* keep tooltip on screen on small viewports */
+          @media (max-width: 700px){
+            .ph-tip{ width:92vw; }
+          }
+        </style>
+        """),
+        unsafe_allow_html=True,
+    )
+
+def render_player_hover_name(players_df: pd.DataFrame, player_name: str) -> str:
+    """
+    Returns an HTML snippet: the player's name with a hover tooltip card.
+    """
+    row = get_player_row(players_df, player_name) or {}
+
+    # Try to find useful fields (works even if some are missing)
+    name = player_name.strip()
+
+    # OPTIONAL photo/headshot columns (adapt to your CSV)
+    photo_url = _pick(row, ["Photo", "Headshot", "Image", "photo_url", "headshot_url"], default="")
+
+    team = _pick(row, ["Team", "NHL Team", "Equipe", "Équipe"], default="")
+    pos = _pick(row, ["Pos", "Position"], default="")
+    jersey = _pick(row, ["Jersey #", "Jersey", "No", "#"], default="")
+    shoots = _pick(row, ["Shoots", "Shot", "Tire"], default="")
+    height = _pick(row, ["Hgt", "Height", "Taille"], default="")
+    weight = _pick(row, ["W(lbs)", "Weight", "Poids"], default="")
+    dob = _pick(row, ["DOB", "Birthdate", "Date of Birth", "Naissance"], default="")
+    draft = _pick(row, ["Draft Year", "Draft", "Année Repêchage"], default="")
+    ufa = _pick(row, ["UFA Year", "UFA", "Autonomie"], default="")
+    caphit = _pick(row, ["Cap Hit", "CapHit", "AAV"], default="")
+
+    country = _pick(row, ["Country", "Pays"], default="")
+    flag_url = _pick(row, ["Flag", "Flag URL", "Flag_Image"], default="")
+
+    # Fallback avatar if no photo
+    if not photo_url:
+        # tiny inline SVG placeholder
+        svg = """<svg xmlns='http://www.w3.org/2000/svg' width='54' height='54'>
+        <rect width='54' height='54' rx='14' fill='rgba(255,255,255,0.06)'/>
+        <circle cx='27' cy='22' r='9' fill='rgba(255,255,255,0.18)'/>
+        <rect x='14' y='34' width='26' height='12' rx='6' fill='rgba(255,255,255,0.14)'/>
+        </svg>"""
+        photo_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("utf-8")
+
+    # Escape text
+    esc = html.escape
+    name_e = esc(name)
+
+    sub_bits = []
+    if team: sub_bits.append(esc(team))
+    if pos: sub_bits.append(f"• <b>{esc(pos)}</b>")
+    if jersey: sub_bits.append(f"• #{esc(jersey)}")
+    sub_line = " ".join(sub_bits) if sub_bits else "<span style='opacity:.6'>Info indisponible</span>"
+
+    # Key/values (only show those that exist)
+    kv = []
+    def add_kv(label, value):
+        if value and str(value).strip():
+            kv.append((label, str(value).strip()))
+
+    add_kv("Shoots", shoots)
+    add_kv("Height", height)
+    add_kv("Weight", weight)
+    add_kv("DOB", dob)
+    add_kv("Draft", draft)
+    add_kv("UFA", ufa)
+    add_kv("Cap Hit", caphit)
+
+    kv_html = ""
+    if kv:
+        kv_html = "".join([f"<div class='ph-kv'>{esc(k)}:<span>{esc(v)}</span></div>" for k, v in kv])
+    else:
+        kv_html = "<div class='ph-kv'>No details<span>—</span></div>"
+
+    flag_html = ""
+    if country or flag_url:
+        img = f"<img src='{esc(flag_url)}' />" if flag_url else ""
+        flag_html = f"<div class='ph-flag'>{img}<span>{esc(country) if country else ''}</span></div>"
+
+    return f"""
+      <span class="ph-wrap">
+        <span class="ph-name">{name_e}</span>
+        <div class="ph-tip">
+          <div class="ph-head">
+            <img class="ph-avatar" src="{esc(photo_url)}" />
+            <div style="min-width:0;">
+              <div class="ph-title">{name_e}</div>
+              <div class="ph-sub">{sub_line}</div>
+              {flag_html}
+            </div>
+          </div>
+          <div class="ph-body">
+            <div class="ph-grid">
+              {kv_html}
+            </div>
+          </div>
+        </div>
+      </span>
+    """
 
 # =====================================================
 # CONFIG
