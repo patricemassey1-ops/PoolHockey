@@ -1209,70 +1209,138 @@ with tabJ:
     st.subheader("🌍 Joueurs (Autonome)")
     st.caption("Survole le nom d’un joueur pour voir son résumé (tiré de Hockey_Players.csv).")
 
-    # -------------------------------------------------
-    # LOAD DATA
-    # -------------------------------------------------
-    players_path = "/mnt/data/Merged_Hockey_Players_WITH_FLAG_IMAGES_NORMALIZED.csv"
-    db_path = "/mnt/data/Hockey_Players.csv"
+    import textwrap
+    import html
+    import re
+    import os
+    import pandas as pd
 
-    df_players = pd.read_csv(players_path)
-    df_db = pd.read_csv(db_path)
-
-    # -------------------------------------------------
-    # HELPERS
-    # -------------------------------------------------
+    # -----------------------------
+    # Helpers
+    # -----------------------------
     def _norm_name(x: str) -> str:
         s = str(x or "").strip().lower()
         s = re.sub(r"\s+", " ", s)
         return s
 
-    # Detect name column in Hockey_Players.csv
+    def _read_csv_if_exists(path: str):
+        try:
+            if path and os.path.exists(path):
+                return pd.read_csv(path)
+        except Exception:
+            pass
+        return None
+
+    def _pick_first_col(cols_candidates, columns):
+        return next((c for c in cols_candidates if c in columns), None)
+
+    def _pick_field(d: dict, candidates: list[str]) -> str:
+        for c in candidates:
+            if c in d and pd.notna(d[c]) and str(d[c]).strip() != "":
+                return str(d[c]).strip()
+        return ""
+
+    # -----------------------------
+    # 1) Load display list (merged file)
+    # -----------------------------
+    merged_filename = "Merged_Hockey_Players_WITH_FLAG_IMAGES_NORMALIZED.csv"
+
+    # Prefer your app's data folder
+    players_path_1 = os.path.join(DATA_DIR, merged_filename)
+    players_path_2 = merged_filename  # fallback: app root
+
+    df_players = _read_csv_if_exists(players_path_1)
+    if df_players is None:
+        df_players = _read_csv_if_exists(players_path_2)
+
+    # If still missing, allow upload
+    if df_players is None:
+        st.warning(
+            f"Fichier introuvable: **{players_path_1}** (ou **{players_path_2}**). "
+            "Dépose le CSV ici pour l’afficher."
+        )
+        up_players = st.file_uploader(
+            "📄 Upload: Merged players CSV",
+            type=["csv"],
+            key="players_upload_tabJ",
+        )
+        if up_players is None:
+            st.stop()
+        df_players = pd.read_csv(up_players)
+
+    # -----------------------------
+    # 2) Load pool database (Hockey_Players.csv)
+    # -----------------------------
+    db_filename = "Hockey_Players.csv"
+    db_path_1 = os.path.join(DATA_DIR, db_filename)
+    db_path_2 = db_filename
+
+    df_db = _read_csv_if_exists(db_path_1)
+    if df_db is None:
+        df_db = _read_csv_if_exists(db_path_2)
+
+    if df_db is None:
+        st.warning(
+            f"Fichier introuvable: **{db_path_1}** (ou **{db_path_2}**). "
+            "Dépose Hockey_Players.csv ici pour activer les tooltips."
+        )
+        up_db = st.file_uploader(
+            "📄 Upload: Hockey_Players.csv (source tooltip)",
+            type=["csv"],
+            key="db_upload_tabJ",
+        )
+        if up_db is None:
+            st.stop()
+        df_db = pd.read_csv(up_db)
+
+    # -----------------------------
+    # 3) Build lookup from DB by player name
+    # -----------------------------
     name_col_candidates = ["Player", "Joueur", "Name", "Full Name"]
-    db_name_col = next((c for c in name_col_candidates if c in df_db.columns), None)
+    db_name_col = _pick_first_col(name_col_candidates, df_db.columns)
     if not db_name_col:
-        st.error("Impossible de trouver la colonne joueur dans Hockey_Players.csv")
+        st.error(
+            f"Impossible de trouver une colonne joueur dans Hockey_Players.csv. "
+            f"Colonnes: {list(df_db.columns)}"
+        )
         st.stop()
 
-    # Build lookup dict
     db_lookup = {}
     for _, r in df_db.iterrows():
         key = _norm_name(r.get(db_name_col, ""))
         if key:
             db_lookup[key] = r.to_dict()
 
-    # Fields to show in tooltip (only if present)
+    # -----------------------------
+    # 4) Which fields to show in tooltip (only if present)
+    # -----------------------------
     preferred_fields = [
-        ("Équipe", ["Team", "NHL Team", "Equipe"]),
+        ("Team", ["Team", "NHL Team", "Équipe", "Equipe"]),
         ("Position", ["Position", "Pos"]),
-        ("Tire", ["Shoots", "Shot"]),
-        ("Taille", ["Height", "Hgt"]),
-        ("Poids", ["Weight", "W(lbs)"]),
-        ("Naissance", ["Birthdate", "DOB"]),
-        ("Repêchage", ["Draft Year", "Draft"]),
-        ("NHL GP", ["NHL GP"]),
-        ("NHL Pts", ["NHL P"]),
-        ("Cap Hit", ["Cap Hit", "AAV"]),
+        ("Shoots", ["Shoots", "Shot", "Tire", "Hand"]),
+        ("Height", ["Height", "Hgt", "Taille"]),
+        ("Weight", ["Weight", "W(lbs)", "Poids"]),
+        ("Birthdate", ["Birthdate", "DOB", "Date de naissance"]),
+        ("Draft", ["Draft", "Draft Year", "DraftYear", "Année Repêchage"]),
+        ("NHL GP", ["NHL GP", "GP NHL"]),
+        ("NHL P", ["NHL P", "NHL Points", "PTS NHL"]),
+        ("Cap Hit", ["Cap Hit", "CapHit", "AAV"]),
+        ("Contract", ["Contract", "Term", "Years", "Signed"]),
     ]
 
-    def _pick_field(d: dict, cols: list[str]) -> str:
-        for c in cols:
-            if c in d and pd.notna(d[c]) and str(d[c]).strip():
-                return str(d[c]).strip()
-        return ""
-
-    def _build_tooltip_html(player_name, db_row, flag_url, country):
+    def _build_tooltip_html(player_name: str, db_row: dict, flag_url: str, country: str) -> str:
         safe_name = html.escape(player_name)
         safe_country = html.escape(country or "")
         safe_flag = html.escape(flag_url or "")
 
         header = f"""
-        <div class="tt-head">
-          <div class="tt-name">
-            <img class="tt-flag" src="{safe_flag}" />
-            <span class="tt-player">{safe_name}</span>
-            <span class="tt-country">• {safe_country}</span>
+          <div class="tt-head">
+            <div class="tt-name">
+              {f"<img class='tt-flag' src='{safe_flag}' alt='{safe_country}' />" if safe_flag else ""}
+              <span class="tt-player">{safe_name}</span>
+              {f"<span class='tt-country'>• {safe_country}</span>" if safe_country else ""}
+            </div>
           </div>
-        </div>
         """
 
         rows = []
@@ -1280,108 +1348,132 @@ with tabJ:
             v = _pick_field(db_row, cols)
             if v:
                 rows.append(
-                    f"<div class='tt-row'><div class='tt-k'>{label}</div><div class='tt-v'>{html.escape(v)}</div></div>"
+                    f"<div class='tt-row'><div class='tt-k'>{html.escape(label)}</div>"
+                    f"<div class='tt-v'>{html.escape(v)}</div></div>"
                 )
 
-        body = (
-            "<div class='tt-grid'>" + "".join(rows) + "</div>"
-            if rows else
-            "<div class='tt-muted'>Aucune donnée disponible</div>"
+        if not rows:
+            rows_html = "<div class='tt-muted'>Aucune info trouvée dans Hockey_Players.csv</div>"
+        else:
+            rows_html = "<div class='tt-grid'>" + "".join(rows) + "</div>"
+
+        return header + rows_html
+
+    # -----------------------------
+    # 5) Determine columns in displayed list
+    # -----------------------------
+    player_name_col_candidates = ["Player", "Joueur", "Name"]
+    p_name_col = _pick_first_col(player_name_col_candidates, df_players.columns)
+    if not p_name_col:
+        st.error(
+            f"Impossible de trouver une colonne joueur dans la table affichée. "
+            f"Colonnes: {list(df_players.columns)}"
         )
-
-        return header + body
-
-    # -------------------------------------------------
-    # DISPLAY SETUP
-    # -------------------------------------------------
-    player_col = next((c for c in ["Player", "Joueur", "Name"] if c in df_players.columns), None)
-    if not player_col:
-        st.error("Colonne joueur introuvable dans le fichier affiché.")
         st.stop()
 
     flag_col = "Flag" if "Flag" in df_players.columns else None
     country_col = "Country" if "Country" in df_players.columns else None
 
-    display_cols = [player_col]
-    for c in ["Team", "Cap Hit", "Position"]:
-        if c in df_players.columns:
+    display_cols = []
+    for c in [p_name_col, "Team", "NHL Team", "Cap Hit", "Pos", "Position"]:
+        if c in df_players.columns and c not in display_cols:
             display_cols.append(c)
+    display_cols = display_cols[:4]  # keep it clean
 
-    # -------------------------------------------------
-    # CSS (tooltip card)
-    # -------------------------------------------------
+    # -----------------------------
+    # 6) CSS
+    # -----------------------------
     st.markdown(
         """
         <style>
-        .players-card{background:#000;border:1px solid #222;border-radius:14px}
-        .players-head{padding:10px 12px;color:#ff2d2d;font-weight:900}
-        .players-table{width:100%;border-collapse:collapse;color:#eee;font-weight:700}
-        .players-table th{padding:10px;color:#ff2d2d;background:#060606;position:sticky;top:0}
-        .players-table td{padding:10px;border-bottom:1px solid #141414}
-        .players-table tr:hover td{background:#120000}
+          .players-card{background:#000;border:1px solid #222;border-radius:14px;overflow:hidden}
+          .players-head{padding:10px 12px;border-bottom:1px solid #222;color:#ff2d2d;font-weight:900;letter-spacing:.5px}
+          .players-table{width:100%;border-collapse:collapse;color:#eee;font-weight:700}
+          .players-table th{padding:10px 12px;text-align:left;color:#ff2d2d;background:#060606;border-bottom:1px solid #222;position:sticky;top:0;z-index:1}
+          .players-table td{padding:10px 12px;border-bottom:1px solid #141414}
+          .players-table tr:nth-child(even) td{background:#050505}
+          .players-table tr:hover td{background:#120000}
 
-        .tt-wrap{position:relative;display:inline-block}
-        .tt-bubble{
-          display:none;position:absolute;left:0;top:110%;
-          width:420px;background:#0b0b0b;border:1px solid #ff2d2d;
-          border-radius:14px;padding:12px;z-index:9999
-        }
-        .tt-wrap:hover .tt-bubble{display:block}
+          /* Tooltip container on the name cell */
+          .tt-wrap{position:relative;display:inline-block}
+          .tt-trigger{color:#fff;text-decoration:none}
+          .tt-bubble{
+            display:none;
+            position:absolute;
+            left:0;
+            top:110%;
+            width:420px;
+            max-width:60vw;
+            background:#0b0b0b;
+            border:1px solid #ff2d2d;
+            border-radius:14px;
+            padding:12px;
+            box-shadow:0 14px 30px rgba(0,0,0,.55);
+            z-index:9999;
+          }
+          .tt-wrap:hover .tt-bubble{display:block}
 
-        .tt-name{display:flex;align-items:center;gap:8px}
-        .tt-flag{width:22px;border-radius:4px}
-        .tt-player{font-weight:1000}
-        .tt-country{color:#ff2d2d;font-weight:900}
+          .tt-head{margin-bottom:10px}
+          .tt-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+          .tt-flag{width:22px;height:auto;border-radius:4px;border:1px solid #222}
+          .tt-player{font-weight:1000;color:#fff}
+          .tt-country{color:#ff2d2d;font-weight:900;opacity:.95}
 
-        .tt-grid{display:grid;grid-template-columns:140px 1fr;gap:6px}
-        .tt-k{color:#ff2d2d;font-weight:900}
-        .tt-v{color:#eee;font-weight:800}
+          .tt-grid{display:grid;grid-template-columns: 140px 1fr;gap:6px 10px}
+          .tt-row{display:contents}
+          .tt-k{color:#ff2d2d;font-weight:900}
+          .tt-v{color:#eaeaea;font-weight:800}
+          .tt-muted{color:#aaa;font-weight:700}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # -------------------------------------------------
-    # BUILD TABLE
-    # -------------------------------------------------
+    # -----------------------------
+    # 7) Build rows HTML
+    # -----------------------------
     rows_html = ""
     for _, pr in df_players.iterrows():
-        name = str(pr.get(player_col, "")).strip()
-        if not name:
+        player_name = str(pr.get(p_name_col, "")).strip()
+        if not player_name:
             continue
 
-        key = _norm_name(name)
+        key = _norm_name(player_name)
         db_row = db_lookup.get(key, {})
-        flag = pr.get(flag_col, "") if flag_col else ""
-        country = pr.get(country_col, "") if country_col else ""
 
-        tooltip = _build_tooltip_html(name, db_row, flag, country)
+        flag_url = str(pr.get(flag_col, "")).strip() if flag_col else ""
+        country = str(pr.get(country_col, "")).strip() if country_col else ""
 
-        cells = [
+        tooltip = _build_tooltip_html(player_name, db_row, flag_url, country)
+
+        safe_name = html.escape(player_name)
+
+        row_cells = []
+        row_cells.append(
             f"""
             <td>
               <span class="tt-wrap">
-                <span>{html.escape(name)}</span>
+                <span class="tt-trigger">{safe_name}</span>
                 <div class="tt-bubble">{tooltip}</div>
               </span>
             </td>
             """
-        ]
+        )
 
         for c in display_cols[1:]:
-            cells.append(f"<td>{html.escape(str(pr.get(c,'')))}</td>")
+            row_cells.append(f"<td>{html.escape(str(pr.get(c, '')).strip())}</td>")
 
-        rows_html += "<tr>" + "".join(cells) + "</tr>"
+        rows_html += "<tr>" + "".join(row_cells) + "</tr>"
 
-    headers = "".join([f"<th>{c}</th>" for c in display_cols])
+    ths = "".join([f"<th>{html.escape(c)}</th>" for c in display_cols])
 
     st.markdown(
         f"""
         <div class="players-card">
-          <div class="players-head">JOUEURS — survole le nom pour la fiche</div>
-          <div style="max-height:600px;overflow:auto">
+          <div class="players-head">JOUEURS — survole le nom pour le résumé</div>
+          <div style="max-height:560px; overflow:auto;">
             <table class="players-table">
-              <thead><tr>{headers}</tr></thead>
+              <thead><tr>{ths}</tr></thead>
               <tbody>{rows_html}</tbody>
             </table>
           </div>
