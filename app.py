@@ -1115,6 +1115,8 @@ def open_move_dialog():
 
     _dlg()
 
+import textwrap
+import html
 
 # =====================================================
 # TAB A - ALIGNEMENT (POPUP OK + IR TABLE UNIQUE + DATE IR)
