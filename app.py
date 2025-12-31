@@ -1206,9 +1206,17 @@ with tabA:
     # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
 
+import streamlit as st
 import pandas as pd
-import re
-import html
+import os
+...
+
+def must_exist(...):
+    ...
+
+def nhl_headshot(...):
+    ...
+
 
 # =====================================================
 # TAB J — JOUEURS AUTONOME (UPLOAD HOT-RELOAD + CACHE + HEADSHOTS + CLICK->POPUP)
@@ -1239,9 +1247,23 @@ else:
     # ---------------------------
     # Helpers: query params (compat)
     # ---------------------------
-    def nhl_headshot(player_name: str) -> str:
-    slug = player_name.lower().replace(" ", "-").replace(".", "")
+  # =====================================================
+# NHL HEADSHOT (OFFICIAL CDN)
+# =====================================================
+def nhl_headshot(player_name: str) -> str:
+    if not player_name:
+        return ""
+
+    slug = (
+        player_name
+        .lower()
+        .replace(".", "")
+        .replace("'", "")
+        .replace(" ", "-")
+    )
+
     return f"https://cms.nhl.bamgrid.com/images/headshots/current/168x168/{slug}.png"
+
     
     def _get_qp(key: str):
         if hasattr(st, "query_params"):
