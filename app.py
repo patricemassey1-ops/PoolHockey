@@ -10,6 +10,9 @@ from urllib.parse import quote, unquote
 import base64
 import textwrap
 
+from zoneinfo import ZoneInfo
+
+
 # =====================================================
 # FILE GUARD (STREAMLIT CLOUD SAFE)
 # =====================================================
@@ -341,62 +344,89 @@ def pos_sort_key(pos: str) -> int:
 # =====================================================
 # DATA CLEAN
 # =====================================================
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
+def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
+    if LOCKED:
+        st.error("🔒 Saison verrouillée : modification impossible.")
+        return False
 
-    for col in ["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe"]:
-        if col not in df.columns:
-            df[col] = "" if col != "Salaire" else 0
+    df0 = st.session_state.get("data")
+    if df0 is None or df0.empty:
+        st.error("Aucune donnée en mémoire.")
+        return False
 
-    df["Propriétaire"] = df["Propriétaire"].astype(str).str.strip()
-    df["Joueur"] = df["Joueur"].astype(str).str.strip()
-    df["Equipe"] = df["Equipe"].astype(str).str.strip()
-    df["Statut"] = df["Statut"].astype(str).str.strip()
-    df["Slot"] = df["Slot"].astype(str).str.strip()
-    df["Pos"] = df["Pos"].astype(str).str.strip()
+    # ✅ S'assure que la colonne existe
+    if "IR Date" not in df0.columns:
+        df0["IR Date"] = ""
 
-    # Normalise blessé
-    df["Slot"] = df["Slot"].replace(
-        {"IR": "Blessé", "Blesse": "Blessé", "Blesses": "Blessé", "Injured": "Blessé", "INJ": "Blessé"}
-    )
+    to_statut = str(to_statut).strip()
+    to_slot = str(to_slot).strip()
 
-    # Salaire int (accepte "12 500 000 $" etc.)
-    df["Salaire"] = (
-        df["Salaire"]
-        .astype(str)
-        .str.replace("$", "", regex=False)
-        .str.replace(" ", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .replace(["None", "nan", "NaN", ""], "0")
-    )
-    df["Salaire"] = pd.to_numeric(df["Salaire"], errors="coerce").fillna(0).astype(int)
+    allowed_slots_gc = {"Actif", "Banc", "Blessé"}
+    allowed_slots_ce = {"", "Blessé"}
 
-    # Pos
-    df["Pos"] = df["Pos"].apply(normalize_pos)
+    if to_statut == "Grand Club" and to_slot not in allowed_slots_gc:
+        st.error(f"Slot invalide pour Grand Club: {to_slot}")
+        return False
+    if to_statut == "Club École" and to_slot not in allowed_slots_ce:
+        st.error(f"Slot invalide pour Club École: {to_slot}")
+        return False
 
-    # Retire lignes parasites
-    forbidden = {"none", "skaters", "goalies", "player", "null"}
-    df = df[~df["Joueur"].str.lower().isin(forbidden)]
-    df = df[df["Joueur"].str.len() > 2]
+    mask = (df0["Propriétaire"] == proprietaire) & (df0["Joueur"] == joueur)
+    if df0[mask].empty:
+        st.error("Joueur introuvable pour ce propriétaire.")
+        return False
 
-    # Retire ligne vide typique entre sections
-    df = df[
-        ~(
-            (df["Salaire"] <= 0)
-            & (df["Equipe"].str.lower().isin(["none", "nan", "", "n/a"]))
+    before = df0[mask].iloc[0]
+    from_statut = str(before.get("Statut", "")).strip()
+    from_slot = str(before.get("Slot", "")).strip()
+    pos0 = str(before.get("Pos", "F")).strip()
+    equipe0 = str(before.get("Equipe", "")).strip()
+
+    # Apply move
+    df0.loc[mask, "Statut"] = to_statut
+    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
+
+    # ✅ Persistance IR Date (Montréal)
+    # - si on ENTRE en IR (Blessé) => on set la date
+    # - si on SORT de IR => on clear la date
+    entering_ir = (to_slot == "Blessé") and (from_slot != "Blessé")
+    leaving_ir = (from_slot == "Blessé") and (to_slot != "Blessé")
+
+    if entering_ir:
+        now_mtl = datetime.now(ZoneInfo("America/Toronto"))
+        df0.loc[mask, "IR Date"] = now_mtl.strftime("%Y-%m-%d %H:%M")
+    elif leaving_ir:
+        df0.loc[mask, "IR Date"] = ""
+
+    # Re-clean + save
+    df0 = clean_data(df0)
+    df0 = df0.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
+
+    st.session_state["data"] = df0
+    try:
+        df0.to_csv(DATA_FILE, index=False)
+    except Exception as e:
+        st.error(f"Erreur sauvegarde CSV: {e}")
+        return False
+
+    # Historique
+    try:
+        log_history_row(
+            proprietaire=proprietaire,
+            joueur=joueur,
+            pos=pos0,
+            equipe=equipe0,
+            from_statut=from_statut,
+            from_slot=from_slot,
+            to_statut=to_statut,
+            to_slot=(to_slot if to_slot else ""),
+            action=action_label,
         )
-    ]
+    except Exception as e:
+        st.warning(f"⚠️ Déplacement OK, mais historique non écrit: {e}")
 
-    # Slot par défaut
-    mask_gc_default = (df["Statut"] == "Grand Club") & (df["Slot"].fillna("").eq(""))
-    df.loc[mask_gc_default, "Slot"] = "Actif"
-    mask_ce_default = (df["Statut"] == "Club École") & (df["Slot"] != "Blessé")
-    df.loc[mask_ce_default, "Slot"] = ""
+    return True
 
-    # Aucun doublon par propriétaire
-    df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
-    return df
 
 # =====================================================
 # PARSER FANTRAX
