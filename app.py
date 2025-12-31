@@ -1219,8 +1219,23 @@ with tabJ:
     import html as _html
     import re as _re
 
-    st.subheader("👤 Joueurs (Autonome)")
-    st.caption("Survole un joueur pour son résumé (Hockey_Players.csv). Clique un joueur pour ouvrir le pop-up de déplacement.")
+    st.subheader("👤 Joueurs Autonome")
+
+uploaded_players = st.file_uploader(
+    "🔁 Mettre à jour la liste des joueurs (CSV)",
+    type=["csv"],
+    help="Upload un nouveau CSV pour recharger instantanément la liste.",
+    key="players_uploader"
+)
+
+PLAYERS_PATH = "data/Hockey.Players.csv"
+
+if uploaded_players is not None:
+    df_players = pd.read_csv(uploaded_players)
+else:
+    must_exist(PLAYERS_PATH)
+    df_players = pd.read_csv(PLAYERS_PATH)
+
 
     # ---------------------------
     # Helpers: query params (compat)
