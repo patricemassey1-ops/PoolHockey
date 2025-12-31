@@ -668,9 +668,10 @@ plafonds = pd.DataFrame(resume)
 # =====================================================
 # TABS
 # =====================================================
-tab1, tabA, tabH, tab2, tab3 = st.tabs(
-    ["📊 Tableau", "🧾 Alignement", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
+tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
+    ["📊 Tableau", "🧾 Alignement", "👥 Joueurs (Autonome)", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
 )
+
 
 # =====================================================
 # TAB 1 - TABLEAU
@@ -946,6 +947,86 @@ with tabA:
         st.markdown(html_block, unsafe_allow_html=True)
 
     # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
+    open_move_dialog()
+
+# =====================================================
+# TAB J - JOUEURS (AUTONOME)
+# =====================================================
+with tabJ:
+    st.subheader("👥 Joueurs (Autonome)")
+    st.caption("Filtre + sélection d’un joueur → ouvre le pop-up de déplacement.")
+
+    # Propriétaire (indépendant de tabA)
+    proprietaire_j = st.selectbox(
+        "Propriétaire",
+        sorted(st.session_state["data"]["Propriétaire"].unique()),
+        key="joueurs_owner",
+    )
+
+    st.session_state["data"] = clean_data(st.session_state["data"])
+    data_all = st.session_state["data"]
+    dprop = data_all[data_all["Propriétaire"] == proprietaire_j].copy()
+
+    # Filtres
+    c0, c1, c2, c3 = st.columns([1.3, 1.3, 1.3, 2.1])
+    with c0:
+        f_statut = st.selectbox("Statut", ["Tous", "Grand Club", "Club École"], key="joueurs_filtre_statut")
+    with c1:
+        f_slot = st.selectbox("Slot", ["Tous", "Actif", "Banc", "Blessé"], key="joueurs_filtre_slot")
+    with c2:
+        f_pos = st.selectbox("Pos", ["Toutes", "F", "D", "G"], key="joueurs_filtre_pos")
+    with c3:
+        q = st.text_input("Recherche joueur", "", key="joueurs_search").strip().lower()
+
+    # Appliquer filtres
+    dj = dprop.copy()
+
+    if f_statut != "Tous":
+        dj = dj[dj["Statut"].astype(str) == f_statut]
+
+    if f_slot != "Tous":
+        # Slot vide = mineur (Club École)
+        if f_slot == "Blessé":
+            dj = dj[dj.get("Slot", "").astype(str).str.strip().eq("Blessé")]
+        else:
+            dj = dj[dj.get("Slot", "").astype(str).str.strip().eq(f_slot)]
+
+    if f_pos != "Toutes":
+        dj["Pos"] = dj["Pos"].apply(normalize_pos)
+        dj = dj[dj["Pos"] == f_pos]
+
+    if q:
+        dj = dj[dj["Joueur"].astype(str).str.lower().str.contains(q, na=False)]
+
+    # Petite info
+    st.caption(f"{len(dj)} joueur(s) trouvé(s)")
+
+    # UI dataframe (on garde “État” visible via view_for_click)
+    df_j_ui = view_for_click(dj)
+
+    st.dataframe(
+        df_j_ui,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="sel_joueurs_autonome",
+    )
+
+    # Sélection -> ouvre le pop-up
+    picked_j = pick_from_df(df_j_ui, "sel_joueurs_autonome")
+    if picked_j:
+        # sécurité: si jamais view_for_click ajoute des colonnes, on garde seulement le vrai nom
+        picked_j = str(picked_j).replace("🩹", "").strip()
+        # Clear selection
+        ss = st.session_state.get("sel_joueurs_autonome")
+        if isinstance(ss, dict):
+            ss["selection"] = {"rows": []}
+
+        set_move_ctx(proprietaire_j, picked_j)
+        st.rerun()
+
+    # Pop-up (doit être à la fin de l’onglet)
     open_move_dialog()
 
 
