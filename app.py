@@ -1246,55 +1246,47 @@ with tabA:
         clear_df_selections()          # évite que la sélection reste "collée"
         set_move_ctx(proprietaire, picked)
 
-    # =====================================================
-    # IR — DATE D'ENTRÉE IR (à partir de l'historique)
-    # =====================================================
-    # On prend le dernier timestamp où to_slot == "Blessé" pour (proprio, joueur)
-    h = st.session_state.get("history", pd.DataFrame()).copy()
-    ir_date_map = {}
-    if not h.empty and {"proprietaire", "joueur", "to_slot", "timestamp"}.issubset(set(h.columns)):
-        hh = h.copy()
-        hh["timestamp_dt"] = pd.to_datetime(hh["timestamp"], errors="coerce")
-        hh = hh[
-            (hh["proprietaire"].astype(str) == str(proprietaire))
-            & (hh["to_slot"].astype(str).str.strip() == "Blessé")
-        ]
-        if not hh.empty:
-            hh = hh.sort_values("timestamp_dt")
-            # dernier event IR par joueur
-            last_ir = hh.groupby(hh["joueur"].astype(str))["timestamp_dt"].max()
-            for j, dt in last_ir.items():
-                if pd.notna(dt):
-                    ir_date_map[str(j)] = dt.strftime("%Y-%m-%d %H:%M")
-
-    # =====================================================
-    # IR — TABLEAU UNIQUE CLIQUABLE + DATE IR
+      # =====================================================
+    # 🩹 IR — UN SEUL TABLEAU + DATE IR (persistée dans le CSV)
     # =====================================================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
 
-    # clic via query param
-    picked_ir = _get_qp("ir_pick")
-    if picked_ir and (not st.session_state.get("move_ctx")):
-        picked_ir = unquote(picked_ir)
-        set_move_ctx(proprietaire, picked_ir)
-        _clear_qp("ir_pick")   # IMPORTANT: on nettoie l'URL
-        # PAS de st.rerun() ici (sinon loop) -> le pop-up s'ouvrira en bas
+    # Assure que la colonne existe (pour vieux CSV)
+    if "IR Date" not in data_all.columns:
+        st.session_state["data"]["IR Date"] = ""
+        st.session_state["data"] = clean_data(st.session_state["data"])
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        data_all = st.session_state["data"]
+        dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
 
-    if injured_all.empty:
+    # --- clic via query param (ligne IR)
+    picked_ir = _get_qp("ir_pick")
+    if picked_ir:
+        picked_ir = unquote(picked_ir).strip()
+        if picked_ir:
+            set_move_ctx(proprietaire, picked_ir)
+        _clear_qp("ir_pick")
+        do_rerun()
+
+    # --- Data IR (une seule table)
+    df_ir = injured_all.copy()
+
+    if df_ir.empty:
         st.info("Aucun joueur blessé.")
     else:
-        # Construire un tableau simple: Joueur / Pos / Équipe / Salaire / Date IR
-        # IMPORTANT: on ne trie PAS par position pour éviter l'effet "divisé"
-        df_ir = injured_all.copy()
+        # Nettoyage/format
         df_ir["Pos"] = df_ir["Pos"].apply(normalize_pos)
-        df_ir["Salaire_fmt"] = df_ir["Salaire"].apply(money)
-        df_ir["Date IR"] = df_ir["Joueur"].astype(str).map(lambda n: ir_date_map.get(n, "—"))
+        df_ir["Salaire_fmt"] = df_ir["Salaire"].apply(money) if "Salaire" in df_ir.columns else ""
+        df_ir["IR Date_fmt"] = df_ir.get("IR Date", "").astype(str).str.strip()
+        df_ir.loc[df_ir["IR Date_fmt"].eq(""), "IR Date_fmt"] = "—"
 
-        # tri simple par nom
-        df_ir = df_ir.sort_values(["Joueur"]).reset_index(drop=True)
+        # Tri simple (sans split par position)
+        df_ir["_pos_order"] = df_ir["Pos"].apply(pos_sort_key)
+        df_ir = df_ir.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"]).reset_index(drop=True)
 
-        # CSS + HTML tableau (1 seul tableau)
+        # CSS + HTML (TOUT dans un seul st.markdown)
         st.markdown(
             textwrap.dedent(
                 """
@@ -1304,10 +1296,11 @@ with tabA:
                   .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
                   .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
 
-                  .ir-table-wrap{max-height:360px;overflow:auto;}
+                  .ir-table-wrap{max-height:380px;overflow:auto;}
                   .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
-                  .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
-                  .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
+                  .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);
+                             border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;white-space:nowrap;}
+                  .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;white-space:nowrap;}
                   .ir-table tbody tr:nth-child(odd) td{background:#000;}
                   .ir-table tbody tr:nth-child(even) td{background:#070707;}
                   .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
@@ -1315,12 +1308,16 @@ with tabA:
                   .ir-player{color:#ffffff;font-weight:1000;}
                   .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
                   .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
-                  .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
-                  .ir-date{width:160px;text-align:right;color:#f5f5f5;opacity:.9;font-weight:900;white-space:nowrap;}
+                  .ir-date{width:150px;color:#ff2d2d;font-weight:1000;}
+                  .ir-salary{text-align:right;font-weight:1000;color:#ff2d2d;}
 
                   .ir-table tbody tr{position:relative;}
                   .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
                   .ir-table td{position:relative;z-index:1;}
+
+                  .ir-actions{margin-top:10px;padding:12px 14px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:16px;}
+                  .ir-actions-title{color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;}
+                  .ir-hint{margin-top:6px;color:#ff2d2d;opacity:.75;font-size:12px;font-weight:800;}
                 </style>
                 """
             ),
@@ -1332,57 +1329,64 @@ with tabA:
             raw_name = str(rr.get("Joueur", "")).strip()
             if not raw_name:
                 continue
-            q = quote(raw_name)
 
+            # safe text
             name = html.escape(raw_name)
             pos = html.escape(str(rr.get("Pos", "")))
             team = html.escape(str(rr.get("Equipe", "")))
+            date_ir = html.escape(str(rr.get("IR Date_fmt", "—")))
             sal = html.escape(str(rr.get("Salaire_fmt", "")))
-            dte = html.escape(str(rr.get("Date IR", "—")))
+
+            q = quote(raw_name)
 
             rows_html += (
-                f"<tr>"
+                "<tr>"
                 f"<td class='ir-player'><a class='ir-rowlink' href='?ir_pick={q}' aria-label='Choisir {name}'></a>🩹 {name}</td>"
                 f"<td class='ir-pos'>{pos}</td>"
                 f"<td class='ir-team'>{team}</td>"
+                f"<td class='ir-date'>{date_ir}</td>"
                 f"<td class='ir-salary'>{sal}</td>"
-                f"<td class='ir-date'>{dte}</td>"
-                f"</tr>"
+                "</tr>"
             )
 
-        st.markdown(
-            textwrap.dedent(
-                f"""
-                <div class="ir-card">
-                  <div class="ir-head">
-                    <div class="ir-title">JOUEURS BLESSÉS (IR)</div>
-                    <div class="ir-badge">Salaire non comptabilisé</div>
-                  </div>
+        html_block = textwrap.dedent(
+            f"""
+            <div class="ir-card">
+              <div class="ir-head">
+                <div class="ir-title">JOUEURS BLESSÉS</div>
+                <div class="ir-badge">Salaire non comptabilisé</div>
+              </div>
 
-                  <div class="ir-table-wrap">
-                    <table class="ir-table">
-                      <thead>
-                        <tr>
-                          <th>Joueur</th>
-                          <th class="ir-pos">Pos</th>
-                          <th class="ir-team">Équipe</th>
-                          <th class="ir-salary">Salaire</th>
-                          <th class="ir-date">Date IR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows_html}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                """
-            ).strip(),
-            unsafe_allow_html=True,
-        )
+              <div class="ir-table-wrap">
+                <table class="ir-table">
+                  <thead>
+                    <tr>
+                      <th>Joueur</th>
+                      <th class="ir-pos">Pos</th>
+                      <th class="ir-team">Équipe</th>
+                      <th class="ir-date">Date IR</th>
+                      <th class="ir-salary">Salaire</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows_html}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="ir-actions">
+              <div class="ir-actions-title">Clique sur une ligne pour ouvrir le pop-up</div>
+              <div class="ir-hint">La date IR provient du CSV (colonne « IR Date ») et est au fuseau Montréal.</div>
+            </div>
+            """
+        ).strip()
+
+        st.markdown(html_block, unsafe_allow_html=True)
 
     # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
+
 
 
 
