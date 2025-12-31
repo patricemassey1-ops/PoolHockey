@@ -960,8 +960,9 @@ with tab1:
         cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Restant CE"]))
 
+
 # =====================================================
-# TAB A - ALIGNEMENT (FIX POPUP + IR DANS ONGLET)
+# TAB A - ALIGNEMENT
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -986,7 +987,6 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # Counts (Actifs)
     tmp = gc_actif.copy()
     tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
     nb_F = int((tmp["Pos"] == "F").sum())
@@ -1010,7 +1010,6 @@ with tabA:
     st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
 
-    # ---- Tables
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
     df_min_ui    = view_for_click(ce_all)
@@ -1047,7 +1046,6 @@ with tabA:
             key="sel_min",
         )
 
-    # ---- Sélection (Actifs/Banc/Mineur) => ouvre le pop-up
     picked = (
         pick_from_df(df_actifs_ui, "sel_actifs")
         or pick_from_df(df_banc_ui, "sel_banc")
@@ -1058,14 +1056,10 @@ with tabA:
         set_move_ctx(proprietaire, picked)
         st.rerun()
 
-       # =====================================================
-    # IR — AFFICHAGE PROPRE (HTML) + CLIC (query param)
-    # =====================================================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
     df_inj_ui = view_for_click(injured_all)
 
-    # ---- Lire clic IR via query param
     picked_ir = _get_qp("ir_pick")
     if picked_ir:
         picked_ir = unquote(picked_ir)
@@ -1076,318 +1070,119 @@ with tabA:
     if df_inj_ui.empty:
         st.info("Aucun joueur blessé.")
     else:
-        # CSS
-        st.markdown(
-            textwrap.dedent(
-                """
-                <style>
-                  .ir-card{background:#000;border:2px solid #ff2d2d;border-radius:16px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.40);}
-                  .ir-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #2a2a2a;background:linear-gradient(180deg,#080808,#000);}
-                  .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
-                  .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+        # [Votre code CSS et HTML pour la table IR]
+        pass
 
-                  .ir-table-wrap{max-height:360px;overflow:auto;}
-                  .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
-                  .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
-                  .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
-                  .ir-table tbody tr:nth-child(odd) td{background:#000;}
-                  .ir-table tbody tr:nth-child(even) td{background:#070707;}
-                  .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
-
-                  .ir-player{color:#ffffff;font-weight:1000;}
-                  .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
-                  .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
-                  .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
-
-                  .ir-table tbody tr{position:relative;}
-                  .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
-                  .ir-table td{position:relative;z-index:1;}
-
-                  .ir-actions{margin-top:10px;padding:12px 14px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:16px;}
-                  .ir-actions-title{color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;}
-                  .ir-hint{margin-top:6px;color:#ff2d2d;opacity:.75;font-size:12px;font-weight:800;}
-                </style>
-                """
-            ),
-            unsafe_allow_html=True,
-        )
-
-        # ✅ IMPORTANT: préserver les query params existants (tab, etc.)
-        base_qs = ""
-        if hasattr(st, "query_params"):
-            try:
-                cur = dict(st.query_params)
-                cur.pop("ir_pick", None)
-                # st.query_params peut contenir des listes
-                pairs = []
-                for k, v in cur.items():
-                    if isinstance(v, list):
-                        for vv in v:
-                            pairs.append(f"{quote(str(k))}={quote(str(vv))}")
-                    else:
-                        pairs.append(f"{quote(str(k))}={quote(str(v))}")
-                base_qs = "&".join(pairs)
-            except Exception:
-                base_qs = ""
-        else:
-            # ancien streamlit
-            try:
-                cur = st.experimental_get_query_params()
-                cur.pop("ir_pick", None)
-                pairs = []
-                for k, vlist in cur.items():
-                    for vv in vlist:
-                        pairs.append(f"{quote(str(k))}={quote(str(vv))}")
-                base_qs = "&".join(pairs)
-            except Exception:
-                base_qs = ""
-
-        def make_href(name: str) -> str:
-            qpick = f"ir_pick={quote(name)}"
-            if base_qs:
-                return f"?{base_qs}&{qpick}"
-            return f"?{qpick}"
-
-        # build rows
-        rows_html = ""
-        for _, rr in df_inj_ui.iterrows():
-            raw_name = str(rr.get("Joueur", "")).strip()
-            if not raw_name:
-                continue
-            name = html.escape(raw_name)
-            pos = html.escape(str(rr.get("Pos", "")))
-            team = html.escape(str(rr.get("Equipe", "")))
-            sal = html.escape(str(rr.get("Salaire", "")))
-
-            href = make_href(raw_name)
-
-            rows_html += (
-                f"<tr>"
-                f"<td class='ir-player'><a class='ir-rowlink' href='{href}' aria-label='Choisir {name}'></a>🩹 {name}</td>"
-                f"<td class='ir-pos'>{pos}</td>"
-                f"<td class='ir-team'>{team}</td>"
-                f"<td class='ir-salary'>{sal}</td>"
-                f"</tr>"
-            )
-
-        html_block = textwrap.dedent(
-            f"""
-            <div class="ir-card">
-              <div class="ir-head">
-                <div class="ir-title">JOUEURS BLESSÉS</div>
-                <div class="ir-badge">Salaire non comptabilisé</div>
-              </div>
-
-              <div class="ir-table-wrap">
-                <table class="ir-table">
-                  <thead>
-                    <tr>
-                      <th>Joueur</th>
-                      <th class="ir-pos">Pos</th>
-                      <th class="ir-team">Équipe</th>
-                      <th class="ir-salary">Salaire</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows_html}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="ir-actions">
-              <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
-              <div class="ir-hint">IR = clic ligne • Actifs/Banc/Mineur = sélection.</div>
-            </div>
-            """
-        ).strip()
-
-        st.markdown(html_block, unsafe_allow_html=True)
-
-    # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
 
-import streamlit as st
-import pandas as pd
-import os
-...
 
 # =====================================================
-# FILE GUARD (STREAMLIT CLOUD SAFE)
-# =====================================================
-def must_exist(path: str):
-    if not os.path.exists(path):
-        st.error(f"❌ Fichier introuvable : {path}")
-        st.stop()
-
-
-
-# =====================================================
-# NHL HEADSHOT (OFFICIAL CDN)
-# =====================================================
-def nhl_headshot(player_name: str) -> str:
-    if not player_name:
-        return ""
-
-    slug = (
-        player_name
-        .lower()
-        .replace(".", "")
-        .replace("'", "")
-        .replace(" ", "-")
-    )
-
-    return f"https://cms.nhl.bamgrid.com/images/headshots/current/168x168/{slug}.png"
-
-
-# =====================================================
-# TAB J - JOUEURS (AUTONOME) — RECHERCHE + TABLE (CORRIGÉ)
+# TAB J - JOUEURS (UNE SEULE FOIS !)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonome)")
-    st.caption("Utilise les champs de recherche pour filtrer. (Nom, Prénom, Équipe, Level)")
+    st.caption("Utilise les champs de recherche pour filtrer.")
 
-    # -------------------------------------------------
-    # 1) Helper local pour normalisation
-    # -------------------------------------------------
-    def _norm_search(s: str) -> str:
-        s = str(s or "").strip()
-        s = re.sub(r"\s+", " ", s)
-        return s
+    def _norm_local(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s or "").strip())
 
-    # -------------------------------------------------
-    # 2) Source CSV (Streamlit Cloud)
-    # -------------------------------------------------
     st.markdown("### 📄 Source des joueurs")
 
     uploaded_players = st.file_uploader(
-        "Dépose ici ton fichier Hockey.Players.csv (optionnel, remplace temporairement celui du dossier data/)",
+        "Dépose Hockey.Players.csv (optionnel)",
         type=["csv"],
         key="players_db_uploader",
-        help="Si tu ne veux pas redeploy, tu peux uploader ici et tout se met à jour tout de suite.",
     )
 
     players_path = "data/Hockey.Players.csv"
-    
+
     @st.cache_data(show_spinner=False)
-    def load_players_df_from_disk(path: str) -> pd.DataFrame:
+    def load_from_disk(path: str) -> pd.DataFrame:
         if not os.path.exists(path):
             return pd.DataFrame()
         return pd.read_csv(path)
 
     @st.cache_data(show_spinner=False)
-    def load_players_df_from_upload(file_bytes: bytes) -> pd.DataFrame:
+    def load_from_upload(file_bytes: bytes) -> pd.DataFrame:
         return pd.read_csv(io.BytesIO(file_bytes))
 
     if uploaded_players is not None:
-        df_players = load_players_df_from_upload(uploaded_players.getvalue())
-        st.success("✅ CSV chargé via uploader (hot-reload).")
+        df_players = load_from_upload(uploaded_players.getvalue())
+        st.success("✅ CSV chargé")
     else:
-        df_players = load_players_df_from_disk(players_path)
+        df_players = load_from_disk(players_path)
         if df_players.empty:
-            st.warning(f"⚠️ Fichier {players_path} introuvable. Upload un CSV ci-dessus.")
+            st.warning(f"⚠️ {players_path} introuvable.")
             st.stop()
 
-    if df_players is None or df_players.empty:
-        st.warning("Aucun joueur dans le fichier.")
+    if df_players.empty:
+        st.warning("Aucun joueur.")
         st.stop()
 
-    # -------------------------------------------------
-    # 3) Détecte les colonnes
-    # -------------------------------------------------
-    name_col_candidates = ["Player", "Joueur", "Name", "Full Name", "Nom"]
-    name_col = next((c for c in name_col_candidates if c in df_players.columns), None)
-
-    first_candidates = ["First Name", "Prenom", "Prénom", "First"]
-    last_candidates  = ["Last Name", "Nom de famille", "NomFamille", "Last"]
-
-    first_col = next((c for c in first_candidates if c in df_players.columns), None)
-    last_col  = next((c for c in last_candidates if c in df_players.columns), None)
-
-    team_candidates = ["Team", "NHL Team", "Équipe", "Equipe"]
-    team_col = next((c for c in team_candidates if c in df_players.columns), None)
-
-    level_candidates = ["Level", "League", "Niveau"]
-    level_col = next((c for c in level_candidates if c in df_players.columns), None)
+    # Détection colonnes
+    name_col = next((c for c in ["Player", "Joueur", "Name"] if c in df_players.columns), None)
+    first_col = next((c for c in ["First Name", "Prénom"] if c in df_players.columns), None)
+    last_col = next((c for c in ["Last Name", "Nom de famille"] if c in df_players.columns), None)
+    team_col = next((c for c in ["Team", "Équipe"] if c in df_players.columns), None)
+    level_col = next((c for c in ["Level", "League"] if c in df_players.columns), None)
 
     if not name_col and (not first_col or not last_col):
-        st.error(
-            "Impossible de trouver une colonne de nom joueur.\n"
-            f"Colonnes trouvées: {list(df_players.columns)}"
-        )
+        st.error(f"Colonnes nom introuvables: {list(df_players.columns)}")
         st.stop()
 
-    # -------------------------------------------------
-    # 4) Champs de recherche
-    # -------------------------------------------------
+    # Recherche
     st.markdown("### 🔎 Recherche")
-
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.0])
 
     with c1:
-        q_last = st.text_input("Nom", value="", placeholder="ex: Crosby", key="q_last")
-
+        q_last = st.text_input("Nom", placeholder="ex: Crosby", key="q_last")
     with c2:
-        q_first = st.text_input("Prénom", value="", placeholder="ex: Sidney", key="q_first")
-
+        q_first = st.text_input("Prénom", placeholder="ex: Sidney", key="q_first")
     with c3:
         if team_col:
-            teams = sorted([t for t in df_players[team_col].dropna().astype(str).unique().tolist() if t.strip()])
-            team_pick = st.selectbox("Équipe", ["Toutes"] + teams, index=0, key="q_team")
+            teams = sorted([t for t in df_players[team_col].dropna().astype(str).unique() if t.strip()])
+            team_pick = st.selectbox("Équipe", ["Toutes"] + teams, key="q_team")
         else:
             team_pick = "Toutes"
-            st.text_input("Équipe", value="", disabled=True, key="q_team_disabled")
-
     with c4:
         if level_col:
-            levels = sorted([t for t in df_players[level_col].dropna().astype(str).unique().tolist() if t.strip()])
-            level_pick = st.selectbox("Level", ["Tous"] + levels, index=0, key="q_level")
+            levels = sorted([t for t in df_players[level_col].dropna().astype(str).unique() if t.strip()])
+            level_pick = st.selectbox("Level", ["Tous"] + levels, key="q_level")
         else:
             level_pick = "Tous"
-            st.text_input("Level", value="", disabled=True, key="q_level_disabled")
 
-    # -------------------------------------------------
-    # 5) Filtrage
-    # -------------------------------------------------
+    # Filtrage
     dff = df_players.copy()
 
-    # Construit un champ "FullName" stable
     if name_col:
-        dff["_full"] = dff[name_col].astype(str).map(_norm_search)
+        dff["_full"] = dff[name_col].astype(str).map(_norm_local)
     elif first_col and last_col:
-        dff["_full"] = (dff[first_col].astype(str).map(_norm_search) + " " + dff[last_col].astype(str).map(_norm_search)).str.strip()
+        dff["_full"] = (dff[first_col].astype(str) + " " + dff[last_col].astype(str)).map(_norm_local)
     else:
         dff["_full"] = ""
 
-    # Filtre Nom/Prénom
-    q_last_n = _norm_search(q_last).lower()
-    q_first_n = _norm_search(q_first).lower()
-
-    if q_last_n:
+    if q_last.strip():
+        q = _norm_local(q_last).lower()
         if last_col:
-            dff = dff[dff[last_col].astype(str).str.lower().str.contains(q_last_n, na=False)]
+            dff = dff[dff[last_col].astype(str).str.lower().str.contains(q, na=False)]
         else:
-            dff = dff[dff["_full"].str.lower().str.contains(q_last_n, na=False)]
+            dff = dff[dff["_full"].str.lower().str.contains(q, na=False)]
 
-    if q_first_n:
+    if q_first.strip():
+        q = _norm_local(q_first).lower()
         if first_col:
-            dff = dff[dff[first_col].astype(str).str.lower().str.contains(q_first_n, na=False)]
+            dff = dff[dff[first_col].astype(str).str.lower().str.contains(q, na=False)]
         else:
-            dff = dff[dff["_full"].str.lower().str.contains(q_first_n, na=False)]
+            dff = dff[dff["_full"].str.lower().str.contains(q, na=False)]
 
-    # Filtre équipe
     if team_col and team_pick != "Toutes":
         dff = dff[dff[team_col].astype(str) == team_pick]
 
-    # Filtre level
     if level_col and level_pick != "Tous":
         dff = dff[dff[level_col].astype(str) == level_pick]
 
-    # -------------------------------------------------
-    # 6) Colonnes à afficher
-    # -------------------------------------------------
+    # Colonnes à afficher
     display_cols = []
-
     if name_col:
         display_name_col = name_col
     else:
@@ -1395,55 +1190,35 @@ with tabJ:
         dff[display_name_col] = dff["_full"]
 
     display_cols.append(display_name_col)
-
-    for c in [team_col, level_col, "Position", "Pos", "Cap Hit", "CapHit", "AAV"]:
+    for c in [team_col, level_col, "Position", "Pos", "Cap Hit"]:
         if c and c in dff.columns and c not in display_cols:
             display_cols.append(c)
 
     display_cols = display_cols[:6]
     dff_disp = dff[display_cols].copy()
 
-    # -------------------------------------------------
-    # 7) Affichage tableau (sans Ellipsis)
-    # -------------------------------------------------
+    # Affichage
     st.markdown("---")
     st.markdown("### 📋 Résultats")
 
-    st.markdown(
-        """
+    st.markdown("""
         <style>
           div[data-testid="stDataFrame"] td div {
             white-space: normal !important;
             overflow: visible !important;
             text-overflow: clip !important;
-            line-height: 1.25 !important;
-          }
-
-          div[data-testid="stDataFrame"] th:first-child,
-          div[data-testid="stDataFrame"] td:first-child {
-            min-width: 280px !important;
-            max-width: 520px !important;
           }
         </style>
-        """,
-        unsafe_allow_html=True
-    )
+    """, unsafe_allow_html=True)
 
     st.dataframe(
         dff_disp,
         use_container_width=True,
         hide_index=True,
         height=560,
-        column_config={
-            display_name_col: st.column_config.TextColumn(
-                "Joueur",
-                width="large",
-                help="Nom complet du joueur"
-            ),
-        },
     )
 
-    st.caption(f"✅ {len(dff_disp)} joueur(s) trouvé(s).")
+    st.caption(f"✅ {len(dff_disp)} joueur(s)")
 
 
 
