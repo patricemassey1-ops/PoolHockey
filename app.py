@@ -1081,135 +1081,142 @@ with tabA:
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonome)")
-    st.caption("Utilise les champs de recherche pour filtrer.")
+    st.caption("Recherche un joueur — survole son nom pour voir son profil complet.")
 
-    def _norm_local(s: str) -> str:
-        return re.sub(r"\s+", " ", str(s or "").strip())
-
-    st.markdown("### 📄 Source des joueurs")
-
-    uploaded_players = st.file_uploader(
-        "Dépose Hockey.Players.csv (optionnel)",
-        type=["csv"],
-        key="players_db_uploader",
-    )
-
-    players_path = "data/Hockey.Players.csv"
-
+    # -------------------------------------------------
+    # LOAD DATA (CACHE)
+    # -------------------------------------------------
     @st.cache_data(show_spinner=False)
-    def load_from_disk(path: str) -> pd.DataFrame:
-        if not os.path.exists(path):
-            return pd.DataFrame()
-        return pd.read_csv(path)
+    def load_players():
+        return pd.read_csv("data/Hockey.Players.csv")
 
-    @st.cache_data(show_spinner=False)
-    def load_from_upload(file_bytes: bytes) -> pd.DataFrame:
-        return pd.read_csv(io.BytesIO(file_bytes))
+    df_players = load_players()
 
-    if uploaded_players is not None:
-        df_players = load_from_upload(uploaded_players.getvalue())
-        st.success("✅ CSV chargé")
-    else:
-        df_players = load_from_disk(players_path)
-        if df_players.empty:
-            st.warning(f"⚠️ {players_path} introuvable.")
-            st.stop()
-
-    if df_players.empty:
-        st.warning("Aucun joueur.")
-        st.stop()
-
-    # Détection colonnes
-    name_col = next((c for c in ["Player", "Joueur", "Name"] if c in df_players.columns), None)
-    first_col = next((c for c in ["First Name", "Prénom"] if c in df_players.columns), None)
-    last_col = next((c for c in ["Last Name", "Nom de famille"] if c in df_players.columns), None)
-    team_col = next((c for c in ["Team", "Équipe"] if c in df_players.columns), None)
-    level_col = next((c for c in ["Level", "League"] if c in df_players.columns), None)
-
-    if not name_col and (not first_col or not last_col):
-        st.error(f"Colonnes nom introuvables: {list(df_players.columns)}")
-        st.stop()
-
-    # Recherche
-    st.markdown("### 🔎 Recherche")
-    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.0])
+    # -------------------------------------------------
+    # SEARCH CONTROLS
+    # -------------------------------------------------
+    c1, c2, c3 = st.columns([2, 1, 1])
 
     with c1:
-        q_last = st.text_input("Nom", placeholder="ex: Crosby", key="q_last")
+        search_name = st.text_input("Nom / Prénom", placeholder="Ex: Zibanejad")
+
     with c2:
-        q_first = st.text_input("Prénom", placeholder="ex: Sidney", key="q_first")
+        teams = sorted(df_players["Team"].dropna().unique())
+        team = st.selectbox("Équipe", ["Toutes"] + teams)
+
     with c3:
-        if team_col:
-            teams = sorted([t for t in df_players[team_col].dropna().astype(str).unique() if t.strip()])
-            team_pick = st.selectbox("Équipe", ["Toutes"] + teams, key="q_team")
-        else:
-            team_pick = "Toutes"
-    with c4:
-        if level_col:
-            levels = sorted([t for t in df_players[level_col].dropna().astype(str).unique() if t.strip()])
-            level_pick = st.selectbox("Level", ["Tous"] + levels, key="q_level")
-        else:
-            level_pick = "Tous"
+        levels = sorted(df_players["Level"].dropna().unique())
+        level = st.selectbox("Level", ["Tous"] + levels)
 
-    # Filtrage
-    dff = df_players.copy()
+    # -------------------------------------------------
+    # FILTER DATA
+    # -------------------------------------------------
+    df = df_players.copy()
 
-    if name_col:
-        dff["_full"] = dff[name_col].astype(str).map(_norm_local)
-    elif first_col and last_col:
-        dff["_full"] = (dff[first_col].astype(str) + " " + dff[last_col].astype(str)).map(_norm_local)
-    else:
-        dff["_full"] = ""
+    if search_name:
+        df = df[df["Player"].str.contains(search_name, case=False, na=False)]
 
-    if q_last.strip():
-        q = _norm_local(q_last).lower()
-        if last_col:
-            dff = dff[dff[last_col].astype(str).str.lower().str.contains(q, na=False)]
-        else:
-            dff = dff[dff["_full"].str.lower().str.contains(q, na=False)]
+    if team != "Toutes":
+        df = df[df["Team"] == team]
 
-    if q_first.strip():
-        q = _norm_local(q_first).lower()
-        if first_col:
-            dff = dff[dff[first_col].astype(str).str.lower().str.contains(q, na=False)]
-        else:
-            dff = dff[dff["_full"].str.lower().str.contains(q, na=False)]
+    if level != "Tous":
+        df = df[df["Level"] == level]
 
-    if team_col and team_pick != "Toutes":
-        dff = dff[dff[team_col].astype(str) == team_pick]
+    if df.empty:
+        st.info("Aucun joueur trouvé.")
+        st.stop()
 
-    if level_col and level_pick != "Tous":
-        dff = dff[dff[level_col].astype(str) == level_pick]
+    df = df.head(200)  # sécurité perf
 
-    # Colonnes à afficher
-    display_cols = []
-    if name_col:
-        display_name_col = name_col
-    else:
-        display_name_col = "Player"
-        dff[display_name_col] = dff["_full"]
-
-    display_cols.append(display_name_col)
-    for c in [team_col, level_col, "Position", "Pos", "Cap Hit"]:
-        if c and c in dff.columns and c not in display_cols:
-            display_cols.append(c)
-
-    display_cols = display_cols[:6]
-    dff_disp = dff[display_cols].copy()
-
-    # Affichage
-    st.markdown("---")
-    st.markdown("### 📋 Résultats")
-
-    st.markdown("""
+    # -------------------------------------------------
+    # STYLES
+    # -------------------------------------------------
+    st.markdown(
+        """
         <style>
-          div[data-testid="stDataFrame"] td div {
-            white-space: normal !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
-          }
+        .player-row:hover{background:#120000;}
+        .tt-wrap{position:relative;display:inline-block}
+        .tt-bubble{
+            display:none;position:absolute;left:0;top:110%;
+            width:420px;background:#0b0b0b;border:1px solid #ff2d2d;
+            border-radius:14px;padding:12px;z-index:9999;
+            box-shadow:0 14px 30px rgba(0,0,0,.55)
+        }
+        .tt-wrap:hover .tt-bubble{display:block}
+        .tt-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+        .tt-flag{width:26px;border-radius:4px;border:1px solid #222}
+        .tt-name{font-weight:1000;color:white}
+        .tt-country{color:#ff2d2d;font-weight:900}
+        .tt-grid{display:grid;grid-template-columns:130px 1fr;gap:6px 10px}
+        .tt-k{color:#ff2d2d;font-weight:900}
+        .tt-v{color:#eee;font-weight:800}
         </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
+
+    # -------------------------------------------------
+    # TABLE
+    # -------------------------------------------------
+    rows = ""
+
+    for _, r in df.iterrows():
+        flag = r.get("Flag", "")
+        country = r.get("Country", "")
+        name = r.get("Player", "")
+        team = r.get("Team", "")
+        pos = r.get("Position", "")
+        cap = r.get("Cap Hit", "")
+
+        tooltip = f"""
+        <div class="tt-head">
+            <img src="{flag}" class="tt-flag">
+            <div>
+                <div class="tt-name">{name}</div>
+                <div class="tt-country">{country}</div>
+            </div>
+        </div>
+        <div class="tt-grid">
+            <div class="tt-k">Équipe</div><div class="tt-v">{team}</div>
+            <div class="tt-k">Position</div><div class="tt-v">{pos}</div>
+            <div class="tt-k">Taille</div><div class="tt-v">{r.get("H(f)", "")}</div>
+            <div class="tt-k">Poids</div><div class="tt-v">{r.get("W(lbs)", "")} lbs</div>
+            <div class="tt-k">Âge</div><div class="tt-v">{r.get("Age", "")}</div>
+            <div class="tt-k">Cap Hit</div><div class="tt-v">{cap}</div>
+            <div class="tt-k">Contrat</div><div class="tt-v">{r.get("Expiry Year", "")} ({r.get("Expiry Status", "")})</div>
+        </div>
+        """
+
+        rows += f"""
+        <tr class="player-row">
+            <td>
+                <span class="tt-wrap">
+                    {name}
+                    <div class="tt-bubble">{tooltip}</div>
+                </span>
+            </td>
+            <td>{team}</td>
+            <td>{pos}</td>
+            <td style="text-align:right">{cap}</td>
+        </tr>
+        """
+
+    st.markdown(
+        f"""
+        <table style="width:100%;border-collapse:collapse">
+            <thead>
+                <tr style="color:#ff2d2d">
+                    <th>Joueur</th>
+                    <th>Équipe</th>
+                    <th>Pos</th>
+                    <th style="text-align:right">Cap Hit</th>
+                </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+        </table>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.dataframe(
         dff_disp,
