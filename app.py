@@ -1519,61 +1519,49 @@ with tabJ:
     # Limite pratique
     df = df.head(250).reset_index(drop=True)
 
-    # -------------------------------------------------
-    # RESULTS TABLE
-    # -------------------------------------------------
-    st.divider()
-    st.markdown("### Résultats")
+# -------------------------------------------------
+# RESULTS TABLE — GP = NHL GP (carrière)
+# -------------------------------------------------
+st.divider()
+st.markdown("### Résultats")
 
-    # Détection explicite des colonnes GP
-    gp_season_col = "GP" if "GP" in df.columns else None
-    gp_career_col = "NHL GP" if "NHL GP" in df.columns else None
+# On veut afficher "GP" mais prendre la valeur de "NHL GP"
+nhl_gp_col = "NHL GP" if "NHL GP" in df.columns else None
 
-    # Colonnes affichées (ordre contrôlé)
-    show_cols = []
+# Colonnes affichées (ordre contrôlé)
+show_cols = []
 
-    for c in [
-        "Player",
-        "Team",
-        "Position",
-        gp_season_col,   # GP saison 2025-26
-        gp_career_col,   # GP carrière NHL
-        cap_col,
-        "Level",
-    ]:
-        if c and c in df.columns and c not in show_cols:
-            show_cols.append(c)
+for c in [
+    "Player",
+    "Team",
+    "Position",
+    cap_col,
+    "Level",
+]:
+    if c and c in df.columns and c not in show_cols:
+        show_cols.append(c)
 
-    df_show = df[show_cols].copy()
+df_show = df[show_cols].copy()
 
-    # Renommer clairement les colonnes GP
-    rename_map = {}
-    if gp_season_col:
-        rename_map[gp_season_col] = "GP (Saison 2025-26)"
-    if gp_career_col:
-        rename_map[gp_career_col] = "GP (Carrière NHL)"
+# Ajouter la colonne GP basée sur NHL GP
+if nhl_gp_col:
+    df_show.insert(3, "GP", df[nhl_gp_col])  # colonne GP juste après Position
+else:
+    st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
 
-    if rename_map:
-        df_show = df_show.rename(columns=rename_map)
+# Format Cap Hit (4 750 000 $)
+if cap_col and cap_col in df_show.columns:
+    df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+    df_show = df_show.rename(columns={cap_col: "Cap Hit"})
 
-    # Format Cap Hit (4 750 000 $)
-    if cap_col and cap_col in df_show.columns:
-        df_show[cap_col] = df[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-        df_show = df_show.rename(columns={cap_col: "Cap Hit"})
+# Nettoyage visuel : enlever tous les ".0"
+for c in df_show.columns:
+    df_show[c] = df_show[c].apply(
+        lambda x: _clean_intlike(x) if isinstance(x, (int, float, str)) else x
+    )
 
-    # Nettoyage visuel : enlever tous les ".0"
-    for c in df_show.columns:
-        df_show[c] = df_show[c].apply(
-            lambda x: _clean_intlike(x) if isinstance(x, (int, float, str)) else x
-        )
+st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-    # Avertissements doux si colonnes absentes
-    if not gp_season_col:
-        st.caption("ℹ️ GP saison (2025-26) non trouvé dans le fichier.")
-    if not gp_career_col:
-        st.caption("ℹ️ GP carrière NHL non trouvé dans le fichier.")
-
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 
 
