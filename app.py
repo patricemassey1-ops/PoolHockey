@@ -1198,6 +1198,12 @@ with tabA:
     st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
 
+       # -------------------------------------------------
+    # ✅ Reset anti-boucle: si aucun pop-up actif, on autorise une nouvelle sélection
+    # -------------------------------------------------
+    if st.session_state.get("move_ctx") is None:
+        st.session_state["last_pick_align"] = None
+
     # ---- Tables (Actifs / Banc / Mineur)
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
@@ -1211,7 +1217,7 @@ with tabA:
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
-            on_select="rerun",   # OK: Streamlit rerun lui-même
+            on_select="rerun",
             key="sel_actifs",
         )
     with c2:
@@ -1235,16 +1241,30 @@ with tabA:
             key="sel_min",
         )
 
-    # ---- Sélection (Actifs/Banc/Mineur) => ouvre le pop-up
-    # IMPORTANT: ne PAS faire st.rerun() ici sinon boucle infinie
+    # -------------------------------------------------
+    # ✅ Sélection (Actifs/Banc/Mineur) => ouvre le pop-up SANS boucle infinie
+    # -------------------------------------------------
     picked = (
         pick_from_df(df_actifs_ui, "sel_actifs")
         or pick_from_df(df_banc_ui, "sel_banc")
         or pick_from_df(df_min_ui, "sel_min")
     )
-    if picked and (not st.session_state.get("move_ctx")):
-        clear_df_selections()          # évite que la sélection reste "collée"
-        set_move_ctx(proprietaire, picked)
+
+    if picked:
+        picked = str(picked).strip()
+
+        # Anti-boucle : n'exécuter qu'une fois pour cette sélection
+        last_pick = st.session_state.get("last_pick_align")
+        cur_pick = (proprietaire, picked)
+
+        # On vide la sélection UI dans tous les cas
+        clear_df_selections()
+
+        if last_pick != cur_pick:
+            st.session_state["last_pick_align"] = cur_pick
+            set_move_ctx(proprietaire, picked)
+            do_rerun()
+
 
       # =====================================================
     # 🩹 IR — UN SEUL TABLEAU + DATE IR (persistée dans le CSV)
