@@ -916,7 +916,7 @@ plafonds = pd.DataFrame(resume)
 # =====================================================
 # TABS
 # =====================================================
-tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs([...])
+tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
     ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
 )
 
