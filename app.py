@@ -1077,7 +1077,7 @@ with tabA:
 
 
 # =====================================================
-# TAB J - JOUEURS (UNE SEULE FOIS !)
+# TAB J - JOUEURS (RECHERCHE + TOOLTIP HOVER)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonome)")
@@ -1218,14 +1218,6 @@ with tabJ:
         unsafe_allow_html=True
     )
 
-    st.dataframe(
-        dff_disp,
-        use_container_width=True,
-        hide_index=True,
-        height=560,
-    )
-
-    st.caption(f"✅ {len(dff_disp)} joueur(s)")
 
 
 
