@@ -11,6 +11,14 @@ import base64
 import textwrap
 
 # =====================================================
+# FILE GUARDS (STREAMLIT CLOUD SAFE)
+# =====================================================
+def must_exist(path: str):
+    if not os.path.exists(path):
+        st.error(f"❌ Fichier manquant : {path}")
+        st.stop()
+
+# =====================================================
 # PLAYERS DB (Hockey_Players.csv) + HOVER TOOLTIP CARD
 # =====================================================
 PLAYERS_DB_FILE = "Hockey_Players.csv"  # change if your file is elsewhere
@@ -1309,8 +1317,13 @@ with tabJ:
             st.stop()
         return _read_csv_from_path(DEFAULT_DB_PATH)
 
-    df_players = _load_players_df()
-    df_db = _load_db_df()
+ must_exist("data/Hockey.Players.csv")
+df_players = pd.read_csv("data/Hockey.Players.csv")
+
+must_exist("data/Hockey_Players.csv")
+df_db = pd.read_csv("data/Hockey_Players.csv")
+
+
 
     # ---------------------------
     # Owner selector (needed to open move popup)
