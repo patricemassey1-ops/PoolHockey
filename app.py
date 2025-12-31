@@ -799,13 +799,14 @@ with tabA:
         set_move_ctx(proprietaire, picked)
         st.rerun()
 
-    # =====================================================
+       # =====================================================
     # IR — AFFICHAGE PROPRE (HTML) + CLIC (query param)
     # =====================================================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
     df_inj_ui = view_for_click(injured_all)
 
+    # ---- Lire clic IR via query param
     picked_ir = _get_qp("ir_pick")
     if picked_ir:
         picked_ir = unquote(picked_ir)
@@ -816,6 +817,7 @@ with tabA:
     if df_inj_ui.empty:
         st.info("Aucun joueur blessé.")
     else:
+        # CSS
         st.markdown(
             textwrap.dedent(
                 """
@@ -851,7 +853,97 @@ with tabA:
             unsafe_allow_html=True,
         )
 
-      
+        # ✅ IMPORTANT: préserver les query params existants (tab, etc.)
+        base_qs = ""
+        if hasattr(st, "query_params"):
+            try:
+                cur = dict(st.query_params)
+                cur.pop("ir_pick", None)
+                # st.query_params peut contenir des listes
+                pairs = []
+                for k, v in cur.items():
+                    if isinstance(v, list):
+                        for vv in v:
+                            pairs.append(f"{quote(str(k))}={quote(str(vv))}")
+                    else:
+                        pairs.append(f"{quote(str(k))}={quote(str(v))}")
+                base_qs = "&".join(pairs)
+            except Exception:
+                base_qs = ""
+        else:
+            # ancien streamlit
+            try:
+                cur = st.experimental_get_query_params()
+                cur.pop("ir_pick", None)
+                pairs = []
+                for k, vlist in cur.items():
+                    for vv in vlist:
+                        pairs.append(f"{quote(str(k))}={quote(str(vv))}")
+                base_qs = "&".join(pairs)
+            except Exception:
+                base_qs = ""
+
+        def make_href(name: str) -> str:
+            qpick = f"ir_pick={quote(name)}"
+            if base_qs:
+                return f"?{base_qs}&{qpick}"
+            return f"?{qpick}"
+
+        # build rows
+        rows_html = ""
+        for _, rr in df_inj_ui.iterrows():
+            raw_name = str(rr.get("Joueur", "")).strip()
+            if not raw_name:
+                continue
+            name = html.escape(raw_name)
+            pos = html.escape(str(rr.get("Pos", "")))
+            team = html.escape(str(rr.get("Equipe", "")))
+            sal = html.escape(str(rr.get("Salaire", "")))
+
+            href = make_href(raw_name)
+
+            rows_html += (
+                f"<tr>"
+                f"<td class='ir-player'><a class='ir-rowlink' href='{href}' aria-label='Choisir {name}'></a>🩹 {name}</td>"
+                f"<td class='ir-pos'>{pos}</td>"
+                f"<td class='ir-team'>{team}</td>"
+                f"<td class='ir-salary'>{sal}</td>"
+                f"</tr>"
+            )
+
+        html_block = textwrap.dedent(
+            f"""
+            <div class="ir-card">
+              <div class="ir-head">
+                <div class="ir-title">JOUEURS BLESSÉS</div>
+                <div class="ir-badge">Salaire non comptabilisé</div>
+              </div>
+
+              <div class="ir-table-wrap">
+                <table class="ir-table">
+                  <thead>
+                    <tr>
+                      <th>Joueur</th>
+                      <th class="ir-pos">Pos</th>
+                      <th class="ir-team">Équipe</th>
+                      <th class="ir-salary">Salaire</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows_html}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="ir-actions">
+              <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
+              <div class="ir-hint">IR = clic ligne • Actifs/Banc/Mineur = sélection.</div>
+            </div>
+            """
+        ).strip()
+
+        st.markdown(html_block, unsafe_allow_html=True)
 
     # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
