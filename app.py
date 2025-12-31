@@ -4,6 +4,7 @@ import io
 import os
 import re
 import html
+import textwrap
 from datetime import datetime
 from urllib.parse import quote, unquote
 
@@ -701,7 +702,7 @@ with tab1:
         cols[4].markdown(money(r["Restant CE"]))
 
 # =====================================================
-# TAB A - ALIGNEMENT
+# TAB A - ALIGNEMENT (FIX POPUP + IR DANS ONGLET)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -796,174 +797,65 @@ with tabA:
     if picked:
         clear_df_selections()
         set_move_ctx(proprietaire, picked)
+        st.rerun()
 
-import textwrap  # <-- ajoute en haut du fichier si pas déjà présent
+    # =====================================================
+    # IR — AFFICHAGE PROPRE (HTML) + CLIC (query param)
+    # =====================================================
+    st.divider()
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
+    df_inj_ui = view_for_click(injured_all)
 
-# =====================================================
-# IR — AFFICHAGE PROPRE (FIX: pas d'indentation => pas de "code block")
-# =====================================================
-st.divider()
-st.markdown("## 🩹 Joueurs Blessés (IR)")
-df_inj_ui = view_for_click(injured_all)
+    picked_ir = _get_qp("ir_pick")
+    if picked_ir:
+        picked_ir = unquote(picked_ir)
+        set_move_ctx(proprietaire, picked_ir)
+        _clear_qp("ir_pick")
+        st.rerun()
 
-# clic via query param
-picked_ir = _get_qp("ir_pick")
-if picked_ir:
-    picked_ir = unquote(picked_ir)
-    set_move_ctx(proprietaire, picked_ir)
-    _clear_qp("ir_pick")
-    st.rerun()
+    if df_inj_ui.empty:
+        st.info("Aucun joueur blessé.")
+    else:
+        st.markdown(
+            textwrap.dedent(
+                """
+                <style>
+                  .ir-card{background:#000;border:2px solid #ff2d2d;border-radius:16px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.40);}
+                  .ir-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #2a2a2a;background:linear-gradient(180deg,#080808,#000);}
+                  .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
+                  .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
 
-if df_inj_ui.empty:
-    st.info("Aucun joueur blessé.")
-else:
-    st.markdown(
-        textwrap.dedent(
-            """
-            <style>
-              .ir-card{background:#000;border:2px solid #ff2d2d;border-radius:16px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.40);}
-              .ir-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #2a2a2a;background:linear-gradient(180deg,#080808,#000);}
-              .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
-              .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+                  .ir-table-wrap{max-height:360px;overflow:auto;}
+                  .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
+                  .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
+                  .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
+                  .ir-table tbody tr:nth-child(odd) td{background:#000;}
+                  .ir-table tbody tr:nth-child(even) td{background:#070707;}
+                  .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
 
-              .ir-table-wrap{max-height:360px;overflow:auto;}
-              .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
-              .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
-              .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
-              .ir-table tbody tr:nth-child(odd) td{background:#000;}
-              .ir-table tbody tr:nth-child(even) td{background:#070707;}
-              .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
+                  .ir-player{color:#ffffff;font-weight:1000;}
+                  .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
+                  .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
+                  .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
 
-              .ir-player{color:#ffffff;font-weight:1000;}
-              .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
-              .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
-              .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
+                  .ir-table tbody tr{position:relative;}
+                  .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
+                  .ir-table td{position:relative;z-index:1;}
 
-              .ir-table tbody tr{position:relative;}
-              .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
-              .ir-table td{position:relative;z-index:1;}
-
-              .ir-actions{margin-top:10px;padding:12px 14px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:16px;}
-              .ir-actions-title{color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;}
-              .ir-hint{margin-top:6px;color:#ff2d2d;opacity:.75;font-size:12px;font-weight:800;}
-            </style>
-            """
-        ),
-        unsafe_allow_html=True,
-    )
-
-    # IMPORTANT: pas de triple-quote indentées pour les <tr> => pas de code block
-    rows_html = ""
-    for _, rr in df_inj_ui.iterrows():
-        raw_name = str(rr.get("Joueur", ""))
-        name = html.escape(raw_name)
-        pos = html.escape(str(rr.get("Pos", "")))
-        team = html.escape(str(rr.get("Equipe", "")))
-        sal = html.escape(str(rr.get("Salaire", "")))
-        q = quote(raw_name)
-
-        rows_html += (
-            f"<tr>"
-            f"<td class='ir-player'><a class='ir-rowlink' href='?ir_pick={q}' aria-label='Choisir {name}'></a>🩹 {name}</td>"
-            f"<td class='ir-pos'>{pos}</td>"
-            f"<td class='ir-team'>{team}</td>"
-            f"<td class='ir-salary'>{sal}</td>"
-            f"</tr>"
+                  .ir-actions{margin-top:10px;padding:12px 14px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:16px;}
+                  .ir-actions-title{color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;}
+                  .ir-hint{margin-top:6px;color:#ff2d2d;opacity:.75;font-size:12px;font-weight:800;}
+                </style>
+                """
+            ),
+            unsafe_allow_html=True,
         )
 
-    html_block = textwrap.dedent(
-        f"""
-        <div class="ir-card">
-          <div class="ir-head">
-            <div class="ir-title">JOUEURS BLESSÉS</div>
-            <div class="ir-badge">Salaire non comptabilisé</div>
-          </div>
+      
 
-          <div class="ir-table-wrap">
-            <table class="ir-table">
-              <thead>
-                <tr>
-                  <th>Joueur</th>
-                  <th class="ir-pos">Pos</th>
-                  <th class="ir-team">Équipe</th>
-                  <th class="ir-salary">Salaire</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows_html}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="ir-actions">
-          <div class="ir-actions-title">CLIQUE SUR UNE LIGNE POUR DÉPLACER</div>
-          <div class="ir-hint">IR = clic ligne • Actifs/Banc/Mineur = sélection.</div>
-        </div>
-        """
-    ).strip()
-
-    st.markdown(html_block, unsafe_allow_html=True)
-
-
-    # Lignes HTML (échappe les caractères qui pourraient casser le HTML)
-    rows_html = ""
-    for _, rr in df_inj_ui.iterrows():
-        raw_name = str(rr.get("Joueur", ""))
-        name = html.escape(raw_name)
-        pos = html.escape(str(rr.get("Pos", "")))
-        team = html.escape(str(rr.get("Equipe", "")))
-        sal = html.escape(str(rr.get("Salaire", "")))
-
-        q = quote(raw_name)
-
-        rows_html += f"""
-        <tr>
-          <td class="ir-player">
-            <a class="ir-rowlink" href="?ir_pick={q}" aria-label="Choisir {name}"></a>
-            🩹 {name}
-          </td>
-          <td class="ir-pos">{pos}</td>
-          <td class="ir-team">{team}</td>
-          <td class="ir-salary">{sal}</td>
-        </tr>
-        """
-
-    # IMPORTANT: tout le HTML dans UN seul st.markdown(... unsafe_allow_html=True)
-    html_block = f"""
-    <div class="ir-card">
-      <div class="ir-head">
-        <div class="ir-title">JOUEURS BLESSÉS</div>
-        <div class="ir-badge">Salaire non comptabilisé</div>
-      </div>
-
-      <div class="ir-table-wrap">
-        <table class="ir-table">
-          <thead>
-            <tr>
-              <th>Joueur</th>
-              <th class="ir-pos">Pos</th>
-              <th class="ir-team">Équipe</th>
-              <th class="ir-salary">Salaire</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows_html}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="ir-actions">
-      <div class="ir-actions-title">Clique sur une ligne pour déplacer</div>
-      <div class="ir-hint">IR = clic ligne (sans JavaScript).</div>
-    </div>
-    """
-
-    st.markdown(html_block, unsafe_allow_html=True)
-
-
+    # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
+
 
 # =====================================================
 # TAB H - HISTORIQUE
