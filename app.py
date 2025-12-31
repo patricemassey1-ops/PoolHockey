@@ -1551,135 +1551,106 @@ with c3:
 
     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-    # -------------------------------------------------
-    # COMPARE 2 PLAYERS — boutons + colonnes côte-à-côte
-    # -------------------------------------------------
-    st.divider()
-    st.markdown("### 📊 Comparer 2 joueurs")
+# -------------------------------------------------
+# COMPARE 2 PLAYERS — recherche A/B + tableau comme "Résultats"
+# -------------------------------------------------
+st.divider()
+st.markdown("### 📊 Comparer 2 joueurs")
+st.caption("Recherche un joueur dans chaque champ (A et B). Le résultat s’affiche sous forme de tableau comme la section Résultats.")
 
-    players_list = sorted(df["Player"].dropna().astype(str).unique().tolist())
+players_list = sorted(df_db["Player"].dropna().astype(str).unique().tolist())
 
-    if "compare_p1" not in st.session_state:
+def _filter_names(q: str, names: list[str], limit: int = 40) -> list[str]:
+    q = str(q or "").strip().lower()
+    if not q:
+        return names[:limit]
+    out = [n for n in names if q in n.lower()]
+    return out[:limit]
+
+# États persistants
+if "cmp_q1" not in st.session_state:
+    st.session_state["cmp_q1"] = ""
+if "cmp_q2" not in st.session_state:
+    st.session_state["cmp_q2"] = ""
+if "compare_p1" not in st.session_state:
+    st.session_state["compare_p1"] = None
+if "compare_p2" not in st.session_state:
+    st.session_state["compare_p2"] = None
+
+cA, cB = st.columns(2)
+
+with cA:
+    st.markdown("**Joueur A**")
+    q1 = st.text_input("Rechercher A", placeholder="Tape un nom…", key="cmp_q1")
+    opt1 = ["—"] + _filter_names(q1, players_list, limit=40)
+    p1_sel = st.selectbox("Sélection A", opt1, key="cmp_sel_1")
+    b1, b2 = st.columns(2)
+    if b1.button("➕ Ajouter A", use_container_width=True, key="cmp_add_a"):
+        st.session_state["compare_p1"] = None if p1_sel == "—" else p1_sel
+    if b2.button("🧹 Effacer A", use_container_width=True, key="cmp_clear_a"):
         st.session_state["compare_p1"] = None
-    if "compare_p2" not in st.session_state:
+        st.session_state["cmp_q1"] = ""
+        st.rerun()
+
+with cB:
+    st.markdown("**Joueur B**")
+    q2 = st.text_input("Rechercher B", placeholder="Tape un nom…", key="cmp_q2")
+    opt2 = ["—"] + _filter_names(q2, players_list, limit=40)
+    p2_sel = st.selectbox("Sélection B", opt2, key="cmp_sel_2")
+    b3, b4 = st.columns(2)
+    if b3.button("➕ Ajouter B", use_container_width=True, key="cmp_add_b"):
+        st.session_state["compare_p2"] = None if p2_sel == "—" else p2_sel
+    if b4.button("🧹 Effacer B", use_container_width=True, key="cmp_clear_b"):
         st.session_state["compare_p2"] = None
+        st.session_state["cmp_q2"] = ""
+        st.rerun()
 
-    cA, cB, cC = st.columns([1, 1, 1.2])
+p1 = st.session_state["compare_p1"]
+p2 = st.session_state["compare_p2"]
 
-    with cA:
-        p1_sel = st.selectbox("Joueur A", ["—"] + players_list, index=0, key="cmp_sel_1")
-        if st.button("➕ Ajouter A", use_container_width=True):
-            st.session_state["compare_p1"] = None if p1_sel == "—" else p1_sel
+if not p1 or not p2:
+    st.info("Choisis 2 joueurs (A et B) pour afficher la comparaison.")
+elif p1 == p2:
+    st.warning("Choisis 2 joueurs différents.")
+else:
+    # Récupère les 2 lignes depuis la DB (ou depuis df si tu préfères limiter à la recherche)
+    r1 = df_db[df_db["Player"].astype(str) == str(p1)].head(1)
+    r2 = df_db[df_db["Player"].astype(str) == str(p2)].head(1)
 
-    with cB:
-        p2_sel = st.selectbox("Joueur B", ["—"] + players_list, index=0, key="cmp_sel_2")
-        if st.button("➕ Ajouter B", use_container_width=True):
-            st.session_state["compare_p2"] = None if p2_sel == "—" else p2_sel
-
-    with cC:
-        if st.button("🧹 Réinitialiser", use_container_width=True):
-            st.session_state["compare_p1"] = None
-            st.session_state["compare_p2"] = None
-
-    p1 = st.session_state["compare_p1"]
-    p2 = st.session_state["compare_p2"]
-
-    if not p1 or not p2:
-        st.caption("Choisis 2 joueurs (A et B) pour afficher la comparaison.")
-    elif p1 == p2:
-        st.warning("Choisis 2 joueurs différents.")
+    if r1.empty or r2.empty:
+        st.error("Impossible de trouver un des joueurs dans la base.")
     else:
-        # champs à comparer
-        compare_fields = [
-            ("Nom", "Player"),
-            ("Équipe", "Team"),
-            ("Position", "Position"),
-            ("Level", level_col if level_col else "Level"),
-            ("GP (carrière NHL)", "NHL GP"),
-            ("Cap Hit", cap_col),
-            ("Shoots", "Shoots"),
-            ("Height", "Height"),
-            ("Weight", "W(lbs)"),
-            ("Draft Year", "Draft Year"),
-        ]
+        df_cmp = pd.concat([r1, r2], ignore_index=True)
 
-        def _get_val(row: dict, col: str) -> str:
-            if not col or col not in row:
-                return ""
-            v = row.get(col, "")
-            if col == cap_col:
-                return _money_space(_cap_to_int(v))
-            if col == "NHL GP":
-                return _clean_intlike(v)
-            return _clean_intlike(v)
+        # ✅ Construire un tableau comme "Résultats" (mêmes colonnes / GP = NHL GP)
+        nhl_gp_col = "NHL GP" if "NHL GP" in df_cmp.columns else None
 
-        r1 = df[df["Player"].astype(str) == str(p1)].head(1)
-        r2 = df[df["Player"].astype(str) == str(p2)].head(1)
+        # Reprend la logique d'affichage: Player, Team, Position, GP (NHL GP), Cap Hit, Level
+        cmp_show_cols = []
+        for c in ["Player", "Team", "Position", cap_col, "Level"]:
+            if c and c in df_cmp.columns and c not in cmp_show_cols:
+                cmp_show_cols.append(c)
 
-        if r1.empty or r2.empty:
-            st.error("Impossible de trouver un des joueurs dans les résultats.")
+        df_cmp_show = df_cmp[cmp_show_cols].copy()
+
+        # GP = NHL GP
+        if nhl_gp_col:
+            insert_at = 3 if ("Position" in df_cmp_show.columns) else 1
+            df_cmp_show.insert(insert_at, "GP", df_cmp[nhl_gp_col])
         else:
-            row1 = r1.iloc[0].to_dict()
-            row2 = r2.iloc[0].to_dict()
+            st.caption("ℹ️ Colonne 'NHL GP' introuvable — GP non affiché.")
 
-            def build_rows_html(row: dict) -> str:
-                out = []
-                for label, col in compare_fields:
-                    if col == cap_col and (not cap_col or cap_col not in row):
-                        continue
-                    if col and col not in row:
-                        continue
-                    val = _get_val(row, col)
-                    if str(val).strip() == "":
-                        continue
-                    out.append(
-                        f"<div style='color:#ff2d2d;font-weight:900'>{safe(label)}</div>"
-                        f"<div style='color:#f5f5f5;font-weight:800'>{safe(val)}</div>"
-                    )
-                return "".join(out) if out else "<div style='color:#aaa'>Aucune info</div>"
+        # Format Cap Hit (4 750 000 $)
+        if cap_col and cap_col in df_cmp_show.columns:
+            df_cmp_show[cap_col] = df_cmp[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+            df_cmp_show = df_cmp_show.rename(columns={cap_col: "Cap Hit"})
 
-            left, right = st.columns(2)
+        # Nettoyage visuel : enlever ".0"
+        for c in df_cmp_show.columns:
+            df_cmp_show[c] = df_cmp_show[c].apply(lambda x: _clean_intlike(x))
 
-            with left:
-                st.markdown(
-                    f"""
-                    <div style="background:#0b0b0b;border:1px solid #ff2d2d;border-radius:16px;padding:14px;">
-                      <div style="color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
-                        {safe(p1)}
-                      </div>
-                      <div style="display:grid;grid-template-columns:170px 1fr;gap:8px 10px;">
-                        {build_rows_html(row1)}
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with right:
-                st.markdown(
-                    f"""
-                    <div style="background:#0b0b0b;border:1px solid #ff2d2d;border-radius:16px;padding:14px;">
-                      <div style="color:#ff2d2d;font-weight:1000;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
-                        {safe(p2)}
-                      </div>
-                      <div style="display:grid;grid-template-columns:170px 1fr;gap:8px 10px;">
-                        {build_rows_html(row2)}
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-
-
-
-
-
-
-
-
-
-
+        st.markdown("#### Comparaison (tableau)")
+        st.dataframe(df_cmp_show, use_container_width=True, hide_index=True)
 
 
 
