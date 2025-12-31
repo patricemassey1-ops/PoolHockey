@@ -1412,27 +1412,37 @@ with tabJ:
     # -------------------------------------------------
     # SEARCH CONTROLS (NO RESULTS UNTIL FILTER SET)
     # -------------------------------------------------
-    c1, c2, c3 = st.columns([2, 1, 1])
+c1, c2, c3 = st.columns([2, 1, 1])
 
-    with c1:
+with c1:
+    # ✅ Champ + X rouge pour effacer
+    name_col1, name_col2 = st.columns([12, 1])
+    with name_col1:
         q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
+    with name_col2:
+        # bouton X rouge (efface le champ)
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom", use_container_width=True):
+            st.session_state["j_name"] = ""
+            st.rerun()
 
-    with c2:
-        if "Team" in df_db.columns:
-            teams = sorted(df_db["Team"].dropna().astype(str).unique())
-            q_team = st.selectbox("Équipe", ["Toutes"] + teams, key="j_team")
-        else:
-            q_team = "Toutes"
-            st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
+with c2:
+    if "Team" in df_db.columns:
+        teams = sorted(df_db["Team"].dropna().astype(str).unique())
+        q_team = st.selectbox("Équipe", ["Toutes"] + teams, key="j_team")
+    else:
+        q_team = "Toutes"
+        st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
 
-    with c3:
-        level_col = "Level" if "Level" in df_db.columns else None
-        if level_col:
-            levels = sorted(df_db[level_col].dropna().astype(str).unique())
-            q_level = st.selectbox("Level (Contrat)", ["Tous"] + levels, key="j_level")
-        else:
-            q_level = "Tous"
-            st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
+with c3:
+    level_col = "Level" if "Level" in df_db.columns else None
+    if level_col:
+        levels = sorted(df_db[level_col].dropna().astype(str).unique())
+        q_level = st.selectbox("Level (Contrat)", ["Tous"] + levels, key="j_level")
+    else:
+        q_level = "Tous"
+        st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
+
 
     st.divider()
     st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
