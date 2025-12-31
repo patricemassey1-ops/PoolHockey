@@ -169,27 +169,47 @@ def load_players_db(path: str) -> pd.DataFrame:
     dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
     return dfp
 
+def _norm_key(s: str) -> str:
+    s = str(s or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    # enlève ponctuation et suffixes fréquents
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = s.replace(" jr", "").replace(" sr", "")
+    return s.strip()
+
 def get_player_row(players_df: pd.DataFrame, player_name: str) -> dict | None:
     if players_df is None or players_df.empty:
         return None
-    if "_name_key" not in players_df.columns:
-        # fallback: essaie match direct Player
-        if "Player" in players_df.columns:
-            hit = players_df[players_df["Player"].astype(str).map(_norm_name) == _norm_name(player_name)]
-            if hit.empty:
-                return None
-            return hit.iloc[0].to_dict()
-        return None
-    hit = players_df[players_df["_name_key"] == _norm_name(player_name)]
-    if hit.empty:
-        return None
-    return hit.iloc[0].to_dict()
 
-def _pick(d: dict, candidates: list[str], default=""):
-    for k in candidates:
-        if k in d and pd.notna(d[k]) and str(d[k]).strip() != "":
-            return str(d[k]).strip()
-    return default
+    q = _norm_key(player_name)
+
+    # 1) match exact via _name_key si présent
+    if "_name_key" in players_df.columns:
+        hit = players_df[players_df["_name_key"].astype(str).map(_norm_key) == q]
+        if not hit.empty:
+            return hit.iloc[0].to_dict()
+
+    # 2) fallback exact sur "Player"
+    if "Player" in players_df.columns:
+        hit = players_df[players_df["Player"].astype(str).map(_norm_key) == q]
+        if not hit.empty:
+            return hit.iloc[0].to_dict()
+
+    # 3) fallback "contains" (utile si Fantrax ajoute un suffixe)
+    if "Player" in players_df.columns and q:
+        mask = players_df["Player"].astype(str).map(_norm_key).str.contains(re.escape(q), na=False)
+        hit = players_df[mask]
+        if not hit.empty:
+            return hit.iloc[0].to_dict()
+
+        # 4) fallback inverse: q est plus long que Player (rare)
+        mask2 = players_df["Player"].astype(str).map(_norm_key).apply(lambda x: x in q if x else False)
+        hit2 = players_df[mask2]
+        if not hit2.empty:
+            return hit2.iloc[0].to_dict()
+
+    return None
+
 
 players_db = load_players_db(PLAYERS_DB_FILE)
 
