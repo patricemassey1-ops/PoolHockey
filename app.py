@@ -11,15 +11,13 @@ import base64
 import textwrap
 
 # =====================================================
-# FILE GUARDS (STREAMLIT CLOUD SAFE)
+# FILE GUARD (STREAMLIT CLOUD SAFE)
 # =====================================================
-def must_exist(path: str, label: str = ""):
+def must_exist(path: str):
     if not os.path.exists(path):
-        msg = f"❌ Fichier introuvable : {path}"
-        if label:
-            msg += f" ({label})"
-        st.error(msg)
+        st.error(f"❌ Fichier introuvable : {path}")
         st.stop()
+
 
 # =====================================================
 # PLAYERS DB (Hockey_Players.csv) + HOVER TOOLTIP CARD
@@ -1223,8 +1221,23 @@ def must_exist(path: str):
         st.stop()
 
 
-def nhl_headshot(...):
-    ...
+
+# =====================================================
+# NHL HEADSHOT (OFFICIAL CDN)
+# =====================================================
+def nhl_headshot(player_name: str) -> str:
+    if not player_name:
+        return ""
+
+    slug = (
+        player_name
+        .lower()
+        .replace(".", "")
+        .replace("'", "")
+        .replace(" ", "-")
+    )
+
+    return f"https://cms.nhl.bamgrid.com/images/headshots/current/168x168/{slug}.png"
 
 
 # =====================================================
@@ -1256,23 +1269,6 @@ else:
     # ---------------------------
     # Helpers: query params (compat)
     # ---------------------------
-  # =====================================================
-# NHL HEADSHOT (OFFICIAL CDN)
-# =====================================================
-def nhl_headshot(player_name: str) -> str:
-    if not player_name:
-        return ""
-
-    slug = (
-        player_name
-        .lower()
-        .replace(".", "")
-        .replace("'", "")
-        .replace(" ", "-")
-    )
-
-    return f"https://cms.nhl.bamgrid.com/images/headshots/current/168x168/{slug}.png"
-
     
     def _get_qp(key: str):
         if hasattr(st, "query_params"):
