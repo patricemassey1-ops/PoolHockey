@@ -1117,83 +1117,61 @@ def open_move_dialog():
 
 
 # =====================================================
-# TAB A - ALIGNEMENT OPTIMISÉ
-# Remplacer tout le bloc "with tabA:" par celui-ci
+# TAB A - ALIGNEMENT (POPUP OK + IR TABLE UNIQUE + DATE IR)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-    st.caption("Sélectionne un joueur pour le déplacer")
-    
-    # Sélection propriétaire
+    st.caption("Sélectionne un joueur (Actifs/Banc/Mineur) ou clique une ligne Blessé (IR) pour ouvrir le pop-up.")
+
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
         key="align_owner",
     )
-    
-    # Nettoyage données
+
     st.session_state["data"] = clean_data(st.session_state["data"])
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
-    
-    # Séparation blessés / non-blessés
+
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_not_inj = dprop[dprop.get("Slot", "") != "Blessé"].copy()
-    
-    # Grand Club / Club École
+
     gc_all = dprop_not_inj[dprop_not_inj["Statut"] == "Grand Club"].copy()
     ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
-    
-    # Actifs / Banc
+
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
-    
-    # Comptage positions (Actifs uniquement)
-    gc_actif["Pos"] = gc_actif["Pos"].apply(normalize_pos)
-    nb_F = int((gc_actif["Pos"] == "F").sum())
-    nb_D = int((gc_actif["Pos"] == "D").sum())
-    nb_G = int((gc_actif["Pos"] == "G").sum())
-    
-    # Totaux salariaux
+    gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+
+    # Counts (Actifs)
+    tmp = gc_actif.copy()
+    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+    nb_F = int((tmp["Pos"] == "F").sum())
+    nb_D = int((tmp["Pos"] == "D").sum())
+    nb_G = int((tmp["Pos"] == "G").sum())
+
     total_gc = int(gc_all["Salaire"].sum())
     total_ce = int(ce_all["Salaire"].sum())
     restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
     restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
-    
-    # Stocker pour validation
+
     st.session_state["align_counts"] = {"F": nb_F, "D": nb_D, "G": nb_G}
-    
-    # =====================================================
-    # MÉTRIQUES + COMPTEURS
-    # =====================================================
+
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("GC", money(total_gc))
     top[1].metric("R GC", money(restant_gc))
     top[2].metric("CE", money(total_ce))
     top[3].metric("R CE", money(restant_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
-    
-    # Compteurs avec couleurs
-    def color_count(current, max_val):
-        color = "red" if current > max_val else "green"
-        return f"<span style='color:{color};font-weight:bold;'>{current}</span>"
-    
-    st.markdown(
-        f"Actifs: F {color_count(nb_F, 12)}/12 • D {color_count(nb_D, 6)}/6 • G {color_count(nb_G, 2)}/2",
-        unsafe_allow_html=True
-    )
-    
+
+    st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
     st.divider()
-    
-    # =====================================================
-    # TABLEAUX ACTIFS / BANC / MINEUR
-    # =====================================================
-    df_actifs_ui = view_for_click_no_status(gc_actif)
-    df_banc_ui = view_for_click_no_status(gc_banc)
-    df_min_ui = view_for_click_no_status(ce_all)
-    
+
+    # ---- Tables (Actifs / Banc / Mineur)
+    df_actifs_ui = view_for_click(gc_actif)
+    df_banc_ui   = view_for_click(gc_banc)
+    df_min_ui    = view_for_click(ce_all)
+
     c1, c2, c3 = st.columns(3)
-    
     with c1:
         st.markdown("### 🟢 Actifs")
         st.dataframe(
@@ -1201,10 +1179,9 @@ with tabA:
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
-            on_select="rerun",
+            on_select="rerun",   # OK: Streamlit rerun lui-même
             key="sel_actifs",
         )
-    
     with c2:
         st.markdown("### 🟡 Banc")
         st.dataframe(
@@ -1215,7 +1192,6 @@ with tabA:
             on_select="rerun",
             key="sel_banc",
         )
-    
     with c3:
         st.markdown("### 🔵 Mineur")
         st.dataframe(
@@ -1226,132 +1202,156 @@ with tabA:
             on_select="rerun",
             key="sel_min",
         )
-    
-    # =====================================================
-    # GESTION SÉLECTION (DÉCLENCHE POP-UP)
-    # =====================================================
+
+    # ---- Sélection (Actifs/Banc/Mineur) => ouvre le pop-up
+    # IMPORTANT: ne PAS faire st.rerun() ici sinon boucle infinie
     picked = (
         pick_from_df(df_actifs_ui, "sel_actifs")
         or pick_from_df(df_banc_ui, "sel_banc")
         or pick_from_df(df_min_ui, "sel_min")
     )
-    
-    if picked:
+    if picked and (not st.session_state.get("move_ctx")):
+        clear_df_selections()          # évite que la sélection reste "collée"
         set_move_ctx(proprietaire, picked)
-        st.rerun()
-    
+
     # =====================================================
-    # JOUEURS BLESSÉS (VERSION SIMPLIFIÉE)
+    # IR — DATE D'ENTRÉE IR (à partir de l'historique)
+    # =====================================================
+    # On prend le dernier timestamp où to_slot == "Blessé" pour (proprio, joueur)
+    h = st.session_state.get("history", pd.DataFrame()).copy()
+    ir_date_map = {}
+    if not h.empty and {"proprietaire", "joueur", "to_slot", "timestamp"}.issubset(set(h.columns)):
+        hh = h.copy()
+        hh["timestamp_dt"] = pd.to_datetime(hh["timestamp"], errors="coerce")
+        hh = hh[
+            (hh["proprietaire"].astype(str) == str(proprietaire))
+            & (hh["to_slot"].astype(str).str.strip() == "Blessé")
+        ]
+        if not hh.empty:
+            hh = hh.sort_values("timestamp_dt")
+            # dernier event IR par joueur
+            last_ir = hh.groupby(hh["joueur"].astype(str))["timestamp_dt"].max()
+            for j, dt in last_ir.items():
+                if pd.notna(dt):
+                    ir_date_map[str(j)] = dt.strftime("%Y-%m-%d %H:%M")
+
+    # =====================================================
+    # IR — TABLEAU UNIQUE CLIQUABLE + DATE IR
     # =====================================================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
-    
-    # Gestion clic IR
+
+    # clic via query param
     picked_ir = _get_qp("ir_pick")
-    if picked_ir:
+    if picked_ir and (not st.session_state.get("move_ctx")):
         picked_ir = unquote(picked_ir)
         set_move_ctx(proprietaire, picked_ir)
-        _clear_qp("ir_pick")
-        st.rerun()
-    
+        _clear_qp("ir_pick")   # IMPORTANT: on nettoie l'URL
+        # PAS de st.rerun() ici (sinon loop) -> le pop-up s'ouvrira en bas
+
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
-        # Séparer par position
-        injured_all["Pos"] = injured_all["Pos"].apply(normalize_pos)
-        inj_f = injured_all[injured_all["Pos"] == "F"].copy()
-        inj_d = injured_all[injured_all["Pos"] == "D"].copy()
-        inj_g = injured_all[injured_all["Pos"] == "G"].copy()
-        
-        # Query params
-        base_qs = ""
-        if hasattr(st, "query_params"):
-            try:
-                cur = dict(st.query_params)
-                cur.pop("ir_pick", None)
-                pairs = []
-                for k, v in cur.items():
-                    if isinstance(v, list):
-                        for vv in v:
-                            pairs.append(f"{quote(str(k))}={quote(str(vv))}")
-                    else:
-                        pairs.append(f"{quote(str(k))}={quote(str(v))}")
-                base_qs = "&".join(pairs)
-            except:
-                pass
-        
-        def make_href(name: str) -> str:
-            qpick = f"ir_pick={quote(name)}"
-            return f"?{base_qs}&{qpick}" if base_qs else f"?{qpick}"
-        
-        # Fonction construction tableau
-        def build_ir_table(df_inj, title, emoji):
-            if df_inj.empty:
-                return f"""
-                <div style="background:#1a0000;border:2px solid #ff2d2d;border-radius:12px;padding:16px;text-align:center;">
-                    <div style="color:#ff2d2d;font-weight:bold;font-size:16px;margin-bottom:8px;">{emoji} {title}</div>
-                    <div style="color:#888;font-size:13px;">Aucun blessé</div>
-                </div>
+        # Construire un tableau simple: Joueur / Pos / Équipe / Salaire / Date IR
+        # IMPORTANT: on ne trie PAS par position pour éviter l'effet "divisé"
+        df_ir = injured_all.copy()
+        df_ir["Pos"] = df_ir["Pos"].apply(normalize_pos)
+        df_ir["Salaire_fmt"] = df_ir["Salaire"].apply(money)
+        df_ir["Date IR"] = df_ir["Joueur"].astype(str).map(lambda n: ir_date_map.get(n, "—"))
+
+        # tri simple par nom
+        df_ir = df_ir.sort_values(["Joueur"]).reset_index(drop=True)
+
+        # CSS + HTML tableau (1 seul tableau)
+        st.markdown(
+            textwrap.dedent(
                 """
-            
-            rows_html = ""
-            for _, r in df_inj.iterrows():
-                name = html.escape(str(r.get("Joueur", "")))
-                team = html.escape(str(r.get("Equipe", "")))
-                sal = r.get("Salaire", 0)
-                if isinstance(sal, str) and "$" in sal:
-                    sal_fmt = html.escape(sal)
-                else:
-                    sal_fmt = money(int(sal))
-                
-                href = make_href(str(r.get("Joueur", "")))
-                
-                rows_html += f"""
-                <tr onclick="window.location.href='{href}'" style="cursor:pointer;">
-                    <td style="padding:10px;border-bottom:1px solid #333;color:#fff;font-weight:bold;">🩹 {name}</td>
-                    <td style="padding:10px;border-bottom:1px solid #333;color:#ff2d2d;">{team}</td>
-                    <td style="padding:10px;border-bottom:1px solid #333;color:#ff2d2d;text-align:right;font-weight:bold;">{sal_fmt}</td>
-                </tr>
+                <style>
+                  .ir-card{background:#000;border:2px solid #ff2d2d;border-radius:16px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.40);}
+                  .ir-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #2a2a2a;background:linear-gradient(180deg,#080808,#000);}
+                  .ir-title{color:#ff2d2d;font-weight:1000;letter-spacing:1px;text-transform:uppercase;}
+                  .ir-badge{color:#ff2d2d;font-size:12px;opacity:.95;border:1px solid #ff2d2d;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+
+                  .ir-table-wrap{max-height:360px;overflow:auto;}
+                  .ir-table{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}
+                  .ir-table th{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(5,5,5,.92);border-bottom:1px solid #2a2a2a;z-index:2;font-weight:1000;color:#ff2d2d;}
+                  .ir-table td{padding:10px 12px;border-bottom:1px solid #151515;line-height:1.2;}
+                  .ir-table tbody tr:nth-child(odd) td{background:#000;}
+                  .ir-table tbody tr:nth-child(even) td{background:#070707;}
+                  .ir-table tbody tr:hover td{background:linear-gradient(90deg,#1a0000,#070707);cursor:pointer;}
+
+                  .ir-player{color:#ffffff;font-weight:1000;}
+                  .ir-pos{width:64px;text-align:center;color:#ff2d2d;}
+                  .ir-team{width:84px;text-align:center;opacity:.95;color:#ff2d2d;}
+                  .ir-salary{text-align:right;font-weight:1000;white-space:nowrap;color:#ff2d2d;}
+                  .ir-date{width:160px;text-align:right;color:#f5f5f5;opacity:.9;font-weight:900;white-space:nowrap;}
+
+                  .ir-table tbody tr{position:relative;}
+                  .ir-rowlink{position:absolute;inset:0;z-index:5;display:block;text-decoration:none;background:transparent;}
+                  .ir-table td{position:relative;z-index:1;}
+                </style>
                 """
-            
-            return f"""
-            <div style="background:#000;border:2px solid #ff2d2d;border-radius:12px;overflow:hidden;">
-                <div style="background:#1a0000;padding:12px;border-bottom:1px solid #ff2d2d;display:flex;justify-content:space-between;align-items:center;">
-                    <div style="color:#ff2d2d;font-weight:bold;font-size:16px;">{emoji} {title}</div>
-                    <div style="color:#ff2d2d;border:1px solid #ff2d2d;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:bold;">{len(df_inj)}</div>
-                </div>
-                <div style="max-height:300px;overflow-y:auto;">
-                    <table style="width:100%;border-collapse:collapse;color:#fff;font-size:13px;">
-                        <thead>
-                            <tr style="background:#111;position:sticky;top:0;">
-                                <th style="padding:10px;text-align:left;color:#ff2d2d;font-weight:bold;">Joueur</th>
-                                <th style="padding:10px;text-align:left;color:#ff2d2d;font-weight:bold;">Équipe</th>
-                                <th style="padding:10px;text-align:right;color:#ff2d2d;font-weight:bold;">Salaire</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows_html}
-                        </tbody>
+            ),
+            unsafe_allow_html=True,
+        )
+
+        rows_html = ""
+        for _, rr in df_ir.iterrows():
+            raw_name = str(rr.get("Joueur", "")).strip()
+            if not raw_name:
+                continue
+            q = quote(raw_name)
+
+            name = html.escape(raw_name)
+            pos = html.escape(str(rr.get("Pos", "")))
+            team = html.escape(str(rr.get("Equipe", "")))
+            sal = html.escape(str(rr.get("Salaire_fmt", "")))
+            dte = html.escape(str(rr.get("Date IR", "—")))
+
+            rows_html += (
+                f"<tr>"
+                f"<td class='ir-player'><a class='ir-rowlink' href='?ir_pick={q}' aria-label='Choisir {name}'></a>🩹 {name}</td>"
+                f"<td class='ir-pos'>{pos}</td>"
+                f"<td class='ir-team'>{team}</td>"
+                f"<td class='ir-salary'>{sal}</td>"
+                f"<td class='ir-date'>{dte}</td>"
+                f"</tr>"
+            )
+
+        st.markdown(
+            textwrap.dedent(
+                f"""
+                <div class="ir-card">
+                  <div class="ir-head">
+                    <div class="ir-title">JOUEURS BLESSÉS (IR)</div>
+                    <div class="ir-badge">Salaire non comptabilisé</div>
+                  </div>
+
+                  <div class="ir-table-wrap">
+                    <table class="ir-table">
+                      <thead>
+                        <tr>
+                          <th>Joueur</th>
+                          <th class="ir-pos">Pos</th>
+                          <th class="ir-team">Équipe</th>
+                          <th class="ir-salary">Salaire</th>
+                          <th class="ir-date">Date IR</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows_html}
+                      </tbody>
                     </table>
+                  </div>
                 </div>
-            </div>
-            """
-        
-        # Affichage 3 colonnes
-        cols = st.columns(3)
-        with cols[0]:
-            st.markdown(build_ir_table(inj_f, "ATTAQUANTS", "⚡"), unsafe_allow_html=True)
-        with cols[1]:
-            st.markdown(build_ir_table(inj_d, "DÉFENSEURS", "🛡️"), unsafe_allow_html=True)
-        with cols[2]:
-            st.markdown(build_ir_table(inj_g, "GARDIENS", "🥅"), unsafe_allow_html=True)
-        
-        st.caption("💡 Clique sur une ligne pour déplacer le joueur")
-    
-    # =====================================================
-    # OUVRIR POP-UP SI CONTEXTE PRÉSENT
-    # =====================================================
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+
+    # ✅ IMPORTANT: le pop-up doit être appelé ICI, dans tabA, à la fin
     open_move_dialog()
+
 
 
 # =====================================================
