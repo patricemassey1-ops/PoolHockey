@@ -1,21 +1,21 @@
-# app.py — Fantrax Pool Hockey (COMPLET)
-# ✅ Tooltip hover sur les noms (HTML/CSS)
-# ✅ Bouton "Déplacer" (ouvre le pop-up via query params)
-# ✅ IR net (1 seul tableau) + IR Date persistée
-# ✅ Pop-up stable + historique + Undo
+# app.py — Fantrax Pool Hockey (FINAL)
+# ✅ Logos propriétaires dans /data
+# ✅ Tableau: colonnes renommées
+# ✅ Alignement: 3 tableaux (Actifs/Banc/Mineur) avec checkbox + pop-up déplacement
+# ✅ Déplacement vers Blessé: salaire exclu des plafonds + IR Date enregistrée (America/Toronto)
+# ✅ Pop-up: infos joueur (Pays, Flag, Position, Grandeur, Poids, Cap Hit, Level)
+# ✅ Historique + Undo + Delete
 # ✅ Import Fantrax robuste
-# ✅ Tab Joueurs (base data/Hockey.Players.csv) + filtres + comparaison
+# ✅ Joueurs (data/Hockey.Players.csv) filtres + comparaison
 
 import streamlit as st
 import pandas as pd
 import io
 import os
 import re
-import html as html_lib
 import textwrap
 from datetime import datetime
 from urllib.parse import quote, unquote
-import base64
 from zoneinfo import ZoneInfo
 
 # =====================================================
@@ -26,25 +26,21 @@ st.set_page_config("Fantrax Pool Hockey", layout="wide")
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# -----------------------------------------------------
-# Fichiers
-# -----------------------------------------------------
-PLAYERS_DB_FILE = "data/Hockey.Players.csv"  # ton fichier est dans /data
-LOGO_POOL_FILE = "Logo_Pool.png"
+PLAYERS_DB_FILE = "data/Hockey.Players.csv"   # ✅ confirmé
+LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche pas)
 
-# -----------------------------------------------------
-# Logos équipes (propriétaires)
-# -----------------------------------------------------
+# =====================================================
+# LOGOS (dans /data)
+# =====================================================
 LOGOS = {
-    "Nordiques": "Nordiques_Logo.png",
-    "Cracheurs": "Cracheurs_Logo.png",
-    "Prédateurs": "Prédateurs_Logo.png",
-    "Red Wings": "Red_Wings_Logo.png",
-    "Whalers": "Whalers_Logo.png",
-    "Canadiens": "Canadiens_Logo.png",
+    "Nordiques": "data/Nordiques_Logo.png",
+    "Cracheurs": "data/Cracheurs_Logo.png",
+    "Prédateurs": "data/Prédateurs_Logo.png",
+    "Red Wings": "data/Red_Wings_Logo.png",
+    "Whalers": "data/Whalers_Logo.png",
+    "Canadiens": "data/Canadiens_Logo.png",
 }
 LOGO_SIZE = 55
-
 
 # =====================================================
 # UTILS
@@ -55,22 +51,18 @@ def do_rerun():
     else:
         st.experimental_rerun()
 
-
 def money(v):
     try:
         return f"{int(v):,}".replace(",", " ") + " $"
     except Exception:
         return "0 $"
 
-
 def saison_auto():
     now = datetime.now()
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
 
-
 def saison_verrouillee(season):
     return int(season[:4]) < int(saison_auto()[:4])
-
 
 def normalize_pos(pos: str) -> str:
     p = str(pos or "").upper()
@@ -80,16 +72,17 @@ def normalize_pos(pos: str) -> str:
         return "D"
     return "F"
 
-
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
+def colored_count(label: str, n: int, limit: int) -> str:
+    color = "#16a34a" if n <= limit else "#ef4444"  # vert / rouge
+    return f"<span style='font-weight:900;color:{color}'>{label} {n}/{limit}</span>"
 
 # =====================================================
-# CLEAN DATA (robuste)
+# CLEAN DATA
 # =====================================================
 REQUIRED_COLS = ["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe", "IR Date"]
-
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None:
@@ -97,12 +90,11 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # s'assure colonnes
     for c in REQUIRED_COLS:
         if c not in df.columns:
             df[c] = ""
 
-    # normalize textes
+    # texte
     for c in ["Propriétaire", "Joueur", "Statut", "Slot", "Pos", "Equipe", "IR Date"]:
         df[c] = df[c].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
 
@@ -137,7 +129,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     # pos standard
     df["Pos"] = df["Pos"].apply(normalize_pos)
 
-    # règles slot selon statut (sécurité)
+    # sécurité slot selon statut
     def _fix_row(r):
         statut = r["Statut"]
         slot = r["Slot"]
@@ -150,19 +142,14 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         return r
 
     df = df.apply(_fix_row, axis=1)
-
-    # drop duplicates (dernier gagne)
     df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
-
     return df
 
-
 # =====================================================
-# PLAYERS DB + TOOLTIP HOVER
+# PLAYERS DB (data/Hockey.Players.csv)
 # =====================================================
 def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
-
 
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str) -> pd.DataFrame:
@@ -176,25 +163,27 @@ def load_players_db(path: str) -> pd.DataFrame:
         if cl in {"player", "joueur", "name", "full name", "fullname"}:
             name_col = c
             break
-
     if name_col is None:
         return dfp
 
     dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
     return dfp
 
-
 def get_player_row(players_df: pd.DataFrame, player_name: str) -> dict | None:
     if players_df is None or players_df.empty:
         return None
     if "_name_key" not in players_df.columns:
+        # fallback: essaie match direct Player
+        if "Player" in players_df.columns:
+            hit = players_df[players_df["Player"].astype(str).map(_norm_name) == _norm_name(player_name)]
+            if hit.empty:
+                return None
+            return hit.iloc[0].to_dict()
         return None
-    key = _norm_name(player_name)
-    hit = players_df[players_df["_name_key"] == key]
+    hit = players_df[players_df["_name_key"] == _norm_name(player_name)]
     if hit.empty:
         return None
     return hit.iloc[0].to_dict()
-
 
 def _pick(d: dict, candidates: list[str], default=""):
     for k in candidates:
@@ -202,146 +191,7 @@ def _pick(d: dict, candidates: list[str], default=""):
             return str(d[k]).strip()
     return default
 
-
-def player_tooltip_css():
-    st.markdown(
-        textwrap.dedent(
-            """
-        <style>
-          .ph-wrap{position:relative;display:inline-block;}
-          .ph-name{color:#4aa3ff;font-weight:900;text-decoration:underline;cursor:default;}
-          .ph-tip{display:none;position:absolute;left:0;top:28px;width:520px;max-width:70vw;
-                  background:rgba(10,14,18,.98);border:1px solid rgba(255,255,255,.10);
-                  box-shadow:0 18px 50px rgba(0,0,0,.55);border-radius:18px;overflow:hidden;z-index:9999;}
-          .ph-wrap:hover .ph-tip{display:block;}
-          .ph-head{display:flex;gap:12px;align-items:center;padding:14px 14px 10px 14px;
-                   background:linear-gradient(180deg, rgba(12,18,24,1), rgba(7,10,13,1));}
-          .ph-avatar{width:54px;height:54px;border-radius:14px;background:rgba(255,255,255,.06);
-                     object-fit:cover;flex:0 0 auto;border:1px solid rgba(255,255,255,.10);}
-          .ph-title{font-size:20px;font-weight:1000;color:#4aa3ff;line-height:1.05;margin-bottom:4px;}
-          .ph-sub{font-size:13px;color:rgba(255,255,255,.72);font-weight:700;}
-          .ph-sub b{color:rgba(255,255,255,.92);}
-          .ph-flag{display:inline-flex;gap:8px;align-items:center;margin-top:6px;font-size:13px;
-                   color:rgba(255,255,255,.80);font-weight:800;}
-          .ph-flag img{width:18px;height:12px;border-radius:2px;border:1px solid rgba(255,255,255,.25);object-fit:cover;}
-          .ph-body{padding:12px 14px 14px 14px;}
-          .ph-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;}
-          .ph-kv{font-size:13px;color:rgba(255,255,255,.75);font-weight:800;padding:8px 10px;border-radius:12px;
-                 background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);}
-          .ph-kv span{color:rgba(255,255,255,.95);font-weight:1000;margin-left:6px;}
-          @media (max-width: 700px){.ph-tip{width:92vw;}}
-        </style>
-        """
-        ),
-        unsafe_allow_html=True,
-    )
-
-
-def render_player_hover_name(players_df: pd.DataFrame, player_name: str) -> str:
-    row = get_player_row(players_df, player_name) or {}
-    name = player_name.strip()
-
-    photo_url = _pick(row, ["Photo", "Headshot", "Image", "photo_url", "headshot_url"], default="")
-    team = _pick(row, ["Team", "NHL Team", "Equipe", "Équipe"], default="")
-    pos = _pick(row, ["Pos", "Position"], default="")
-    jersey = _pick(row, ["Jersey #", "Jersey", "No", "#"], default="")
-    shoots = _pick(row, ["Shoots", "Shot", "Tire"], default="")
-    height = _pick(row, ["Hgt", "Height", "Taille"], default="")
-    weight = _pick(row, ["W(lbs)", "Weight", "Poids"], default="")
-    dob = _pick(row, ["DOB", "Birthdate", "Date of Birth", "Naissance"], default="")
-    draft = _pick(row, ["Draft Year", "Draft", "Année Repêchage"], default="")
-    ufa = _pick(row, ["UFA Year", "UFA", "Autonomie"], default="")
-    caphit = _pick(row, ["Cap Hit", "CapHit", "AAV"], default="")
-    country = _pick(row, ["Country", "Pays"], default="")
-    flag_url = _pick(row, ["Flag", "Flag URL", "Flag_Image"], default="")
-
-    if not photo_url:
-        svg = """<svg xmlns='http://www.w3.org/2000/svg' width='54' height='54'>
-        <rect width='54' height='54' rx='14' fill='rgba(255,255,255,0.06)'/>
-        <circle cx='27' cy='22' r='9' fill='rgba(255,255,255,0.18)'/>
-        <rect x='14' y='34' width='26' height='12' rx='6' fill='rgba(255,255,255,0.14)'/>
-        </svg>"""
-        photo_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("utf-8")
-
-    esc = html_lib.escape
-    name_e = esc(name)
-
-    sub_bits = []
-    if team:
-        sub_bits.append(esc(team))
-    if pos:
-        sub_bits.append(f"• <b>{esc(pos)}</b>")
-    if jersey:
-        sub_bits.append(f"• #{esc(jersey)}")
-    sub_line = " ".join(sub_bits) if sub_bits else "<span style='opacity:.6'>Info indisponible</span>"
-
-    kv = []
-
-    def add_kv(label, value):
-        if value and str(value).strip():
-            kv.append((label, str(value).strip()))
-
-    add_kv("Shoots", shoots)
-    add_kv("Height", height)
-    add_kv("Weight", weight)
-    add_kv("DOB", dob)
-    add_kv("Draft", draft)
-    add_kv("UFA", ufa)
-    add_kv("Cap Hit", caphit)
-
-    kv_html = (
-        "".join([f"<div class='ph-kv'>{esc(k)}:<span>{esc(v)}</span></div>" for k, v in kv])
-        or "<div class='ph-kv'>No details<span>—</span></div>"
-    )
-
-    flag_html = ""
-    if country or flag_url:
-        img = f"<img src='{esc(flag_url)}' />" if flag_url else ""
-        flag_html = f"<div class='ph-flag'>{img}<span>{esc(country) if country else ''}</span></div>"
-
-    return f"""
-      <span class="ph-wrap">
-        <span class="ph-name">{name_e}</span>
-        <div class="ph-tip">
-          <div class="ph-head">
-            <img class="ph-avatar" src="{esc(photo_url)}" />
-            <div style="min-width:0;">
-              <div class="ph-title">{name_e}</div>
-              <div class="ph-sub">{sub_line}</div>
-              {flag_html}
-            </div>
-          </div>
-          <div class="ph-body">
-            <div class="ph-grid">{kv_html}</div>
-          </div>
-        </div>
-      </span>
-    """
-
-
-# =====================================================
-# QUERY PARAMS (compat)
-# =====================================================
-def _get_qp(key: str):
-    if hasattr(st, "query_params"):
-        v = st.query_params.get(key)
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
-    qp = st.experimental_get_query_params()
-    v = qp.get(key)
-    return v[0] if v else None
-
-
-def _clear_qp(key: str):
-    if hasattr(st, "query_params"):
-        try:
-            st.query_params.pop(key, None)
-        except Exception:
-            st.query_params[key] = ""
-    else:
-        st.experimental_set_query_params()
-
+players_db = load_players_db(PLAYERS_DB_FILE)
 
 # =====================================================
 # SESSION DEFAULTS
@@ -357,15 +207,12 @@ if "move_ctx" not in st.session_state:
 if "move_nonce" not in st.session_state:
     st.session_state["move_nonce"] = 0
 
-
 def set_move_ctx(owner: str, joueur: str):
     st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
     st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur, "nonce": st.session_state["move_nonce"]}
 
-
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
-
 
 # =====================================================
 # HISTORY
@@ -375,33 +222,25 @@ def load_history(history_file: str) -> pd.DataFrame:
         return pd.read_csv(history_file)
     return pd.DataFrame(
         columns=[
-            "id",
-            "timestamp",
-            "season",
-            "proprietaire",
-            "joueur",
-            "pos",
-            "equipe",
-            "from_statut",
-            "from_slot",
-            "to_statut",
-            "to_slot",
-            "action",
+            "id", "timestamp", "season",
+            "proprietaire", "joueur", "pos", "equipe",
+            "from_statut", "from_slot", "to_statut", "to_slot",
+            "action"
         ]
     )
 
-
 def save_history(history_file: str, h: pd.DataFrame):
     h.to_csv(history_file, index=False)
-
 
 def next_hist_id(h: pd.DataFrame) -> int:
     if h.empty or "id" not in h.columns:
         return 1
     return int(pd.to_numeric(h["id"], errors="coerce").fillna(0).max()) + 1
 
-
-def log_history_row(proprietaire, joueur, pos, equipe, from_statut, from_slot, to_statut, to_slot, action):
+def log_history_row(proprietaire, joueur, pos, equipe,
+                    from_statut, from_slot,
+                    to_statut, to_slot,
+                    action):
     h = st.session_state["history"].copy()
     row_hist = {
         "id": next_hist_id(h),
@@ -421,9 +260,8 @@ def log_history_row(proprietaire, joueur, pos, equipe, from_statut, from_slot, t
     st.session_state["history"] = h
     save_history(st.session_state["HISTORY_FILE"], h)
 
-
 # =====================================================
-# APPLY MOVE (avec IR Date persistée)
+# APPLY MOVE (avec IR Date)
 # =====================================================
 def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
     if st.session_state.get("LOCKED"):
@@ -462,11 +300,10 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     pos0 = str(before.get("Pos", "F")).strip()
     equipe0 = str(before.get("Equipe", "")).strip()
 
-    # Apply
     df0.loc[mask, "Statut"] = to_statut
     df0.loc[mask, "Slot"] = to_slot if to_slot else ""
 
-    # IR Date
+    # IR Date (Toronto)
     entering_ir = (to_slot == "Blessé") and (from_slot != "Blessé")
     leaving_ir = (from_slot == "Blessé") and (to_slot != "Blessé")
     if entering_ir:
@@ -501,13 +338,12 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
 
     return True
 
-
 # =====================================================
 # FANTRAX PARSER
 # =====================================================
 def parse_fantrax(upload):
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
-    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]  # nettoie chars invisibles
+    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
 
     def detect_sep(lines):
         for l in lines:
@@ -519,7 +355,6 @@ def parse_fantrax(upload):
         return ","
 
     sep = detect_sep(raw_lines)
-
     header_idxs = [i for i, l in enumerate(raw_lines) if ("player" in l.lower() and "salary" in l.lower() and sep in l)]
     if not header_idxs:
         raise ValueError("Colonnes Fantrax non détectées (Player/Salary).")
@@ -538,7 +373,6 @@ def parse_fantrax(upload):
         dfp = read_section(h, end)
         if dfp is not None and not dfp.empty:
             parts.append(dfp)
-
     if not parts:
         raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
 
@@ -566,10 +400,9 @@ def parse_fantrax(upload):
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "F"
     out["Pos"] = out["Pos"].apply(normalize_pos)
 
-    # fantrax salary souvent en milliers => *1000
+    # Fantrax salary souvent en milliers => *1000
     sal = (
-        df[salary_col]
-        .astype(str)
+        df[salary_col].astype(str)
         .str.replace(",", "", regex=False)
         .str.replace(" ", "", regex=False)
         .replace(["None", "nan", "NaN", ""], "0")
@@ -583,134 +416,55 @@ def parse_fantrax(upload):
 
     out["Slot"] = out["Statut"].apply(lambda s: "Actif" if s == "Grand Club" else "")
     out["IR Date"] = ""
-
     return clean_data(out)
 
+# =====================================================
+# SELECTABLE TABLE (checkbox)
+# =====================================================
+def selectable_roster_table(df_src: pd.DataFrame, key: str, title: str) -> str | None:
+    st.markdown(f"### {title}")
 
-# =====================================================
-# TABLE HTML (hover + bouton Déplacer)
-# =====================================================
-def render_table_with_hover(df_src: pd.DataFrame, qp_key: str, title: str, max_height: int = 360, show_ir_date: bool = False):
     if df_src is None or df_src.empty:
         st.info("Aucun joueur.")
-        return
+        return None
 
-    d = df_src.copy()
-    d["Pos"] = d["Pos"].apply(normalize_pos)
-    d["_pos_order"] = d["Pos"].apply(pos_sort_key)
-    d = d.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"]).reset_index(drop=True)
+    t = df_src.copy()
+    t["Pos"] = t["Pos"].apply(normalize_pos)
+    t["_pos_order"] = t["Pos"].apply(pos_sort_key)
+    t = t.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"]).reset_index(drop=True)
 
-    d["Salaire_fmt"] = d["Salaire"].apply(money) if "Salaire" in d.columns else ""
-    if "IR Date" in d.columns:
-        d["IR Date_fmt"] = d["IR Date"].astype(str).str.strip()
-        d.loc[d["IR Date_fmt"].eq(""), "IR Date_fmt"] = "—"
-    else:
-        d["IR Date_fmt"] = "—"
+    show = pd.DataFrame({
+        "✅": [False] * len(t),
+        "Joueur": t["Joueur"].astype(str),
+        "Pos": t["Pos"].astype(str),
+        "Équipe": t["Equipe"].astype(str),
+        "Salaire": t["Salaire"].apply(money),
+    })
 
-    st.markdown(
-        textwrap.dedent(
-            f"""
-        <style>
-          .tbl-card{{background:#000;border:1px solid rgba(255,255,255,.10);border-radius:16px;overflow:hidden;}}
-          .tbl-head{{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.10);font-weight:1000;}}
-          .tbl-wrap{{max-height:{max_height}px;overflow:auto;}}
-          table.tbl{{width:100%;border-collapse:separate;border-spacing:0;color:#f5f5f5;font-weight:800;font-size:14px;}}
-          table.tbl th{{text-align:left;padding:10px 12px;position:sticky;top:0;background:rgba(8,8,8,.95);
-                        border-bottom:1px solid rgba(255,255,255,.10);z-index:2;font-weight:1000;white-space:nowrap;}}
-          table.tbl td{{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);white-space:nowrap;}}
-          table.tbl tbody tr:hover td{{background:rgba(255,255,255,.04);}}
-          .td-pos{{width:60px;text-align:center;opacity:.9;}}
-          .td-team{{width:84px;text-align:center;opacity:.9;}}
-          .td-sal{{text-align:right;}}
-          .td-ir{{width:150px;opacity:.9;}}
-          .btn-move{{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
-                     text-decoration:none;color:#fff;font-weight:900;background:rgba(255,255,255,.06);}}
-          .btn-move:hover{{background:rgba(255,255,255,.12);}}
-        </style>
-        """
-        ),
-        unsafe_allow_html=True,
+    edited = st.data_editor(
+        show,
+        key=key,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "✅": st.column_config.CheckboxColumn("✅", help="Coche un joueur pour le déplacer", default=False),
+            "Salaire": st.column_config.TextColumn("Salaire"),
+        },
+        disabled=["Joueur", "Pos", "Équipe", "Salaire"],
     )
 
-    rows_html = ""
-    for _, rr in d.iterrows():
-        raw_name = str(rr.get("Joueur", "")).strip()
-        if not raw_name:
-            continue
+    picked_rows = edited.index[edited["✅"] == True].tolist()
+    if not picked_rows:
+        return None
 
-        name_hover_html = render_player_hover_name(players_db, raw_name)
+    idx = int(picked_rows[0])
+    if idx < 0 or idx >= len(edited):
+        return None
 
-        pos = html_lib.escape(str(rr.get("Pos", "")))
-        team = html_lib.escape(str(rr.get("Equipe", "")))
-        ir_date = html_lib.escape(str(rr.get("IR Date_fmt", "—")))
-        sal = html_lib.escape(str(rr.get("Salaire_fmt", "")))
-
-        q = quote(raw_name)
-        action = f"<a class='btn-move' href='?{qp_key}={q}'>Déplacer</a>"
-
-        if show_ir_date:
-            rows_html += (
-                "<tr>"
-                f"<td>{name_hover_html}</td>"
-                f"<td class='td-pos'>{pos}</td>"
-                f"<td class='td-team'>{team}</td>"
-                f"<td class='td-ir'>{ir_date}</td>"
-                f"<td class='td-sal'>{sal}</td>"
-                f"<td>{action}</td>"
-                "</tr>"
-            )
-        else:
-            rows_html += (
-                "<tr>"
-                f"<td>{name_hover_html}</td>"
-                f"<td class='td-pos'>{pos}</td>"
-                f"<td class='td-team'>{team}</td>"
-                f"<td class='td-sal'>{sal}</td>"
-                f"<td>{action}</td>"
-                "</tr>"
-            )
-
-    if show_ir_date:
-        thead = """
-          <tr>
-            <th>Joueur</th>
-            <th class="td-pos">Pos</th>
-            <th class="td-team">Équipe</th>
-            <th class="td-ir">Date IR</th>
-            <th class="td-sal">Salaire</th>
-            <th>Action</th>
-          </tr>
-        """
-    else:
-        thead = """
-          <tr>
-            <th>Joueur</th>
-            <th class="td-pos">Pos</th>
-            <th class="td-team">Équipe</th>
-            <th class="td-sal">Salaire</th>
-            <th>Action</th>
-          </tr>
-        """
-
-    html_block = textwrap.dedent(
-        f"""
-    <div class="tbl-card">
-      <div class="tbl-head">{html_lib.escape(title)}</div>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead>{thead}</thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-      </div>
-    </div>
-    """
-    ).strip()
-
-    st.markdown(html_block, unsafe_allow_html=True)
-
+    return str(edited.loc[idx, "Joueur"]).strip()
 
 # =====================================================
-# POP-UP (dialog)
+# POP-UP DÉPLACEMENT (infos joueur)
 # =====================================================
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
@@ -740,6 +494,16 @@ def open_move_dialog():
     cur_equipe = str(row.get("Equipe", ""))
     cur_salaire = int(row.get("Salaire", 0))
 
+    # Infos DB joueurs
+    info = get_player_row(players_db, joueur) or {}
+    pays = _pick(info, ["Country", "Pays"], "")
+    flag_url = _pick(info, ["Flag", "Flag URL", "Flag_Image"], "")
+    position_db = _pick(info, ["Position", "Pos"], "")
+    taille = _pick(info, ["Height", "Hgt", "Taille"], "")
+    poids = _pick(info, ["Weight", "W(lbs)", "Poids"], "")
+    caphit = _pick(info, ["Cap Hit", "CapHit", "AAV"], "")
+    level = _pick(info, ["Level"], "")
+
     counts = st.session_state.get("align_counts", {"F": 0, "D": 0, "G": 0})
     f_count = int(counts.get("F", 0))
     d_count = int(counts.get("D", 0))
@@ -757,19 +521,34 @@ def open_move_dialog():
     @st.dialog(f"Déplacement — {joueur}", width="large")
     def _dlg():
         st.markdown(f"**{owner}** • **{joueur}** • **{cur_pos}** • **{cur_equipe}** • **{money(cur_salaire)}**")
-        st.caption(f"Position actuelle : **{cur_statut}**" + (f" / **{cur_slot}**" if cur_slot else ""))
+        st.caption(f"Actuel : **{cur_statut}**" + (f" / **{cur_slot}**" if cur_slot else ""))
+
+        st.divider()
+        st.markdown("#### 🧾 Informations joueur")
+        left, right = st.columns([3, 2])
+        with left:
+            st.write(f"**Pays :** {pays or '—'}")
+            st.write(f"**Position (DB) :** {position_db or '—'}")
+            st.write(f"**Grandeur :** {taille or '—'}")
+            st.write(f"**Poids :** {poids or '—'}")
+            st.write(f"**Cap Hit :** {caphit or '—'}")
+            st.write(f"**Level :** {level or '—'}")
+        with right:
+            if flag_url:
+                st.image(flag_url, width=140)
+            else:
+                st.caption("Flag indisponible")
+
         st.divider()
 
         destinations = [
-            ("🟢 Grand Club / Actif", ("Grand Club", "Actif")),
             ("🟡 Grand Club / Banc", ("Grand Club", "Banc")),
             ("🔵 Mineur", ("Club École", "")),
-            ("🩹 Joueurs Blessés (IR)", (cur_statut, "Blessé")),
+            ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
         ]
 
         current = (cur_statut, cur_slot if cur_slot else "")
         destinations = [d for d in destinations if d[1] != current]
-
         if cur_slot == "Blessé":
             destinations = [d for d in destinations if d[1][1] != "Blessé"]
 
@@ -791,12 +570,8 @@ def open_move_dialog():
         st.divider()
         c1, c2 = st.columns(2)
 
-        if c1.button(
-            "✅ Confirmer le déplacement",
-            key=f"confirm_{owner}_{joueur}_{nonce}",
-            use_container_width=True,
-            type="primary",
-        ):
+        if c1.button("✅ Confirmer", key=f"confirm_{owner}_{joueur}_{nonce}", use_container_width=True, type="primary"):
+            # (optionnel) si tu remets Actif un jour
             if to_statut == "Grand Club" and to_slot == "Actif":
                 ok, msg = can_go_actif(cur_pos)
                 if not ok:
@@ -810,21 +585,16 @@ def open_move_dialog():
                 to_slot=to_slot,
                 action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
             )
-
             if ok2:
                 clear_move_ctx()
-
                 if to_slot == "Blessé":
-                    st.toast(f"🩹 {joueur} → Liste des blessés", icon="🩹")
-                elif to_statut == "Grand Club" and to_slot == "Actif":
-                    st.toast(f"🟢 {joueur} → Grand Club (Actif)", icon="🟢")
+                    st.toast(f"🩹 {joueur} placé sur IR (date enregistrée)", icon="🩹")
                 elif to_statut == "Grand Club" and to_slot == "Banc":
                     st.toast(f"🟡 {joueur} → Banc", icon="🟡")
                 elif to_statut == "Club École":
                     st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                 else:
-                    st.toast(f"✅ Déplacement enregistré pour {joueur}", icon="✅")
-
+                    st.toast(f"✅ Déplacement enregistré", icon="✅")
                 do_rerun()
 
         if c2.button("❌ Annuler", key=f"cancel_{owner}_{joueur}_{nonce}", use_container_width=True):
@@ -832,7 +602,6 @@ def open_move_dialog():
             do_rerun()
 
     _dlg()
-
 
 # =====================================================
 # SIDEBAR — Saison & plafonds
@@ -855,19 +624,24 @@ st.session_state["LOCKED"] = LOCKED
 
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
+
 if st.sidebar.button("✏️ Modifier les plafonds"):
     st.session_state["edit_plafond"] = True
 
 if st.session_state.get("edit_plafond"):
     st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club", value=int(st.session_state["PLAFOND_GC"]), step=500_000
+        "Plafond Grand Club",
+        value=int(st.session_state["PLAFOND_GC"]),
+        step=500_000
     )
     st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École", value=int(st.session_state["PLAFOND_CE"]), step=250_000
+        "Plafond Club École",
+        value=int(st.session_state["PLAFOND_CE"]),
+        step=250_000
     )
 
-st.sidebar.metric("🏒 Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("🏫 Club École", money(st.session_state["PLAFOND_CE"]))
+st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
+st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
 # =====================================================
 # LOAD DATA / HISTORY quand saison change
@@ -896,7 +670,6 @@ uploaded = st.sidebar.file_uploader(
     help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
     key=f"fantrax_uploader_{st.session_state['uploader_nonce']}",
 )
-
 if uploaded is not None:
     if LOCKED:
         st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
@@ -912,8 +685,8 @@ if uploaded is not None:
                 st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
                 st.session_state["data"] = clean_data(st.session_state["data"])
                 st.session_state["data"].to_csv(DATA_FILE, index=False)
-                st.sidebar.success("✅ Import réussi")
 
+                st.sidebar.success("✅ Import réussi")
                 st.session_state["uploader_nonce"] += 1
                 do_rerun()
         except Exception as e:
@@ -933,12 +706,6 @@ if df.empty:
     st.stop()
 
 # =====================================================
-# Load players DB + inject tooltip CSS (UNE FOIS)
-# =====================================================
-players_db = load_players_db(PLAYERS_DB_FILE)
-player_tooltip_css()
-
-# =====================================================
 # CALCULS PLAFONDS (EXCLUT BLESSÉS)
 # =====================================================
 resume = []
@@ -951,17 +718,17 @@ for p in df["Propriétaire"].unique():
     for k, v in LOGOS.items():
         if k.lower() in str(p).lower():
             logo = v
+            break
 
-    resume.append(
-        {
-            "Propriétaire": p,
-            "Logo": logo,
-            "GC": int(gc),
-            "Restant GC": int(st.session_state["PLAFOND_GC"] - gc),
-            "CE": int(ce),
-            "Restant CE": int(st.session_state["PLAFOND_CE"] - ce),
-        }
-    )
+    resume.append({
+        "Propriétaire": p,
+        "Logo": logo,
+        "GC": int(gc),
+        "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - gc),
+        "CE": int(ce),
+        "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - ce),
+    })
+
 plafonds = pd.DataFrame(resume)
 
 # =====================================================
@@ -972,15 +739,15 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 )
 
 # =====================================================
-# TAB 1 — Tableau
+# TAB 1 — Tableau (renommé + logos)
 # =====================================================
 with tab1:
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipe**")
-    headers[1].markdown("**Total GC**")
-    headers[2].markdown("**Restant GC**")
-    headers[3].markdown("**Total CE**")
-    headers[4].markdown("**Restant CE**")
+    headers[1].markdown("**Total Grand Club**")
+    headers[2].markdown("**Montant Disponible GC**")
+    headers[3].markdown("**Total Club École**")
+    headers[4].markdown("**Montant Disponible CE**")
 
     for _, r in plafonds.iterrows():
         cols = st.columns([4, 2, 2, 2, 2])
@@ -996,31 +763,21 @@ with tab1:
             b.markdown(f"**{owner}**")
 
         cols[1].markdown(money(r["GC"]))
-        cols[2].markdown(money(r["Restant GC"]))
+        cols[2].markdown(money(r["Montant Disponible GC"]))
         cols[3].markdown(money(r["CE"]))
-        cols[4].markdown(money(r["Restant CE"]))
+        cols[4].markdown(money(r["Montant Disponible CE"]))
 
 # =====================================================
-# TAB A — Alignement (hover + bouton Déplacer) + IR
+# TAB A — Alignement (3 tableaux + checkbox + pop-up)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-    st.caption("Hover sur le nom = carte du joueur. Clique 'Déplacer' = ouvre le pop-up.")
 
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
         key="align_owner",
     )
-
-    # Click "Déplacer" via query param
-    picked_qp = _get_qp("pick")
-    if picked_qp:
-        picked_qp = unquote(picked_qp).strip()
-        if picked_qp:
-            set_move_ctx(proprietaire, picked_qp)
-        _clear_qp("pick")
-        do_rerun()
 
     st.session_state["data"] = clean_data(st.session_state["data"])
     data_all = st.session_state["data"]
@@ -1033,7 +790,7 @@ with tabA:
     ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
 
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+    gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
     # counts actifs
     tmp = gc_actif.copy()
@@ -1050,31 +807,52 @@ with tabA:
     st.session_state["align_counts"] = {"F": nb_F, "D": nb_D, "G": nb_G}
 
     top = st.columns([1, 1, 1, 1, 1])
-    top[0].metric("GC", money(total_gc))
-    top[1].metric("R GC", money(restant_gc))
-    top[2].metric("CE", money(total_ce))
-    top[3].metric("R CE", money(restant_ce))
+    top[0].metric("Total Grand Club", money(total_gc))
+    top[1].metric("Montant Disponible GC", money(restant_gc))
+    top[2].metric("Total Club École", money(total_ce))
+    top[3].metric("Montant Disponible CE", money(restant_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
 
-    st.caption(f"Actifs: F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
+    st.markdown(
+        colored_count("F", nb_F, 12) + " • " + colored_count("D", nb_D, 6) + " • " + colored_count("G", nb_G, 2),
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     c1, c2, c3 = st.columns(3)
+    picked = None
     with c1:
-        render_table_with_hover(gc_actif, qp_key="pick", title="🟢 Actifs", max_height=320, show_ir_date=False)
+        picked = selectable_roster_table(gc_actif, key="tbl_actifs", title="🟢 Actifs") or picked
     with c2:
-        render_table_with_hover(gc_banc, qp_key="pick", title="🟡 Banc", max_height=320, show_ir_date=False)
+        picked = selectable_roster_table(gc_banc, key="tbl_banc", title="🟡 Banc") or picked
     with c3:
-        render_table_with_hover(ce_all, qp_key="pick", title="🔵 Mineur", max_height=320, show_ir_date=False)
+        picked = selectable_roster_table(ce_all, key="tbl_mineur", title="🔵 Mineur") or picked
+
+    if picked:
+        set_move_ctx(proprietaire, picked)
+        do_rerun()
 
     st.divider()
-    render_table_with_hover(injured_all, qp_key="pick", title="🩹 Joueurs Blessés (IR) — Salaire non comptabilisé", max_height=380, show_ir_date=True)
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
 
-    # IMPORTANT : appeler le pop-up à la fin
+    if "IR Date" not in st.session_state["data"].columns:
+        st.session_state["data"]["IR Date"] = ""
+        st.session_state["data"] = clean_data(st.session_state["data"])
+        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+
+    if injured_all.empty:
+        st.info("Aucun joueur blessé.")
+    else:
+        ir_show = injured_all.copy()
+        ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
+        ir_show["Salaire"] = ir_show["Salaire"].apply(money)
+        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).replace("", "—")
+        st.dataframe(ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]], use_container_width=True, hide_index=True)
+
     open_move_dialog()
 
 # =====================================================
-# TAB J — Joueurs (Autonomes) + comparaison
+# TAB J — Joueurs (Autonomes)
 # =====================================================
 with tabJ:
     st.subheader("👤 Joueurs (Autonomes)")
@@ -1086,7 +864,7 @@ with tabJ:
         st.stop()
 
     if "Player" not in df_db.columns:
-        # tentatives auto
+        # fallback
         possible = None
         for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
             if cand in df_db.columns:
@@ -1170,7 +948,6 @@ with tabJ:
     else:
         cap_enabled = True
         df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
-
         cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
         cap_min, cap_max = st.slider(
             "Plage Cap Hit",
@@ -1190,7 +967,6 @@ with tabJ:
         st.info("Entre au moins un filtre pour afficher les résultats.")
     else:
         dff = df_db.copy()
-
         if q_name.strip():
             dff = dff[dff["Player"].astype(str).str.contains(q_name, case=False, na=False)]
         if q_team != "Toutes" and "Team" in dff.columns:
@@ -1206,7 +982,6 @@ with tabJ:
             st.warning("Aucun joueur trouvé avec ces critères.")
         else:
             dff = dff.head(250).reset_index(drop=True)
-            st.divider()
             st.markdown("### Résultats")
 
             nhl_gp_col = "NHL GP" if "NHL GP" in dff.columns else None
@@ -1231,6 +1006,7 @@ with tabJ:
 
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
+    # Comparaison 2 joueurs
     st.divider()
     st.markdown("### 📊 Comparer 2 joueurs")
 
@@ -1301,12 +1077,10 @@ with tabJ:
     else:
         r1 = df_db[df_db["Player"].astype(str) == str(p1)].head(1)
         r2 = df_db[df_db["Player"].astype(str) == str(p2)].head(1)
-
         if r1.empty or r2.empty:
             st.error("Impossible de trouver un des joueurs dans la base.")
         else:
             df_cmp = pd.concat([r1, r2], ignore_index=True)
-
             nhl_gp_col = "NHL GP" if "NHL GP" in df_cmp.columns else None
 
             cmp_show_cols = []
@@ -1315,7 +1089,6 @@ with tabJ:
                     cmp_show_cols.append(c)
 
             df_cmp_show = df_cmp[cmp_show_cols].copy()
-
             if nhl_gp_col:
                 insert_at = 3 if ("Position" in df_cmp_show.columns) else 1
                 df_cmp_show.insert(insert_at, "GP", df_cmp[nhl_gp_col])
@@ -1330,7 +1103,7 @@ with tabJ:
             st.dataframe(df_cmp_show, use_container_width=True, hide_index=True)
 
 # =====================================================
-# TAB H — Historique + Undo + Delete
+# TAB H — Historique
 # =====================================================
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
@@ -1398,20 +1171,19 @@ with tabH:
 
                             st.session_state["data"].loc[mask, "Statut"] = str(r["from_statut"])
                             st.session_state["data"].loc[mask, "Slot"] = str(r["from_slot"]) if str(r["from_slot"]).strip() else ""
+                            # si on undo un move IR -> hors IR, on clear IR Date
+                            if cur_slot == "Blessé" and str(r["from_slot"]).strip() != "Blessé":
+                                st.session_state["data"].loc[mask, "IR Date"] = ""
 
                             st.session_state["data"] = clean_data(st.session_state["data"])
                             st.session_state["data"].to_csv(DATA_FILE, index=False)
 
                             log_history_row(
-                                owner,
-                                joueur,
-                                pos0,
-                                equipe0,
-                                cur_statut,
-                                cur_slot,
+                                owner, joueur, pos0, equipe0,
+                                cur_statut, cur_slot,
                                 str(r["from_statut"]),
                                 (str(r["from_slot"]) if str(r["from_slot"]).strip() else ""),
-                                action=f"UNDO #{rid}",
+                                action=f"UNDO #{rid}"
                             )
 
                             st.toast("↩️ Changement annulé", icon="↩️")
@@ -1426,7 +1198,7 @@ with tabH:
                     do_rerun()
 
 # =====================================================
-# TAB 2 — Transactions (validation plafonds)
+# TAB 2 — Transactions
 # =====================================================
 with tab2:
     p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
@@ -1434,7 +1206,7 @@ with tab2:
     statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
 
     ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
-    reste = ligne["Restant GC"] if statut == "Grand Club" else ligne["Restant CE"]
+    reste = ligne["Montant Disponible GC"] if statut == "Grand Club" else ligne["Montant Disponible CE"]
 
     if salaire > reste:
         st.error("🚨 Dépassement du plafond")
@@ -1442,11 +1214,11 @@ with tab2:
         st.success("✅ Transaction valide")
 
 # =====================================================
-# TAB 3 — Recommandations (simple)
+# TAB 3 — Recommandations
 # =====================================================
 with tab3:
     for _, r in plafonds.iterrows():
-        if r["Restant GC"] < 2_000_000:
+        if r["Montant Disponible GC"] < 2_000_000:
             st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
-        if r["Restant CE"] > 10_000_000:
+        if r["Montant Disponible CE"] > 10_000_000:
             st.info(f"{r['Propriétaire']} : rappel possible")
