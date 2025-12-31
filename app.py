@@ -13,9 +13,12 @@ import textwrap
 # =====================================================
 # FILE GUARDS (STREAMLIT CLOUD SAFE)
 # =====================================================
-def must_exist(path: str):
+def must_exist(path: str, label: str = ""):
     if not os.path.exists(path):
-        st.error(f"❌ Fichier manquant : {path}")
+        msg = f"❌ Fichier introuvable : {path}"
+        if label:
+            msg += f" ({label})"
+        st.error(msg)
         st.stop()
 
 # =====================================================
@@ -1211,8 +1214,14 @@ import pandas as pd
 import os
 ...
 
-def must_exist(...):
-    ...
+# =====================================================
+# FILE GUARD (STREAMLIT CLOUD SAFE)
+# =====================================================
+def must_exist(path: str):
+    if not os.path.exists(path):
+        st.error(f"❌ Fichier introuvable : {path}")
+        st.stop()
+
 
 def nhl_headshot(...):
     ...
