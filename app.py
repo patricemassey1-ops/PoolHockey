@@ -1044,19 +1044,18 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (FINAL COMPLET & PROPRE)
-#   - 3 tableaux (Actifs / Banc / Mineur)
-#   - IR cliquable (pour sortir vers Actifs/Banc/Mineur)
-#   - sélection unique (1 joueur max)
-#   - mini jauge plafonds GC/CE (rouge si négatif)
-#   - pop-up géré par open_move_dialog()
+# TAB A — Alignement (BLOC COMPLET, PROPRE, CORRIGÉ)
+#  ✅ Jauge: remplie selon UTILISÉ/CAP (pleine proche du plafond)
+#  ✅ AUCUN HTML dans les tableaux (donc plus d'erreurs <span ...>)
+#  ✅ IR: sélection cliquable + pop-up permet Actifs/Banc/Mineur
+#  ✅ Annuler du pop-up: fonctionne (clear ctx + rerun)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ============================
-    # PROPRIÉTAIRE
-    # ============================
+    # ----------------------------
+    # Propriétaire
+    # ----------------------------
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
@@ -1067,32 +1066,49 @@ with tabA:
     df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
-    # ============================
-    # HELPERS (TAB-LOCAL) — SAFE Streamlit
-    # ============================
-    def cap_bar(used: int, cap: int, label: str) -> str:
+    # ----------------------------
+    # Helpers TAB-LOCAL (safe)
+    # ----------------------------
+    def cap_bar_used(used: int, cap: int, label: str) -> str:
+        """
+        Bar = USED/CAP (donc pleine quand on approche le plafond)
+        Si dépassement: bar rouge pleine + texte dépassement
+        """
+        used = int(used)
+        cap = int(cap) if cap else 0
         remain = cap - used
-        pct = min((abs(remain) / cap) if cap else 0, 1.0)
-        color = "#16a34a" if remain >= 0 else "#dc2626"
+
+        if cap <= 0:
+            pct = 0
+        else:
+            pct = min(max(used / cap, 0), 1.0)
+
+        over = used - cap
+        is_over = over > 0
+        color = "#dc2626" if is_over else "#16a34a"  # rouge si dépasse
+
+        over_txt = f"<div style='font-size:11px;font-weight:800;color:#dc2626'>Dépassement : {money(over)}</div>" if is_over else ""
+
         return f"""
         <div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800">
             <span>{label}</span>
-            <span style="color:{color}">{money(remain)}</span>
+            <span style="color:{'#dc2626' if remain < 0 else '#111827'}">{money(remain)}</span>
           </div>
           <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
             <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
           </div>
-          <div style="font-size:11px;opacity:.7">
+          <div style="font-size:11px;opacity:.75">
             Utilisé : {money(used)} / {money(cap)}
           </div>
+          {over_txt}
         </div>
         """
 
     def clear_other_selections(keep_key: str):
         """
-        Vider la sélection des autres dataframes (sans réassigner st.session_state[key]).
-        Compatible Streamlit (évite StreamlitAPIException).
+        Vider la sélection des autres dataframes SANS réassigner st.session_state[key]
+        (évite StreamlitAPIException).
         """
         for k in ["sel_actifs", "sel_banc", "sel_min", "sel_ir"]:
             if k == keep_key:
@@ -1103,9 +1119,55 @@ with tabA:
                 if isinstance(sel, dict) and "rows" in sel:
                     sel["rows"].clear()
 
-    # ============================
-    # GROUPES (IR séparé)
-    # ============================
+    def pick_from_df_local(df_ui: pd.DataFrame, key: str):
+        """
+        Retourne le Joueur sélectionné dans st.dataframe(selection_mode="single-row")
+        """
+        ss = st.session_state.get(key)
+        if not isinstance(ss, dict):
+            return None
+        sel = ss.get("selection", {})
+        rows = sel.get("rows", [])
+        if not rows:
+            return None
+        idx = int(rows[0])
+        if df_ui is None or df_ui.empty:
+            return None
+        if idx < 0 or idx >= len(df_ui):
+            return None
+        return str(df_ui.iloc[idx]["Joueur"]).strip()
+
+    def view_for_click_plain(x: pd.DataFrame) -> pd.DataFrame:
+        """
+        UI table SANS HTML (sinon Streamlit affiche les <span ...>)
+        """
+        if x is None or x.empty:
+            return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
+
+        y = x.copy()
+        if "Joueur" not in y.columns:
+            y["Joueur"] = ""
+        if "Equipe" not in y.columns:
+            y["Equipe"] = ""
+        if "Pos" not in y.columns:
+            y["Pos"] = "F"
+        if "Salaire" not in y.columns:
+            y["Salaire"] = 0
+
+        y["Pos"] = y["Pos"].apply(normalize_pos)
+
+        # tri positions
+        y["_pos_order"] = y["Pos"].apply(pos_sort_key)
+        y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
+
+        # salaire formaté (texte simple)
+        y["Salaire"] = y["Salaire"].apply(money)
+
+        return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
+
+    # ----------------------------
+    # Groupes (IR séparé)
+    # ----------------------------
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
@@ -1115,18 +1177,18 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # ============================
-    # COMPTE POSITIONS (Actifs)
-    # ============================
+    # ----------------------------
+    # Compte positions (Actifs)
+    # ----------------------------
     tmp = gc_actif.copy()
     tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
     nb_F = int((tmp["Pos"] == "F").sum())
     nb_D = int((tmp["Pos"] == "D").sum())
     nb_G = int((tmp["Pos"] == "G").sum())
 
-    # ============================
-    # PLAFONDS (IR exclu car on calcule sur dprop_ok)
-    # ============================
+    # ----------------------------
+    # Plafonds (IR exclu ici)
+    # ----------------------------
     cap_gc = int(st.session_state["PLAFOND_GC"])
     cap_ce = int(st.session_state["PLAFOND_CE"])
     used_gc = int(gc_all["Salaire"].sum())
@@ -1134,18 +1196,18 @@ with tabA:
     remain_gc = int(cap_gc - used_gc)
     remain_ce = int(cap_ce - used_ce)
 
-    # ============================
-    # MINI JAUGES
-    # ============================
+    # ----------------------------
+    # Jauges (corrigées)
+    # ----------------------------
     b1, b2 = st.columns(2)
     with b1:
-        st.markdown(cap_bar(used_gc, cap_gc, "📉 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+        st.markdown(cap_bar_used(used_gc, cap_gc, "📉 Plafond Grand Club (GC)"), unsafe_allow_html=True)
     with b2:
-        st.markdown(cap_bar(used_ce, cap_ce, "📉 Plafond Club École (CE)"), unsafe_allow_html=True)
+        st.markdown(cap_bar_used(used_ce, cap_ce, "📉 Plafond Club École (CE)"), unsafe_allow_html=True)
 
-    # ============================
-    # METRICS + COMPTEURS
-    # ============================
+    # ----------------------------
+    # Metrics + compteur actifs
+    # ----------------------------
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(used_gc))
     top[1].metric("Montant Disponible GC", money(remain_gc))
@@ -1155,20 +1217,19 @@ with tabA:
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
     st.divider()
 
-    # ============================
-    # TABLEAUX (Actifs / Banc / Mineur)
-    # ============================
-    df_actifs_ui = view_for_click(gc_actif)
-    df_banc_ui   = view_for_click(gc_banc)
-    df_min_ui    = view_for_click(ce_all)
+    # ----------------------------
+    # Tables (SANS HTML)
+    # ----------------------------
+    df_actifs_ui = view_for_click_plain(gc_actif)
+    df_banc_ui   = view_for_click_plain(gc_banc)
+    df_min_ui    = view_for_click_plain(ce_all)
 
     t1, t2, t3 = st.columns(3)
-
     with t1:
         st.markdown("### 🟢 Actifs")
         st.dataframe(
@@ -1179,7 +1240,6 @@ with tabA:
             on_select="rerun",
             key="sel_actifs",
         )
-
     with t2:
         st.markdown("### 🟡 Banc")
         st.dataframe(
@@ -1190,7 +1250,6 @@ with tabA:
             on_select="rerun",
             key="sel_banc",
         )
-
     with t3:
         st.markdown("### 🔵 Mineur")
         st.dataframe(
@@ -1202,9 +1261,9 @@ with tabA:
             key="sel_min",
         )
 
-    # ============================
-    # IR — CLIQUABLE
-    # ============================
+    # ----------------------------
+    # IR cliquable (SANS HTML)
+    # ----------------------------
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
 
@@ -1212,11 +1271,21 @@ with tabA:
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
-        # (optionnel) ajoute IR Date si présente
+        # affiche IR Date si présent, en TEXTE simple
         ir_show = injured_all.copy()
         if "IR Date" in ir_show.columns:
             ir_show["IR Date"] = ir_show["IR Date"].astype(str).str.strip().replace("", "—")
-        df_ir_ui = view_for_click(ir_show)
+
+        df_ir_ui = view_for_click_plain(ir_show)
+        # (optionnel) on rajoute IR Date dans la table IR seulement
+        if "IR Date" in ir_show.columns:
+            df_ir_ui = df_ir_ui.merge(
+                ir_show[["Joueur", "IR Date"]].drop_duplicates(),
+                on="Joueur",
+                how="left",
+            )
+            df_ir_ui["IR Date"] = df_ir_ui["IR Date"].fillna("—")
+            df_ir_ui = df_ir_ui[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]]
 
         st.dataframe(
             df_ir_ui,
@@ -1227,23 +1296,21 @@ with tabA:
             key="sel_ir",
         )
 
-    # ============================
-    # SÉLECTION UNIQUE (Actifs/Banc/Mineur/IR) -> ouvre dialog
-    # ============================
+    # ----------------------------
+    # Sélection unique (Actifs/Banc/Mineur/IR) -> ouvre dialog
+    # ----------------------------
     picked = None
     picked_key = None
-
-    df_ir_ui_safe = locals().get("df_ir_ui", None)
 
     for k, df_ui in [
         ("sel_actifs", df_actifs_ui),
         ("sel_banc",   df_banc_ui),
         ("sel_min",    df_min_ui),
-        ("sel_ir",     df_ir_ui_safe),
+        ("sel_ir",     df_ir_ui),
     ]:
         if df_ui is None or df_ui.empty:
             continue
-        p = pick_from_df(df_ui, k)
+        p = pick_from_df_local(df_ui, k)
         if p:
             picked = str(p).strip()
             picked_key = k
@@ -1257,25 +1324,29 @@ with tabA:
         ctx_joueur = str(ctx.get("joueur") or ctx.get("Joueur") or ctx.get("player") or "").strip()
 
         if (ctx_owner, ctx_joueur) != cur_pick:
+            st.session_state["move_source"] = picked_key   # ex: "sel_ir"
             set_move_ctx(cur_pick[0], cur_pick[1])
             clear_other_selections(picked_key)
             do_rerun()
 
-    # ============================
-    # POP-UP (toujours à la fin)
-    # ============================
+    # ----------------------------
+    # Pop-up (toujours à la fin)
+    # IMPORTANT:
+    #  - open_move_dialog() doit inclure IR -> Actifs/Banc/Mineur
+    #  - et le bouton Annuler doit faire clear_move_ctx(); do_rerun()
+    # ----------------------------
     open_move_dialog()
 
 
 
 
-    # =====================================================
+
+ # =====================================================
 # POP-UP DÉPLACEMENT (FINAL)
-#   - Si joueur vient de IR -> UI ultra compacte (3 boutons 1-clic)
+#   - Si joueur est sur IR (Slot=Blessé) OU vient de sel_ir -> UI ultra compacte (3 boutons 1-clic)
 #   - Sinon -> radio + Confirmer/Annuler
 #   - Annuler fonctionne toujours
 # =====================================================
-
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -1286,8 +1357,8 @@ def open_move_dialog():
         clear_move_ctx()
         return
 
-    owner = str(ctx.get("owner", "")).strip()
-    joueur = str(ctx.get("joueur", "")).strip()
+    owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
+    joueur = str(ctx.get("joueur") or ctx.get("Joueur") or ctx.get("player") or "").strip()
     nonce = int(ctx.get("nonce", 0))
 
     df_all = st.session_state.get("data")
@@ -1296,7 +1367,10 @@ def open_move_dialog():
         clear_move_ctx()
         return
 
-    mask = (df_all["Propriétaire"].astype(str).str.strip() == owner) & (df_all["Joueur"].astype(str).str.strip() == joueur)
+    mask = (
+        df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+        & df_all["Joueur"].astype(str).str.strip().eq(joueur)
+    )
     if df_all[mask].empty:
         st.error("Joueur introuvable.")
         clear_move_ctx()
@@ -1309,7 +1383,7 @@ def open_move_dialog():
     cur_equipe = str(row.get("Equipe", "")).strip()
     cur_salaire = int(row.get("Salaire", 0))
 
-    # Détection "vient de IR"
+    # ✅ IR mode si le joueur est sur IR, ou si le clic vient du tableau IR
     source = str(st.session_state.get("move_source", "")).strip()
     from_ir = (cur_slot == "Blessé") or (source == "sel_ir")
 
@@ -1341,7 +1415,6 @@ def open_move_dialog():
             background:rgba(255,255,255,.04);
             border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800}
       .chip b{opacity:.75}
-      .btnrow button{height:44px;font-weight:900}
     </style>
     """
 
@@ -1359,7 +1432,6 @@ def open_move_dialog():
     ]).strip()
 
     def _close():
-        # optionnel : effacer la source aussi
         st.session_state["move_source"] = ""
         clear_move_ctx()
 
@@ -1387,7 +1459,7 @@ def open_move_dialog():
         st.divider()
 
         # =================================================
-        # MODE IR ULTRA COMPACT (1 clic)
+        # ✅ MODE IR ULTRA COMPACT (1 clic)
         # =================================================
         if from_ir:
             st.caption("Sortie de IR (1 clic)")
@@ -1395,21 +1467,39 @@ def open_move_dialog():
             bA, bB, bC = st.columns(3)
 
             if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Grand Club", "Actif", "IR → Actif")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Actif",
+                    action_label="IR → Actif",
+                )
                 if ok:
                     st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
                     _close()
                     do_rerun()
 
             if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Grand Club", "Banc", "IR → Banc")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Banc",
+                    action_label="IR → Banc",
+                )
                 if ok:
                     st.toast(f"🟡 {joueur} → Banc", icon="🟡")
                     _close()
                     do_rerun()
 
             if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Club École", "", "IR → Mineur")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Club École",
+                    to_slot="",
+                    action_label="IR → Mineur",
+                )
                 if ok:
                     st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                     _close()
@@ -1457,7 +1547,6 @@ def open_move_dialog():
                 action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
             )
             if ok:
-                # Toast intelligent
                 if to_slot == "Blessé":
                     st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
                 elif to_statut == "Grand Club" and to_slot == "Actif":
@@ -1477,6 +1566,7 @@ def open_move_dialog():
             do_rerun()
 
     _dlg()
+
 
 
 
