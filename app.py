@@ -163,56 +163,47 @@ def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
 # STREAMLIT TABLE SELECTION — TRIO 100% COMPATIBLE
 # =====================================================
 
-SELECTION_KEYS = ("sel_actifs", "sel_banc", "sel_min")
+def clear_other_selections(keep_key: str):
+    """
+    Vider la sélection des 2 autres dataframes (sans réassigner st.session_state[k]).
+    Évite l'erreur StreamlitAPIException.
+    """
+    for k in ["sel_actifs", "sel_banc", "sel_min"]:
+        if k == keep_key:
+            continue
 
-def clear_df_selections(keys=SELECTION_KEYS):
-    """
-    Clear selections for st.dataframe widgets.
-    Compatible with Streamlit selection state.
-    """
-    for k in keys:
-        ss = st.session_state.get(k)
-        if isinstance(ss, dict):
-            sel = ss.get("selection")
-            if not isinstance(sel, dict):
-                ss["selection"] = {"rows": [], "columns": []}
-            else:
+        if k in st.session_state and isinstance(st.session_state[k], dict):
+            # Streamlit stocke la sélection ici:
+            # st.session_state[k]["selection"]["rows"] = [...]
+            sel = st.session_state[k].get("selection")
+            if isinstance(sel, dict):
                 sel["rows"] = []
-                sel["columns"] = []
-                ss["selection"] = sel
-            st.session_state[k] = ss
+                # pas besoin de réassigner st.session_state[k] = ...
+            else:
+                st.session_state[k]["selection"] = {"rows": []}
 
 
-def get_selected_row_index(key: str) -> int | None:
+def pick_from_df(df_ui: pd.DataFrame, key: str):
+    """
+    Retourne le nom du joueur sélectionné dans un st.dataframe(selection_mode="single-row").
+    """
     ss = st.session_state.get(key)
     if not isinstance(ss, dict):
         return None
-    sel = ss.get("selection")
-    if not isinstance(sel, dict):
-        return None
+
+    sel = ss.get("selection", {})
     rows = sel.get("rows", [])
-    if isinstance(rows, list) and rows:
-        try:
-            return int(rows[0])
-        except Exception:
-            return None
-    return None
+    if not rows:
+        return None
 
-
-def pick_from_df(df_ui: pd.DataFrame, key: str, col_name: str = "Joueur") -> str | None:
+    idx = int(rows[0])
     if df_ui is None or df_ui.empty:
         return None
-
-    idx = get_selected_row_index(key)
-    if idx is None or idx < 0 or idx >= len(df_ui):
+    if idx < 0 or idx >= len(df_ui):
         return None
 
-    if col_name not in df_ui.columns:
-        return None
+    return str(df_ui.iloc[idx]["Joueur"]).strip()
 
-    val = df_ui.iloc[idx][col_name]
-    s = str(val).strip()
-    return s if s else None
 
 
 # =====================================================
@@ -1051,32 +1042,54 @@ with c3:
     )
 
 # -------------------------------------------------
-# ✅ Sélection => ouvre le pop-up SANS boucle
+# ✅ Sélection => ouvre le pop-up SANS boucle (Streamlit safe)
 # -------------------------------------------------
-picked = (
-    pick_from_df(df_actifs_ui, "sel_actifs")
-    or pick_from_df(df_banc_ui, "sel_banc")
-    or pick_from_df(df_min_ui, "sel_min")
-)
+picked = None
+picked_key = None
+
+p = pick_from_df(df_actifs_ui, "sel_actifs")
+if p:
+    picked = p
+    picked_key = "sel_actifs"
+
+if not picked:
+    p = pick_from_df(df_banc_ui, "sel_banc")
+    if p:
+        picked = p
+        picked_key = "sel_banc"
+
+if not picked:
+    p = pick_from_df(df_min_ui, "sel_min")
+    if p:
+        picked = p
+        picked_key = "sel_min"
 
 if picked:
     picked = str(picked).strip()
-    cur_pick = (proprietaire, picked)
+    owner = str(proprietaire).strip()
+    cur_pick = (owner, picked)
 
+    # Context actuel (si déjà ouvert, ne rien faire)
     ctx = st.session_state.get("move_ctx") or {}
-    ctx_owner = ctx.get("owner") or ctx.get("proprietaire")
-    ctx_joueur = ctx.get("joueur") or ctx.get("player")
+    ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
+    ctx_joueur = str(ctx.get("joueur") or ctx.get("player") or "").strip()
     already_open = (ctx_owner, ctx_joueur) == cur_pick
 
     if not already_open:
+        # ✅ on vide d'abord les 2 autres sélections
+        clear_other_selections(picked_key)
+
+        # Anti-double ouverture sur le même clic (rerun)
         last_pick = st.session_state.get("last_pick_align")
         if last_pick != cur_pick:
             st.session_state["last_pick_align"] = cur_pick
-            set_move_ctx(proprietaire, picked)
+            set_move_ctx(owner, picked)
 
-        # IMPORTANT: vider la sélection avant rerun (évite loop)
-        clear_df_selections()
-        st.rerun()
+        # ✅ force un rerun pour que le dialog s'affiche
+        do_rerun()
+
+open_move_dialog()
+
 
 # -------------------------------------------------
 # 🩹 IR — table simple (sans sélection dataframe)
