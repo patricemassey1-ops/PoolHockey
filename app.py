@@ -795,22 +795,30 @@ with tab1:
     headers[4].markdown("**Montant Disponible CE**")
 
     for _, r in plafonds.iterrows():
-        cols = st.columns([4, 2, 2, 2, 2])
-        owner = str(r["Propriétaire"])
-        logo_path = str(r["Logo"]).strip()
+    cols = st.columns([4, 2, 2, 2, 2])
 
-        with cols[0]:
-            a, b = st.columns([1, 4])
-       if logo_path and os.path.exists(logo_path):
-    a.image(logo_path, width=LOGO_SIZE)
-else:
-    a.markdown("—")
+    owner = str(r["Propriétaire"])
+    logo_path = str(r.get("Logo", "")).strip()
 
+    # --- COLONNE ÉQUIPE ---
+    with cols[0]:
+        a, b = st.columns([1, 4])
 
-        cols[1].markdown(money(r["GC"]))
-        cols[2].markdown(money(r["Montant Disponible GC"]))
-        cols[3].markdown(money(r["CE"]))
-        cols[4].markdown(money(r["Montant Disponible CE"]))
+        with a:
+            if logo_path and os.path.exists(logo_path):
+                st.image(logo_path, width=LOGO_SIZE)
+            else:
+                st.markdown("—")
+
+        with b:
+            st.markdown(f"**{owner}**")
+
+    # --- AUTRES COLONNES ---
+    cols[1].markdown(money(r["Total Grand Club"]))
+    cols[2].markdown(money(r["Montant Disponible GC"]))
+    cols[3].markdown(money(r["Total Club École"]))
+    cols[4].markdown(money(r["Montant Disponible CE"]))
+
 
 # =====================================================
 # TAB A — Alignement (3 tableaux + checkbox + pop-up)
