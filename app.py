@@ -1155,23 +1155,22 @@ with tabA:
         """
         <style>
           .cardbox{
-          border: 2px solid rgba(255,255,255,.85);
-          border-radius: 14px;
-          padding: 10px 12px;
-          background: rgba(255,255,255,.03);
-          box-shadow: 0 1px 10px rgba(0,0,0,.10);
-        }
-        .cardtitle{
-          font-weight: 950;
-          font-size: 14px;
-          margin: 0 0 6px 0;
-          opacity: .95;
-        }
-      </style>
-      """,
-      unsafe_allow_html=True,
-   )
-
+            border: 2px solid rgba(255,255,255,.85);
+            border-radius: 14px;
+            padding: 10px 12px;
+            background: rgba(255,255,255,.03);
+            box-shadow: 0 1px 10px rgba(0,0,0,.10);
+          }
+          .cardtitle{
+            font-weight: 950;
+            font-size: 14px;
+            margin: 0 0 6px 0;
+            opacity: .95;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ============================
     # Propriétaire
@@ -1265,114 +1264,69 @@ with tabA:
         unsafe_allow_html=True
     )
 
-
-
-    # ============================
-    # Guard popup
-    # ============================
+    # ---------
+    # Guard anti “re-pick” pendant popup
+    # ---------
     popup_open = st.session_state.get("move_ctx") is not None
 
     # ============================
-# LISTES CLIQUABLES (compact)
-#   - Actifs & Mineur: encadrés blanc pleine hauteur
-#   - Banc + IR: même endroit (expanders) avec le visuel IR
-# ============================
-
-# (Optionnel) CSS pour cadres (si tu ne l'as pas déjà plus haut)
-st.markdown(
-    """
-    <style>
-      .cardbox{
-        background: rgba(255,255,255,.06);
-        border: 1px solid rgba(255,255,255,.18);
-        border-radius: 14px;
-        padding: 10px 10px 6px 10px;
-      }
-      .cardtitle{
-        font-weight: 1000;
-        font-size: 16px;
-        margin: 2px 0 8px 0;
-      }
-      /* compact expander */
-      details summary { padding: 6px 10px !important; }
-      details summary p { font-weight: 1000 !important; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-left, right = st.columns([1, 1])
-
-# ---------
-# ACTIFS (encadré blanc COMPLET)
-# ---------
-with left:
-    with st.container():
-        st.markdown("<div class='cardbox'>", unsafe_allow_html=True)
-        st.markdown("<div class='cardtitle'>🟢 Actifs</div>", unsafe_allow_html=True)
-
-        if not popup_open:
-            p = roster_click_list(gc_actif, proprietaire, "actifs")
-            if p:
-                set_move_ctx(proprietaire, p)
-                do_rerun()
-        else:
-            roster_click_list(gc_actif, proprietaire, "actifs_disabled")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------
-# MINEUR (encadré blanc COMPLET)
-# ---------
-with right:
-    with st.container():
-        st.markdown("<div class='cardbox'>", unsafe_allow_html=True)
-        st.markdown("<div class='cardtitle'>🔵 Mineur</div>", unsafe_allow_html=True)
-
-        if not popup_open:
-            p = roster_click_list(ce_all, proprietaire, "min")
-            if p:
-                set_move_ctx(proprietaire, p)
-                do_rerun()
-        else:
-            roster_click_list(ce_all, proprietaire, "min_disabled")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ============================
-# BANC + IR AU MÊME ENDROIT (expanders)
-# ============================
-
-# ✅ même visuel que IR = roster_click_list() (largeur complète)
-with st.expander("🟡 Banc", expanded=False):
-    if gc_banc is None or gc_banc.empty:
-        st.info("Aucun joueur.")
-    else:
-        if not popup_open:
-            p = roster_click_list(gc_banc, proprietaire, "banc")
-            if p:
-                set_move_ctx(proprietaire, p)
-                do_rerun()
-        else:
-            roster_click_list(gc_banc, proprietaire, "banc_disabled")
-
-with st.expander("🩹 Joueurs Blessés (IR)", expanded=False):
-    if injured_all is None or injured_all.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        if not popup_open:
-            p_ir = roster_click_list(injured_all, proprietaire, "ir")
-            if p_ir:
-                set_move_ctx(proprietaire, p_ir)
-                do_rerun()
-        else:
-            roster_click_list(injured_all, proprietaire, "ir_disabled")
-
-
+    # ZONE ROSTER (compact)
+    #   - Actifs & Mineur: encadrés blancs (container border=True)
+    #   - Banc + IR: expanders (plein largeur)
     # ============================
-    # Pop-up déplacement (toujours à la fin)
-    # ============================
+    left, right = st.columns([1, 1], gap="small")
+
+    with left:
+        with st.container(border=True):
+            st.markdown("### 🟢 Actifs")
+            if not popup_open:
+                p = roster_click_list(gc_actif, proprietaire, "actifs")
+                if p:
+                    set_move_ctx(proprietaire, p)
+                    do_rerun()
+            else:
+                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+    with right:
+        with st.container(border=True):
+            st.markdown("### 🔵 Mineur")
+            if not popup_open:
+                p = roster_click_list(ce_all, proprietaire, "min")
+                if p:
+                    set_move_ctx(proprietaire, p)
+                    do_rerun()
+            else:
+                roster_click_list(ce_all, proprietaire, "min_disabled")
+
+    # --- Banc + IR au même endroit (plein largeur) ---
+    with st.expander("🟡 Banc", expanded=False):
+        if gc_banc is None or gc_banc.empty:
+            st.info("Aucun joueur.")
+        else:
+            if not popup_open:
+                p = roster_click_list(gc_banc, proprietaire, "banc")
+                if p:
+                    set_move_ctx(proprietaire, p)
+                    do_rerun()
+            else:
+                roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=False):
+        if injured_all is None or injured_all.empty:
+            st.info("Aucun joueur blessé.")
+        else:
+            if not popup_open:
+                p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                if p_ir:
+                    set_move_ctx(proprietaire, p_ir)
+                    do_rerun()
+            else:
+                roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+    # ✅ Pop-up (toujours à la fin du tabA)
     open_move_dialog()
+
+
 
 
 
