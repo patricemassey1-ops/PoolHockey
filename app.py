@@ -85,6 +85,14 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
+def clear_selection_key(key: str):
+    """Vide la sélection d'un st.dataframe (sans réassigner st.session_state[key])."""
+    ss = st.session_state.get(key)
+    if isinstance(ss, dict):
+        sel = ss.get("selection")
+        if isinstance(sel, dict) and "rows" in sel:
+            sel["rows"].clear()
+
 
 def saison_auto():
     now = datetime.now()
@@ -1319,12 +1327,18 @@ with tabA:
             key="sel_ir",
         )
 
-    # ----------------------------
-    # Sélection unique (Actifs/Banc/Mineur/IR) -> ouvre dialog
-    # ----------------------------
+    # ============================
+# SÉLECTION UNIQUE (Actifs/Banc/Mineur/IR) -> ouvre dialog
+# ✅ Ne traite PAS les clics si un pop-up est déjà ouvert
+# ============================
+
+popup_open = st.session_state.get("move_ctx") is not None
+
+if not popup_open:
     picked = None
     picked_key = None
 
+    # 1) Cherche une sélection dans l'ordre (Actifs -> Banc -> Mineur -> IR)
     for k, df_ui in [
         ("sel_actifs", df_actifs_ui),
         ("sel_banc",   df_banc_ui),
@@ -1333,24 +1347,43 @@ with tabA:
     ]:
         if df_ui is None or df_ui.empty:
             continue
-        p = pick_from_df_local(df_ui, k)
+
+        p = pick_from_df(df_ui, k)
         if p:
             picked = str(p).strip()
             picked_key = k
             break
 
+    # 2) Si on a un joueur sélectionné, on ouvre le pop-up
     if picked and picked_key:
         cur_pick = (str(proprietaire).strip(), picked)
 
+        # ctx courant (compatible: owner/proprietaire + joueur/Joueur/player)
         ctx = st.session_state.get("move_ctx") or {}
         ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
         ctx_joueur = str(ctx.get("joueur") or ctx.get("Joueur") or ctx.get("player") or "").strip()
 
+        # Si pas déjà ouvert sur ce joueur
         if (ctx_owner, ctx_joueur) != cur_pick:
-            st.session_state["move_source"] = picked_key   # ex: "sel_ir"
             set_move_ctx(cur_pick[0], cur_pick[1])
-            clear_other_selections(picked_key)
+
+            # ✅ garde seulement la sélection courante
+            # (si picked_key == sel_ir, ton helper clear_other_selections ne gère pas sel_ir,
+            # donc on clear IR manuellement au besoin)
+            if picked_key in ("sel_actifs", "sel_banc", "sel_min"):
+                clear_other_selections(picked_key)
+                # clear IR si présent
+                if "sel_ir" in st.session_state and isinstance(st.session_state["sel_ir"], dict):
+                    sel = st.session_state["sel_ir"].get("selection")
+                    if isinstance(sel, dict) and "rows" in sel:
+                        sel["rows"].clear()
+            else:
+                # picked_key == sel_ir
+                clear_other_selections("sel_actifs")  # vide les 3 principaux
+                # on laisse sel_ir sélectionné: c'est lui qui a déclenché le popup
+
             do_rerun()
+
 
     # ----------------------------
     # Pop-up (toujours à la fin)
@@ -1482,73 +1515,71 @@ def open_move_dialog():
 
         st.divider()
 
-                # =================================================
-        # ✅ MODE IR ULTRA COMPACT (1 clic)
         # =================================================
-        if from_ir:
-            st.caption("Sortie de IR (1 clic)")
+# ✅ MODE IR ULTRA COMPACT (1 clic)
+# =================================================
+if from_ir:
+    st.caption("Sortie de IR (1 clic)")
+    bA, bB, bC = st.columns(3)
 
-            bA, bB, bC = st.columns(3)
+    def _after_ok_toast(msg, icon):
+        st.toast(msg, icon=icon)
+        # ✅ clear sélections (sans réassigner)
+        clear_selection_key("sel_ir")
+        clear_selection_key("sel_actifs")
+        clear_selection_key("sel_banc")
+        clear_selection_key("sel_min")
+        _close()
+        do_rerun()
 
-            # --- IR -> Actifs
-            if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(
-                    proprietaire=owner,
-                    joueur=joueur,
-                    to_statut="Grand Club",
-                    to_slot="Actif",
-                    action_label="IR → Actif",
-                )
-                if ok:
-                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-                    _close()
-                    do_rerun()
-                else:
-                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-                    st.error(err)
+    if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
+        ok = apply_move_with_history(
+            proprietaire=owner,
+            joueur=joueur,
+            to_statut="Grand Club",
+            to_slot="Actif",
+            action_label="IR → Actif",
+        )
+        if ok:
+            _after_ok_toast(f"🟢 {joueur} → Actifs", "🟢")
+        else:
+            st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
-            # --- IR -> Banc
-            if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(
-                    proprietaire=owner,
-                    joueur=joueur,
-                    to_statut="Grand Club",
-                    to_slot="Banc",
-                    action_label="IR → Banc",
-                )
-                if ok:
-                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
-                    _close()
-                    do_rerun()
-                else:
-                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-                    st.error(err)
+    if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
+        ok = apply_move_with_history(
+            proprietaire=owner,
+            joueur=joueur,
+            to_statut="Grand Club",
+            to_slot="Banc",
+            action_label="IR → Banc",
+        )
+        if ok:
+            _after_ok_toast(f"🟡 {joueur} → Banc", "🟡")
+        else:
+            st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
-            # --- IR -> Mineur
-            if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(
-                    proprietaire=owner,
-                    joueur=joueur,
-                    to_statut="Club École",
-                    to_slot="",
-                    action_label="IR → Mineur",
-                )
-                if ok:
-                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
-                    _close()
-                    do_rerun()
-                else:
-                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-                    st.error(err)
+    if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
+        ok = apply_move_with_history(
+            proprietaire=owner,
+            joueur=joueur,
+            to_statut="Club École",
+            to_slot="",
+            action_label="IR → Mineur",
+        )
+        if ok:
+            _after_ok_toast(f"🔵 {joueur} → Mineur", "🔵")
+        else:
+            st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
-            st.divider()
+    st.divider()
+    if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
+        # ✅ Annuler qui marche toujours
+        clear_selection_key("sel_ir")
+        _close()
+        do_rerun()
 
-            # ✅ Annuler (doit fonctionner)
-            if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
-                _close()
-                do_rerun()
+    return
 
-            return
 
 
         # =================================================
