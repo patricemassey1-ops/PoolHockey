@@ -183,73 +183,6 @@ def pick_from_df(df_ui: pd.DataFrame, key: str):
         return None
     return str(df_ui.iloc[idx]["Joueur"]).strip()
 
-
-# =====================================================
-# CLEAN DATA
-# =====================================================
-REQUIRED_COLS = ["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe", "IR Date"]
-
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None:
-        return pd.DataFrame(columns=REQUIRED_COLS)
-
-    df = df.copy()
-
-    for c in REQUIRED_COLS:
-        if c not in df.columns:
-            df[c] = ""
-
-    # texte
-    for c in ["Propriétaire", "Joueur", "Statut", "Slot", "Pos", "Equipe", "IR Date"]:
-        df[c] = df[c].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-
-    # salaire
-    def _to_int(x):
-        s = str(x).strip().replace(",", "").replace(" ", "")
-        s = re.sub(r"[^\d]", "", s)
-        return int(s) if s.isdigit() else 0
-
-    df["Salaire"] = df["Salaire"].apply(_to_int).astype(int)
-
-    # statut standard
-    df["Statut"] = df["Statut"].replace(
-        {
-            "GC": "Grand Club",
-            "CE": "Club École",
-            "Club Ecole": "Club École",
-            "GrandClub": "Grand Club",
-        }
-    )
-
-    # slot standard
-    df["Slot"] = df["Slot"].replace(
-        {
-            "Active": "Actif",
-            "Bench": "Banc",
-            "IR": "Blessé",
-            "Injured": "Blessé",
-        }
-    )
-
-    # pos standard
-    df["Pos"] = df["Pos"].apply(normalize_pos)
-
-    # sécurité slot selon statut
-    def _fix_row(r):
-        statut = r["Statut"]
-        slot = r["Slot"]
-        if statut == "Club École":
-            if slot not in {"", "Blessé"}:
-                r["Slot"] = ""
-        else:
-            if slot not in {"Actif", "Banc", "Blessé"}:
-                r["Slot"] = "Actif"
-        return r
-
-    df = df.apply(_fix_row, axis=1)
-    df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
-    return df
-
 # =====================================================
 # PLAYERS DB (data/Hockey.Players.csv)
 # =====================================================
@@ -317,6 +250,75 @@ def get_player_row(players_df: pd.DataFrame, player_name: str) -> dict | None:
 
 
 PLAYERS_DB_FILE = "data/Hockey.Players.csv"
+players_db = load_players_db(PLAYERS_DB_FILE)
+
+
+
+# =====================================================
+# CLEAN DATA
+# =====================================================
+REQUIRED_COLS = ["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe", "IR Date"]
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame(columns=REQUIRED_COLS)
+
+    df = df.copy()
+
+    for c in REQUIRED_COLS:
+        if c not in df.columns:
+            df[c] = ""
+
+    # texte
+    for c in ["Propriétaire", "Joueur", "Statut", "Slot", "Pos", "Equipe", "IR Date"]:
+        df[c] = df[c].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+
+    # salaire
+    def _to_int(x):
+        s = str(x).strip().replace(",", "").replace(" ", "")
+        s = re.sub(r"[^\d]", "", s)
+        return int(s) if s.isdigit() else 0
+
+    df["Salaire"] = df["Salaire"].apply(_to_int).astype(int)
+
+    # statut standard
+    df["Statut"] = df["Statut"].replace(
+        {
+            "GC": "Grand Club",
+            "CE": "Club École",
+            "Club Ecole": "Club École",
+            "GrandClub": "Grand Club",
+        }
+    )
+
+    # slot standard
+    df["Slot"] = df["Slot"].replace(
+        {
+            "Active": "Actif",
+            "Bench": "Banc",
+            "IR": "Blessé",
+            "Injured": "Blessé",
+        }
+    )
+
+    # pos standard
+    df["Pos"] = df["Pos"].apply(normalize_pos)
+
+    # sécurité slot selon statut
+    def _fix_row(r):
+        statut = r["Statut"]
+        slot = r["Slot"]
+        if statut == "Club École":
+            if slot not in {"", "Blessé"}:
+                r["Slot"] = ""
+        else:
+            if slot not in {"Actif", "Banc", "Blessé"}:
+                r["Slot"] = "Actif"
+        return r
+
+    df = df.apply(_fix_row, axis=1)
+    df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
+    return df
 
 
 # =====================================================
@@ -1097,11 +1099,15 @@ with tabJ:
     st.subheader("👤 Joueurs (Autonomes)")
     st.caption("Aucun résultat tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
 
-    df_db = players_db.copy()
-    if df_db.empty:
-        st.error(f"Impossible de charger la base joueurs: {PLAYERS_DB_FILE}")
+    # ✅ sécurité
+    if players_db is None or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
         st.stop()
 
+    df_db = players_db.copy()
+
+   
     if "Player" not in df_db.columns:
         # fallback
         possible = None
@@ -1244,12 +1250,11 @@ with tabJ:
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
             st.dataframe(
-    df_actifs_ui,
+    df_show,
     use_container_width=True,
     hide_index=True,
-    selection_mode="single-row",
-    key="sel_actifs",
 )
+
 
 
 
@@ -1348,12 +1353,12 @@ with tabJ:
                 df_cmp_show[c] = df_cmp_show[c].apply(_clean_intlike)
 
             st.dataframe(
-    df_actifs_ui,
+    df_cmp_show,
     use_container_width=True,
     hide_index=True,
-    selection_mode="single-row",
-    key="sel_actifs",
 )
+
+
 
 
 
