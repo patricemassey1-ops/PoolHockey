@@ -59,125 +59,28 @@ def find_logo_for_owner(owner: str) -> str:
 
 
 # =====================================================
-# UTILS / HELPERS    
+# UTILS / HELPERS (COMPLET) + Badges couleur + listes cliquables
 # =====================================================
+import html
+import re
+from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+
+
 def do_rerun():
     if hasattr(st, "rerun"):
         st.rerun()
     else:
         st.experimental_rerun()
 
+
 def money(v):
     try:
         return f"{int(v):,}".replace(",", " ") + " $"
     except Exception:
         return "0 $"
-
-# =====================================================
-# MOVE + HISTORY (robuste + erreurs lisibles)
-# =====================================================
-
-def apply_move_with_history(
-    proprietaire: str,
-    joueur: str,
-    to_statut: str,
-    to_slot: str,
-    action_label: str
-) -> bool:
-    """
-    Déplace un joueur (Statut/Slot) + gère IR Date + log historique.
-    Stocke la dernière erreur dans st.session_state["last_move_error"].
-    """
-    st.session_state["last_move_error"] = ""  # reset
-
-    if st.session_state.get("LOCKED"):
-        st.session_state["last_move_error"] = "🔒 Saison verrouillée : modification impossible."
-        return False
-
-    df0 = st.session_state.get("data")
-    if df0 is None or df0.empty:
-        st.session_state["last_move_error"] = "Aucune donnée en mémoire (data vide)."
-        return False
-
-    df0 = df0.copy()
-
-    # S'assure des colonnes minimales
-    for c in ["Propriétaire", "Joueur", "Statut", "Slot", "Pos", "Equipe", "Salaire", "IR Date"]:
-        if c not in df0.columns:
-            df0[c] = ""
-
-    proprietaire = str(proprietaire).strip()
-    joueur = str(joueur).strip()
-    to_statut = str(to_statut).strip()
-    to_slot = str(to_slot).strip()
-
-    # Validation slots
-    allowed_slots_gc = {"Actif", "Banc", "Blessé"}
-    allowed_slots_ce = {"", "Blessé"}
-
-    if to_statut == "Grand Club" and to_slot not in allowed_slots_gc:
-        st.session_state["last_move_error"] = f"Slot invalide pour Grand Club: {to_slot}"
-        return False
-    if to_statut == "Club École" and to_slot not in allowed_slots_ce:
-        st.session_state["last_move_error"] = f"Slot invalide pour Club École: {to_slot}"
-        return False
-
-    # Trouve la ligne
-    mask = (df0["Propriétaire"].astype(str).str.strip() == proprietaire) & (df0["Joueur"].astype(str).str.strip() == joueur)
-    if df0.loc[mask].empty:
-        st.session_state["last_move_error"] = "Joueur introuvable pour ce propriétaire."
-        return False
-
-    before = df0.loc[mask].iloc[0]
-    from_statut = str(before.get("Statut", "")).strip()
-    from_slot = str(before.get("Slot", "")).strip()
-    pos0 = str(before.get("Pos", "F")).strip()
-    equipe0 = str(before.get("Equipe", "")).strip()
-
-    # Applique le move
-    df0.loc[mask, "Statut"] = to_statut
-    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
-
-    # Gère IR Date (Toronto)
-    entering_ir = (to_slot == "Blessé") and (from_slot != "Blessé")
-    leaving_ir = (from_slot == "Blessé") and (to_slot != "Blessé")
-
-    if entering_ir:
-        now_tor = datetime.now(ZoneInfo("America/Toronto"))
-        df0.loc[mask, "IR Date"] = now_tor.strftime("%Y-%m-%d %H:%M")
-    elif leaving_ir:
-        df0.loc[mask, "IR Date"] = ""
-
-    # Nettoyage
-    df0 = clean_data(df0)
-    st.session_state["data"] = df0
-
-    # Sauvegarde CSV
-    try:
-        df0.to_csv(st.session_state["DATA_FILE"], index=False)
-    except Exception as e:
-        st.session_state["last_move_error"] = f"Erreur sauvegarde CSV: {e}"
-        return False
-
-    # Historique (si dispo)
-    try:
-        if "history" in st.session_state and "HISTORY_FILE" in st.session_state:
-            log_history_row(
-                proprietaire=proprietaire,
-                joueur=joueur,
-                pos=pos0,
-                equipe=equipe0,
-                from_statut=from_statut,
-                from_slot=from_slot,
-                to_statut=to_statut,
-                to_slot=(to_slot if to_slot else ""),
-                action=action_label,
-            )
-    except Exception as e:
-        # On ne bloque pas le move si history fail
-        st.session_state["last_move_error"] = f"Déplacement OK, mais historique non écrit: {e}"
-
-    return True
 
 
 def normalize_pos(pos: str) -> str:
@@ -188,107 +91,18 @@ def normalize_pos(pos: str) -> str:
         return "D"
     return "F"
 
+
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
-
-def clear_selection_key(key: str):
-    """Vide la sélection d'un st.dataframe (sans réassigner st.session_state[key])."""
-    ss = st.session_state.get(key)
-    if isinstance(ss, dict):
-        sel = ss.get("selection")
-        if isinstance(sel, dict) and "rows" in sel:
-            sel["rows"].clear()
 
 
 def saison_auto():
     now = datetime.now()
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
 
+
 def saison_verrouillee(season):
     return int(season[:4]) < int(saison_auto()[:4])
-
-def resolve_image_path_or_url(s: str) -> str:
-    s = str(s or "").strip()
-    if not s:
-        return ""
-    # URL
-    if s.startswith("http://") or s.startswith("https://"):
-        return s
-    # déjà dans data/
-    if s.startswith("data/") and os.path.exists(s):
-        return s
-    # fichier local (ex: "flags/canada.png" ou "canada.png")
-    if os.path.exists(s):
-        return s
-    # fallback data/
-    cand = os.path.join("data", s)
-    if os.path.exists(cand):
-        return cand
-    return ""
-
-def badge_pos(pos: str) -> str:
-    p = normalize_pos(pos)
-    colors = {
-        "F": "#2563eb",  # bleu
-        "D": "#16a34a",  # vert
-        "G": "#9333ea",  # violet
-    }
-    color = colors.get(p, "#6b7280")
-    return f"<span style='color:white;background:{color};padding:2px 8px;border-radius:12px;font-size:0.75em'>{p}</span>"
-
-
-def badge_slot(slot: str) -> str:
-    s = str(slot or "").lower()
-    if s == "actif":
-        return "<span style='color:#166534;font-weight:700'>🟢 Actif</span>"
-    if s == "banc":
-        return "<span style='color:#92400e;font-weight:700'>🟡 Banc</span>"
-    if s == "blessé":
-        return "<span style='color:#991b1b;font-weight:700'>🩹 IR</span>"
-    return "<span style='color:#1e40af;font-weight:700'>🔵 Mineur</span>"
-
-
-def close_move_dialog():
-    st.session_state["move_ctx"] = None
-    st.session_state["last_pick_align"] = None
-    do_rerun()
-
-def mini_cap_bar(used: int, cap: int, label: str = "") -> str:
-    if cap <= 0:
-        pct = 0
-    else:
-        pct = min(used / cap, 1.25)
-
-    pct_display = used / cap if cap > 0 else 0
-
-    if pct_display <= 0.90:
-        color = "#16a34a"   # vert
-    elif pct_display <= 1.0:
-        color = "#f59e0b"   # orange
-    else:
-        color = "#dc2626"   # rouge
-
-    bar_width = min(int(pct * 100), 125)
-
-    return f"""
-    <div style="margin-bottom:6px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700">
-        <span>{label}</span>
-        <span>{int(pct_display*100)}%</span>
-      </div>
-      <div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden">
-        <div style="
-            width:{bar_width}%;
-            background:{color};
-            height:100%;
-            border-radius:6px;
-        "></div>
-      </div>
-      <div style="font-size:11px;opacity:.75">
-        {money(used)} / {money(cap)}
-      </div>
-    </div>
-    """
 
 
 def _count_badge(n, limit):
@@ -298,71 +112,159 @@ def _count_badge(n, limit):
     else:
         color = "#22c55e"  # vert
         icon = ""
-
     return f"<span style='color:{color};font-weight:1000'>{n}</span>/{limit}{icon}"
 
-def colored_count(label: str, n: int, limit: int) -> str:
-    color = "#16a34a" if n <= limit else "#ef4444"  # vert / rouge
-    return f"<span style='font-weight:900;color:{color}'>{label} {n}/{limit}</span>"
-      
-def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
+
+# ----------------------------
+# Badges couleur "réels" (CSS)
+# ----------------------------
+def render_badge(text: str, bg: str, fg: str = "white") -> str:
+    t = html.escape(str(text or ""))
+    return (
+        "<span style='display:inline-block;padding:2px 8px;border-radius:999px;"
+        f"background:{bg};color:{fg};font-weight:900;font-size:12px;line-height:18px'>"
+        f"{t}</span>"
+    )
+
+
+def pos_badge_html(pos: str) -> str:
+    p = normalize_pos(pos)
+    if p == "F":
+        return render_badge("F", "#16a34a")        # vert
+    if p == "D":
+        return render_badge("D", "#2563eb")        # bleu
+    return render_badge("G", "#7c3aed")            # violet
+
+
+def slot_badge_html(slot: str, statut: str = "") -> str:
+    s = str(slot or "").strip()
+    stt = str(statut or "").strip()
+
+    if s == "Actif":
+        return render_badge("Actif", "#16a34a")
+    if s == "Banc":
+        return render_badge("Banc", "#f59e0b", fg="#111827")
+    if s == "Blessé":
+        return render_badge("IR", "#dc2626")
+    if stt == "Club École":
+        return render_badge("Mineur", "#0ea5e9")
+    return render_badge("—", "#94a3b8", fg="#111827")
+
+
+# ----------------------------
+# Mini jauge plafond (barre pleine quand proche du cap)
+# ----------------------------
+def cap_bar_html(used: int, cap: int, label: str) -> str:
+    cap = int(cap or 0)
+    used = int(used or 0)
+    remain = cap - used
+
+    # ✅ barre = % utilisé (pleine quand proche du plafond)
+    pct_used = (used / cap) if cap else 0.0
+    pct_used = max(0.0, min(pct_used, 1.0))
+
+    # rouge si négatif (dépassement)
+    color = "#16a34a" if remain >= 0 else "#dc2626"
+
+    return f"""
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:900">
+        <span>{html.escape(label)}</span>
+        <span style="color:{color}">{money(remain)}</span>
+      </div>
+      <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
+        <div style="width:{int(pct_used*100)}%;background:{color};height:100%"></div>
+      </div>
+      <div style="font-size:11px;opacity:.75">
+        Utilisé : {money(used)} / {money(cap)}
+      </div>
+    </div>
     """
-    Table UI Actif / Banc / Mineur / IR
-    - 100% compatible st.dataframe (PAS de HTML)
-    - ⚠️ Ne modifie JAMAIS la colonne 'Joueur'
+
+
+# ----------------------------
+# Context move (popup)
+# ----------------------------
+def set_move_ctx(owner: str, joueur: str):
+    st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
+    st.session_state["move_ctx"] = {
+        "owner": str(owner).strip(),
+        "joueur": str(joueur).strip(),
+        "nonce": st.session_state["move_nonce"],
+    }
+
+
+def clear_move_ctx():
+    st.session_state["move_ctx"] = None
+    st.session_state["move_source"] = ""
+
+
+# ----------------------------
+# UI cliquable (remplace st.dataframe + selection_mode)
+# ----------------------------
+def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     """
-    cols_out = ["Joueur", "Pos", "Slot", "Equipe", "Salaire"]
+    UI cliquable: 1 bouton par joueur + badges CSS réels.
+    Retourne le joueur cliqué (str) ou None.
+    """
+    if df_src is None or df_src.empty:
+        st.info("Aucun joueur.")
+        return None
 
-    if x is None or x.empty:
-        return pd.DataFrame(columns=cols_out)
+    # CSS compact + boutons serrés
+    st.markdown(
+        """
+        <style>
+          div[data-testid="stButton"] > button { padding: 0.18rem 0.5rem; font-weight: 900; }
+          .rowline { padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    y = x.copy()
+    t = df_src.copy()
 
-    # Colonnes garanties (sans toucher Joueur si déjà présent)
-    if "Joueur" not in y.columns:
-        y["Joueur"] = ""
-    if "Pos" not in y.columns:
-        y["Pos"] = "F"
-    if "Slot" not in y.columns:
-        y["Slot"] = ""
-    if "Equipe" not in y.columns:
-        y["Equipe"] = ""
-    if "Salaire" not in y.columns:
-        y["Salaire"] = 0
+    # Colonnes garanties
+    for c, d in {"Joueur":"", "Pos":"F", "Slot":"", "Statut":"", "Equipe":"", "Salaire":0}.items():
+        if c not in t.columns:
+            t[c] = d
 
-    # Normalisation position + tri
-    y["Pos"] = y["Pos"].apply(normalize_pos)
-    y["_pos_order"] = y["Pos"].apply(pos_sort_key)
-    y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
+    # Tri Pos + Joueur
+    t["Pos"] = t["Pos"].apply(normalize_pos)
+    t["_pos"] = t["Pos"].apply(pos_sort_key)
+    t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
 
-    # Badges texte (emoji) — aucun HTML
-    def pos_badge(p: str) -> str:
-        p = str(p or "").strip().upper()
-        if p == "G":
-            return "🟣 G"
-        if p == "D":
-            return "🔵 D"
-        return "🟢 F"
+    # Header
+    h = st.columns([2, 2, 4, 2])
+    h[0].markdown("**Pos**")
+    h[1].markdown("**Slot**")
+    h[2].markdown("**Joueur**")
+    h[3].markdown("**Salaire**")
 
-    def slot_badge(s: str) -> str:
-        s = str(s or "").strip()
-        if s == "Actif":
-            return "🟢 Actif"
-        if s == "Banc":
-            return "🟡 Banc"
-        if s == "Blessé":
-            return "🩹 IR"
-        if s == "":
-            # utile pour Mineur / slot vide
-            return "🔵 —"
-        return s  # fallback
+    clicked = None
 
-    y["Pos"] = y["Pos"].apply(pos_badge)
-    y["Slot"] = y["Slot"].apply(slot_badge)
-    y["Salaire"] = y["Salaire"].apply(money)
+    for i, r in t.iterrows():
+        joueur = str(r.get("Joueur","")).strip()
+        if not joueur:
+            continue
 
-    # IMPORTANT: garder Joueur tel quel (on ne le modifie pas)
-    return y[cols_out].reset_index(drop=True)
+        pos = r.get("Pos","F")
+        slot = r.get("Slot","")
+        statut = r.get("Statut","")
+        salaire = r.get("Salaire", 0)
+
+        c = st.columns([2, 2, 4, 2])
+        c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
+        c[1].markdown(slot_badge_html(slot, statut), unsafe_allow_html=True)
+
+        # ✅ clic 1-shot (ouvre popup)
+        if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
+            st.session_state["move_source"] = source_key
+            clicked = joueur
+
+        c[3].markdown(money(salaire))
+
+    return clicked
 
 
 
@@ -1170,11 +1072,18 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (PROD)
+# TAB A — Alignement (COMPLET)
+#   - Remplace st.dataframe + sel_ir par listes cliquables
+#   - Badges couleur réels
+#   - Mini jauge plafonds GC/CE (barre pleine proche du cap, rouge si négatif)
+#   - Guard: ne traite pas de clic si popup ouvert
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
+    # ---------
+    # Owner
+    # ---------
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
@@ -1185,7 +1094,9 @@ with tabA:
     df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
+    # ---------
     # Groupes
+    # ---------
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
@@ -1195,61 +1106,39 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # Counts (Actifs)
+    # ---------
+    # Compte actifs (positions)
+    # ---------
     tmp = gc_actif.copy()
+    if "Pos" not in tmp.columns:
+        tmp["Pos"] = "F"
     tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
     nb_F = int((tmp["Pos"] == "F").sum())
     nb_D = int((tmp["Pos"] == "D").sum())
     nb_G = int((tmp["Pos"] == "G").sum())
 
-    # Plafonds
+    # ---------
+    # Plafonds (IR exclu car dprop_ok)
+    # ---------
     cap_gc = int(st.session_state["PLAFOND_GC"])
     cap_ce = int(st.session_state["PLAFOND_CE"])
-    used_gc = int(gc_all["Salaire"].sum())
-    used_ce = int(ce_all["Salaire"].sum())
-    remain_gc = int(cap_gc - used_gc)
-    remain_ce = int(cap_ce - used_ce)
+    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
+    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
+    remain_gc = cap_gc - used_gc
+    remain_ce = cap_ce - used_ce
 
-    # ============================
-    # Jauge corrigée: pleine quand used proche du cap
-    # - vert: used/cap
-    # - rouge si dépassement (barre pleine rouge)
-    # ============================
-    def cap_bar_used(used: int, cap: int, label: str) -> str:
-        if cap <= 0:
-            pct = 0
-        else:
-            pct = min(used / cap, 1.0)
+    # ---------
+    # Jauges
+    # ---------
+    j1, j2 = st.columns(2)
+    with j1:
+        st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+    with j2:
+        st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
-        over = used - cap
-        is_over = over > 0
-        color = "#dc2626" if is_over else "#16a34a"  # rouge si dépasse
-
-        right_txt = money(cap - used)  # restant (négatif si over)
-        sub_txt = f"Utilisé : {money(used)} / {money(cap)}"
-        if is_over:
-            sub_txt += f"  •  Dépassement : {money(over)}"
-
-        return f"""
-        <div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800">
-            <span>{label}</span>
-            <span style="color:{color}">{right_txt}</span>
-          </div>
-          <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
-            <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
-          </div>
-          <div style="font-size:11px;opacity:.7">{sub_txt}</div>
-        </div>
-        """
-
-    b1, b2 = st.columns(2)
-    with b1:
-        st.markdown(cap_bar_used(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
-    with b2:
-        st.markdown(cap_bar_used(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
-
+    # ---------
     # Metrics
+    # ---------
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(used_gc))
     top[1].metric("Montant Disponible GC", money(remain_gc))
@@ -1257,87 +1146,73 @@ with tabA:
     top[3].metric("Montant Disponible CE", money(remain_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
 
-    # ✅ Plus de HTML dans les tableaux -> badges en texte
-    st.markdown(f"**Actifs** — F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
+    st.markdown(
+        f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
+        unsafe_allow_html=True
+    )
 
     st.divider()
 
-    # Tables UI (sans HTML)
-    df_actifs_ui = view_for_click(gc_actif)
-    df_banc_ui   = view_for_click(gc_banc)
-    df_min_ui    = view_for_click(ce_all)
+    # ---------
+    # Guard anti “re-pick” pendant popup
+    # ---------
+    popup_open = st.session_state.get("move_ctx") is not None
 
-    t1, t2, t3 = st.columns(3)
+    # ============================
+    # LISTES CLIQUABLES (couleurs réelles)
+    # ============================
+    colA, colB, colC = st.columns(3)
 
-    with t1:
+    with colA:
         st.markdown("### 🟢 Actifs")
-        st.dataframe(df_actifs_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_actifs")
+        if not popup_open:
+            p = roster_click_list(gc_actif, proprietaire, "actifs")
+            if p:
+                set_move_ctx(proprietaire, p)
+                do_rerun()
+        else:
+            roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
-    with t2:
+    with colB:
         st.markdown("### 🟡 Banc")
-        st.dataframe(df_banc_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_banc")
+        if not popup_open:
+            p = roster_click_list(gc_banc, proprietaire, "banc")
+            if p:
+                set_move_ctx(proprietaire, p)
+                do_rerun()
+        else:
+            roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    with t3:
+    with colC:
         st.markdown("### 🔵 Mineur")
-        st.dataframe(df_min_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_min")
+        if not popup_open:
+            p = roster_click_list(ce_all, proprietaire, "min")
+            if p:
+                set_move_ctx(proprietaire, p)
+                do_rerun()
+        else:
+            roster_click_list(ce_all, proprietaire, "min_disabled")
 
+    # ============================
     # IR cliquable
+    # ============================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
 
-    df_ir_ui = None
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
-        df_ir_ui = view_for_click(injured_all)
-        st.dataframe(df_ir_ui, use_container_width=True, hide_index=True,
-                     selection_mode="single-row", on_select="rerun", key="sel_ir")
-
-    # ==================================================
-    # ✅ IMPORTANT: ne traite les clics QUE si aucun popup n’est ouvert
-    # ==================================================
-    popup_open = st.session_state.get("move_ctx") is not None
-
-    if not popup_open:
-        picked = None
-        picked_key = None
-
-        for k, df_ui in [
-            ("sel_actifs", df_actifs_ui),
-            ("sel_banc",   df_banc_ui),
-            ("sel_min",    df_min_ui),
-            ("sel_ir",     df_ir_ui),
-        ]:
-            if df_ui is None or df_ui.empty:
-                continue
-            p = pick_from_df(df_ui, k)
-            if p:
-                picked = str(p).strip()
-                picked_key = k
-                break
-
-        if picked and picked_key:
-            cur_pick = (str(proprietaire).strip(), picked)
-
-            ctx = st.session_state.get("move_ctx") or {}
-            ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
-            ctx_joueur = str(ctx.get("joueur") or ctx.get("Joueur") or ctx.get("player") or "").strip()
-
-            if (ctx_owner, ctx_joueur) != cur_pick:
-                set_move_ctx(cur_pick[0], cur_pick[1])
-
-                # Garde seulement la sélection courante
-                clear_other_selections(picked_key)
-
-                # Option: enlever aussi le highlight du clic courant
-                _clear_selection_key(picked_key)
-
+        if not popup_open:
+            p_ir = roster_click_list(injured_all, proprietaire, "ir")
+            if p_ir:
+                set_move_ctx(proprietaire, p_ir)
                 do_rerun()
+        else:
+            roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    # Pop-up toujours à la fin
+    # ============================
+    # POP-UP (toujours à la fin)
+    # ============================
     open_move_dialog()
 
 
@@ -1345,13 +1220,14 @@ with tabA:
 
 
 
-# =====================================================
-# POP-UP DÉPLACEMENT (FINAL)
-#   - Si joueur est sur IR (Slot=Blessé) OU vient de sel_ir -> UI ultra compacte (3 boutons 1-clic)
-#   - Sinon -> radio + Confirmer/Annuler
-#   - Annuler fonctionne toujours
-# =====================================================
 
+# =====================================================
+# OPEN MOVE DIALOG (PROD)
+#   - détecte IR -> 3 boutons 1 clic (Actifs/Banc/Mineur)
+#   - bouton Annuler 100% fonctionnel
+#   - guard anti re-pick: TabA ne traite pas les clics quand move_ctx != None
+#   - robuste: fetch data depuis st.session_state["data"], et gère erreurs proprement
+# =====================================================
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -1363,44 +1239,62 @@ def open_move_dialog():
 
     df_all = st.session_state.get("data")
     if df_all is None or df_all.empty:
+        st.error("Aucune donnée chargée.")
         clear_move_ctx()
         return
 
-    row = df_all[
-        (df_all["Propriétaire"] == owner) &
-        (df_all["Joueur"] == joueur)
-    ]
-
-    if row.empty:
+    mask = (
+        df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+        & df_all["Joueur"].astype(str).str.strip().eq(joueur)
+    )
+    if df_all[mask].empty:
+        st.error("Joueur introuvable.")
         clear_move_ctx()
         return
 
-    row = row.iloc[0]
-    cur_slot = row["Slot"]
+    row = df_all[mask].iloc[0]
+    cur_statut = str(row.get("Statut", "")).strip()
+    cur_slot = str(row.get("Slot", "")).strip()
+    cur_pos = normalize_pos(row.get("Pos", "F"))
+    cur_team = str(row.get("Equipe", "")).strip()
+    cur_sal = int(row.get("Salaire", 0) or 0)
 
-    from_ir = (cur_slot == "Blessé")
+    from_ir = (cur_slot == "Blessé") or (str(st.session_state.get("move_source","")) == "ir")
 
     def _close():
         clear_move_ctx()
 
-    # =================================================
-    # ⚠️ TOUT CE QUI SUIT DOIT ÊTRE DANS _dlg()
-    # =================================================
-    @st.dialog(f"Déplacement — {joueur}", width="small")
+    # CSS compact (dialog)
+    css = """
+    <style>
+      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
+      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+      .btnrow button{height:44px;font-weight:1000}
+    </style>
+    """
+
+    @st.dialog("Déplacement", width="small")
     def _dlg():
+        st.markdown(css, unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
+            f"<div class='dlg-sub'>{html.escape(cur_statut)}"
+            f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
+            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
+            unsafe_allow_html=True
+        )
 
-        st.markdown(f"### {joueur}")
-        st.caption(f"Slot actuel : {cur_slot}")
+        st.divider()
 
-        # ==========================
-        # MODE IR — 1 CLIC
-        # ==========================
+        # =========================================
+        # MODE IR: 3 boutons 1 clic
+        # =========================================
         if from_ir:
-            st.caption("Sortie de IR")
+            st.caption("Sortie de IR (1 clic)")
 
-            c1, c2, c3 = st.columns(3)
+            bA, bB, bC = st.columns(3)
 
-            if c1.button("🟢 Actifs", key=f"ir_actif_{nonce}"):
+            if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_actif_{owner}_{joueur}_{nonce}"):
                 ok = apply_move_with_history(
                     proprietaire=owner,
                     joueur=joueur,
@@ -1409,12 +1303,13 @@ def open_move_dialog():
                     action_label="IR → Actif",
                 )
                 if ok:
+                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error", "Erreur"))
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
-            if c2.button("🟡 Banc", key=f"ir_banc_{nonce}"):
+            if bB.button("🟡 Banc", use_container_width=True, key=f"ir_banc_{owner}_{joueur}_{nonce}"):
                 ok = apply_move_with_history(
                     proprietaire=owner,
                     joueur=joueur,
@@ -1423,12 +1318,13 @@ def open_move_dialog():
                     action_label="IR → Banc",
                 )
                 if ok:
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error", "Erreur"))
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
-            if c3.button("🔵 Mineur", key=f"ir_min_{nonce}"):
+            if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_min_{owner}_{joueur}_{nonce}"):
                 ok = apply_move_with_history(
                     proprietaire=owner,
                     joueur=joueur,
@@ -1437,28 +1333,76 @@ def open_move_dialog():
                     action_label="IR → Mineur",
                 )
                 if ok:
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error", "Erreur"))
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
             st.divider()
-            if st.button("✖️ Annuler", key=f"ir_cancel_{nonce}"):
+            if st.button("✖️ Annuler", use_container_width=True, key=f"ir_cancel_{owner}_{joueur}_{nonce}"):
                 _close()
                 do_rerun()
 
-            return   # ✅ AUTORISÉ (DANS _dlg)
+            return  # ✅ stop ici
 
-        # ==========================
-        # MODE NORMAL
-        # ==========================
-        st.info("Mode normal (non IR)")
-        if st.button("✖️ Annuler", key=f"cancel_{nonce}"):
+        # =========================================
+        # MODE NORMAL: radio + confirmer/annuler
+        # =========================================
+        destinations = [
+            ("🟢 Actifs (GC)", ("Grand Club", "Actif")),
+            ("🟡 Banc (GC)", ("Grand Club", "Banc")),
+            ("🔵 Mineur (CE)", ("Club École", "")),
+            ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
+        ]
+
+        current = (cur_statut, cur_slot if cur_slot else "")
+        destinations = [d for d in destinations if d[1] != current]
+
+        labels = [d[0] for d in destinations]
+        mapping = {d[0]: d[1] for d in destinations}
+
+        choice = st.radio(
+            "Destination",
+            labels,
+            index=0,
+            label_visibility="collapsed",
+            key=f"dest_{owner}_{joueur}_{nonce}",
+        )
+        to_statut, to_slot = mapping[choice]
+
+        c1, c2 = st.columns(2)
+        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
+            ok = apply_move_with_history(
+                proprietaire=owner,
+                joueur=joueur,
+                to_statut=to_statut,
+                to_slot=to_slot,
+                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+            )
+            if ok:
+                if to_slot == "Blessé":
+                    st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
+                elif to_statut == "Grand Club" and to_slot == "Actif":
+                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
+                elif to_statut == "Grand Club" and to_slot == "Banc":
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                elif to_statut == "Club École":
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                else:
+                    st.toast("✅ Déplacement enregistré", icon="✅")
+
+                _close()
+                do_rerun()
+            else:
+                st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
+
+        if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
             _close()
             do_rerun()
 
-    # 👇 APPEL FINAL (OBLIGATOIRE)
     _dlg()
+
 
 
 
