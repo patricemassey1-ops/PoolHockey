@@ -1268,22 +1268,22 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ============================
-# Guard anti “re-pick” pendant popup
-# ============================
-popup_open = st.session_state.get("move_ctx") is not None
+    # Guard anti “re-pick” pendant popup
+    # ============================
+    popup_open = st.session_state.get("move_ctx") is not None
 
-# ============================
-# Pills cliquables (ordre demandé)
-# Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
-# - Banc/IR togglent les expanders
-# - Désactivées si popup_open
-# ============================
-for k, v in {
-    "show_banc": False,
-    "show_ir": False,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+    # ============================
+    # Pills cliquables (ordre demandé)
+    # Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
+    # - Banc/IR togglent les expanders
+    # - Désactivées si popup_open
+    # ============================
+    for k, v in {
+        "show_banc": False,
+        "show_ir": False,
+    }.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 st.markdown(
     """
@@ -1399,11 +1399,11 @@ with st.container():
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
     # --- Banc + IR au même endroit (plein largeur) ---
-with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
-    if gc_banc is None or gc_banc.empty:
-        st.caption("Aucun joueur.")
-    else:
-        if not popup_open:
+    with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
+        if gc_banc is None or gc_banc.empty:
+            st.caption("Aucun joueur.")
+        else:
+            if not popup_open:
             p = roster_click_list(gc_banc, proprietaire, "banc")
             if p:
                 set_move_ctx(proprietaire, p)
@@ -1411,11 +1411,11 @@ with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", Fa
         else:
             roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
-    if injured_all is None or injured_all.empty:
-        st.caption("Aucun joueur blessé.")
-    else:
-        if not popup_open:
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
+        if injured_all is None or injured_all.empty:
+            st.caption("Aucun joueur blessé.")
+        else:
+            if not popup_open:
             p_ir = roster_click_list(injured_all, proprietaire, "ir")
             if p_ir:
                 set_move_ctx(proprietaire, p_ir)
