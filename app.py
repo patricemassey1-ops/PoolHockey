@@ -1353,12 +1353,13 @@ with tabA:
 
 
 
- # =====================================================
+# =====================================================
 # POP-UP DÉPLACEMENT (FINAL)
 #   - Si joueur est sur IR (Slot=Blessé) OU vient de sel_ir -> UI ultra compacte (3 boutons 1-clic)
 #   - Sinon -> radio + Confirmer/Annuler
 #   - Annuler fonctionne toujours
 # =====================================================
+
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -1470,7 +1471,7 @@ def open_move_dialog():
 
         st.divider()
 
-        # =================================================
+                # =================================================
         # ✅ MODE IR ULTRA COMPACT (1 clic)
         # =================================================
         if from_ir:
@@ -1478,64 +1479,66 @@ def open_move_dialog():
 
             bA, bB, bC = st.columns(3)
 
-if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
-    ok = apply_move_with_history(
-        proprietaire=owner,
-        joueur=joueur,
-        to_statut="Grand Club",
-        to_slot="Actif",
-        action_label="IR → Actif",
-    )
-    if ok:
-        st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-        _close()
-        do_rerun()
-    else:
-        # ✅ affiche pourquoi ça a échoué (sans fermer le popup)
-        err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-        st.error(err)
+            # --- IR -> Actifs
+            if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Actif",
+                    action_label="IR → Actif",
+                )
+                if ok:
+                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
+                    _close()
+                    do_rerun()
+                else:
+                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
+                    st.error(err)
 
+            # --- IR -> Banc
+            if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Banc",
+                    action_label="IR → Banc",
+                )
+                if ok:
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                    _close()
+                    do_rerun()
+                else:
+                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
+                    st.error(err)
 
-if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
-    ok = apply_move_with_history(
-        proprietaire=owner,
-        joueur=joueur,
-        to_statut="Grand Club",
-        to_slot="Banc",
-        action_label="IR → Banc",
-    )
-    if ok:
-        st.toast(f"🟡 {joueur} → Banc", icon="🟡")
-        _close()
-        do_rerun()
-    else:
-        # ✅ affiche pourquoi ça a échoué (sans fermer le popup)
-        err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-        st.error(err) 
+            # --- IR -> Mineur
+            if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Club École",
+                    to_slot="",
+                    action_label="IR → Mineur",
+                )
+                if ok:
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                    _close()
+                    do_rerun()
+                else:
+                    err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
+                    st.error(err)
 
-if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
-    ok = apply_move_with_history(
-        proprietaire=owner,
-        joueur=joueur,
-        to_statut="Club École",
-        to_slot="",
-        action_label="IR → Mineur",
-    )
-    if ok:
-        st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
-        _close()
-        do_rerun()
-    else:
-        # ✅ affiche pourquoi ça a échoué (sans fermer le popup)
-        err = st.session_state.get("last_move_error", "") or "Déplacement refusé (raison inconnue)."
-        st.error(err)
-    
             st.divider()
+
+            # ✅ Annuler (doit fonctionner)
             if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
                 _close()
                 do_rerun()
 
             return
+
 
         # =================================================
         # MODE NORMAL (radio + confirmer)
