@@ -232,43 +232,39 @@ def clear_move_ctx():
 
 def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
     """
-    UI pour affichage dans Alignement:
-    Colonnes visibles: Equipe, Pos, Joueur, Salaire
-    ⚠️ Ne modifie JAMAIS la colonne 'Joueur'
+    UI alignement: Équipe | Pos | Joueur | Salaire
+    (AUCUN Slot ici)
     """
     if x is None or x.empty:
         return pd.DataFrame(columns=["Equipe", "Pos", "Joueur", "Salaire"])
 
     y = x.copy()
 
-    # Colonnes garanties (backend)
-    for c, d in {
-        "Joueur": "",
-        "Pos": "F",
-        "Equipe": "",
-        "Salaire": 0,
-    }.items():
+    # Colonnes garanties
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
         if c not in y.columns:
             y[c] = d
 
-    # Normalisation + tri
+    # Normalise / tri
     y["Pos"] = y["Pos"].apply(normalize_pos)
     y["_pos_order"] = y["Pos"].apply(pos_sort_key)
-    y = y.sort_values(["Equipe", "_pos_order", "Joueur"]).drop(columns="_pos_order")
+    y = y.sort_values(["_pos_order", "Equipe", "Joueur"]).drop(columns=["_pos_order"])
 
-    # Badges UI (couleurs réelles)
-    y["Pos"] = y["Pos"].apply(badge_pos)
+    # Format salaire
     y["Salaire"] = y["Salaire"].apply(money)
 
-    # ✅ Affichage final demandé
+    # IMPORTANT: pas de HTML dans les cellules (sinon DataFrame affiche le <span> en texte)
     return y[["Equipe", "Pos", "Joueur", "Salaire"]].reset_index(drop=True)
+
 
 # ----------------------------
 # UI cliquable (remplace st.dataframe + selection_mode)
+# Colonnes: Équipe | Pos | Joueur | Salaire
 # ----------------------------
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     """
-    UI cliquable: 1 bouton par joueur + badges CSS réels.
+    UI cliquable: 1 bouton par joueur (ouvre popup)
+    Visuel: Équipe | Pos | Joueur | Salaire
     Retourne le joueur cliqué (str) ou None.
     """
     if df_src is None or df_src.empty:
@@ -280,7 +276,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         """
         <style>
           div[data-testid="stButton"] > button { padding: 0.18rem 0.5rem; font-weight: 900; }
-          .rowline { padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+          .hdr { font-size: 12px; font-weight: 900; opacity:.75; padding-bottom:4px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -288,44 +284,50 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     t = df_src.copy()
 
-    # Colonnes garanties
-    for c, d in {"Joueur":"", "Pos":"F", "Slot":"", "Statut":"", "Equipe":"", "Salaire":0}.items():
+    # Colonnes garanties (Slot/Statut non utilisés ici)
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
         if c not in t.columns:
             t[c] = d
 
-    # Tri Pos + Joueur
+    # Normalise & tri
     t["Pos"] = t["Pos"].apply(normalize_pos)
     t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
+    t["Equipe"] = t["Equipe"].astype(str).fillna("").str.strip()
+    t["Joueur"] = t["Joueur"].astype(str).fillna("").str.strip()
+    t = t.sort_values(["_pos", "Equipe", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
 
-    # Header
-    h = st.columns([2, 2, 4, 2])
-    h[0].markdown("**Pos**")
-    h[1].markdown("**Slot**")
-    h[2].markdown("**Joueur**")
-    h[3].markdown("**Salaire**")
+    # Header: Équipe | Pos | Joueur | Salaire
+    h = st.columns([2, 2, 5, 2])
+    h[0].markdown("<div class='hdr'>Équipe</div>", unsafe_allow_html=True)
+    h[1].markdown("<div class='hdr'>Pos</div>", unsafe_allow_html=True)
+    h[2].markdown("<div class='hdr'>Joueur</div>", unsafe_allow_html=True)
+    h[3].markdown("<div class='hdr'>Salaire</div>", unsafe_allow_html=True)
 
     clicked = None
 
     for i, r in t.iterrows():
-        joueur = str(r.get("Joueur","")).strip()
+        joueur = str(r.get("Joueur", "")).strip()
         if not joueur:
             continue
 
-        pos = r.get("Pos","F")
-        slot = r.get("Slot","")
-        statut = r.get("Statut","")
+        equipe = str(r.get("Equipe", "")).strip() or "—"
+        pos = str(r.get("Pos", "F")).strip() or "F"
         salaire = r.get("Salaire", 0)
 
-        c = st.columns([2, 2, 4, 2])
-        c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
-        c[1].markdown(slot_badge_html(slot, statut), unsafe_allow_html=True)
+        c = st.columns([2, 2, 5, 2])
 
-        # ✅ clic 1-shot (ouvre popup)
+        # Équipe (texte)
+        c[0].markdown(f"**{equipe}**")
+
+        # Pos (badge couleur réel)
+        c[1].markdown(pos_badge_html(pos), unsafe_allow_html=True)
+
+        # Joueur (clic 1-shot)
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             st.session_state["move_source"] = source_key
             clicked = joueur
 
+        # Salaire
         c[3].markdown(money(salaire))
 
     return clicked
