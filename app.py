@@ -784,120 +784,104 @@ def open_move_dialog():
     if not ctx:
         return
 
-    owner = ctx.get("owner")
-    joueur = ctx.get("joueur")
-    nonce = ctx.get("nonce", 0)
+    owner = str(ctx.get("owner", "")).strip()
+    joueur = str(ctx.get("joueur", "")).strip()
+    nonce = int(ctx.get("nonce", 0))
 
-    df = st.session_state["data"]
-    row = df[(df["Propriétaire"] == owner) & (df["Joueur"] == joueur)]
+    df_all = st.session_state.get("data")
+    if df_all is None or df_all.empty:
+        clear_move_ctx()
+        return
+
+    row = df_all[
+        (df_all["Propriétaire"] == owner) &
+        (df_all["Joueur"] == joueur)
+    ]
+
     if row.empty:
+        clear_move_ctx()
         return
 
     row = row.iloc[0]
-    cur_statut = row.get("Statut", "")
-    cur_slot = row.get("Slot", "")
-    cur_pos = row.get("Pos", "")
-    cur_team = row.get("Equipe", "")
-    cur_salary = row.get("Salaire", 0)
+    cur_statut = row["Statut"]
+    cur_slot = row["Slot"]
 
-    @st.dialog("🔁 Déplacement joueur", width="small")
+    from_ir = (cur_slot == "Blessé")
+
+    def _close():
+        clear_move_ctx()
+
+    @st.dialog(f"Déplacement — {joueur}", width="small")
     def _dlg():
-        # =====================================================
-        # HEADER COMPACT
-        # =====================================================
-        st.markdown(
-            f"""
-            <div style="line-height:1.2">
-                <b>{joueur}</b><br>
-                <span style="font-size:0.85em;color:#666">
-                    {cur_team} · {cur_pos} · {money(cur_salary)}
-                </span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
-        st.divider()
+        st.markdown(f"### {joueur}")
+        st.caption(f"{cur_statut} / {cur_slot}")
 
-        # =====================================================
-        # 🩹 CAS IR — POP-UP ULTRA COMPACT
-        # =====================================================
-        if cur_slot == "Blessé":
-            st.markdown(
-                "<b>🩹 Joueur sur la liste des blessés</b>",
-                unsafe_allow_html=True,
-            )
+        # ==========================
+        # MODE IR (ULTRA COMPACT)
+        # ==========================
+        if from_ir:
+            b1, b2, b3 = st.columns(3)
 
-            c1, c2, c3 = st.columns(3)
+            if b1.button("🟢 Actifs", key=f"ir_actif_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Actif",
+                    action_label="IR → Actif",
+                )
+                if ok:
+                    _close()
+                    do_rerun()
+                else:
+                    st.error(st.session_state.get("last_move_error", "Erreur"))
 
-            if c1.button("🟢 Actifs", use_container_width=True, key=f"ir_actif_{nonce}"):
-                apply_move(owner, joueur, "Grand Club", "Actif")
-                st.session_state["move_ctx"] = None
-                do_rerun()
+            if b2.button("🟡 Banc", key=f"ir_banc_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Banc",
+                    action_label="IR → Banc",
+                )
+                if ok:
+                    _close()
+                    do_rerun()
+                else:
+                    st.error(st.session_state.get("last_move_error", "Erreur"))
 
-            if c2.button("🟡 Banc", use_container_width=True, key=f"ir_banc_{nonce}"):
-                apply_move(owner, joueur, "Grand Club", "Banc")
-                st.session_state["move_ctx"] = None
-                do_rerun()
-
-            if c3.button("🔵 Mineur", use_container_width=True, key=f"ir_min_{nonce}"):
-                apply_move(owner, joueur, "Club École", "")
-                st.session_state["move_ctx"] = None
-                do_rerun()
+            if b3.button("🔵 Mineur", key=f"ir_min_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Club École",
+                    to_slot="",
+                    action_label="IR → Mineur",
+                )
+                if ok:
+                    _close()
+                    do_rerun()
+                else:
+                    st.error(st.session_state.get("last_move_error", "Erreur"))
 
             st.divider()
-            if st.button("❌ Annuler", use_container_width=True):
-                st.session_state["move_ctx"] = None
+            if st.button("✖️ Annuler", key=f"ir_cancel_{nonce}"):
+                _close()
                 do_rerun()
 
-            return  # ⛔ STOP — IR = UI dédiée uniquement
+            return   # ✅ VALIDE : on est DANS _dlg()
 
-        # =====================================================
-        # CAS NORMAL (Actif / Banc / Mineur / IR)
-        # =====================================================
-        destinations = [
-            ("🟢 Actifs (Grand Club)", ("Grand Club", "Actif")),
-            ("🟡 Banc (Grand Club)", ("Grand Club", "Banc")),
-            ("🔵 Mineur (Club École)", ("Club École", "")),
-            ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
-        ]
-
-        current = (cur_statut, cur_slot if cur_slot else "")
-        destinations = [d for d in destinations if d[1] != current]
-
-        labels = [d[0] for d in destinations]
-        dest_map = {d[0]: d[1] for d in destinations}
-
-        choix = st.radio(
-            "Destination",
-            labels,
-            key=f"dest_{nonce}",
-            label_visibility="collapsed",
-        )
-
-        to_statut, to_slot = dest_map[choix]
-
-        st.divider()
-        c_ok, c_cancel = st.columns(2)
-
-        if c_ok.button("✅ Confirmer", use_container_width=True):
-            ok = apply_move_with_history(
-                proprietaire=owner,
-                joueur=joueur,
-                to_statut=to_statut,
-                to_slot=to_slot,
-                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
-            )
-            if ok:
-                clear_move_ctx()
-                do_rerun()
-
-
-        if c_cancel.button("❌ Annuler", use_container_width=True):
-            st.session_state["move_ctx"] = None
+        # ==========================
+        # MODE NORMAL
+        # ==========================
+        st.info("Mode normal (non IR)")
+        if st.button("✖️ Annuler", key=f"cancel_{nonce}"):
+            _close()
             do_rerun()
 
     _dlg()
+
 
 
 
