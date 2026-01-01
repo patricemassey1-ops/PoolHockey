@@ -159,29 +159,61 @@ def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
 
     return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
 
-def clear_other_selections(keep_key: str):
-    for k in ["sel_actifs", "sel_banc", "sel_min"]:
-        if k != keep_key:
-            ss = st.session_state.get(k)
-            if isinstance(ss, dict):
-                ss["selection"] = {"rows": []}
-                st.session_state[k] = ss
+# =====================================================
+# STREAMLIT TABLE SELECTION — TRIO 100% COMPATIBLE
+# =====================================================
+
+SELECTION_KEYS = ("sel_actifs", "sel_banc", "sel_min")
+
+def clear_df_selections(keys=SELECTION_KEYS):
+    """
+    Clear selections for st.dataframe widgets.
+    Compatible with Streamlit selection state.
+    """
+    for k in keys:
+        ss = st.session_state.get(k)
+        if isinstance(ss, dict):
+            sel = ss.get("selection")
+            if not isinstance(sel, dict):
+                ss["selection"] = {"rows": [], "columns": []}
+            else:
+                sel["rows"] = []
+                sel["columns"] = []
+                ss["selection"] = sel
+            st.session_state[k] = ss
 
 
-def pick_from_df(df_ui: pd.DataFrame, key: str):
+def get_selected_row_index(key: str) -> int | None:
     ss = st.session_state.get(key)
     if not isinstance(ss, dict):
         return None
-    sel = ss.get("selection", {})
-    rows = sel.get("rows", [])
-    if not rows:
+    sel = ss.get("selection")
+    if not isinstance(sel, dict):
         return None
-    idx = rows[0]
+    rows = sel.get("rows", [])
+    if isinstance(rows, list) and rows:
+        try:
+            return int(rows[0])
+        except Exception:
+            return None
+    return None
+
+
+def pick_from_df(df_ui: pd.DataFrame, key: str, col_name: str = "Joueur") -> str | None:
     if df_ui is None or df_ui.empty:
         return None
-    if idx < 0 or idx >= len(df_ui):
+
+    idx = get_selected_row_index(key)
+    if idx is None or idx < 0 or idx >= len(df_ui):
         return None
-    return str(df_ui.iloc[idx]["Joueur"]).strip()
+
+    if col_name not in df_ui.columns:
+        return None
+
+    val = df_ui.iloc[idx][col_name]
+    s = str(val).strip()
+    return s if s else None
+
 
 # =====================================================
 # PLAYERS DB (data/Hockey.Players.csv)
