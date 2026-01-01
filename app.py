@@ -846,7 +846,7 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (3 tableaux + checkbox + pop-up)
+# TAB A — Alignement (3 tableaux + pop-up)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -861,16 +861,18 @@ with tabA:
     data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
+    # Sépare IR vs non-IR
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_not_inj = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
+    # Groupes
     gc_all = dprop_not_inj[dprop_not_inj["Statut"] == "Grand Club"].copy()
     ce_all = dprop_not_inj[dprop_not_inj["Statut"] == "Club École"].copy()
 
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # counts actifs
+    # Counts (Actifs)
     tmp = gc_actif.copy()
     tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
     nb_F = int((tmp["Pos"] == "F").sum())
@@ -891,38 +893,90 @@ with tabA:
     top[3].metric("Montant Disponible CE", money(restant_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
 
-    
-
-
     st.markdown(
-    f"Actifs: F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
-    unsafe_allow_html=True
+        f"Actifs: F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
+        unsafe_allow_html=True
     )
 
-
-    
     st.divider()
 
+    # -------------------------------------------------
+    # 3 TABLEAUX (Actif / Banc / Mineur)
+    # IMPORTANT: pas de on_select="rerun" pour éviter la boucle
+    # -------------------------------------------------
+    df_actifs_ui = view_for_click(gc_actif)
+    df_banc_ui   = view_for_click(gc_banc)
+    df_min_ui    = view_for_click(ce_all)
+
     c1, c2, c3 = st.columns(3)
-    picked = None
+
     with c1:
-        picked = selectable_roster_table(gc_actif, key="tbl_actifs", title="🟢 Actifs") or picked
+        st.markdown("### 🟢 Actifs")
+        st.dataframe(
+            df_actifs_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            key="sel_actifs",
+        )
+
     with c2:
-        picked = selectable_roster_table(gc_banc, key="tbl_banc", title="🟡 Banc") or picked
+        st.markdown("### 🟡 Banc")
+        st.dataframe(
+            df_banc_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            key="sel_banc",
+        )
+
     with c3:
-        picked = selectable_roster_table(ce_all, key="tbl_mineur", title="🔵 Mineur") or picked
+        st.markdown("### 🔵 Mineur")
+        st.dataframe(
+            df_min_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            key="sel_min",
+        )
+
+    # -------------------------------------------------
+    # ✅ Sélection => ouvre le pop-up SANS boucle
+    # -------------------------------------------------
+    picked = (
+        pick_from_df(df_actifs_ui, "sel_actifs")
+        or pick_from_df(df_banc_ui, "sel_banc")
+        or pick_from_df(df_min_ui, "sel_min")
+    )
 
     if picked:
-        set_move_ctx(proprietaire, picked)
-        do_rerun()
+        picked = str(picked).strip()
+        last_pick = st.session_state.get("last_pick_align")
+        cur_pick = (proprietaire, picked)
 
+        # on clear toujours la sélection (évite loop)
+        clear_df_selections()
+
+        # anti-double ouverture
+        if last_pick != cur_pick:
+            st.session_state["last_pick_align"] = cur_pick
+            set_move_ctx(proprietaire, picked)
+
+    # -------------------------------------------------
+    # 🩹 IR — table simple (sans sélection dataframe)
+    # -------------------------------------------------
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
 
+    # assure IR Date
     if "IR Date" not in st.session_state["data"].columns:
         st.session_state["data"]["IR Date"] = ""
         st.session_state["data"] = clean_data(st.session_state["data"])
-        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+        # refresh local copies
+        data_all = st.session_state["data"]
+        dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
 
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
@@ -930,10 +984,15 @@ with tabA:
         ir_show = injured_all.copy()
         ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
         ir_show["Salaire"] = ir_show["Salaire"].apply(money)
-        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).replace("", "—")
-        st.dataframe(ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]], use_container_width=True, hide_index=True)
+        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
+        ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
 
+        ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
+        st.dataframe(ir_show, use_container_width=True, hide_index=True)
+
+    # ✅ Pop-up à la fin du tab
     open_move_dialog()
+
 
 # =====================================================
 # TAB J — Joueurs (Autonomes)
@@ -1088,7 +1147,15 @@ with tabJ:
             for c in df_show.columns:
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+            st.dataframe(
+    df_actifs_ui,
+    use_container_width=True,
+    hide_index=True,
+    selection_mode="single-row",
+    key="sel_actifs",
+)
+
+
 
     # Comparaison 2 joueurs
     st.divider()
@@ -1184,7 +1251,15 @@ with tabJ:
             for c in df_cmp_show.columns:
                 df_cmp_show[c] = df_cmp_show[c].apply(_clean_intlike)
 
-            st.dataframe(df_cmp_show, use_container_width=True, hide_index=True)
+            st.dataframe(
+    df_actifs_ui,
+    use_container_width=True,
+    hide_index=True,
+    selection_mode="single-row",
+    key="sel_actifs",
+)
+
+
 
 # =====================================================
 # TAB H — Historique
