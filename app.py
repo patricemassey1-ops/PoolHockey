@@ -538,23 +538,28 @@ def log_history_row(proprietaire, joueur, pos, equipe,
 # APPLY MOVE (avec IR Date)
 # =====================================================
 def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
-    st.session_state["last_move_error"] = ""   # ✅ reset à chaque tentative
+    # Reset erreur précédente
+    st.session_state["last_move_error"] = ""
 
+    # Verrou saison
     if st.session_state.get("LOCKED"):
-        msg = "🔒 Saison verrouillée : modification impossible."
-        st.session_state["last_move_error"] = msg
-        st.error(msg)
+        st.session_state["last_move_error"] = "🔒 Saison verrouillée : modification impossible."
         return False
 
+    # ✅ df0 DOIT exister
+    df0 = st.session_state.get("data")
     if df0 is None or df0.empty:
-        msg = "Aucune donnée en mémoire."
-        st.session_state["last_move_error"] = msg
-        st.error(msg)
+        st.session_state["last_move_error"] = "Aucune donnée en mémoire (st.session_state['data'] vide)."
         return False
 
+    df0 = df0.copy()
+
+    # Colonnes requises
     if "IR Date" not in df0.columns:
         df0["IR Date"] = ""
 
+    proprietaire = str(proprietaire).strip()
+    joueur = str(joueur).strip()
     to_statut = str(to_statut).strip()
     to_slot = str(to_slot).strip()
 
@@ -562,32 +567,29 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     allowed_slots_ce = {"", "Blessé"}
 
     if to_statut == "Grand Club" and to_slot not in allowed_slots_gc:
-        msg = f"Slot invalide pour Grand Club: {to_slot}"
-        st.session_state["last_move_error"] = msg
-        st.error(msg)
+        st.session_state["last_move_error"] = f"Slot invalide pour Grand Club: {to_slot}"
         return False
-
     if to_statut == "Club École" and to_slot not in allowed_slots_ce:
-        msg = f"Slot invalide pour Club École: {to_slot}"
-        st.session_state["last_move_error"] = msg
-        st.error(msg)
+        st.session_state["last_move_error"] = f"Slot invalide pour Club École: {to_slot}"
         return False
 
-    mask = (df0["Propriétaire"] == proprietaire) & (df0["Joueur"] == joueur)
-    if df0[mask].empty:
-        msg = "Joueur introuvable pour ce propriétaire."
-        st.session_state["last_move_error"] = msg
-        st.error(msg)
+    mask = (
+        df0["Propriétaire"].astype(str).str.strip().eq(proprietaire)
+        & df0["Joueur"].astype(str).str.strip().eq(joueur)
+    )
+    if df0.loc[mask].empty:
+        st.session_state["last_move_error"] = "Joueur introuvable pour ce propriétaire."
         return False
 
-    before = df0[mask].iloc[0]
+    before = df0.loc[mask].iloc[0]
     from_statut = str(before.get("Statut", "")).strip()
     from_slot = str(before.get("Slot", "")).strip()
     pos0 = str(before.get("Pos", "F")).strip()
     equipe0 = str(before.get("Equipe", "")).strip()
 
+    # Applique changement
     df0.loc[mask, "Statut"] = to_statut
-    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
+    df0.loc[mask, "Slot"] = (to_slot if to_slot else "")
 
     # IR Date (Toronto)
     entering_ir = (to_slot == "Blessé") and (from_slot != "Blessé")
@@ -598,15 +600,22 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     elif leaving_ir:
         df0.loc[mask, "IR Date"] = ""
 
+    # Nettoyage standard
     df0 = clean_data(df0)
+
+    # Sauve en session
     st.session_state["data"] = df0
 
+    # Sauve CSV si possible
     try:
-        df0.to_csv(st.session_state["DATA_FILE"], index=False)
+        data_file = st.session_state.get("DATA_FILE")
+        if data_file:
+            df0.to_csv(data_file, index=False)
     except Exception as e:
-        st.error(f"Erreur sauvegarde CSV: {e}")
+        st.session_state["last_move_error"] = f"Erreur sauvegarde CSV: {e}"
         return False
 
+    # Log historique si dispo
     try:
         log_history_row(
             proprietaire=proprietaire,
@@ -620,9 +629,11 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
             action=action_label,
         )
     except Exception as e:
+        # On ne bloque pas le move si l'historique fail
         st.warning(f"⚠️ Déplacement OK, mais historique non écrit: {e}")
 
     return True
+
 
 # =====================================================
 # FANTRAX PARSER
