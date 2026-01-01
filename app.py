@@ -1044,11 +1044,11 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (FINAL)
-#   - 3 tableaux (Actif/Banc/Mineur)
-#   - IR cliquable (pour sortir vers Actif/Banc/Mineur via pop-up)
-#   - sélection unique (pas 2 joueurs)
-#   - mini jauge plafonds GC/CE (barre rouge si négatif)
+# TAB A — Alignement (FINAL COMPLET & PROPRE)
+#   - 3 tableaux (Actifs / Banc / Mineur)
+#   - IR cliquable (pour sortir vers Actifs/Banc/Mineur)
+#   - sélection unique (1 joueur max)
+#   - mini jauge plafonds GC/CE (rouge si négatif)
 #   - pop-up géré par open_move_dialog()
 # =====================================================
 with tabA:
@@ -1068,7 +1068,43 @@ with tabA:
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
     # ============================
-    # GROUPES
+    # HELPERS (TAB-LOCAL) — SAFE Streamlit
+    # ============================
+    def cap_bar(used: int, cap: int, label: str) -> str:
+        remain = cap - used
+        pct = min((abs(remain) / cap) if cap else 0, 1.0)
+        color = "#16a34a" if remain >= 0 else "#dc2626"
+        return f"""
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800">
+            <span>{label}</span>
+            <span style="color:{color}">{money(remain)}</span>
+          </div>
+          <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
+            <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
+          </div>
+          <div style="font-size:11px;opacity:.7">
+            Utilisé : {money(used)} / {money(cap)}
+          </div>
+        </div>
+        """
+
+    def clear_other_selections(keep_key: str):
+        """
+        Vider la sélection des autres dataframes (sans réassigner st.session_state[key]).
+        Compatible Streamlit (évite StreamlitAPIException).
+        """
+        for k in ["sel_actifs", "sel_banc", "sel_min", "sel_ir"]:
+            if k == keep_key:
+                continue
+            ss = st.session_state.get(k)
+            if isinstance(ss, dict):
+                sel = ss.get("selection")
+                if isinstance(sel, dict) and "rows" in sel:
+                    sel["rows"].clear()
+
+    # ============================
+    # GROUPES (IR séparé)
     # ============================
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
@@ -1089,7 +1125,7 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ============================
-    # PLAFONDS (IR exclu ici car on travaille sur dprop_ok)
+    # PLAFONDS (IR exclu car on calcule sur dprop_ok)
     # ============================
     cap_gc = int(st.session_state["PLAFOND_GC"])
     cap_ce = int(st.session_state["PLAFOND_CE"])
@@ -1099,28 +1135,8 @@ with tabA:
     remain_ce = int(cap_ce - used_ce)
 
     # ============================
-    # MINI BARRES (argent restant)
+    # MINI JAUGES
     # ============================
-    def cap_bar(used: int, cap: int, label: str) -> str:
-        remain = cap - used
-        pct = min((abs(remain) / cap) if cap else 0, 1.0)
-        color = "#16a34a" if remain >= 0 else "#dc2626"
-
-        return f"""
-        <div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800">
-            <span>{label}</span>
-            <span style="color:{color}">{money(remain)}</span>
-          </div>
-          <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
-            <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
-          </div>
-          <div style="font-size:11px;opacity:.7">
-            Utilisé : {money(used)} / {money(cap)}
-          </div>
-        </div>
-        """
-
     b1, b2 = st.columns(2)
     with b1:
         st.markdown(cap_bar(used_gc, cap_gc, "📉 Plafond Grand Club (GC)"), unsafe_allow_html=True)
@@ -1128,7 +1144,7 @@ with tabA:
         st.markdown(cap_bar(used_ce, cap_ce, "📉 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ============================
-    # METRICS + compteur actifs
+    # METRICS + COMPTEURS
     # ============================
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(used_gc))
@@ -1139,13 +1155,13 @@ with tabA:
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     st.divider()
 
     # ============================
-    # TABLEAUX
+    # TABLEAUX (Actifs / Banc / Mineur)
     # ============================
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
@@ -1196,7 +1212,12 @@ with tabA:
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
-        df_ir_ui = view_for_click(injured_all)
+        # (optionnel) ajoute IR Date si présente
+        ir_show = injured_all.copy()
+        if "IR Date" in ir_show.columns:
+            ir_show["IR Date"] = ir_show["IR Date"].astype(str).str.strip().replace("", "—")
+        df_ir_ui = view_for_click(ir_show)
+
         st.dataframe(
             df_ir_ui,
             use_container_width=True,
@@ -1207,18 +1228,20 @@ with tabA:
         )
 
     # ============================
-    # SÉLECTION UNIQUE (Actifs/Banc/Mineur/IR)
+    # SÉLECTION UNIQUE (Actifs/Banc/Mineur/IR) -> ouvre dialog
     # ============================
     picked = None
     picked_key = None
+
+    df_ir_ui_safe = locals().get("df_ir_ui", None)
 
     for k, df_ui in [
         ("sel_actifs", df_actifs_ui),
         ("sel_banc",   df_banc_ui),
         ("sel_min",    df_min_ui),
-        ("sel_ir",     df_ir_ui),
+        ("sel_ir",     df_ir_ui_safe),
     ]:
-        if df_ui is None:
+        if df_ui is None or df_ui.empty:
             continue
         p = pick_from_df(df_ui, k)
         if p:
@@ -1226,18 +1249,24 @@ with tabA:
             picked_key = k
             break
 
-    if picked:
+    if picked and picked_key:
         cur_pick = (str(proprietaire).strip(), picked)
 
         ctx = st.session_state.get("move_ctx") or {}
-        ctx_owner = str(ctx.get("owner") or "").strip()
-        ctx_joueur = str(ctx.get("joueur") or "").strip()
+        ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
+        ctx_joueur = str(ctx.get("joueur") or ctx.get("Joueur") or ctx.get("player") or "").strip()
 
-    if (ctx_owner, ctx_joueur) != cur_pick:
-        st.session_state["move_source"] = picked_key   # ✅ "sel_ir" ou "sel_actifs" etc.
-        set_move_ctx(cur_pick[0], cur_pick[1])
-        ...
-        do_rerun()
+        if (ctx_owner, ctx_joueur) != cur_pick:
+            set_move_ctx(cur_pick[0], cur_pick[1])
+            clear_other_selections(picked_key)
+            do_rerun()
+
+    # ============================
+    # POP-UP (toujours à la fin)
+    # ============================
+    open_move_dialog()
+
+
 
 
     # =====================================================
