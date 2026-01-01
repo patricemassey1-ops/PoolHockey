@@ -8,15 +8,22 @@
 # ✅ Import Fantrax robuste
 # ✅ Joueurs (data/Hockey.Players.csv) filtres + comparaison
 
-import streamlit as st
-import pandas as pd
-import io
+# =====================================================
+# IMPORTS
+# =====================================================
 import os
+import io
 import re
+import html
 import textwrap
 from datetime import datetime
-from urllib.parse import quote, unquote
 from zoneinfo import ZoneInfo
+from urllib.parse import quote, unquote
+
+import pandas as pd
+import streamlit as st
+
+
 
 # =====================================================
 # CONFIG STREAMLIT
@@ -52,7 +59,7 @@ def find_logo_for_owner(owner: str) -> str:
 
 
 # =====================================================
-# UTILS
+# UTILS / HELPERS    
 # =====================================================
 def do_rerun():
     if hasattr(st, "rerun"):
@@ -60,29 +67,12 @@ def do_rerun():
     else:
         st.experimental_rerun()
 
-def _count_badge(n, limit):
-    if n > limit:
-        color = "#ef4444"  # rouge
-        icon = " ⚠️"
-    else:
-        color = "#22c55e"  # vert
-        icon = ""
-
-    return f"<span style='color:{color};font-weight:1000'>{n}</span>/{limit}{icon}"
-
-
 def money(v):
     try:
         return f"{int(v):,}".replace(",", " ") + " $"
     except Exception:
         return "0 $"
 
-def saison_auto():
-    now = datetime.now()
-    return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
-
-def saison_verrouillee(season):
-    return int(season[:4]) < int(saison_auto()[:4])
 
 def normalize_pos(pos: str) -> str:
     p = str(pos or "").upper()
@@ -95,27 +85,103 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
+
+def saison_auto():
+    now = datetime.now()
+    return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
+
+def saison_verrouillee(season):
+    return int(season[:4]) < int(saison_auto()[:4])
+
+def resolve_image_path_or_url(s: str) -> str:
+    s = str(s or "").strip()
+    if not s:
+        return ""
+    # URL
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    # déjà dans data/
+    if s.startswith("data/") and os.path.exists(s):
+        return s
+    # fichier local (ex: "flags/canada.png" ou "canada.png")
+    if os.path.exists(s):
+        return s
+    # fallback data/
+    cand = os.path.join("data", s)
+    if os.path.exists(cand):
+        return cand
+    return ""
+
+def _count_badge(n, limit):
+    if n > limit:
+        color = "#ef4444"  # rouge
+        icon = " ⚠️"
+    else:
+        color = "#22c55e"  # vert
+        icon = ""
+
+    return f"<span style='color:{color};font-weight:1000'>{n}</span>/{limit}{icon}"
+
 def colored_count(label: str, n: int, limit: int) -> str:
     color = "#16a34a" if n <= limit else "#ef4444"  # vert / rouge
     return f"<span style='font-weight:900;color:{color}'>{label} {n}/{limit}</span>"
-
-def find_logo_for_owner(owner: str) -> str:
+      
+def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
     """
-    Cherche un logo selon le nom du propriétaire.
-    Match insensible à la casse + support accents simples.
+    Table UI pour Actif/Banc/Mineur.
+    IMPORTANT: ne modifie pas le champ 'Joueur' (pas d'emoji),
+    sinon la sélection devient incohérente.
     """
-    o = str(owner or "").lower()
+    if x is None or x.empty:
+        return pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "Salaire"])
 
-    # match direct par mot-clé dans le nom du propriétaire
-    for key, path in LOGOS.items():
-        if key.lower() in o and os.path.exists(path):
-            return path
+    y = x.copy()
 
-    # fallback: essaie si le owner est EXACTEMENT une clé
-    if owner in LOGOS and os.path.exists(LOGOS[owner]):
-        return LOGOS[owner]
+    # Pos
+    if "Pos" not in y.columns:
+        y["Pos"] = "F"
+    y["Pos"] = y["Pos"].apply(normalize_pos)
 
-    return ""
+    # Tri
+    if "Joueur" not in y.columns:
+        y["Joueur"] = ""
+    y["_pos_order"] = y["Pos"].apply(pos_sort_key)
+    y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
+
+    # Equipe
+    if "Equipe" not in y.columns:
+        y["Equipe"] = ""
+
+    # Salaire formaté
+    if "Salaire" not in y.columns:
+        y["Salaire"] = 0
+    y["Salaire"] = y["Salaire"].apply(money)
+
+    return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
+
+def clear_other_selections(keep_key: str):
+    for k in ["sel_actifs", "sel_banc", "sel_min"]:
+        if k != keep_key:
+            ss = st.session_state.get(k)
+            if isinstance(ss, dict):
+                ss["selection"] = {"rows": []}
+                st.session_state[k] = ss
+
+
+def pick_from_df(df_ui: pd.DataFrame, key: str):
+    ss = st.session_state.get(key)
+    if not isinstance(ss, dict):
+        return None
+    sel = ss.get("selection", {})
+    rows = sel.get("rows", [])
+    if not rows:
+        return None
+    idx = rows[0]
+    if df_ui is None or df_ui.empty:
+        return None
+    if idx < 0 or idx >= len(df_ui):
+        return None
+    return str(df_ui.iloc[idx]["Joueur"]).strip()
 
 
 # =====================================================
@@ -250,7 +316,8 @@ def get_player_row(players_df: pd.DataFrame, player_name: str) -> dict | None:
     return None
 
 
-players_db = load_players_db(PLAYERS_DB_FILE)
+PLAYERS_DB_FILE = "data/Hockey.Players.csv"
+
 
 # =====================================================
 # SESSION DEFAULTS
@@ -846,7 +913,7 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (3 tableaux + pop-up)
+# TAB A — Alignement (FINAL) : 3 tableaux + sélection unique + anti-boucle + pop-up
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -901,8 +968,14 @@ with tabA:
     st.divider()
 
     # -------------------------------------------------
-    # 3 TABLEAUX (Actif / Banc / Mineur)
-    # IMPORTANT: pas de on_select="rerun" pour éviter la boucle
+    # Anti-boucle: si aucun pop-up n’est actif, on reset le dernier pick
+    # -------------------------------------------------
+    if st.session_state.get("move_ctx") is None:
+        st.session_state["last_pick_align"] = None
+
+    # -------------------------------------------------
+    # 3 TABLEAUX (Actif / Banc / Mineur) — sélection unique
+    # IMPORTANT: pas de on_select="rerun" pour éviter la boucle STOP
     # -------------------------------------------------
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
@@ -941,26 +1014,47 @@ with tabA:
         )
 
     # -------------------------------------------------
-    # ✅ Sélection => ouvre le pop-up SANS boucle
+    # ✅ Sélection UNIQUE (impossible d'en avoir 2)
+    # - si un tableau est sélectionné, on clear les 2 autres
     # -------------------------------------------------
-    picked = (
-        pick_from_df(df_actifs_ui, "sel_actifs")
-        or pick_from_df(df_banc_ui, "sel_banc")
-        or pick_from_df(df_min_ui, "sel_min")
-    )
+    def clear_other_selections(keep_key: str):
+        for k in ["sel_actifs", "sel_banc", "sel_min"]:
+            if k != keep_key:
+                ss = st.session_state.get(k)
+                if isinstance(ss, dict):
+                    ss["selection"] = {"rows": []}
+                    st.session_state[k] = ss
+
+    picked = None
+
+    pA = pick_from_df(df_actifs_ui, "sel_actifs")
+    if pA:
+        clear_other_selections("sel_actifs")
+        picked = pA
+
+    pB = pick_from_df(df_banc_ui, "sel_banc")
+    if (picked is None) and pB:
+        clear_other_selections("sel_banc")
+        picked = pB
+
+    pM = pick_from_df(df_min_ui, "sel_min")
+    if (picked is None) and pM:
+        clear_other_selections("sel_min")
+        picked = pM
 
     if picked:
         picked = str(picked).strip()
         last_pick = st.session_state.get("last_pick_align")
         cur_pick = (proprietaire, picked)
 
-        # on clear toujours la sélection (évite loop)
+        # ✅ Clear sélection (évite que Streamlit "ré-voit" la ligne au rerun)
         clear_df_selections()
 
-        # anti-double ouverture
+        # ✅ Anti-double ouverture + ouvre pop-up
         if last_pick != cur_pick:
             st.session_state["last_pick_align"] = cur_pick
             set_move_ctx(proprietaire, picked)
+            do_rerun()
 
     # -------------------------------------------------
     # 🩹 IR — table simple (sans sélection dataframe)
@@ -973,6 +1067,7 @@ with tabA:
         st.session_state["data"]["IR Date"] = ""
         st.session_state["data"] = clean_data(st.session_state["data"])
         st.session_state["data"].to_csv(DATA_FILE, index=False)
+
         # refresh local copies
         data_all = st.session_state["data"]
         dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
@@ -992,6 +1087,7 @@ with tabA:
 
     # ✅ Pop-up à la fin du tab
     open_move_dialog()
+
 
 
 # =====================================================
