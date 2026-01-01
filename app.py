@@ -975,109 +975,112 @@ with tabA:
     if st.session_state.get("move_ctx") is None:
         st.session_state["last_pick_align"] = None
 
-        # -------------------------------------------------
-    # 3 TABLEAUX (Actif / Banc / Mineur)
-    # ✅ on_select="rerun" obligatoire pour capter le clic
-    # -------------------------------------------------
-    df_actifs_ui = view_for_click(gc_actif)
-    df_banc_ui   = view_for_click(gc_banc)
-    df_min_ui    = view_for_click(ce_all)
+# -------------------------------------------------
+# 3 TABLEAUX (Actif / Banc / Mineur)
+# ✅ on_select="rerun" obligatoire pour capter le clic
+# -------------------------------------------------
+df_actifs_ui = view_for_click(gc_actif)
+df_banc_ui   = view_for_click(gc_banc)
+df_min_ui    = view_for_click(ce_all)
 
-    c1, c2, c3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-    with c1:
-        st.markdown("### 🟢 Actifs")
-        st.dataframe(
-            df_actifs_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_actifs",
-        )
-
-    with c2:
-        st.markdown("### 🟡 Banc")
-        st.dataframe(
-            df_banc_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_banc",
-        )
-
-    with c3:
-        st.markdown("### 🔵 Mineur")
-        st.dataframe(
-            df_min_ui,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_min",
-        )
-
-    # -------------------------------------------------
-    # ✅ Sélection => ouvre le pop-up SANS boucle
-    # -------------------------------------------------
-    picked = (
-        pick_from_df(df_actifs_ui, "sel_actifs")
-        or pick_from_df(df_banc_ui, "sel_banc")
-        or pick_from_df(df_min_ui, "sel_min")
+with c1:
+    st.markdown("### 🟢 Actifs")
+    st.dataframe(
+        df_actifs_ui,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="sel_actifs",
     )
 
-        if picked:
-        picked = str(picked).strip()
-        cur_pick = (proprietaire, picked)
+with c2:
+    st.markdown("### 🟡 Banc")
+    st.dataframe(
+        df_banc_ui,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="sel_banc",
+    )
 
-        ctx = st.session_state.get("move_ctx") or {}
-        ctx_owner = ctx.get("owner") or ctx.get("proprietaire")
-        ctx_joueur = ctx.get("joueur") or ctx.get("player")
-        already_open = (ctx_owner, ctx_joueur) == cur_pick
+with c3:
+    st.markdown("### 🔵 Mineur")
+    st.dataframe(
+        df_min_ui,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="sel_min",
+    )
 
-        if not already_open:
-            last_pick = st.session_state.get("last_pick_align")
-            if last_pick != cur_pick:
-                st.session_state["last_pick_align"] = cur_pick
-                set_move_ctx(proprietaire, picked)
+# -------------------------------------------------
+# ✅ Sélection => ouvre le pop-up SANS boucle
+# -------------------------------------------------
+picked = (
+    pick_from_df(df_actifs_ui, "sel_actifs")
+    or pick_from_df(df_banc_ui, "sel_banc")
+    or pick_from_df(df_min_ui, "sel_min")
+)
 
-            clear_df_selections()
-            st.rerun()
+if picked:
+    picked = str(picked).strip()
+    cur_pick = (proprietaire, picked)
 
+    ctx = st.session_state.get("move_ctx") or {}
+    ctx_owner = ctx.get("owner") or ctx.get("proprietaire")
+    ctx_joueur = ctx.get("joueur") or ctx.get("player")
+    already_open = (ctx_owner, ctx_joueur) == cur_pick
 
+    if not already_open:
+        last_pick = st.session_state.get("last_pick_align")
+        if last_pick != cur_pick:
+            st.session_state["last_pick_align"] = cur_pick
+            set_move_ctx(proprietaire, picked)
 
-    # -------------------------------------------------
-    # 🩹 IR — table simple (sans sélection dataframe)
-    # -------------------------------------------------
-    st.divider()
-    st.markdown("## 🩹 Joueurs Blessés (IR)")
+        # IMPORTANT: vider la sélection avant rerun (évite loop)
+        clear_df_selections()
+        st.rerun()
 
-    # assure IR Date
-    if "IR Date" not in st.session_state["data"].columns:
-        st.session_state["data"]["IR Date"] = ""
-        st.session_state["data"] = clean_data(st.session_state["data"])
-        st.session_state["data"].to_csv(DATA_FILE, index=False)
+# -------------------------------------------------
+# 🩹 IR — table simple (sans sélection dataframe)
+# -------------------------------------------------
+st.divider()
+st.markdown("## 🩹 Joueurs Blessés (IR)")
 
-        # refresh local copies
-        data_all = st.session_state["data"]
-        dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
-        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+# assure IR Date
+if "IR Date" not in st.session_state["data"].columns:
+    st.session_state["data"]["IR Date"] = ""
+    st.session_state["data"] = clean_data(st.session_state["data"])
+    st.session_state["data"].to_csv(DATA_FILE, index=False)
 
-    if injured_all.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        ir_show = injured_all.copy()
-        ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
-        ir_show["Salaire"] = ir_show["Salaire"].apply(money)
-        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
-        ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
+    # refresh local copies
+    data_all = st.session_state["data"]
+    dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+    injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
 
-        ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
-        st.dataframe(ir_show, use_container_width=True, hide_index=True)
+if injured_all.empty:
+    st.info("Aucun joueur blessé.")
+else:
+    ir_show = injured_all.copy()
+    ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
+    ir_show["Salaire"] = ir_show["Salaire"].apply(money)
+    ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
+    ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
 
-    # ✅ Pop-up à la fin du tab
-    open_move_dialog()
+    ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
+    st.dataframe(ir_show, use_container_width=True, hide_index=True)
+
+# (DEBUG optionnel — garde-le juste pour tester)
+st.write("DEBUG move_ctx =", st.session_state.get("move_ctx"))
+
+# ✅ Pop-up à la fin du tab
+open_move_dialog()
+
 
 
 # =====================================================
