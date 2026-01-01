@@ -1075,7 +1075,7 @@ if uploaded is not None:
 if os.path.exists(LOGO_POOL_FILE):
     st.image(LOGO_POOL_FILE, use_container_width=True)
 
-st.title("🏒 Pool de Hockey")
+st.title("🏒 PMS Hockey")
 
 df = st.session_state["data"]
 if df.empty:
