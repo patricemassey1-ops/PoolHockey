@@ -584,7 +584,7 @@ if "season" not in st.session_state or st.session_state["season"] != season:
         st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
     
     st.session_state["data"] = clean_data(st.session_state["data"])
-    df = st.session_state["data"]
+    data_all = st.session_state["data"]  # ✅ Plus clair
     dprop = df[df["Propriétaire"] == proprietaire].copy()
     
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
@@ -1129,7 +1129,7 @@ if os.path.exists(LOGO_POOL_FILE):
 
 st.title("🏒 Pool de Hockey — Gestion Salariale")
 
-df = st.session_state["data"]
+data_all = st.session_state["data"]  # ✅ Plus clair
 if df.empty:
     st.info("Aucune donnée")
     st.stop()
