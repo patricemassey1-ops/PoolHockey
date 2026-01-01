@@ -272,6 +272,56 @@ def pick_from_df(df_ui: pd.DataFrame, key: str):
 
     return str(df_ui.iloc[idx]["Joueur"]).strip()
 
+# =====================================================
+# STREAMLIT — CLEAR OTHER SELECTIONS (4 tableaux)
+#   Clés: sel_actifs, sel_banc, sel_min, sel_ir
+#   ✅ Ne réassigne jamais st.session_state[key] (évite StreamlitAPIException)
+# =====================================================
+
+SELECTION_KEYS_ALIGN = ["sel_actifs", "sel_banc", "sel_min", "sel_ir"]
+
+def clear_other_selections(keep_key: str):
+    """
+    Vide la sélection des autres dataframes (Actifs/Banc/Mineur/IR),
+    en laissant seulement 'keep_key' intact.
+    """
+    for k in SELECTION_KEYS_ALIGN:
+        if k == keep_key:
+            continue
+
+        ss = st.session_state.get(k)
+        if not isinstance(ss, dict):
+            continue
+
+        sel = ss.get("selection")
+        if isinstance(sel, dict):
+            rows = sel.get("rows")
+            if isinstance(rows, list):
+                rows.clear()
+            else:
+                sel["rows"] = []
+        else:
+            ss["selection"] = {"rows": []}
+
+
+def clear_selection_key(k: str):
+    """
+    Vide la sélection d'UN seul dataframe (utile si tu veux vider aussi keep_key).
+    """
+    ss = st.session_state.get(k)
+    if not isinstance(ss, dict):
+        return
+
+    sel = ss.get("selection")
+    if isinstance(sel, dict):
+        rows = sel.get("rows")
+        if isinstance(rows, list):
+            rows.clear()
+        else:
+            sel["rows"] = []
+    else:
+        ss["selection"] = {"rows": []}
+
 
 
 # =====================================================
@@ -1183,30 +1233,222 @@ with tabA:
         ctx_owner = str(ctx.get("owner") or "").strip()
         ctx_joueur = str(ctx.get("joueur") or "").strip()
 
-        if (ctx_owner, ctx_joueur) != cur_pick:
-            set_move_ctx(cur_pick[0], cur_pick[1])
+    if (ctx_owner, ctx_joueur) != cur_pick:
+        st.session_state["move_source"] = picked_key   # ✅ "sel_ir" ou "sel_actifs" etc.
+        set_move_ctx(cur_pick[0], cur_pick[1])
+        ...
+        do_rerun()
 
-            # ✅ nettoie les autres sélections (évite multi-sélection)
-            # NOTE: si ta clear_other_selections gère juste 3 clés, elle clear Actifs/Banc/Mineur.
-            # On clear IR manuellement aussi.
-            if picked_key in ("sel_actifs", "sel_banc", "sel_min"):
-                clear_other_selections(picked_key)
-                if "sel_ir" in st.session_state and isinstance(st.session_state["sel_ir"], dict):
-                    sel = st.session_state["sel_ir"].get("selection")
-                    if isinstance(sel, dict) and "rows" in sel:
-                        sel["rows"].clear()
-            else:
-                # picked_key == sel_ir
-                clear_other_selections("sel_min")  # n'importe quel keep parmi les 3, on veut juste vider les 3
-                # (comme ton helper ignore keep_key) -> sinon remplace par clear_other_selections("sel_actifs")
-                # et on laisse IR sélectionné (il sera géré par move_ctx)
 
+    # =====================================================
+# POP-UP DÉPLACEMENT (FINAL)
+#   - Si joueur vient de IR -> UI ultra compacte (3 boutons 1-clic)
+#   - Sinon -> radio + Confirmer/Annuler
+#   - Annuler fonctionne toujours
+# =====================================================
+
+def open_move_dialog():
+    ctx = st.session_state.get("move_ctx")
+    if not ctx:
+        return
+
+    if st.session_state.get("LOCKED"):
+        st.warning("🔒 Saison verrouillée : aucun changement permis.")
+        clear_move_ctx()
+        return
+
+    owner = str(ctx.get("owner", "")).strip()
+    joueur = str(ctx.get("joueur", "")).strip()
+    nonce = int(ctx.get("nonce", 0))
+
+    df_all = st.session_state.get("data")
+    if df_all is None or df_all.empty:
+        st.error("Aucune donnée.")
+        clear_move_ctx()
+        return
+
+    mask = (df_all["Propriétaire"].astype(str).str.strip() == owner) & (df_all["Joueur"].astype(str).str.strip() == joueur)
+    if df_all[mask].empty:
+        st.error("Joueur introuvable.")
+        clear_move_ctx()
+        return
+
+    row = df_all[mask].iloc[0]
+    cur_statut = str(row.get("Statut", "")).strip()
+    cur_slot = str(row.get("Slot", "")).strip()
+    cur_pos = normalize_pos(row.get("Pos", "F"))
+    cur_equipe = str(row.get("Equipe", "")).strip()
+    cur_salaire = int(row.get("Salaire", 0))
+
+    # Détection "vient de IR"
+    source = str(st.session_state.get("move_source", "")).strip()
+    from_ir = (cur_slot == "Blessé") or (source == "sel_ir")
+
+    # Infos DB (si dispo)
+    info = get_player_row(players_db, joueur) or {}
+
+    def _pick(d: dict, candidates: list[str], default=""):
+        for k in candidates:
+            if k in d and pd.notna(d[k]) and str(d[k]).strip() != "":
+                return str(d[k]).strip()
+        return default
+
+    pays = _pick(info, ["Country", "Pays"], "")
+    flag_raw = _pick(info, ["Flag", "Flag URL", "Flag_Image", "FlagURL"], "")
+    flag_src = resolve_image_path_or_url(flag_raw)
+
+    position_db = _pick(info, ["Position", "Pos"], "") or cur_pos
+    caphit = _pick(info, ["Cap Hit", "CapHit", "AAV"], "")
+    level = _pick(info, ["Level"], "")
+
+    # CSS compact
+    css = """
+    <style>
+      .dlg-main{font-weight:900;font-size:16px;line-height:1.1}
+      .dlg-sub{opacity:.75;font-weight:700;margin-top:2px;font-size:12px;line-height:1.2}
+      .chipwrap{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+      .chip{display:inline-flex;gap:6px;align-items:center;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.04);
+            border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800}
+      .chip b{opacity:.75}
+      .btnrow button{height:44px;font-weight:900}
+    </style>
+    """
+
+    def chip(label, val) -> str:
+        v = str(val or "").strip()
+        if not v:
+            return ""
+        return f"<span class='chip'><b>{label}</b> {html.escape(v)}</span>"
+
+    chips_html = "".join([
+        chip("Pays", pays),
+        chip("Pos", position_db),
+        chip("Cap", caphit),
+        chip("Level", level),
+    ]).strip()
+
+    def _close():
+        # optionnel : effacer la source aussi
+        st.session_state["move_source"] = ""
+        clear_move_ctx()
+
+    @st.dialog(f"Déplacement — {joueur}", width="small")
+    def _dlg():
+        st.markdown(css, unsafe_allow_html=True)
+
+        left, right = st.columns([4, 1])
+        with left:
+            st.markdown(
+                f"<div class='dlg-main'>{html.escape(owner)} • {html.escape(joueur)}</div>"
+                f"<div class='dlg-sub'>{html.escape(cur_statut)}{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
+                f" • {html.escape(cur_pos)} • {html.escape(cur_equipe)} • {money(cur_salaire)}</div>",
+                unsafe_allow_html=True,
+            )
+        with right:
+            if flag_src:
+                st.image(flag_src, width=42)
+            elif pays:
+                st.caption(pays)
+
+        if chips_html:
+            st.markdown(f"<div class='chipwrap'>{chips_html}</div>", unsafe_allow_html=True)
+
+        st.divider()
+
+        # =================================================
+        # MODE IR ULTRA COMPACT (1 clic)
+        # =================================================
+        if from_ir:
+            st.caption("Sortie de IR (1 clic)")
+
+            bA, bB, bC = st.columns(3)
+
+            if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Grand Club", "Actif", "IR → Actif")
+                if ok:
+                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
+                    _close()
+                    do_rerun()
+
+            if bB.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Grand Club", "Banc", "IR → Banc")
+                if ok:
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                    _close()
+                    do_rerun()
+
+            if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Club École", "", "IR → Mineur")
+                if ok:
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                    _close()
+                    do_rerun()
+
+            st.divider()
+            if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
+                _close()
+                do_rerun()
+
+            return
+
+        # =================================================
+        # MODE NORMAL (radio + confirmer)
+        # =================================================
+        destinations = [
+            ("🟢 Actifs (GC)", ("Grand Club", "Actif")),
+            ("🟡 Banc (GC)", ("Grand Club", "Banc")),
+            ("🔵 Mineur (CE)", ("Club École", "")),
+            ("🩹 Blessé (IR)", (cur_statut, "Blessé")),  # garde le statut, change seulement slot
+        ]
+
+        current = (cur_statut, cur_slot if cur_slot else "")
+        destinations = [d for d in destinations if d[1] != current]
+
+        labels = [d[0] for d in destinations]
+        mapping = {d[0]: d[1] for d in destinations}
+
+        choice = st.radio(
+            "Destination",
+            labels,
+            index=0,
+            key=f"dest_{owner}_{joueur}_{nonce}",
+            label_visibility="collapsed",
+        )
+        to_statut, to_slot = mapping[choice]
+
+        c1, c2 = st.columns(2)
+        if c1.button("✅ Confirmer", use_container_width=True, type="primary", key=f"ok_{owner}_{joueur}_{nonce}"):
+            ok = apply_move_with_history(
+                proprietaire=owner,
+                joueur=joueur,
+                to_statut=to_statut,
+                to_slot=to_slot,
+                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+            )
+            if ok:
+                # Toast intelligent
+                if to_slot == "Blessé":
+                    st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
+                elif to_statut == "Grand Club" and to_slot == "Actif":
+                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
+                elif to_statut == "Grand Club" and to_slot == "Banc":
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                elif to_statut == "Club École":
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                else:
+                    st.toast("✅ Déplacement enregistré", icon="✅")
+
+                _close()
+                do_rerun()
+
+        if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
+            _close()
             do_rerun()
 
-    # ============================
-    # POP-UP (toujours à la fin)
-    # ============================
-    open_move_dialog()
+    _dlg()
+
 
 
 
