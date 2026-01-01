@@ -1399,11 +1399,11 @@ with st.container():
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
     # --- Banc + IR au même endroit (plein largeur) ---
-    with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
-        if gc_banc is None or gc_banc.empty:
-            st.caption("Aucun joueur.")
-        else:
-            if not popup_open:
+with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
+    if gc_banc is None or gc_banc.empty:
+        st.caption("Aucun joueur.")
+    else:
+        if not popup_open:
             p = roster_click_list(gc_banc, proprietaire, "banc")
             if p:
                 set_move_ctx(proprietaire, p)
@@ -1411,17 +1411,18 @@ with st.container():
         else:
             roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
-        if injured_all is None or injured_all.empty:
-            st.caption("Aucun joueur blessé.")
-        else:
-            if not popup_open:
+with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
+    if injured_all is None or injured_all.empty:
+        st.caption("Aucun joueur blessé.")
+    else:
+        if not popup_open:
             p_ir = roster_click_list(injured_all, proprietaire, "ir")
             if p_ir:
                 set_move_ctx(proprietaire, p_ir)
                 do_rerun()
         else:
             roster_click_list(injured_all, proprietaire, "ir_disabled")
+
 
 
     # ✅ Pop-up (toujours à la fin du tabA)
