@@ -1129,7 +1129,7 @@ if os.path.exists(LOGO_POOL_FILE):
 
 st.title("🏒 Pool de Hockey — Gestion Salariale")
 
-data_all = st.session_state["data"]  # ✅ Plus clair
+df = st.session_state["data"]  # ❌ Conflit
 if df.empty:
     st.info("Aucune donnée")
     st.stop()
