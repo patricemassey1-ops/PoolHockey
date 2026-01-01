@@ -1138,18 +1138,17 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (COMPLET)
-#   - Remplace st.dataframe + sel_ir par listes cliquables
-#   - Badges couleur réels
-#   - Mini jauge plafonds GC/CE (barre pleine proche du cap, rouge si négatif)
-#   - Guard: ne traite pas de clic si popup ouvert
+# TAB A — Alignement (VERSION B)
+#   - Actifs + Mineur en colonnes
+#   - Banc + IR en pleine largeur (même UI)
+#   - Guard anti re-pick
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ---------
-    # Owner
-    # ---------
+    # ============================
+    # Propriétaire
+    # ============================
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
@@ -1160,9 +1159,9 @@ with tabA:
     df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
-    # ---------
+    # ============================
     # Groupes
-    # ---------
+    # ============================
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
@@ -1172,64 +1171,17 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # ---------
-    # Compte actifs (positions)
-    # ---------
-    tmp = gc_actif.copy()
-    if "Pos" not in tmp.columns:
-        tmp["Pos"] = "F"
-    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
-
-    # ---------
-    # Plafonds (IR exclu car dprop_ok)
-    # ---------
-    cap_gc = int(st.session_state["PLAFOND_GC"])
-    cap_ce = int(st.session_state["PLAFOND_CE"])
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
-
-    # ---------
-    # Jauges
-    # ---------
-    j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
-
-    # ---------
-    # Metrics
-    # ---------
-    top = st.columns([1, 1, 1, 1, 1])
-    top[0].metric("Total Grand Club", money(used_gc))
-    top[1].metric("Montant Disponible GC", money(remain_gc))
-    top[2].metric("Total Club École", money(used_ce))
-    top[3].metric("Montant Disponible CE", money(remain_ce))
-    top[4].metric("Blessés", f"{len(injured_all)}")
-
-    st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
-        unsafe_allow_html=True
-    )
-
-    st.divider()
-
-    # ---------
-    # Guard anti “re-pick” pendant popup
-    # ---------
+    # ============================
+    # Guard popup
+    # ============================
     popup_open = st.session_state.get("move_ctx") is not None
 
     # ============================
-    # LISTES CLIQUABLES (couleurs réelles)
+    # Actifs + Mineur (colonnes)
     # ============================
-    colA, colB, colC = st.columns(3)
+    cA, cM = st.columns(2)
 
-    with colA:
+    with cA:
         st.markdown("### 🟢 Actifs")
         if not popup_open:
             p = roster_click_list(gc_actif, proprietaire, "actifs")
@@ -1239,17 +1191,7 @@ with tabA:
         else:
             roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
-    with colB:
-        st.markdown("### 🟡 Banc")
-        if not popup_open:
-            p = roster_click_list(gc_banc, proprietaire, "banc")
-            if p:
-                set_move_ctx(proprietaire, p)
-                do_rerun()
-        else:
-            roster_click_list(gc_banc, proprietaire, "banc_disabled")
-
-    with colC:
+    with cM:
         st.markdown("### 🔵 Mineur")
         if not popup_open:
             p = roster_click_list(ce_all, proprietaire, "min")
@@ -1260,26 +1202,44 @@ with tabA:
             roster_click_list(ce_all, proprietaire, "min_disabled")
 
     # ============================
-    # IR cliquable
+    # Banc — pleine largeur (même style IR)
     # ============================
     st.divider()
-    st.markdown("## 🩹 Joueurs Blessés (IR)")
+    st.markdown("## 🟡 Banc")
+
+    if gc_banc.empty:
+        st.info("Aucun joueur au banc.")
+    else:
+        if not popup_open:
+            p = roster_click_list(gc_banc, proprietaire, "banc")
+            if p:
+                set_move_ctx(proprietaire, p)
+                do_rerun()
+        else:
+            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+    # ============================
+    # IR — pleine largeur
+    # ============================
+    st.divider()
+    st.markdown("## 🩹 Joueurs blessés (IR)")
 
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
         if not popup_open:
-            p_ir = roster_click_list(injured_all, proprietaire, "ir")
-            if p_ir:
-                set_move_ctx(proprietaire, p_ir)
+            p = roster_click_list(injured_all, proprietaire, "ir")
+            if p:
+                set_move_ctx(proprietaire, p)
                 do_rerun()
         else:
             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     # ============================
-    # POP-UP (toujours à la fin)
+    # Pop-up déplacement
     # ============================
     open_move_dialog()
+
 
 
 
