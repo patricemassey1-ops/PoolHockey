@@ -800,9 +800,17 @@ def open_move_dialog():
         c_ok, c_cancel = st.columns(2)
 
         if c_ok.button("✅ Confirmer", use_container_width=True):
-            apply_move(owner, joueur, to_statut, to_slot)
-            st.session_state["move_ctx"] = None
-            do_rerun()
+            ok = apply_move_with_history(
+                proprietaire=owner,
+                joueur=joueur,
+                to_statut=to_statut,
+                to_slot=to_slot,
+                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+            )
+            if ok:
+                clear_move_ctx()
+                do_rerun()
+
 
         if c_cancel.button("❌ Annuler", use_container_width=True):
             st.session_state["move_ctx"] = None
@@ -985,9 +993,14 @@ with tab1:
         cols[4].markdown(money(r["Montant Disponible CE"]))
 
 
-
-
-
+# =====================================================
+# TAB A — Alignement (FINAL)
+#   - 3 tableaux (Actif/Banc/Mineur)
+#   - IR cliquable (pour sortir vers Actif/Banc/Mineur via pop-up)
+#   - sélection unique (pas 2 joueurs)
+#   - mini jauge plafonds GC/CE (barre rouge si négatif)
+#   - pop-up géré par open_move_dialog()
+# =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
@@ -1000,23 +1013,24 @@ with tabA:
         key="align_owner",
     )
 
-    df = clean_data(st.session_state["data"])
+    st.session_state["data"] = clean_data(st.session_state["data"])
+    df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
     # ============================
     # GROUPES
     # ============================
-    injured_all = dprop[dprop["Slot"] == "Blessé"].copy()
-    dprop_ok = dprop[dprop["Slot"] != "Blessé"].copy()
+    injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+    dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
     gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
     ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
 
-    gc_actif = gc_all[gc_all["Slot"] == "Actif"].copy()
-    gc_banc  = gc_all[gc_all["Slot"] == "Banc"].copy()
+    gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
+    gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
     # ============================
-    # COMPTE POSITIONS
+    # COMPTE POSITIONS (Actifs)
     # ============================
     tmp = gc_actif.copy()
     tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
@@ -1025,35 +1039,31 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ============================
-    # PLAFONDS
+    # PLAFONDS (IR exclu ici car on travaille sur dprop_ok)
     # ============================
-    cap_gc = st.session_state["PLAFOND_GC"]
-    cap_ce = st.session_state["PLAFOND_CE"]
-    total_gc = int(gc_all["Salaire"].sum())
-    total_ce = int(ce_all["Salaire"].sum())
-    reste_gc = cap_gc - total_gc
-    reste_ce = cap_ce - total_ce
+    cap_gc = int(st.session_state["PLAFOND_GC"])
+    cap_ce = int(st.session_state["PLAFOND_CE"])
+    used_gc = int(gc_all["Salaire"].sum())
+    used_ce = int(ce_all["Salaire"].sum())
+    remain_gc = int(cap_gc - used_gc)
+    remain_ce = int(cap_ce - used_ce)
 
     # ============================
     # MINI BARRES (argent restant)
     # ============================
-    def cap_bar(used, cap, label):
+    def cap_bar(used: int, cap: int, label: str) -> str:
         remain = cap - used
-        pct = min(abs(remain) / cap if cap else 0, 1)
+        pct = min((abs(remain) / cap) if cap else 0, 1.0)
         color = "#16a34a" if remain >= 0 else "#dc2626"
 
         return f"""
         <div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800">
             <span>{label}</span>
-            <span>{money(remain)}</span>
+            <span style="color:{color}">{money(remain)}</span>
           </div>
           <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
-            <div style="
-                width:{int(pct*100)}%;
-                background:{color};
-                height:100%;
-            "></div>
+            <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
           </div>
           <div style="font-size:11px;opacity:.7">
             Utilisé : {money(used)} / {money(cap)}
@@ -1061,15 +1071,22 @@ with tabA:
         </div>
         """
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(cap_bar(total_gc, cap_gc, "🏒 Grand Club"), unsafe_allow_html=True)
-    with c2:
-        st.markdown(cap_bar(total_ce, cap_ce, "🏫 Club École"), unsafe_allow_html=True)
+    b1, b2 = st.columns(2)
+    with b1:
+        st.markdown(cap_bar(used_gc, cap_gc, "📉 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+    with b2:
+        st.markdown(cap_bar(used_ce, cap_ce, "📉 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ============================
-    # COMPTE ACTIFS
+    # METRICS + compteur actifs
     # ============================
+    top = st.columns([1, 1, 1, 1, 1])
+    top[0].metric("Total Grand Club", money(used_gc))
+    top[1].metric("Montant Disponible GC", money(remain_gc))
+    top[2].metric("Total Club École", money(used_ce))
+    top[3].metric("Montant Disponible CE", money(remain_ce))
+    top[4].metric("Blessés", f"{len(injured_all)}")
+
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
         unsafe_allow_html=True
@@ -1088,68 +1105,109 @@ with tabA:
 
     with t1:
         st.markdown("### 🟢 Actifs")
-        st.dataframe(df_actifs_ui, hide_index=True, selection_mode="single-row",
-                     on_select="rerun", key="sel_actifs")
+        st.dataframe(
+            df_actifs_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_actifs",
+        )
 
     with t2:
         st.markdown("### 🟡 Banc")
-        st.dataframe(df_banc_ui, hide_index=True, selection_mode="single-row",
-                     on_select="rerun", key="sel_banc")
+        st.dataframe(
+            df_banc_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_banc",
+        )
 
     with t3:
         st.markdown("### 🔵 Mineur")
-        st.dataframe(df_min_ui, hide_index=True, selection_mode="single-row",
-                     on_select="rerun", key="sel_min")
+        st.dataframe(
+            df_min_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_min",
+        )
 
     # ============================
-    # SÉLECTION UNIQUE
-    # ============================
-    picked, picked_key = None, None
-    for k, df_ui in [
-        ("sel_actifs", df_actifs_ui),
-        ("sel_banc", df_banc_ui),
-        ("sel_min", df_min_ui),
-    ]:
-        p = pick_from_df(df_ui, k)
-        if p:
-            picked, picked_key = p, k
-            break
-
-    if picked:
-        cur_pick = (proprietaire, picked)
-        ctx = st.session_state.get("move_ctx") or {}
-        if (ctx.get("owner"), ctx.get("joueur")) != cur_pick:
-            set_move_ctx(*cur_pick)
-            clear_other_selections(picked_key)
-            st.rerun()
-
-    # ============================
-    # IR — CLIQUABLE (UI COMPACTE)
+    # IR — CLIQUABLE
     # ============================
     st.divider()
     st.markdown("## 🩹 Joueurs Blessés (IR)")
 
+    df_ir_ui = None
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
     else:
-        ir_ui = view_for_click(injured_all)
+        df_ir_ui = view_for_click(injured_all)
         st.dataframe(
-            ir_ui,
+            df_ir_ui,
+            use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
             on_select="rerun",
             key="sel_ir",
         )
 
-        p_ir = pick_from_df(ir_ui, "sel_ir")
-        if p_ir:
-            set_move_ctx(proprietaire, p_ir)
-            st.rerun()
+    # ============================
+    # SÉLECTION UNIQUE (Actifs/Banc/Mineur/IR)
+    # ============================
+    picked = None
+    picked_key = None
+
+    for k, df_ui in [
+        ("sel_actifs", df_actifs_ui),
+        ("sel_banc",   df_banc_ui),
+        ("sel_min",    df_min_ui),
+        ("sel_ir",     df_ir_ui),
+    ]:
+        if df_ui is None:
+            continue
+        p = pick_from_df(df_ui, k)
+        if p:
+            picked = str(p).strip()
+            picked_key = k
+            break
+
+    if picked:
+        cur_pick = (str(proprietaire).strip(), picked)
+
+        ctx = st.session_state.get("move_ctx") or {}
+        ctx_owner = str(ctx.get("owner") or "").strip()
+        ctx_joueur = str(ctx.get("joueur") or "").strip()
+
+        if (ctx_owner, ctx_joueur) != cur_pick:
+            set_move_ctx(cur_pick[0], cur_pick[1])
+
+            # ✅ nettoie les autres sélections (évite multi-sélection)
+            # NOTE: si ta clear_other_selections gère juste 3 clés, elle clear Actifs/Banc/Mineur.
+            # On clear IR manuellement aussi.
+            if picked_key in ("sel_actifs", "sel_banc", "sel_min"):
+                clear_other_selections(picked_key)
+                if "sel_ir" in st.session_state and isinstance(st.session_state["sel_ir"], dict):
+                    sel = st.session_state["sel_ir"].get("selection")
+                    if isinstance(sel, dict) and "rows" in sel:
+                        sel["rows"].clear()
+            else:
+                # picked_key == sel_ir
+                clear_other_selections("sel_min")  # n'importe quel keep parmi les 3, on veut juste vider les 3
+                # (comme ton helper ignore keep_key) -> sinon remplace par clear_other_selections("sel_actifs")
+                # et on laisse IR sélectionné (il sera géré par move_ctx)
+
+            do_rerun()
 
     # ============================
-    # POP-UP FINAL
+    # POP-UP (toujours à la fin)
     # ============================
     open_move_dialog()
+
 
 
 
