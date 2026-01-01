@@ -80,23 +80,22 @@ def colored_count(label: str, n: int, limit: int) -> str:
     color = "#16a34a" if n <= limit else "#ef4444"  # vert / rouge
     return f"<span style='font-weight:900;color:{color}'>{label} {n}/{limit}</span>"
 
-def resolve_image_path_or_url(v: str) -> str:
+def find_logo_for_owner(owner: str) -> str:
     """
-    Retourne:
-      - URL inchangée si http(s)
-      - chemin local si existe (data/...)
-      - "" sinon
+    Cherche un logo selon le nom du propriétaire.
+    Match insensible à la casse + support accents simples.
     """
-    s = str(v or "").strip()
-    if not s:
-        return ""
-    if s.startswith("http://") or s.startswith("https://"):
-        return s
-    if os.path.exists(s):
-        return s
-    p2 = os.path.join("data", s)
-    if os.path.exists(p2):
-        return p2
+    o = str(owner or "").lower()
+
+    # match direct par mot-clé dans le nom du propriétaire
+    for key, path in LOGOS.items():
+        if key.lower() in o and os.path.exists(path):
+            return path
+
+    # fallback: essaie si le owner est EXACTEMENT une clé
+    if owner in LOGOS and os.path.exists(LOGOS[owner]):
+        return LOGOS[owner]
+
     return ""
 
 
@@ -763,11 +762,7 @@ for p in df["Propriétaire"].unique():
     gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
     ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-    logo = ""
-    for k, v in LOGOS.items():
-        if k.lower() in str(p).lower():
-            logo = v
-            break
+    logo = find_logo_for_owner(p)
 
     resume.append({
         "Propriétaire": p,
@@ -777,6 +772,7 @@ for p in df["Propriétaire"].unique():
         "CE": int(ce),
         "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - ce),
     })
+
 
 plafonds = pd.DataFrame(resume)
 
@@ -805,11 +801,11 @@ with tab1:
 
         with cols[0]:
             a, b = st.columns([1, 4])
-            if logo_path and os.path.exists(logo_path):
-                a.image(logo_path, width=LOGO_SIZE)
-            else:
-                a.markdown("—")
-            b.markdown(f"**{owner}**")
+       if logo_path and os.path.exists(logo_path):
+    a.image(logo_path, width=LOGO_SIZE)
+else:
+    a.markdown("—")
+
 
         cols[1].markdown(money(r["GC"]))
         cols[2].markdown(money(r["Montant Disponible GC"]))
