@@ -40,6 +40,7 @@ LOGOS = {
     "Whalers": "data/Whalers_Logo.png",
     "Canadiens": "data/Canadiens_Logo.png",
 }
+
 LOGO_SIZE = 55
 
 # =====================================================
@@ -746,7 +747,7 @@ if uploaded is not None:
 if os.path.exists(LOGO_POOL_FILE):
     st.image(LOGO_POOL_FILE, use_container_width=True)
 
-st.title("🏒 Fantrax – Gestion Salariale")
+st.title("🏒 Pool de Hockey — Gestion Salariale")
 
 df = st.session_state["data"]
 if df.empty:
