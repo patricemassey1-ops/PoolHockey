@@ -622,7 +622,7 @@ def selectable_roster_table(df_src: pd.DataFrame, key: str, title: str) -> str |
     return str(edited.loc[idx, "Joueur"]).strip()
 
 # =====================================================
-# POP-UP DÉPLACEMENT (infos joueur)
+# POP-UP DÉPLACEMENT (infos joueur + IR sortant)
 # =====================================================
 
 def _pick(d: dict, candidates: list[str], default=""):
@@ -630,6 +630,7 @@ def _pick(d: dict, candidates: list[str], default=""):
         if k in d and pd.notna(d[k]) and str(d[k]).strip() != "":
             return str(d[k]).strip()
     return default
+
 
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
@@ -641,25 +642,34 @@ def open_move_dialog():
         clear_move_ctx()
         return
 
-    owner = ctx["owner"]
-    joueur = ctx["joueur"]
-    nonce = ctx.get("nonce", 0)
+    owner = str(ctx.get("owner", "")).strip()
+    joueur = str(ctx.get("joueur", "")).strip()
+    nonce = int(ctx.get("nonce", 0))
 
-    df_all = st.session_state["data"]
-    mask = (df_all["Propriétaire"] == owner) & (df_all["Joueur"] == joueur)
+    if not owner or not joueur:
+        clear_move_ctx()
+        return
+
+    df_all = st.session_state.get("data")
+    if df_all is None or df_all.empty:
+        st.error("Aucune donnée en mémoire.")
+        clear_move_ctx()
+        return
+
+    mask = (df_all["Propriétaire"].astype(str).str.strip() == owner) & (df_all["Joueur"].astype(str).str.strip() == joueur)
     if df_all[mask].empty:
         st.error("Joueur introuvable.")
         clear_move_ctx()
         return
 
     row = df_all[mask].iloc[0]
-    cur_statut = str(row["Statut"])
+    cur_statut = str(row.get("Statut", "")).strip()
     cur_slot = str(row.get("Slot", "")).strip()
     cur_pos = normalize_pos(row.get("Pos", "F"))
-    cur_equipe = str(row.get("Equipe", ""))
+    cur_equipe = str(row.get("Equipe", "")).strip()
     cur_salaire = int(row.get("Salaire", 0))
 
-    # Infos DB
+    # --- Infos DB joueurs ---
     info = get_player_row(players_db, joueur) or {}
     pays = _pick(info, ["Country", "Pays"], "")
     flag_raw = _pick(info, ["Flag", "Flag URL", "Flag_Image", "FlagURL"], "")
@@ -670,8 +680,9 @@ def open_move_dialog():
     caphit = _pick(info, ["Cap Hit", "CapHit", "AAV"], "")
     level = _pick(info, ["Level"], "")
 
-    # Chips compactes
+    # --- chips compactes ---
     chips = []
+
     def chip(label, val):
         val = str(val or "").strip()
         if val:
@@ -686,14 +697,15 @@ def open_move_dialog():
 
     css = """
     <style>
-      .dlg-main{font-weight:900;font-size:16px}
-      .dlg-sub{opacity:.75;font-weight:700;margin-top:-2px}
-      .chipwrap{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+      .dlg-main{font-weight:900;font-size:16px;line-height:1.1}
+      .dlg-sub{opacity:.78;font-weight:700;margin-top:2px;font-size:12px}
+      .chipwrap{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
       .chip{display:inline-flex;gap:6px;align-items:center;
-            border:1px solid rgba(255,255,255,.12);
-            background:rgba(255,255,255,.04);
-            border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800}
+            border:1px solid rgba(255,255,255,.14);
+            background:rgba(255,255,255,.05);
+            border-radius:999px;padding:3px 10px;font-size:12px;font-weight:800}
       .chip b{opacity:.75}
+      .tiny{font-size:12px;opacity:.75;font-weight:700}
     </style>
     """
 
@@ -708,11 +720,12 @@ def open_move_dialog():
                 f"<div class='dlg-sub'>{cur_statut}{(' / ' + cur_slot) if cur_slot else ''} • {cur_pos} • {cur_equipe} • {money(cur_salaire)}</div>",
                 unsafe_allow_html=True
             )
+
         with right:
             if flag_src:
                 st.image(flag_src, width=44)
             elif pays:
-                st.caption(pays)
+                st.markdown(f"<div class='tiny'>{pays}</div>", unsafe_allow_html=True)
 
         if chips:
             st.markdown("<div class='chipwrap'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
@@ -721,7 +734,41 @@ def open_move_dialog():
 
         st.divider()
 
+        # -------------------------------------------------
+        # 🚪 Sortir de IR (1 clic) -> Actif/Banc/Mineur
+        # -------------------------------------------------
+        if cur_slot == "Blessé":
+            st.info("🩹 Ce joueur est sur IR. Tu peux le sortir en 1 clic :")
+            b1, b2, b3 = st.columns(3)
+
+            if b1.button("🟢 Actif", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Grand Club", "Actif", "IR → Actif")
+                if ok:
+                    clear_move_ctx()
+                    st.toast(f"🟢 {joueur} → Actif", icon="🟢")
+                    do_rerun()
+
+            if b2.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Grand Club", "Banc", "IR → Banc")
+                if ok:
+                    clear_move_ctx()
+                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                    do_rerun()
+
+            if b3.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(owner, joueur, "Club École", "", "IR → Mineur")
+                if ok:
+                    clear_move_ctx()
+                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                    do_rerun()
+
+            st.divider()
+
+        # -------------------------------------------------
+        # ✅ Destination (radio) — sans doublons
+        # -------------------------------------------------
         destinations = [
+            ("🟢 Actif (Grand Club)", ("Grand Club", "Actif")),
             ("🟡 Banc (Grand Club)", ("Grand Club", "Banc")),
             ("🔵 Mineur (Club École)", ("Club École", "")),
             ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
@@ -729,8 +776,6 @@ def open_move_dialog():
 
         current = (cur_statut, cur_slot if cur_slot else "")
         destinations = [d for d in destinations if d[1] != current]
-        if cur_slot == "Blessé":
-            destinations = [d for d in destinations if d[1][1] != "Blessé"]
 
         choice = st.radio(
             "Destination",
@@ -752,14 +797,19 @@ def open_move_dialog():
             )
             if ok2:
                 clear_move_ctx()
+
+                # toast intelligent
                 if to_slot == "Blessé":
                     st.toast(f"🩹 {joueur} placé sur IR (date enregistrée)", icon="🩹")
+                elif to_statut == "Grand Club" and to_slot == "Actif":
+                    st.toast(f"🟢 {joueur} → Actif", icon="🟢")
                 elif to_statut == "Grand Club" and to_slot == "Banc":
                     st.toast(f"🟡 {joueur} → Banc", icon="🟡")
                 elif to_statut == "Club École":
                     st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                 else:
                     st.toast("✅ Déplacement enregistré", icon="✅")
+
                 do_rerun()
 
         if c2.button("✖️ Annuler", key=f"cancel_{owner}_{joueur}_{nonce}", use_container_width=True):
@@ -767,6 +817,7 @@ def open_move_dialog():
             do_rerun()
 
     _dlg()
+
 
 
 # =====================================================
@@ -945,20 +996,21 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (FINAL)
-# 3 tableaux + sélection unique + anti-boucle + pop-up + IR
+# TAB A — Alignement (FINAL) : 3 tableaux + IR cliquable + sélection unique + anti-boucle + pop-up
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
+    # Toujours nettoyer data avant d'afficher
+    st.session_state["data"] = clean_data(st.session_state["data"])
+    data_all = st.session_state["data"]
+
     proprietaire = st.selectbox(
         "Propriétaire",
-        sorted(st.session_state["data"]["Propriétaire"].unique()),
+        sorted(data_all["Propriétaire"].unique()),
         key="align_owner",
     )
 
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    data_all = st.session_state["data"]
     dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
 
     # Sépare IR vs non-IR
@@ -979,6 +1031,7 @@ with tabA:
     nb_D = int((tmp["Pos"] == "D").sum())
     nb_G = int((tmp["Pos"] == "G").sum())
 
+    # Totaux (exclut IR déjà, car on travaille sur dprop_not_inj)
     total_gc = int(gc_all["Salaire"].sum())
     total_ce = int(ce_all["Salaire"].sum())
     restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
@@ -999,13 +1052,14 @@ with tabA:
     st.divider()
 
     # -------------------------------------------------
-    # Anti-boucle: si aucun pop-up n’est actif, reset dernier pick
+    # Anti-boucle: si aucun pop-up n’est actif, reset last_pick
     # -------------------------------------------------
     if st.session_state.get("move_ctx") is None:
         st.session_state["last_pick_align"] = None
 
     # -------------------------------------------------
-    # Vider la sélection d'un dataframe (sans réassigner session_state[key])
+    # Helpers Streamlit-safe pour clear sélection
+    # (NE PAS faire st.session_state[key] = {...})
     # -------------------------------------------------
     def _clear_selection_key(k: str):
         ss = st.session_state.get(k)
@@ -1014,10 +1068,17 @@ with tabA:
         sel = ss.get("selection")
         if isinstance(sel, dict) and "rows" in sel:
             sel["rows"].clear()
+        else:
+            ss["selection"] = {"rows": []}
+
+    def _clear_other_selections(keep_key: str):
+        for k in ["sel_actifs", "sel_banc", "sel_min", "sel_ir"]:
+            if k == keep_key:
+                continue
+            _clear_selection_key(k)
 
     # -------------------------------------------------
     # 3 TABLEAUX (Actif / Banc / Mineur)
-    # on_select="rerun" requis pour capter le clic
     # -------------------------------------------------
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
@@ -1059,7 +1120,36 @@ with tabA:
         )
 
     # -------------------------------------------------
-    # ✅ Sélection => ouvre le pop-up (Streamlit-safe)
+    # 🩹 IR (Blessés) — CLiquable aussi
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
+
+    if injured_all.empty:
+        st.info("Aucun joueur blessé.")
+        df_ir_ui = pd.DataFrame(columns=["Joueur", "Pos", "Equipe", "IR Date", "Salaire"])
+    else:
+        ir_show = injured_all.copy()
+        ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
+        ir_show["Salaire"] = ir_show["Salaire"].apply(money)
+        if "IR Date" not in ir_show.columns:
+            ir_show["IR Date"] = ""
+        ir_show["IR Date"] = ir_show["IR Date"].astype(str).str.strip()
+        ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
+
+        df_ir_ui = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
+
+        st.dataframe(
+            df_ir_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_ir",
+        )
+
+    # -------------------------------------------------
+    # ✅ Sélection unique (Actif/Banc/Mineur/IR) => set_move_ctx + rerun
     # -------------------------------------------------
     picked = None
     picked_key = None
@@ -1078,13 +1168,18 @@ with tabA:
         if p:
             picked, picked_key = p, "sel_min"
 
+    if not picked and df_ir_ui is not None and not df_ir_ui.empty:
+        p = pick_from_df(df_ir_ui, "sel_ir")
+        if p:
+            picked, picked_key = p, "sel_ir"
+
     if picked:
         picked = str(picked).strip()
         cur_pick = (str(proprietaire).strip(), picked)
 
         ctx = st.session_state.get("move_ctx") or {}
-        ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
-        ctx_joueur = str(ctx.get("joueur") or ctx.get("player") or "").strip()  # ✅ move_ctx utilise "joueur"
+        ctx_owner = str(ctx.get("owner") or "").strip()
+        ctx_joueur = str(ctx.get("joueur") or "").strip()
         already_open = (ctx_owner, ctx_joueur) == cur_pick
 
         if not already_open:
@@ -1093,44 +1188,17 @@ with tabA:
                 st.session_state["last_pick_align"] = cur_pick
                 set_move_ctx(cur_pick[0], cur_pick[1])
 
-            # ✅ garder seulement la sélection courante, vider les 2 autres
-            clear_other_selections(picked_key)
-            # ✅ et vider aussi la sélection courante (évite effet “re-clic”)
+            # Clear toutes les autres sélections + celle cliquée (anti-loop)
+            _clear_other_selections(picked_key)
             _clear_selection_key(picked_key)
 
             do_rerun()
 
     # -------------------------------------------------
-    # 🩹 IR — table simple (dans le tab Alignement)
-    # -------------------------------------------------
-    st.divider()
-    st.markdown("## 🩹 Joueurs Blessés (IR)")
-
-    # assure IR Date
-    if "IR Date" not in st.session_state["data"].columns:
-        st.session_state["data"]["IR Date"] = ""
-        st.session_state["data"] = clean_data(st.session_state["data"])
-        st.session_state["data"].to_csv(DATA_FILE, index=False)
-
-        # refresh local copies
-        data_all = st.session_state["data"]
-        dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
-        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-
-    if injured_all.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        ir_show = injured_all.copy()
-        ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
-        ir_show["Salaire"] = ir_show["Salaire"].apply(money)
-        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
-        ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
-
-        ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
-        st.dataframe(ir_show, use_container_width=True, hide_index=True)
-
     # ✅ Pop-up à la fin du tab
+    # -------------------------------------------------
     open_move_dialog()
+
 
 
 
