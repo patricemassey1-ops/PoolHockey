@@ -759,22 +759,27 @@ if df.empty:
 resume = []
 for p in df["Propriétaire"].unique():
     d = df[df["Propriétaire"] == p]
-    gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
-    ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-    logo = find_logo_for_owner(p)
+    total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+    total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+
+    logo = ""
+    for k, v in LOGOS.items():
+        if k.lower() in str(p).lower() and os.path.exists(v):
+            logo = v
+            break
 
     resume.append({
-        "Propriétaire": p,
+        "Propriétaire": str(p),
         "Logo": logo,
-        "GC": int(gc),
-        "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - gc),
-        "CE": int(ce),
-        "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - ce),
+        "Total Grand Club": int(total_gc),
+        "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
+        "Total Club École": int(total_ce),
+        "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
     })
 
-
 plafonds = pd.DataFrame(resume)
+
 
 # =====================================================
 # TABS
@@ -814,10 +819,11 @@ with tab1:
                 st.markdown(f"**{owner}**")
 
         # --- AUTRES COLONNES ---
-        cols[1].markdown(money(r["Total Grand Club"]))
+        cols[1].markdown(money(r["GC"]))
         cols[2].markdown(money(r["Montant Disponible GC"]))
-        cols[3].markdown(money(r["Total Club École"]))
+        cols[3].markdown(money(r["CE"]))
         cols[4].markdown(money(r["Montant Disponible CE"]))
+
 
 
 
