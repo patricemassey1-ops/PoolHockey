@@ -159,28 +159,30 @@ def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
 
     return y[["Joueur", "Pos", "Equipe", "Salaire"]].reset_index(drop=True)
 
+# -------------------------------------------------------------------
+# SAFETY PATCH — si un vieux code appelle encore clear_df_selections()
+# -------------------------------------------------------------------
+def clear_df_selections():
+    # Redirige vers la méthode Streamlit-safe
+    clear_other_selections(keep_key="__none__")
+
+
 # =====================================================
 # STREAMLIT TABLE SELECTION — TRIO 100% COMPATIBLE
 # =====================================================
 
-def clear_other_selections(keep_key: str):
-    """
-    Vider la sélection des 2 autres dataframes (sans réassigner st.session_state[k]).
-    Évite l'erreur StreamlitAPIException.
-    """
+def clear_other_selections(keep_key: str | None = None):
     for k in ["sel_actifs", "sel_banc", "sel_min"]:
-        if k == keep_key:
+        if keep_key and k == keep_key:
             continue
-
-        if k in st.session_state and isinstance(st.session_state[k], dict):
-            # Streamlit stocke la sélection ici:
-            # st.session_state[k]["selection"]["rows"] = [...]
-            sel = st.session_state[k].get("selection")
+        ss = st.session_state.get(k)
+        if isinstance(ss, dict):
+            sel = ss.get("selection")
             if isinstance(sel, dict):
                 sel["rows"] = []
-                # pas besoin de réassigner st.session_state[k] = ...
             else:
-                st.session_state[k]["selection"] = {"rows": []}
+                ss["selection"] = {"rows": []}
+
 
 
 def pick_from_df(df_ui: pd.DataFrame, key: str):
@@ -360,7 +362,12 @@ if "move_nonce" not in st.session_state:
 
 def set_move_ctx(owner: str, joueur: str):
     st.session_state["move_nonce"] = st.session_state.get("move_nonce", 0) + 1
-    st.session_state["move_ctx"] = {"owner": owner, "joueur": joueur, "nonce": st.session_state["move_nonce"]}
+    st.session_state["move_ctx"] = {
+        "owner": str(owner).strip(),
+        "joueur": str(joueur).strip(),  # ✅ minuscule
+        "nonce": st.session_state["move_nonce"],
+    }
+
 
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
@@ -938,7 +945,8 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (FINAL) : 3 tableaux + sélection unique + anti-boucle + pop-up
+# TAB A — Alignement (FINAL)
+# 3 tableaux + sélection unique + anti-boucle + pop-up + IR
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -976,8 +984,6 @@ with tabA:
     restant_gc = int(st.session_state["PLAFOND_GC"] - total_gc)
     restant_ce = int(st.session_state["PLAFOND_CE"] - total_ce)
 
-    st.session_state["align_counts"] = {"F": nb_F, "D": nb_D, "G": nb_G}
-
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(total_gc))
     top[1].metric("Montant Disponible GC", money(restant_gc))
@@ -993,136 +999,140 @@ with tabA:
     st.divider()
 
     # -------------------------------------------------
-    # Anti-boucle: si aucun pop-up n’est actif, on reset le dernier pick
+    # Anti-boucle: si aucun pop-up n’est actif, reset dernier pick
     # -------------------------------------------------
     if st.session_state.get("move_ctx") is None:
         st.session_state["last_pick_align"] = None
 
-# -------------------------------------------------
-# 3 TABLEAUX (Actif / Banc / Mineur)
-# ✅ on_select="rerun" obligatoire pour capter le clic
-# -------------------------------------------------
-df_actifs_ui = view_for_click(gc_actif)
-df_banc_ui   = view_for_click(gc_banc)
-df_min_ui    = view_for_click(ce_all)
+    # -------------------------------------------------
+    # Vider la sélection d'un dataframe (sans réassigner session_state[key])
+    # -------------------------------------------------
+    def _clear_selection_key(k: str):
+        ss = st.session_state.get(k)
+        if not isinstance(ss, dict):
+            return
+        sel = ss.get("selection")
+        if isinstance(sel, dict) and "rows" in sel:
+            sel["rows"].clear()
 
-c1, c2, c3 = st.columns(3)
+    # -------------------------------------------------
+    # 3 TABLEAUX (Actif / Banc / Mineur)
+    # on_select="rerun" requis pour capter le clic
+    # -------------------------------------------------
+    df_actifs_ui = view_for_click(gc_actif)
+    df_banc_ui   = view_for_click(gc_banc)
+    df_min_ui    = view_for_click(ce_all)
 
-with c1:
-    st.markdown("### 🟢 Actifs")
-    st.dataframe(
-        df_actifs_ui,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="sel_actifs",
-    )
+    c1, c2, c3 = st.columns(3)
 
-with c2:
-    st.markdown("### 🟡 Banc")
-    st.dataframe(
-        df_banc_ui,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="sel_banc",
-    )
+    with c1:
+        st.markdown("### 🟢 Actifs")
+        st.dataframe(
+            df_actifs_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_actifs",
+        )
 
-with c3:
-    st.markdown("### 🔵 Mineur")
-    st.dataframe(
-        df_min_ui,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="sel_min",
-    )
+    with c2:
+        st.markdown("### 🟡 Banc")
+        st.dataframe(
+            df_banc_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_banc",
+        )
 
-# -------------------------------------------------
-# ✅ Sélection => ouvre le pop-up SANS boucle (Streamlit safe)
-# -------------------------------------------------
-picked = None
-picked_key = None
+    with c3:
+        st.markdown("### 🔵 Mineur")
+        st.dataframe(
+            df_min_ui,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="sel_min",
+        )
 
-p = pick_from_df(df_actifs_ui, "sel_actifs")
-if p:
-    picked = p
-    picked_key = "sel_actifs"
+    # -------------------------------------------------
+    # ✅ Sélection => ouvre le pop-up (Streamlit-safe)
+    # -------------------------------------------------
+    picked = None
+    picked_key = None
 
-if not picked:
-    p = pick_from_df(df_banc_ui, "sel_banc")
+    p = pick_from_df(df_actifs_ui, "sel_actifs")
     if p:
-        picked = p
-        picked_key = "sel_banc"
+        picked, picked_key = p, "sel_actifs"
 
-if not picked:
-    p = pick_from_df(df_min_ui, "sel_min")
-    if p:
-        picked = p
-        picked_key = "sel_min"
+    if not picked:
+        p = pick_from_df(df_banc_ui, "sel_banc")
+        if p:
+            picked, picked_key = p, "sel_banc"
 
-if picked:
-    picked = str(picked).strip()
-    owner = str(proprietaire).strip()
-    cur_pick = (owner, picked)
+    if not picked:
+        p = pick_from_df(df_min_ui, "sel_min")
+        if p:
+            picked, picked_key = p, "sel_min"
 
-    ctx = st.session_state.get("move_ctx") or {}
-    ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
-    ctx_joueur = str(ctx.get("joueur") or ctx.get("player") or "").strip()
-    already_open = (ctx_owner, ctx_joueur) == cur_pick
+    if picked:
+        picked = str(picked).strip()
+        cur_pick = (str(proprietaire).strip(), picked)
 
-    if not already_open:
-        # ✅ Vide seulement les 2 autres sélections (safe)
-        clear_other_selections(picked_key)
+        ctx = st.session_state.get("move_ctx") or {}
+        ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
+        ctx_joueur = str(ctx.get("joueur") or ctx.get("player") or "").strip()  # ✅ move_ctx utilise "joueur"
+        already_open = (ctx_owner, ctx_joueur) == cur_pick
 
-        last_pick = st.session_state.get("last_pick_align")
-        if last_pick != cur_pick:
-            st.session_state["last_pick_align"] = cur_pick
-            set_move_ctx(owner, picked)
+        if not already_open:
+            last_pick = st.session_state.get("last_pick_align")
+            if last_pick != cur_pick:
+                st.session_state["last_pick_align"] = cur_pick
+                set_move_ctx(cur_pick[0], cur_pick[1])
 
-        do_rerun()
+            # ✅ garder seulement la sélection courante, vider les 2 autres
+            clear_other_selections(picked_key)
+            # ✅ et vider aussi la sélection courante (évite effet “re-clic”)
+            _clear_selection_key(picked_key)
+
+            do_rerun()
+
+    # -------------------------------------------------
+    # 🩹 IR — table simple (dans le tab Alignement)
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("## 🩹 Joueurs Blessés (IR)")
+
+    # assure IR Date
+    if "IR Date" not in st.session_state["data"].columns:
+        st.session_state["data"]["IR Date"] = ""
+        st.session_state["data"] = clean_data(st.session_state["data"])
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+
+        # refresh local copies
+        data_all = st.session_state["data"]
+        dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
+        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+
+    if injured_all.empty:
+        st.info("Aucun joueur blessé.")
+    else:
+        ir_show = injured_all.copy()
+        ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
+        ir_show["Salaire"] = ir_show["Salaire"].apply(money)
+        ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
+        ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
+
+        ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
+        st.dataframe(ir_show, use_container_width=True, hide_index=True)
+
+    # ✅ Pop-up à la fin du tab
+    open_move_dialog()
 
 
-open_move_dialog()
-
-
-# -------------------------------------------------
-# 🩹 IR — table simple (sans sélection dataframe)
-# -------------------------------------------------
-st.divider()
-st.markdown("## 🩹 Joueurs Blessés (IR)")
-
-# assure IR Date
-if "IR Date" not in st.session_state["data"].columns:
-    st.session_state["data"]["IR Date"] = ""
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    st.session_state["data"].to_csv(DATA_FILE, index=False)
-
-    # refresh local copies
-    data_all = st.session_state["data"]
-    dprop = data_all[data_all["Propriétaire"] == proprietaire].copy()
-    injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-
-if injured_all.empty:
-    st.info("Aucun joueur blessé.")
-else:
-    ir_show = injured_all.copy()
-    ir_show["Pos"] = ir_show["Pos"].apply(normalize_pos)
-    ir_show["Salaire"] = ir_show["Salaire"].apply(money)
-    ir_show["IR Date"] = ir_show.get("IR Date", "").astype(str).str.strip()
-    ir_show.loc[ir_show["IR Date"].eq(""), "IR Date"] = "—"
-
-    ir_show = ir_show[["Joueur", "Pos", "Equipe", "IR Date", "Salaire"]].reset_index(drop=True)
-    st.dataframe(ir_show, use_container_width=True, hide_index=True)
-
-# (DEBUG optionnel — garde-le juste pour tester)
-st.write("DEBUG move_ctx =", st.session_state.get("move_ctx"))
-
-# ✅ Pop-up à la fin du tab
-open_move_dialog()
 
 
 
