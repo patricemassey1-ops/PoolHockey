@@ -1069,24 +1069,22 @@ if picked:
     owner = str(proprietaire).strip()
     cur_pick = (owner, picked)
 
-    # Context actuel (si déjà ouvert, ne rien faire)
     ctx = st.session_state.get("move_ctx") or {}
     ctx_owner = str(ctx.get("owner") or ctx.get("proprietaire") or "").strip()
     ctx_joueur = str(ctx.get("joueur") or ctx.get("player") or "").strip()
     already_open = (ctx_owner, ctx_joueur) == cur_pick
 
     if not already_open:
-        # ✅ on vide d'abord les 2 autres sélections
+        # ✅ Vide seulement les 2 autres sélections (safe)
         clear_other_selections(picked_key)
 
-        # Anti-double ouverture sur le même clic (rerun)
         last_pick = st.session_state.get("last_pick_align")
         if last_pick != cur_pick:
             st.session_state["last_pick_align"] = cur_pick
             set_move_ctx(owner, picked)
 
-        # ✅ force un rerun pour que le dialog s'affiche
         do_rerun()
+
 
 open_move_dialog()
 
