@@ -975,9 +975,9 @@ with tabA:
     if st.session_state.get("move_ctx") is None:
         st.session_state["last_pick_align"] = None
 
-    # -------------------------------------------------
-    # 3 TABLEAUX (Actif / Banc / Mineur) — sélection unique
-    # IMPORTANT: pas de on_select="rerun" pour éviter la boucle STOP
+        # -------------------------------------------------
+    # 3 TABLEAUX (Actif / Banc / Mineur)
+    # ✅ on_select="rerun" obligatoire pour capter le clic
     # -------------------------------------------------
     df_actifs_ui = view_for_click(gc_actif)
     df_banc_ui   = view_for_click(gc_banc)
@@ -992,6 +992,7 @@ with tabA:
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
+            on_select="rerun",
             key="sel_actifs",
         )
 
@@ -1002,6 +1003,7 @@ with tabA:
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
+            on_select="rerun",
             key="sel_banc",
         )
 
@@ -1012,51 +1014,38 @@ with tabA:
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
+            on_select="rerun",
             key="sel_min",
         )
 
     # -------------------------------------------------
-    # ✅ Sélection UNIQUE (impossible d'en avoir 2)
-    # - si un tableau est sélectionné, on clear les 2 autres
+    # ✅ Sélection => ouvre le pop-up SANS boucle
     # -------------------------------------------------
-    def clear_other_selections(keep_key: str):
-        for k in ["sel_actifs", "sel_banc", "sel_min"]:
-            if k != keep_key:
-                ss = st.session_state.get(k)
-                if isinstance(ss, dict):
-                    ss["selection"] = {"rows": []}
-                    st.session_state[k] = ss
+    picked = (
+        pick_from_df(df_actifs_ui, "sel_actifs")
+        or pick_from_df(df_banc_ui, "sel_banc")
+        or pick_from_df(df_min_ui, "sel_min")
+    )
 
-    picked = None
-
-    pA = pick_from_df(df_actifs_ui, "sel_actifs")
-    if pA:
-        clear_other_selections("sel_actifs")
-        picked = pA
-
-    pB = pick_from_df(df_banc_ui, "sel_banc")
-    if (picked is None) and pB:
-        clear_other_selections("sel_banc")
-        picked = pB
-
-    pM = pick_from_df(df_min_ui, "sel_min")
-    if (picked is None) and pM:
-        clear_other_selections("sel_min")
-        picked = pM
-
-    if picked:
+        if picked:
         picked = str(picked).strip()
-        last_pick = st.session_state.get("last_pick_align")
         cur_pick = (proprietaire, picked)
 
-        # ✅ Clear sélection (évite que Streamlit "ré-voit" la ligne au rerun)
-        clear_df_selections()
+        ctx = st.session_state.get("move_ctx") or {}
+        ctx_owner = ctx.get("owner") or ctx.get("proprietaire")
+        ctx_joueur = ctx.get("joueur") or ctx.get("player")
+        already_open = (ctx_owner, ctx_joueur) == cur_pick
 
-        # ✅ Anti-double ouverture + ouvre pop-up
-        if last_pick != cur_pick:
-            st.session_state["last_pick_align"] = cur_pick
-            set_move_ctx(proprietaire, picked)
-            do_rerun()
+        if not already_open:
+            last_pick = st.session_state.get("last_pick_align")
+            if last_pick != cur_pick:
+                st.session_state["last_pick_align"] = cur_pick
+                set_move_ctx(proprietaire, picked)
+
+            clear_df_selections()
+            st.rerun()
+
+
 
     # -------------------------------------------------
     # 🩹 IR — table simple (sans sélection dataframe)
