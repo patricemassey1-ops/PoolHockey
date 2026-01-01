@@ -258,25 +258,35 @@ def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------------------
-# UI cliquable (remplace st.dataframe + selection_mode)
-# Colonnes: Équipe | Pos | Joueur | Salaire
+# UI cliquable (compact + low buttons)
 # ----------------------------
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     """
-    UI cliquable: 1 bouton par joueur (ouvre popup)
-    Visuel: Équipe | Pos | Joueur | Salaire
+    UI cliquable ultra compacte: 1 bouton par joueur + badges CSS.
+    Colonnes: Équipe | Pos | Joueur | Salaire
     Retourne le joueur cliqué (str) ou None.
     """
     if df_src is None or df_src.empty:
-        st.info("Aucun joueur.")
+        st.caption("Aucun joueur.")
         return None
 
-    # CSS compact + boutons serrés
+    # CSS ultra compact (gain ~10-15%)
     st.markdown(
         """
         <style>
-          div[data-testid="stButton"] > button { padding: 0.18rem 0.5rem; font-weight: 900; }
-          .hdr { font-size: 12px; font-weight: 900; opacity:.75; padding-bottom:4px; }
+          /* Boutons plus bas */
+          div[data-testid="stButton"] > button{
+            padding: 0.10rem 0.45rem !important;
+            min-height: 28px !important;
+            height: 28px !important;
+            line-height: 1.05 !important;
+            font-weight: 900 !important;
+            font-size: 12px !important;
+          }
+          /* Ligne compacte */
+          .rowline { padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+          /* Réduit la marge des markdown */
+          div[data-testid="stMarkdown"] p { margin: 0.15rem 0 !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -284,53 +294,46 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     t = df_src.copy()
 
-    # Colonnes garanties (Slot/Statut non utilisés ici)
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
+    # Colonnes garanties
+    for c, d in {"Joueur":"", "Pos":"F", "Equipe":"", "Salaire":0}.items():
         if c not in t.columns:
             t[c] = d
 
-    # Normalise & tri
+    # Tri Pos + Joueur
     t["Pos"] = t["Pos"].apply(normalize_pos)
     t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t["Equipe"] = t["Equipe"].astype(str).fillna("").str.strip()
-    t["Joueur"] = t["Joueur"].astype(str).fillna("").str.strip()
-    t = t.sort_values(["_pos", "Equipe", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
+    t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
 
-    # Header: Équipe | Pos | Joueur | Salaire
-    h = st.columns([2, 2, 5, 2])
-    h[0].markdown("<div class='hdr'>Équipe</div>", unsafe_allow_html=True)
-    h[1].markdown("<div class='hdr'>Pos</div>", unsafe_allow_html=True)
-    h[2].markdown("<div class='hdr'>Joueur</div>", unsafe_allow_html=True)
-    h[3].markdown("<div class='hdr'>Salaire</div>", unsafe_allow_html=True)
+    # Header (compact)
+    h = st.columns([2.4, 1.6, 5.0, 2.0])
+    h[0].markdown("**Équipe**")
+    h[1].markdown("**Pos**")
+    h[2].markdown("**Joueur**")
+    h[3].markdown("**Salaire**")
 
     clicked = None
 
     for i, r in t.iterrows():
-        joueur = str(r.get("Joueur", "")).strip()
+        joueur = str(r.get("Joueur","")).strip()
         if not joueur:
             continue
 
-        equipe = str(r.get("Equipe", "")).strip() or "—"
-        pos = str(r.get("Pos", "F")).strip() or "F"
+        equipe = str(r.get("Equipe","")).strip()
+        pos = r.get("Pos","F")
         salaire = r.get("Salaire", 0)
 
-        c = st.columns([2, 2, 5, 2])
-
-        # Équipe (texte)
-        c[0].markdown(f"**{equipe}**")
-
-        # Pos (badge couleur réel)
+        c = st.columns([2.4, 1.6, 5.0, 2.0])
+        c[0].markdown(equipe if equipe else "—")
         c[1].markdown(pos_badge_html(pos), unsafe_allow_html=True)
 
-        # Joueur (clic 1-shot)
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             st.session_state["move_source"] = source_key
             clicked = joueur
 
-        # Salaire
         c[3].markdown(money(salaire))
 
     return clicked
+
 
 
 
@@ -1152,23 +1155,23 @@ with tabA:
         """
         <style>
           .cardbox{
-            border:1px solid rgba(0,0,0,.08);
-            border-radius:14px;
-            padding:10px 12px;
-            background:rgba(255,255,255,.02);
-          }
-          .cardtitle{
-            font-weight:950;
-            font-size:14px;
-            margin:0 0 6px 0;
-            opacity:.95;
-          }
-          /* expander plus compact */
-          div[data-testid="stExpander"] details summary { padding-top: 6px !important; padding-bottom: 6px !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+          border: 2px solid rgba(255,255,255,.85);
+          border-radius: 14px;
+          padding: 10px 12px;
+          background: rgba(255,255,255,.03);
+          box-shadow: 0 1px 10px rgba(0,0,0,.10);
+        }
+        .cardtitle{
+          font-weight: 950;
+          font-size: 14px;
+          margin: 0 0 6px 0;
+          opacity: .95;
+        }
+      </style>
+      """,
+      unsafe_allow_html=True,
+   )
+
 
     # ============================
     # Propriétaire
@@ -1226,19 +1229,43 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ============================
-    # Metrics + actifs
+    # Metrics (1 ligne compacte HTML) + actifs
     # ============================
-    top = st.columns([1, 1, 1, 1, 1])
-    top[0].metric("Total GC", money(used_gc))
-    top[1].metric("Reste GC", money(remain_gc))
-    top[2].metric("Total CE", money(used_ce))
-    top[3].metric("Reste CE", money(remain_ce))
-    top[4].metric("IR", f"{len(injured_all)}")
-
     st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
+        f"""
+        <style>
+          .metricbar {{
+            display:flex; flex-wrap:wrap; gap:8px;
+            padding:6px 10px; border:1px solid rgba(255,255,255,.14);
+            border-radius:12px; background:rgba(255,255,255,.03);
+            margin-top:6px; margin-bottom:6px;
+          }}
+          .metricpill {{
+            display:flex; gap:6px; align-items:baseline;
+            padding:4px 8px; border-radius:999px;
+            background:rgba(255,255,255,.06);
+            border:1px solid rgba(255,255,255,.12);
+            font-weight:900; font-size:12px; line-height:1;
+           }}
+           .metricpill b {{ opacity:.75; font-weight:900; }}
+           .metricpill span {{ font-weight:1000; }}
+        </style>
+
+        <div class="metricbar">
+          <div class="metricpill"><b>Total GC</b><span>{money(used_gc)}</span></div>
+          <div class="metricpill"><b>Reste GC</b><span>{money(remain_gc)}</span></div>
+          <div class="metricpill"><b>Total CE</b><span>{money(used_ce)}</span></div>
+          <div class="metricpill"><b>Reste CE</b><span>{money(remain_ce)}</span></div>
+          <div class="metricpill"><b>IR</b><span>{len(injured_all)}</span></div>
+          <div class="metricpill"><b>Actifs</b>
+            <span>F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}</span>
+          </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
+
+
 
     # ============================
     # Guard popup
