@@ -1209,6 +1209,18 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ============================
+    # Compte mineur (positions)
+    # ============================
+    tmpm = ce_all.copy()
+    if "Pos" not in tmpm.columns:
+        tmpm["Pos"] = "F"
+    tmpm["Pos"] = tmpm["Pos"].apply(normalize_pos)
+    nbm_F = int((tmpm["Pos"] == "F").sum())
+    nbm_D = int((tmpm["Pos"] == "D").sum())
+    nbm_G = int((tmpm["Pos"] == "G").sum())
+
+
+    # ============================
     # Plafonds (IR exclu car dprop_ok)
     # ============================
     cap_gc = int(st.session_state["PLAFOND_GC"])
@@ -1230,6 +1242,7 @@ with tabA:
     # ============================
     # Metrics (1 ligne compacte HTML) + actifs
     # ============================
+    
     st.markdown(
         f"""
         <style>
@@ -1240,32 +1253,37 @@ with tabA:
           margin-top:6px; margin-bottom:6px;
         }}
         .metricpill {{
-          display:flex; gap:6px; align-items:baseline;
-          padding:4px 8px; border-radius:999px;
-          background:rgba(255,255,255,.06);
-          border:1px solid rgba(255,255,255,.12);
-          font-weight:900; font-size:12px; line-height:1;
+         display:flex; gap:6px; align-items:baseline;
+         padding:4px 8px; border-radius:999px;
+         background:rgba(255,255,255,.06);
+         border:1px solid rgba(255,255,255,.12);
+         font-weight:900; font-size:12px; line-height:1;
         }}
         .metricpill b {{ opacity:.75; font-weight:900; }}
         .metricpill span {{ font-weight:1000; }}
-      </style>
+        .dim {{ opacity:.75; font-weight:900; font-size:11px; }}
+        </style>
 
-      <div class="metricbar">
-        <div class="metricpill"><b>Total GC</b><span>{money(used_gc)}</span></div>
-        <div class="metricpill"><b>Reste GC</b><span>{money(remain_gc)}</span></div>
-        <div class="metricpill"><b>Total CE</b><span>{money(used_ce)}</span></div>
-        <div class="metricpill"><b>Reste CE</b><span>{money(remain_ce)}</span></div>
+    <div class="metricbar">
+      <div class="metricpill"><b>Total GC</b><span>{money(used_gc)}</span></div>
+      <div class="metricpill"><b>Reste GC</b><span>{money(remain_gc)}</span></div>
+      <div class="metricpill"><b>Total CE</b><span>{money(used_ce)}</span></div>
+      <div class="metricpill"><b>Reste CE</b><span>{money(remain_ce)}</span></div>
 
-        <div class="metricpill"><b>IR</b><span>{len(injured_all)}</span></div>
-        <div class="metricpill"><b>Banc</b><span>{len(gc_banc)}</span></div>
-        <div class="metricpill"><b>Mineur</b><span>{len(ce_all)}</span></div>
+      <div class="metricpill"><b>IR</b><span>{len(injured_all)}</span></div>
+      <div class="metricpill"><b>Banc</b><span>{len(gc_banc)}</span></div>
+
+      <div class="metricpill"><b>Mineur</b>
+        <span>{len(ce_all)}</span>
+        <span class="dim">F {nbm_F} • D {nbm_D} • G {nbm_G}</span>
+        </div>
 
         <div class="metricpill"><b>Actifs</b>
-          <span>F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}</span>
+           <span>F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}</span>
+         </div>
         </div>
-       </div>
-       """,
-       unsafe_allow_html=True
+        """,
+        unsafe_allow_html=True
     )
 
 
