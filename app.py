@@ -307,36 +307,63 @@ def colored_count(label: str, n: int, limit: int) -> str:
       
 def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
     """
-    Table UI Actif / Banc / Mineur avec badges couleur.
-    ⚠️ Ne modifie JAMAIS la colonne 'Joueur'
+    Table UI Actif / Banc / Mineur / IR
+    - 100% compatible st.dataframe (PAS de HTML)
+    - ⚠️ Ne modifie JAMAIS la colonne 'Joueur'
     """
+    cols_out = ["Joueur", "Pos", "Slot", "Equipe", "Salaire"]
+
     if x is None or x.empty:
-        return pd.DataFrame(columns=["Joueur", "Pos", "Slot", "Equipe", "Salaire"])
+        return pd.DataFrame(columns=cols_out)
 
     y = x.copy()
 
-    # Colonnes garanties
-    for c, d in {
-        "Joueur": "",
-        "Pos": "F",
-        "Slot": "",
-        "Equipe": "",
-        "Salaire": 0,
-    }.items():
-        if c not in y.columns:
-            y[c] = d
+    # Colonnes garanties (sans toucher Joueur si déjà présent)
+    if "Joueur" not in y.columns:
+        y["Joueur"] = ""
+    if "Pos" not in y.columns:
+        y["Pos"] = "F"
+    if "Slot" not in y.columns:
+        y["Slot"] = ""
+    if "Equipe" not in y.columns:
+        y["Equipe"] = ""
+    if "Salaire" not in y.columns:
+        y["Salaire"] = 0
 
-    # Tri par position
+    # Normalisation position + tri
     y["Pos"] = y["Pos"].apply(normalize_pos)
     y["_pos_order"] = y["Pos"].apply(pos_sort_key)
-    y = y.sort_values(["_pos_order", "Joueur"]).drop(columns="_pos_order")
+    y = y.sort_values(["_pos_order", "Joueur"]).drop(columns=["_pos_order"])
 
-    # Badges
-    y["Pos"] = y["Pos"].apply(badge_pos)
-    y["Slot"] = y["Slot"].apply(badge_slot)
+    # Badges texte (emoji) — aucun HTML
+    def pos_badge(p: str) -> str:
+        p = str(p or "").strip().upper()
+        if p == "G":
+            return "🟣 G"
+        if p == "D":
+            return "🔵 D"
+        return "🟢 F"
+
+    def slot_badge(s: str) -> str:
+        s = str(s or "").strip()
+        if s == "Actif":
+            return "🟢 Actif"
+        if s == "Banc":
+            return "🟡 Banc"
+        if s == "Blessé":
+            return "🩹 IR"
+        if s == "":
+            # utile pour Mineur / slot vide
+            return "🔵 —"
+        return s  # fallback
+
+    y["Pos"] = y["Pos"].apply(pos_badge)
+    y["Slot"] = y["Slot"].apply(slot_badge)
     y["Salaire"] = y["Salaire"].apply(money)
 
-    return y[["Joueur", "Pos", "Slot", "Equipe", "Salaire"]].reset_index(drop=True)
+    # IMPORTANT: garder Joueur tel quel (on ne le modifie pas)
+    return y[cols_out].reset_index(drop=True)
+
 
 
 # =====================================================
