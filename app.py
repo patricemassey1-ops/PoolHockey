@@ -230,6 +230,38 @@ def clear_move_ctx():
     st.session_state["move_ctx"] = None
     st.session_state["move_source"] = ""
 
+def view_for_click(x: pd.DataFrame) -> pd.DataFrame:
+    """
+    UI pour affichage dans Alignement:
+    Colonnes visibles: Equipe, Pos, Joueur, Salaire
+    ⚠️ Ne modifie JAMAIS la colonne 'Joueur'
+    """
+    if x is None or x.empty:
+        return pd.DataFrame(columns=["Equipe", "Pos", "Joueur", "Salaire"])
+
+    y = x.copy()
+
+    # Colonnes garanties (backend)
+    for c, d in {
+        "Joueur": "",
+        "Pos": "F",
+        "Equipe": "",
+        "Salaire": 0,
+    }.items():
+        if c not in y.columns:
+            y[c] = d
+
+    # Normalisation + tri
+    y["Pos"] = y["Pos"].apply(normalize_pos)
+    y["_pos_order"] = y["Pos"].apply(pos_sort_key)
+    y = y.sort_values(["Equipe", "_pos_order", "Joueur"]).drop(columns="_pos_order")
+
+    # Badges UI (couleurs réelles)
+    y["Pos"] = y["Pos"].apply(badge_pos)
+    y["Salaire"] = y["Salaire"].apply(money)
+
+    # ✅ Affichage final demandé
+    return y[["Equipe", "Pos", "Joueur", "Salaire"]].reset_index(drop=True)
 
 # ----------------------------
 # UI cliquable (remplace st.dataframe + selection_mode)
