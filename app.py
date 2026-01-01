@@ -270,42 +270,47 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         st.caption("Aucun joueur.")
         return None
 
-    # CSS ultra compact (gain ~10-15%)
-    st.markdown(
-        """
-        <style>
-          /* Boutons plus bas */
-          div[data-testid="stButton"] > button{
-            padding: 0.10rem 0.45rem !important;
-            min-height: 28px !important;
-            height: 28px !important;
-            line-height: 1.05 !important;
-            font-weight: 900 !important;
-            font-size: 12px !important;
-          }
-          /* Ligne compacte */
-          .rowline { padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
-          /* Réduit la marge des markdown */
-          div[data-testid="stMarkdown"] p { margin: 0.15rem 0 !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ⚠️ Injecte le CSS UNE fois par source_key (évite répétition)
+    css_key = f"__css_roster_{source_key}"
+    if not st.session_state.get(css_key):
+        st.session_state[css_key] = True
+        st.markdown(
+            """
+            <style>
+              /* Boutons plus bas */
+              div[data-testid="stButton"] > button{
+                padding: 0.10rem 0.45rem !important;
+                min-height: 28px !important;
+                height: 28px !important;
+                line-height: 1.05 !important;
+                font-weight: 900 !important;
+                font-size: 12px !important;
+              }
+              /* Ligne compacte */
+              .rowline { padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+              /* Réduit la marge des markdown */
+              div[data-testid="stMarkdown"] p { margin: 0.15rem 0 !important; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
     t = df_src.copy()
 
     # Colonnes garanties
-    for c, d in {"Joueur":"", "Pos":"F", "Equipe":"", "Salaire":0}.items():
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
         if c not in t.columns:
             t[c] = d
 
-    # Tri Pos + Joueur
+    # Nettoyage / tri
+    t["Equipe"] = t["Equipe"].astype(str).fillna("").str.strip()
     t["Pos"] = t["Pos"].apply(normalize_pos)
     t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
+    t["_j"] = t["Joueur"].astype(str).fillna("").str.strip()
+    t = t.sort_values(["_pos", "_j"]).drop(columns=["_pos", "_j"]).reset_index(drop=True)
 
-    # Header (compact)
-    h = st.columns([2.4, 1.6, 5.0, 2.0])
+    # Header (Équipe | Pos | Joueur | Salaire)
+    h = st.columns([2.5, 1.6, 5.0, 2.2], gap="small")
     h[0].markdown("**Équipe**")
     h[1].markdown("**Pos**")
     h[2].markdown("**Joueur**")
@@ -314,25 +319,32 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     clicked = None
 
     for i, r in t.iterrows():
-        joueur = str(r.get("Joueur","")).strip()
+        joueur = str(r.get("Joueur", "")).strip()
         if not joueur:
             continue
 
-        equipe = str(r.get("Equipe","")).strip()
-        pos = r.get("Pos","F")
+        equipe = str(r.get("Equipe", "")).strip()
+        pos = str(r.get("Pos", "F")).strip()
         salaire = r.get("Salaire", 0)
 
-        c = st.columns([2.4, 1.6, 5.0, 2.0])
+        c = st.columns([2.5, 1.6, 5.0, 2.2], gap="small")
+
+        # Équipe (simple)
         c[0].markdown(equipe if equipe else "—")
+
+        # Pos (badge html réel)
         c[1].markdown(pos_badge_html(pos), unsafe_allow_html=True)
 
+        # Joueur (clic 1-shot)
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             st.session_state["move_source"] = source_key
             clicked = joueur
 
+        # Salaire
         c[3].markdown(money(salaire))
 
     return clicked
+
 
 
 
@@ -1141,31 +1153,48 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (COMPACT)
+# TAB A — Alignement (COMPACT) — BLOC COMPLET
 #   - Jauges GC/CE inchangées
-#   - Actifs + Mineur encadrés (cards)
-#   - Banc + IR en expanders (compact)
+#   - Metrics compactes + compte Banc + Mineur (F/D/G) + IR
+#   - Pills (Banc/IR) cliquables MAIS BLOQUÉES si popup ouvert
+#   - Actifs + Mineur encadrés (container border=True) pleine hauteur du contenu
+#   - Banc + IR au même endroit (expanders pleine largeur)
 #   - Guard anti re-pick pendant popup
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # --- CSS: cards + compact ---
+    # --- CSS: compact + cards/pills ---
     st.markdown(
         """
         <style>
-          .cardbox{
-            border: 2px solid rgba(255,255,255,.85);
-            border-radius: 14px;
-            padding: 10px 12px;
-            background: rgba(255,255,255,.03);
-            box-shadow: 0 1px 10px rgba(0,0,0,.10);
+          .metricbar{
+            display:flex; flex-wrap:wrap; gap:8px;
+            padding:6px 10px; border:1px solid rgba(255,255,255,.14);
+            border-radius:12px; background:rgba(255,255,255,.03);
+            margin-top:6px; margin-bottom:6px;
           }
-          .cardtitle{
-            font-weight: 950;
-            font-size: 14px;
-            margin: 0 0 6px 0;
-            opacity: .95;
+          .metricpill{
+            display:flex; gap:6px; align-items:baseline;
+            padding:4px 8px; border-radius:999px;
+            background:rgba(255,255,255,.06);
+            border:1px solid rgba(255,255,255,.12);
+            font-weight:900; font-size:12px; line-height:1;
+          }
+          .metricpill b{ opacity:.75; font-weight:900; }
+          .metricpill span{ font-weight:1000; }
+          .dim{ opacity:.75; font-weight:900; font-size:11px; }
+
+          .tinybtn div[data-testid="stButton"] > button{
+            padding: .22rem .55rem !important;
+            border-radius: 999px !important;
+            font-weight: 950 !important;
+            font-size: 12px !important;
+            height: 30px !important;
+          }
+          .tinybtn.disabled div[data-testid="stButton"] > button{
+            opacity:.45 !important;
+            pointer-events:none !important;
           }
         </style>
         """,
@@ -1219,7 +1248,6 @@ with tabA:
     nbm_D = int((tmpm["Pos"] == "D").sum())
     nbm_G = int((tmpm["Pos"] == "G").sum())
 
-
     # ============================
     # Plafonds (IR exclu car dprop_ok)
     # ============================
@@ -1240,62 +1268,71 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ============================
-    # Metrics (1 ligne compacte HTML) + actifs
+    # Guard anti re-pick pendant popup
     # ============================
-    
-    st.markdown(
-        f"""
-        <style>
-          .metricbar {{
-          display:flex; flex-wrap:wrap; gap:8px;
-          padding:6px 10px; border:1px solid rgba(255,255,255,.14);
-          border-radius:12px; background:rgba(255,255,255,.03);
-          margin-top:6px; margin-bottom:6px;
-        }}
-        .metricpill {{
-         display:flex; gap:6px; align-items:baseline;
-         padding:4px 8px; border-radius:999px;
-         background:rgba(255,255,255,.06);
-         border:1px solid rgba(255,255,255,.12);
-         font-weight:900; font-size:12px; line-height:1;
-        }}
-        .metricpill b {{ opacity:.75; font-weight:900; }}
-        .metricpill span {{ font-weight:1000; }}
-        .dim {{ opacity:.75; font-weight:900; font-size:11px; }}
-        </style>
-
-    <div class="metricbar">
-      <div class="metricpill"><b>Total GC</b><span>{money(used_gc)}</span></div>
-      <div class="metricpill"><b>Reste GC</b><span>{money(remain_gc)}</span></div>
-      <div class="metricpill"><b>Total CE</b><span>{money(used_ce)}</span></div>
-      <div class="metricpill"><b>Reste CE</b><span>{money(remain_ce)}</span></div>
-
-      <div class="metricpill"><b>IR</b><span>{len(injured_all)}</span></div>
-      <div class="metricpill"><b>Banc</b><span>{len(gc_banc)}</span></div>
-
-      <div class="metricpill"><b>Mineur</b>
-        <span>{len(ce_all)}</span>
-        <span class="dim">F {nbm_F} • D {nbm_D} • G {nbm_G}</span>
-        </div>
-
-        <div class="metricpill"><b>Actifs</b>
-           <span>F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}</span>
-         </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-    # ---------
-    # Guard anti “re-pick” pendant popup
-    # ---------
     popup_open = st.session_state.get("move_ctx") is not None
 
     # ============================
+    # Metrics compactes (1 ligne)
+    # ============================
+    st.markdown(
+        f"""
+        <div class="metricbar">
+          <div class="metricpill"><b>Total GC</b><span>{money(used_gc)}</span></div>
+          <div class="metricpill"><b>Reste GC</b><span>{money(remain_gc)}</span></div>
+          <div class="metricpill"><b>Total CE</b><span>{money(used_ce)}</span></div>
+          <div class="metricpill"><b>Reste CE</b><span>{money(remain_ce)}</span></div>
+
+          <div class="metricpill"><b>Banc</b><span>{len(gc_banc)}</span></div>
+          <div class="metricpill"><b>IR</b><span>{len(injured_all)}</span></div>
+
+          <div class="metricpill"><b>Actifs</b>
+            <span>F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}</span>
+          </div>
+
+          <div class="metricpill"><b>Mineur</b>
+            <span>{len(ce_all)}</span>
+            <span class="dim">F {nbm_F} • D {nbm_D} • G {nbm_G}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ============================
+    # Pills cliquables -> expanders (BLOQUÉS si popup ouvert)
+    # ============================
+    for k, v in {"exp_banc": False, "exp_ir": False}.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    pills_class = "tinybtn disabled" if popup_open else "tinybtn"
+
+    b1, b2, b3 = st.columns([1, 1, 3], gap="small")
+
+    with b1:
+        st.markdown(f"<div class='{pills_class}'>", unsafe_allow_html=True)
+        if st.button(f"🟡 Banc ({len(gc_banc)})", use_container_width=True, key="pill_banc"):
+            if not popup_open:
+                st.session_state["exp_banc"] = not st.session_state["exp_banc"]
+                do_rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with b2:
+        st.markdown(f"<div class='{pills_class}'>", unsafe_allow_html=True)
+        if st.button(f"🩹 IR ({len(injured_all)})", use_container_width=True, key="pill_ir"):
+            if not popup_open:
+                st.session_state["exp_ir"] = not st.session_state["exp_ir"]
+                do_rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with b3:
+        st.caption("")
+
+    # ============================
     # ZONE ROSTER (compact)
-    #   - Actifs & Mineur: encadrés blancs (container border=True)
-    #   - Banc + IR: expanders (plein largeur)
+    #   - Actifs & Mineur encadrés
+    #   - Banc + IR au même endroit (expanders pleine largeur)
     # ============================
     left, right = st.columns([1, 1], gap="small")
 
@@ -1303,7 +1340,7 @@ with tabA:
         with st.container(border=True):
             st.markdown("### 🟢 Actifs")
             if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
+                p = roster_click_list(gc_actif, proprietaire, "actifs")  # doit afficher Team | Pos | Joueur | Salaire
                 if p:
                     set_move_ctx(proprietaire, p)
                     do_rerun()
@@ -1321,8 +1358,8 @@ with tabA:
             else:
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
-    # --- Banc + IR au même endroit (plein largeur) ---
-    with st.expander("🟡 Banc", expanded=False):
+    # --- Banc + IR: même endroit, largeur pleine ---
+    with st.expander("🟡 Banc", expanded=st.session_state.get("exp_banc", False)):
         if gc_banc is None or gc_banc.empty:
             st.info("Aucun joueur.")
         else:
@@ -1334,7 +1371,7 @@ with tabA:
             else:
                 roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=False):
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=st.session_state.get("exp_ir", False)):
         if injured_all is None or injured_all.empty:
             st.info("Aucun joueur blessé.")
         else:
@@ -1348,6 +1385,7 @@ with tabA:
 
     # ✅ Pop-up (toujours à la fin du tabA)
     open_move_dialog()
+
 
 
 
