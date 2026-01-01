@@ -36,6 +36,38 @@ os.makedirs(DATA_DIR, exist_ok=True)
 PLAYERS_DB_FILE = "data/Hockey.Players.csv"   # ✅ confirmé
 LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche pas)
 
+def inject_compact_css():
+    st.markdown(
+        """
+        <style>
+        /* Page: réduit les marges/paddings */
+        .block-container { padding-top: .8rem !important; padding-bottom: .8rem !important; }
+        [data-testid="stVerticalBlock"] { gap: .55rem !important; }
+
+        /* Titres: moins d'espace */
+        h1, h2, h3, h4 { margin: .35rem 0 .35rem 0 !important; }
+        .stCaption { margin-top: .1rem !important; }
+
+        /* Dataframe: compacte cellules + police */
+        div[data-testid="stDataFrame"] * { font-size: 12px !important; }
+        div[data-testid="stDataFrame"] tbody tr td {
+            padding-top: 4px !important;
+            padding-bottom: 4px !important;
+        }
+
+        /* Boutons: un peu plus bas */
+        .stButton>button { padding: .35rem .6rem !important; }
+
+        /* Expander: moins d'espace */
+        details { border-radius: 10px !important; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+inject_compact_css()
+
+
 # =====================================================
 # LOGOS (dans /data)
 # =====================================================
