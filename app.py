@@ -43,6 +43,14 @@ LOGOS = {
 
 LOGO_SIZE = 55
 
+def find_logo_for_owner(owner: str) -> str:
+    o = str(owner or "").strip().lower()
+    for key, path in LOGOS.items():
+        if key.lower() in o and os.path.exists(path):
+            return path
+    return ""
+
+
 # =====================================================
 # UTILS
 # =====================================================
@@ -758,27 +766,24 @@ if df.empty:
 # =====================================================
 resume = []
 for p in df["Propriétaire"].unique():
-	d = df[df["Propriétaire"] == p]
+    d = df[df["Propriétaire"] == p]
 
-	total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
-	total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+    total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+    total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-	logo = ""
-	for k, v in LOGOS.items():
-		if k.lower() in str(p).lower() and os.path.exists(v):
-			logo = v
-			break
+    logo = find_logo_for_owner(p)
 
-	resume.append({
-		"Propriétaire": str(p),
-		"Logo": logo,
-		"Total Grand Club": int(total_gc),
-		"Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
-		"Total Club École": int(total_ce),
-		"Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
-	})
+    resume.append({
+        "Propriétaire": str(p),
+        "Logo": logo,
+        "Total Grand Club": int(total_gc),
+        "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
+        "Total Club École": int(total_ce),
+        "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
+    })
 
 plafonds = pd.DataFrame(resume)
+
 
 
 
@@ -827,6 +832,15 @@ with tab1:
 
 
 
+	def _count_badge(n, limit):
+    if n > limit:
+        color = "#ef4444"  # rouge
+        icon = " ⚠️"
+    else:
+        color = "#22c55e"  # vert
+        icon = ""
+
+    return f"<span style='color:{color};font-weight:1000'>{n}</span>/{limit}{icon}"
 
 
 # =====================================================
@@ -875,10 +889,16 @@ with tabA:
 	top[3].metric("Montant Disponible CE", money(restant_ce))
 	top[4].metric("Blessés", f"{len(injured_all)}")
 
+	
+
+
 	st.markdown(
-		colored_count("F", nb_F, 12) + " • " + colored_count("D", nb_D, 6) + " • " + colored_count("G", nb_G, 2),
-		unsafe_allow_html=True,
+    f"Actifs: F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
+    unsafe_allow_html=True
 	)
+
+
+	
 	st.divider()
 
 	c1, c2, c3 = st.columns(3)
