@@ -14,13 +14,18 @@ import os
 import io
 import re
 import html
+import base64
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from urllib.parse import quote
-import base64
+from urllib.parse import quote, unquote
 
 import pandas as pd
 import streamlit as st
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+
 
 
 # =====================================================
@@ -177,6 +182,59 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
       </div>
     </div>
     """
+
+# =====================================================
+# GOOGLE DRIVE — PERSISTENCE
+# =====================================================
+def gdrive_service():
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gdrive"],
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build("drive", "v3", credentials=creds)
+
+
+def gdrive_get_file_id(service, filename, folder_id):
+    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    res = service.files().list(q=q, fields="files(id,name)").execute()
+    files = res.get("files", [])
+    return files[0]["id"] if files else None
+
+
+def gdrive_save_df(df, filename, folder_id):
+    service = gdrive_service()
+    file_id = gdrive_get_file_id(service, filename, folder_id)
+
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv")
+
+    if file_id:
+        service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        file_metadata = {
+            "name": filename,
+            "parents": [folder_id],
+            "mimeType": "text/csv",
+        }
+        service.files().create(body=file_metadata, media_body=media).execute()
+
+
+def gdrive_load_df(filename, folder_id):
+    service = gdrive_service()
+    file_id = gdrive_get_file_id(service, filename, folder_id)
+    if not file_id:
+        return None
+
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    fh.seek(0)
+    return pd.read_csv(fh)
 
 
 # =====================================================
@@ -905,36 +963,75 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
+st.sidebar.write("Drive folder:", GDRIVE_FOLDER_ID)
+
 
 # =====================================================
 # LOAD DATA / HISTORY quand saison change (persist reboot)
-#   ✅ crée le CSV si absent
+#   ✅ Google Drive (principal)
+#   ✅ fallback CSV local (secondaire)
+#   ✅ crée un CSV vide si rien n'existe
 # =====================================================
-if "season" not in st.session_state or st.session_state["season"] != season:
-    if os.path.exists(DATA_FILE):
-        try:
-            st.session_state["data"] = pd.read_csv(DATA_FILE)
-        except Exception:
-            st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
-    else:
-        st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
-        try:
-            st.session_state["data"].to_csv(DATA_FILE, index=False)
-        except Exception:
-            pass
 
-    st.session_state["data"] = clean_data(st.session_state["data"])
+# ID du dossier Google Drive (recommandé dans Secrets)
+GDRIVE_FOLDER_ID = str(st.secrets["gdrive"].get("folder_id", "")).strip()
+
+def _safe_empty_df():
+    return pd.DataFrame(columns=REQUIRED_COLS)
+
+if "season" not in st.session_state or st.session_state["season"] != season:
+    df_loaded = None
+
+    # -----------------------------
+    # 1) Google Drive (priorité)
+    # -----------------------------
+    if GDRIVE_FOLDER_ID:
+        try:
+            df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Drive indisponible (fallback local).")
+
+    # -----------------------------
+    # 2) Fallback local (DATA_FILE)
+    # -----------------------------
+    if df_loaded is None:
+        if os.path.exists(DATA_FILE):
+            try:
+                df_loaded = pd.read_csv(DATA_FILE)
+            except Exception:
+                df_loaded = _safe_empty_df()
+        else:
+            df_loaded = _safe_empty_df()
+            try:
+                df_loaded.to_csv(DATA_FILE, index=False)
+            except Exception:
+                pass
+
+    # Nettoyage + save local (cache)
+    df_loaded = clean_data(df_loaded)
+    st.session_state["data"] = df_loaded
 
     try:
         st.session_state["data"].to_csv(DATA_FILE, index=False)
     except Exception:
         pass
 
+    # Optionnel : si Drive existe, on assure que le fichier est créé/à jour
+    if GDRIVE_FOLDER_ID:
+        try:
+            gdrive_save_df(st.session_state["data"], f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
+        except Exception:
+            pass
+
     st.session_state["season"] = season
 
+# -----------------------------
+# HISTORY (local pour l'instant)
+# -----------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
     st.session_state["history"] = load_history(HISTORY_FILE)
     st.session_state["history_season"] = season
+
 
 
 # =====================================================
