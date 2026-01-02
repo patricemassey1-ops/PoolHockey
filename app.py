@@ -839,13 +839,24 @@ st.session_state["LOCKED"] = LOCKED
 
 def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
-    selected = get_selected_team()
 
-    # 🎨 CSS — cartes propres + checkbox compacte
+    teams = list(LOGOS.keys())
+    if not teams:
+        st.sidebar.info("Aucune équipe configurée.")
+        return
+
+    # ✅ Toujours une équipe active (pas de décoche)
+    selected = get_selected_team()
+    if not selected or selected not in teams:
+        # prend la première équipe par défaut
+        pick_team(teams[0])
+        selected = teams[0]
+
+    # 🎨 CSS — cartes + indicateur sélection
     st.sidebar.markdown(
         """
         <style>
-        /* Carte */
+        /* Cartes (container border) */
         section[data-testid="stSidebar"] div[data-testid="stContainer"]{
             border-radius:16px !important;
             background: rgba(255,255,255,.03) !important;
@@ -869,18 +880,46 @@ def render_team_grid_sidebar():
             text-align:center;
         }
 
-        /* Checkbox légèrement plus petite */
-        section[data-testid="stSidebar"] input[type="checkbox"]{
-            transform: scale(0.9);
+        /* Petit “radio visuel” */
+        .team-dot{
+            text-align:center;
+            font-size:16px;
+            line-height:16px;
+            margin-top:6px;
+            font-weight:1000;
+            opacity:.35;
+        }
+        .team-dot.on{ opacity:1; }
+
+        /* Radio (liste) compact */
+        section[data-testid="stSidebar"] div[role="radiogroup"] label{
+            padding:2px 0 !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    teams = list(LOGOS.keys())
-    cols_per_row = 3
+    # ✅ Radio réel (1 seule sélection possible)
+    # (compact + sans label)
+    idx = teams.index(selected)
+    chosen = st.sidebar.radio(
+        "Équipe sélectionnée",
+        teams,
+        index=idx,
+        label_visibility="collapsed",
+        key="sidebar_team_radio",
+    )
 
+    # Sync vers ton state global
+    if chosen != selected:
+        pick_team(chosen)
+        selected = chosen
+
+    st.sidebar.divider()
+
+    # ✅ Grille visuelle (affichage)
+    cols_per_row = 3
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
 
@@ -894,33 +933,19 @@ def render_team_grid_sidebar():
 
             with row[j]:
                 with st.container(border=True):
-
-                    # Logo
                     if path:
                         st.image(path, width=64)
                     else:
                         st.markdown("🖼️", unsafe_allow_html=True)
                         st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
 
-                    # Nom équipe
                     st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                    # ✅ Checkbox centrée
-                    c1, c2, c3 = st.columns([1, 1, 1])
-                    with c2:
-                        checked = st.checkbox(
-                            "",
-                            value=is_sel,
-                            key=f"chk_team_{team}",
-                        )
+                    # “radio visuel” (● = sélectionné, ○ = non)
+                    dot = "●" if is_sel else "○"
+                    cls = "team-dot on" if is_sel else "team-dot"
+                    st.markdown(f"<div class='{cls}'>{dot}</div>", unsafe_allow_html=True)
 
-                    # Gestion sélection unique
-                    if checked and not is_sel:
-                        pick_team(team)
-
-                    if not checked and is_sel:
-                        st.session_state["selected_team"] = ""
-                        st.session_state["align_owner"] = ""
 
 
 
