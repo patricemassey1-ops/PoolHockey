@@ -1616,50 +1616,77 @@ with tabH:
 
 
 # =====================================================
-# TAB 2 — Transactions
+# TAB 2 — Transactions (plafonds safe)
 # =====================================================
 with tab2:
     st.subheader("⚖️ Transactions")
-    st.caption("Aucun résultat tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
+    st.caption("Vérifie si une transaction respecte le plafond GC / CE.")
 
-	# ✅ Guard DANS le tab (ne stop pas toute l'app)
-    if df is None or df.empty:
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty or plafonds is None or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
-    if players_db is None or players_db.empty:
-        st.error("Impossible de charger la base joueurs.")
-        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
+    # Liste propriétaires safe
+    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).unique().tolist())
+    if not owners:
+        st.info("Aucun propriétaire trouvé. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
-    df_db = players_db.copy()
+    p = st.selectbox("Propriétaire", owners, key="tx_owner")
 
+    salaire = st.number_input(
+        "Salaire du joueur",
+        min_value=0,
+        step=100_000,
+        value=0,
+        key="tx_salary",
+    )
 
-    p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
-    salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
-    statut = st.radio("Statut", ["Grand Club", "Club École"], key="tx_statut")
+    statut = st.radio(
+        "Statut",
+        ["Grand Club", "Club École"],
+        key="tx_statut",
+        horizontal=True,
+    )
 
-    ligne = plafonds[plafonds["Propriétaire"] == p].iloc[0]
-    reste = ligne["Montant Disponible GC"] if statut == "Grand Club" else ligne["Montant Disponible CE"]
+    # Sélection de la ligne propriétaire (safe)
+    ligne_df = plafonds[plafonds["Propriétaire"].astype(str) == str(p)]
+    if ligne_df.empty:
+        st.error("Propriétaire introuvable dans les plafonds.")
+        st.stop()
 
-    if salaire > reste:
+    ligne = ligne_df.iloc[0]
+    reste = int(ligne["Montant Disponible GC"]) if statut == "Grand Club" else int(ligne["Montant Disponible CE"])
+
+    st.metric("Montant disponible", money(reste))
+
+    if int(salaire) > int(reste):
         st.error("🚨 Dépassement du plafond")
     else:
         st.success("✅ Transaction valide")
 
 
 # =====================================================
-# TAB 3 — Recommandations
+# TAB 3 — Recommandations (plafonds safe)
 # =====================================================
 with tab3:
     st.subheader("🧠 Recommandations")
+    st.caption("Recommandations automatiques basées sur les montants disponibles.")
 
-    if df.empty or plafonds.empty:
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty or plafonds is None or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
+    # Recos
     for _, r in plafonds.iterrows():
-        if int(r["Montant Disponible GC"]) < 2_000_000:
-            st.warning(f"{r['Propriétaire']} : rétrogradation recommandée")
-        if int(r["Montant Disponible CE"]) > 10_000_000:
-            st.info(f"{r['Propriétaire']} : rappel possible")
+        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
+        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
+        owner = str(r.get("Propriétaire", "")).strip()
+
+        if dispo_gc < 2_000_000:
+            st.warning(f"{owner} : rétrogradation recommandée")
+        if dispo_ce > 10_000_000:
+            st.info(f"{owner} : rappel possible")
+
