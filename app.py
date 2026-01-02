@@ -819,7 +819,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# SIDEBAR — Saison + Équipes (liste déroulante) + Plafonds + Import
+# SIDEBAR — Saison + Équipe + Plafonds (SANS Import)
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -844,56 +844,47 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
 
-# =====================================================
-# ÉQUIPES — liste déroulante simple + logo affiché (pas cliquable)
-# =====================================================
+# -----------------------------
+# Équipe (selectbox) + logo
+# -----------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
 teams = list(LOGOS.keys())
-
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
 else:
-    # ✅ Toujours une équipe active
     cur = str(st.session_state.get("selected_team", "")).strip()
     if cur not in teams:
         cur = teams[0]
         st.session_state["selected_team"] = cur
         st.session_state["align_owner"] = cur
 
-    idx = teams.index(cur)
-
     chosen = st.sidebar.selectbox(
         "Choisir une équipe",
         teams,
-        index=idx,
+        index=teams.index(cur),
         key="sb_team_select",
     )
 
-    # ✅ Sync si changement
     if chosen != cur:
         st.session_state["selected_team"] = chosen
         st.session_state["align_owner"] = chosen
         do_rerun()
 
-    # ✅ Affichage logo + nom (non cliquable)
     st.sidebar.markdown("---")
     logo_path = team_logo_path(chosen)
     c1, c2 = st.sidebar.columns([1, 2], vertical_alignment="center")
-
     with c1:
         if logo_path and os.path.exists(logo_path):
             st.image(logo_path, width=56)
-
     with c2:
         st.markdown(f"**{chosen}**")
 
 
-
-# =====================================================
-# PLAFONDS
-# =====================================================
+# -----------------------------
+# Plafonds
+# -----------------------------
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
 
@@ -915,41 +906,6 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
-
-# =====================================================
-# IMPORT FANTRAX
-# =====================================================
-st.sidebar.divider()
-st.sidebar.header("📥 Import Fantrax")
-
-uploaded = st.sidebar.file_uploader(
-    "CSV Fantrax",
-    type=["csv", "txt"],
-    help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
-    key=f"fantrax_uploader_{st.session_state['uploader_nonce']}",
-)
-
-if uploaded is not None:
-    if LOCKED:
-        st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
-    else:
-        try:
-            df_import = parse_fantrax(uploaded)
-            if df_import is None or df_import.empty:
-                st.sidebar.error("❌ Import invalide : aucune donnée exploitable.")
-            else:
-                owner = os.path.splitext(uploaded.name)[0]
-                df_import["Propriétaire"] = owner
-
-                st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
-                st.session_state["data"] = clean_data(st.session_state["data"])
-                st.session_state["data"].to_csv(DATA_FILE, index=False)
-
-                st.sidebar.success("✅ Import réussi")
-                st.session_state["uploader_nonce"] += 1
-                do_rerun()
-        except Exception as e:
-            st.sidebar.error(f"❌ Import échoué : {e}")
 
 
 
