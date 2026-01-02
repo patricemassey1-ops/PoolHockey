@@ -68,6 +68,20 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+def render_selected_team_header():
+    team = st.session_state.get("selected_team", "")
+    if not team:
+        return
+
+    logo_path = LOGOS.get(team, "")
+    c1, c2 = st.columns([1, 8], vertical_alignment="center")
+
+    with c1:
+        if logo_path and os.path.exists(logo_path):
+            st.image(logo_path, width=52)
+
+    with c2:
+        st.markdown(f"### {team}")
 
 def do_rerun():
     if hasattr(st, "rerun"):
@@ -977,31 +991,38 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
 # =====================================================
-# SIDEBAR — Choix équipe (dropdown + logo)
+# SIDEBAR — Équipes (grille de logos cliquables)
 # =====================================================
 st.sidebar.divider()
-st.sidebar.header("🏒 Équipe")
-st.sidebar.caption("Choisissez votre équipe!")
+st.sidebar.header("🏒 Équipes")  # ✅ plural
 
-team_options = []
-for team_name, logo_path in LOGOS.items():
-    if os.path.exists(logo_path):
-        team_options.append((team_name, logo_path))
+if "selected_team" not in st.session_state:
+    st.session_state["selected_team"] = ""
 
-if team_options:
-    chosen = st.sidebar.selectbox(
-        "Choisissez votre équipe!",
-        team_options,
-        format_func=lambda x: x[0],
-        key="sidebar_team_choice"
-    )
+def _pick_team(team_name: str):
+    st.session_state["selected_team"] = team_name
+    do_rerun()
 
-    chosen_name, chosen_logo = chosen
-    st.session_state["selected_team"] = chosen_name
+teams = list(LOGOS.keys())  # ✅ inclut Prédateurs + Canadiens
 
-    st.sidebar.image(chosen_logo, use_container_width=True)
-else:
-    st.sidebar.warning("Aucun logo d'équipe trouvé dans /data.")
+# Grille 3 colonnes
+grid = st.sidebar.columns(3)
+
+for i, team_name in enumerate(teams):
+    col = grid[i % 3]
+    logo_path = LOGOS.get(team_name, "")
+
+    with col:
+        if logo_path and os.path.exists(logo_path):
+            st.image(logo_path, use_container_width=True)
+        else:
+            # fallback si logo manquant (pour ne pas "perdre" l'équipe)
+            st.caption(team_name)
+
+        label = "✅" if st.session_state.get("selected_team") == team_name else " "
+        if st.button(f"{label} {team_name}", key=f"team_{team_name}", use_container_width=True):
+            _pick_team(team_name)
+
 
 # =====================================================
 # SIDEBAR — Plafonds
@@ -1084,6 +1105,8 @@ if os.path.exists(LOGO_POOL_FILE):
     st.image(LOGO_POOL_FILE, use_container_width=True)
 
 st.title("🏒 PMS")
+render_selected_team_header()
+
 
 df = st.session_state["data"]
 if df.empty:
@@ -1127,7 +1150,10 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 # TAB 1 — Tableau (renommé + logos)
 # =====================================================
 with tab1:
-    headers = st.columns([4, 2, 2, 2, 2])
+    LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
+    if os.path.exists(LOGO_POOL_FILE):
+        st.image(LOGO_POOL_FILE, use_container_width=True)
+	headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipe**")
     headers[1].markdown("**Total Grand Club**")
     headers[2].markdown("**Montant Disponible GC**")
@@ -1170,11 +1196,20 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
+    owners = sorted(st.session_state["data"]["Propriétaire"].unique())
+    selected_team = st.session_state.get("selected_team", "")
+
+    default_index = 0
+    if selected_team in owners:
+        default_index = owners.index(selected_team)
+
     proprietaire = st.selectbox(
         "Propriétaire",
-        sorted(st.session_state["data"]["Propriétaire"].unique()),
+        owners,
+        index=default_index,
         key="align_owner",
     )
+
 
     st.session_state["data"] = clean_data(st.session_state["data"])
     df = st.session_state["data"]
