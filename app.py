@@ -1521,11 +1521,12 @@ with tabJ:
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
 
-	if df.empty or plafonds.empty:
+    # ✅ Guard (espaces seulement)
+    if df is None or df.empty or plafonds is None or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
-    h = st.session_state["history"].copy()
+    h = st.session_state.get("history", pd.DataFrame()).copy()
     if h.empty:
         st.info("Aucune entrée d’historique pour cette saison.")
     else:
@@ -1533,7 +1534,7 @@ with tabH:
         owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
 
         if owner_filter != "Tous":
-            h = h[h["proprietaire"].astype(str) == owner_filter]
+            h = h[h["proprietaire"].astype(str) == str(owner_filter)]
 
         if h.empty:
             st.info("Aucune entrée pour ce propriétaire.")
@@ -1553,6 +1554,7 @@ with tabH:
             head[6].markdown("**Action**")
             head[7].markdown("**↩️**")
             head[8].markdown("**❌**")
+
 
             for _, r in h.iterrows():
                 rid = int(r["id"])
