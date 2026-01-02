@@ -1097,11 +1097,13 @@ with tab1:
 
 # =====================================================
 # TAB A — Alignement (COMPLET)
-#   - Listes cliquables (Actifs / Banc / Mineur / IR)
-#   - Mini jauge plafonds GC/CE
-#   - Guard popup: ne traite pas de clic si popup ouvert
-#   - GM mode: 1 alerte globale si F>12 / D>6 / G>2
-#   - GM mode: bloque les clics sur Actifs si non conforme
+#   ✅ Listes cliquables (badges couleurs)
+#   ✅ Team affiché (au lieu de Slot) -> via roster_click_list modifié
+#   ✅ Actifs encadré + Mineur encadré
+#   ✅ Banc AVANT IR
+#   ✅ IR en expander (ouvert)
+#   ✅ Guard anti re-pick pendant popup
+#   ✅ Pop-up (open_move_dialog) toujours à la fin
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -1143,14 +1145,6 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ---------
-    # GM mode: alerte globale
-    # ---------
-    over_F = nb_F > 12
-    over_D = nb_D > 6
-    over_G = nb_G > 2
-    lineup_invalid = over_F or over_D or over_G
-
-    # ---------
     # Plafonds (IR exclu car dprop_ok)
     # ---------
     cap_gc = int(st.session_state["PLAFOND_GC"])
@@ -1170,7 +1164,7 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ---------
-    # Metrics (top)
+    # Metrics
     # ---------
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(used_gc))
@@ -1179,19 +1173,10 @@ with tabA:
     top[3].metric("Montant Disponible CE", money(remain_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
 
-    # Ligne d'effectifs (badges couleur OK, mais alerte globale séparée)
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
         unsafe_allow_html=True
     )
-
-    # ✅ UNE seule alerte globale
-    if lineup_invalid:
-        probs = []
-        if over_F: probs.append(f"F {nb_F}/12")
-        if over_D: probs.append(f"D {nb_D}/6")
-        if over_G: probs.append(f"G {nb_G}/2")
-        st.error("🚨 Effectifs actifs non conformes : " + " • ".join(probs))
 
     st.divider()
 
@@ -1202,7 +1187,7 @@ with tabA:
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
-        # ============================
+    # ============================
     # LISTES CLIQUABLES (3 colonnes)
     #   Actifs | Mineur | Banc
     #   + encadrés Actifs et Mineur
@@ -1242,7 +1227,7 @@ with tabA:
             roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
     # ============================
-    # IR (expander, ouvert)
+    # IR (expander ouvert)
     # ============================
     st.divider()
     with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
@@ -1266,6 +1251,11 @@ with tabA:
 	
 
 
+<<<<<<< HEAD
+
+
+=======
+>>>>>>> 6f02f257a6ff85e8f73972f7c605f8ebda3839b8
     # =========================================
     # MODE NORMAL: radio + confirmer/annuler
     # =========================================
