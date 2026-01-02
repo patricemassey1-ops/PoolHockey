@@ -1147,12 +1147,45 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 # TAB 1 — Tableau (renommé + logos)
 # =====================================================
 with tab1:
+
+    # =====================================================
+    # LOGO POOL — TOUJOURS TOUT EN HAUT
+    # =====================================================
     LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
     if os.path.exists(LOGO_POOL_FILE):
         st.image(LOGO_POOL_FILE, use_container_width=True)
 
+    # =====================================================
+    # HEADER ÉQUIPE (optionnel mais recommandé)
+    # =====================================================
     render_selected_team_header()
 
+    # =====================================================
+    # TITRE / CONTENU DU TABLEAU
+    # =====================================================
+    st.subheader("📊 Tableau")
+
+    # =====================================================
+    # HEADERS — Tableau
+    # =====================================================
+    headers = st.columns([4, 2, 2, 2, 2])
+    headers[0].markdown("**Équipe**")
+    headers[1].markdown("**Total Grand Club**")
+    headers[2].markdown("**Montant Disponible GC**")
+    headers[3].markdown("**Total Club École**")
+    headers[4].markdown("**Montant Disponible CE**")
+
+    # 👉 et tout ton contenu / boucle ici, toujours indenté
+    for _, r in plafonds.iterrows():
+        cols = st.columns([4, 2, 2, 2, 2])
+        cols[0].markdown(f"**{r['Propriétaire']}**")
+        cols[1].markdown(money(r["Total Grand Club"]))
+        cols[2].markdown(money(r["Montant Disponible GC"]))
+        cols[3].markdown(money(r["Total Club École"]))
+        cols[4].markdown(money(r["Montant Disponible CE"]))
+
+
+    
 
 # =====================================================
 # HEADERS — Tableau (exemple propre)
