@@ -819,7 +819,7 @@ def open_move_dialog():
 
         st.divider()
 
-                source = str(st.session_state.get("move_source", "")).strip()
+        source = str(st.session_state.get("move_source", "")).strip()
 
         # Définir les 3 destinations selon la liste d'où on vient
         if source == "ir" or cur_slot == "Blessé":
@@ -1250,12 +1250,6 @@ with tabA:
 
 	
 
-
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 6f02f257a6ff85e8f73972f7c605f8ebda3839b8
     # =========================================
     # MODE NORMAL: radio + confirmer/annuler
     # =========================================
