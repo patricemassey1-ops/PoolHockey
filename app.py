@@ -819,7 +819,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# SIDEBAR — Saison + Équipes + Plafonds + Import
+# SIDEBAR — Saison + Équipes (liste déroulante) + Plafonds + Import
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -844,191 +844,56 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
 
-def render_team_grid_sidebar():
-    import base64
+# =====================================================
+# ÉQUIPES — liste déroulante simple + logo affiché (pas cliquable)
+# =====================================================
+st.sidebar.divider()
+st.sidebar.markdown("### 🏒 Équipes")
 
-    st.sidebar.markdown("### 🏒 Équipes")
+teams = list(LOGOS.keys())
 
-    teams = list(LOGOS.keys())
-    if not teams:
-        st.sidebar.info("Aucune équipe configurée.")
-        return
+if not teams:
+    st.sidebar.info("Aucune équipe configurée.")
+else:
+    # ✅ Toujours une équipe active
+    cur = str(st.session_state.get("selected_team", "")).strip()
+    if cur not in teams:
+        cur = teams[0]
+        st.session_state["selected_team"] = cur
+        st.session_state["align_owner"] = cur
 
-    selected = get_selected_team()
+    idx = teams.index(cur)
 
-    # Toujours une équipe active
-    if not selected or selected not in teams:
-        pick_team(teams[0])
-        selected = teams[0]
-
-    # Helper image → base64
-    def _img_data_uri(path: str) -> str:
-        if not path or not os.path.exists(path):
-            return ""
-        ext = os.path.splitext(path)[1].lower()
-        mime = "image/png"
-        if ext in [".jpg", ".jpeg"]:
-            mime = "image/jpeg"
-        elif ext == ".webp":
-            mime = "image/webp"
-
-        with open(path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        return f"data:{mime};base64,{b64}"
-
-    # CSS global (cartes + hover)
-    st.sidebar.markdown(
-        """
-        <style>
-        .team-card{
-            border:1px solid rgba(255,255,255,.12);
-            border-radius:14px;
-            padding:12px 10px 12px 10px;
-            background: rgba(255,255,255,.03);
-            text-align:center;
-            position: relative;
-        }
-        .team-card.sel{
-            border:2px solid rgba(34,197,94,.85);
-            background: rgba(34,197,94,.08);
-        }
-        .logo-wrap{
-            display:flex;
-            justify-content:center;
-            align-items:center;
-            height:78px;
-        }
-        .logo-wrap img{
-            width:78px;
-            height:78px;
-            object-fit:contain;
-            border-radius:14px;
-            transition: filter 140ms ease, transform 140ms ease;
-            display:block;
-        }
-        .team-card:hover .logo-wrap img{
-            filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
-            transform: scale(1.03);
-        }
-        .team-name{
-            font-weight:900;
-            font-size:13px;
-            margin-top:8px;
-            line-height:1.1;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
-        }
-
-        /* --- Boutons overlay (aucune pill visible) --- */
-        section[data-testid="stSidebar"] div[data-testid="stButton"]{
-            margin:0 !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
+    chosen = st.sidebar.selectbox(
+        "Choisir une équipe",
+        teams,
+        index=idx,
+        key="sb_team_select",
     )
 
-    cols_per_row = 2
-    for i in range(0, len(teams), cols_per_row):
-        row = st.sidebar.columns(cols_per_row, gap="small")
+    # ✅ Sync si changement
+    if chosen != cur:
+        st.session_state["selected_team"] = chosen
+        st.session_state["align_owner"] = chosen
+        do_rerun()
 
-        for j in range(cols_per_row):
-            if i + j >= len(teams):
-                continue
+    # ✅ Affichage logo + nom (non cliquable)
+    st.sidebar.markdown("---")
+    logo_path = team_logo_path(chosen)
+    c1, c2 = st.sidebar.columns([1, 2], vertical_alignment="center")
 
-            team = teams[i + j]
-            is_sel = (team == selected)
+    with c1:
+        if logo_path and os.path.exists(logo_path):
+            st.image(logo_path, width=56)
 
-            path = team_logo_path(team)
-            img = _img_data_uri(path) if path else ""
-
-            card_cls = "team-card sel" if is_sel else "team-card"
-
-            # On génère un identifiant CSS “safe”
-            css_id = "tbtn_" + re.sub(r"[^a-zA-Z0-9_]+", "_", team)
-
-            with row[j]:
-                # 1) Carte HTML (logo + nom)
-                if img:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}" id="{css_id}_card">
-                          <div class="logo-wrap">
-                            <img src="{img}" alt="{html.escape(team)}"/>
-                          </div>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}" id="{css_id}_card">
-                          <div class="logo-wrap" style="font-size:36px">🖼️</div>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-                # 2) Bouton Streamlit (invisible) — on lui donne un label unique
-                #    IMPORTANT: label non vide pour que aria-label soit stable
-                label = f"pick::{team}"
-                clicked = st.button(label, key=f"{css_id}_pick", disabled=is_sel)
-
-                # 3) CSS ciblé via aria-label (overlay SEULEMENT sur le logo)
-                #    - le wrapper du bouton ne prend plus de place (height:0)
-                #    - le bouton est remonté et couvre uniquement la zone du logo
-                st.sidebar.markdown(
-                    f"""
-                    <style>
-                    /* cible le bloc stButton qui contient CE bouton */
-                    section[data-testid="stSidebar"] div[data-testid="stButton"]:has(button[aria-label="{html.escape(label)}"]) {{
-                        height: 0 !important;
-                        margin-top: -118px !important;   /* remonte sur la carte (ajuste si besoin) */
-                        margin-bottom: 0 !important;
-                        position: relative !important;
-                        z-index: 50 !important;
-                    }}
-
-                    /* le bouton devient un overlay invisible, taille = zone logo uniquement */
-                    section[data-testid="stSidebar"] div[data-testid="stButton"]:has(button[aria-label="{html.escape(label)}"]) > button {{
-                        position: absolute !important;
-                        left: 0 !important;
-                        right: 0 !important;
-
-                        /* ✅ zone cliquable: seulement le logo */
-                        top: 12px !important;        /* padding-top carte */
-                        height: 78px !important;     /* hauteur logo-wrap */
-
-                        opacity: 0 !important;
-                        padding: 0 !important;
-                        border: none !important;
-                        background: transparent !important;
-                        box-shadow: none !important;
-                    }}
-
-                    /* cache le texte du bouton (au cas où) */
-                    section[data-testid="stSidebar"] button[aria-label="{html.escape(label)}"] * {{
-                        display:none !important;
-                    }}
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                if clicked and not is_sel:
-                    pick_team(team)
-
-
-# ✅ APPEL UNIQUE
-st.sidebar.divider()
-render_team_grid_sidebar()
+    with c2:
+        st.markdown(f"**{chosen}**")
 
 
 
+# =====================================================
+# PLAFONDS
+# =====================================================
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
 
@@ -1050,14 +915,20 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
+
+# =====================================================
+# IMPORT FANTRAX
+# =====================================================
 st.sidebar.divider()
 st.sidebar.header("📥 Import Fantrax")
+
 uploaded = st.sidebar.file_uploader(
     "CSV Fantrax",
     type=["csv", "txt"],
     help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
     key=f"fantrax_uploader_{st.session_state['uploader_nonce']}",
 )
+
 if uploaded is not None:
     if LOCKED:
         st.sidebar.warning("🔒 Saison verrouillée : import désactivé.")
@@ -1079,6 +950,7 @@ if uploaded is not None:
                 do_rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
+
 
 
 
