@@ -1244,6 +1244,11 @@ with tabA:
 
 
 
+# ============================
+# Zone roster
+# ============================
+left, right = st.columns([1, 1], gap="small")
+
 with left:
     with st.container(border=True):
         st.markdown("### 🟢 Actifs")
@@ -1253,10 +1258,22 @@ with left:
         if not lock_actifs:
             p = roster_click_list(gc_actif, proprietaire, "actifs")
             if p:
-                 set_move_ctx(proprietaire, p)
-                 do_rerun()
+                set_move_ctx(proprietaire, p)
+                do_rerun()
         else:
             roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+with right:
+    with st.container(border=True):
+        st.markdown("### 🔵 Mineur")
+        if not popup_open:
+            p = roster_click_list(ce_all, proprietaire, "min")
+            if p:
+                set_move_ctx(proprietaire, p)
+                do_rerun()
+        else:
+            roster_click_list(ce_all, proprietaire, "min_disabled")
+
 
 
 
