@@ -1182,7 +1182,7 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # Résumé compact
-    top = st.columns([1, 1, 1, 1, 1])
+    top = st.columns([1, 1, 1, 1, 1, 1])
     top[0].metric("Total GC", money(used_gc))
     top[1].metric("Reste GC", money(remain_gc))
     top[2].metric("Total CE", money(used_ce))
