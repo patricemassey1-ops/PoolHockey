@@ -861,6 +861,7 @@ def render_team_grid_sidebar():
         pick_team(teams[0])
         selected = teams[0]
 
+    # Helper image → base64
     def _img_data_uri(path: str) -> str:
         if not path or not os.path.exists(path):
             return ""
@@ -870,39 +871,27 @@ def render_team_grid_sidebar():
             mime = "image/jpeg"
         elif ext == ".webp":
             mime = "image/webp"
+
         with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("utf-8")
         return f"data:{mime};base64,{b64}"
 
-    # ✅ CSS: carte + hover glow + bouton overlay qui ne prend AUCUNE place
+    # CSS global (cartes + hover)
     st.sidebar.markdown(
         """
         <style>
-        /* wrapper carte */
         .team-card{
-            position: relative;
             border:1px solid rgba(255,255,255,.12);
             border-radius:14px;
             padding:12px 10px 12px 10px;
             background: rgba(255,255,255,.03);
             text-align:center;
-            overflow:hidden;
+            position: relative;
         }
         .team-card.sel{
             border:2px solid rgba(34,197,94,.85);
             background: rgba(34,197,94,.08);
         }
-
-        .team-name{
-            font-weight:900;
-            font-size:13px;
-            margin-top:8px;
-            line-height:1.1;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
-        }
-
         .logo-wrap{
             display:flex;
             justify-content:center;
@@ -921,26 +910,19 @@ def render_team_grid_sidebar():
             filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
             transform: scale(1.03);
         }
-
-        /* ✅ Bouton overlay (clique toute la carte) */
-        .team-overlay-btn{
-            position:absolute;
-            inset:0;
-            opacity:0;
-            z-index:5;
+        .team-name{
+            font-weight:900;
+            font-size:13px;
+            margin-top:8px;
+            line-height:1.1;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
         }
 
-        /* On force le bouton streamlit à ne pas “réserver” d’espace */
+        /* --- Boutons overlay (aucune pill visible) --- */
         section[data-testid="stSidebar"] div[data-testid="stButton"]{
             margin:0 !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
-            padding:0 !important;
-            border:none !important;
-            background:transparent !important;
-            width:100% !important;
-            height:100% !important;
-            box-shadow:none !important;
         }
         </style>
         """,
@@ -957,17 +939,21 @@ def render_team_grid_sidebar():
 
             team = teams[i + j]
             is_sel = (team == selected)
-            card_cls = "team-card sel" if is_sel else "team-card"
 
             path = team_logo_path(team)
             img = _img_data_uri(path) if path else ""
 
+            card_cls = "team-card sel" if is_sel else "team-card"
+
+            # On génère un identifiant CSS “safe”
+            css_id = "tbtn_" + re.sub(r"[^a-zA-Z0-9_]+", "_", team)
+
             with row[j]:
-                # Carte HTML
+                # 1) Carte HTML (logo + nom)
                 if img:
                     st.sidebar.markdown(
                         f"""
-                        <div class="{card_cls}">
+                        <div class="{card_cls}" id="{css_id}_card">
                           <div class="logo-wrap">
                             <img src="{img}" alt="{html.escape(team)}"/>
                           </div>
@@ -979,7 +965,7 @@ def render_team_grid_sidebar():
                 else:
                     st.sidebar.markdown(
                         f"""
-                        <div class="{card_cls}">
+                        <div class="{card_cls}" id="{css_id}_card">
                           <div class="logo-wrap" style="font-size:36px">🖼️</div>
                           <div class="team-name">{html.escape(team)}</div>
                         </div>
@@ -987,29 +973,46 @@ def render_team_grid_sidebar():
                         unsafe_allow_html=True
                     )
 
-                # ✅ Overlay button: aucun espace visible, mais clique la carte
-                # 🔒 disabled si déjà sélectionné
-                # IMPORTANT: on place le bouton juste après la carte
-                # puis on le “colle” par CSS (position absolute) sur la carte précédente
-                btn_key = f"team_pick_{team}"
-                clicked = st.button(" ", key=btn_key, disabled=is_sel)
+                # 2) Bouton Streamlit (invisible) — on lui donne un label unique
+                #    IMPORTANT: label non vide pour que aria-label soit stable
+                label = f"pick::{team}"
+                clicked = st.button(label, key=f"{css_id}_pick", disabled=is_sel)
 
-                # injecte un style ciblé pour coller CE bouton sur la carte juste avant
+                # 3) CSS ciblé via aria-label (overlay SEULEMENT sur le logo)
+                #    - le wrapper du bouton ne prend plus de place (height:0)
+                #    - le bouton est remonté et couvre uniquement la zone du logo
                 st.sidebar.markdown(
                     f"""
                     <style>
-                    /* le bouton rendu avec key={btn_key} devient overlay de la carte précédente */
-                    div[data-testid="stButton"]:has(button[data-testid="baseButton-secondary"][id="{btn_key}"]) {{
-                        position: relative;
+                    /* cible le bloc stButton qui contient CE bouton */
+                    section[data-testid="stSidebar"] div[data-testid="stButton"]:has(button[aria-label="{html.escape(label)}"]) {{
                         height: 0 !important;
-                        margin-top: -126px !important; /* hauteur approx de la carte */
-                        z-index: 10;
+                        margin-top: -118px !important;   /* remonte sur la carte (ajuste si besoin) */
+                        margin-bottom: 0 !important;
+                        position: relative !important;
+                        z-index: 50 !important;
                     }}
-                    div[data-testid="stButton"]:has(button[id="{btn_key}"]) > button {{
-                        position:absolute !important;
-                        inset:0 !important;
-                        height:126px !important; /* même hauteur que la carte */
-                        opacity:0 !important;
+
+                    /* le bouton devient un overlay invisible, taille = zone logo uniquement */
+                    section[data-testid="stSidebar"] div[data-testid="stButton"]:has(button[aria-label="{html.escape(label)}"]) > button {{
+                        position: absolute !important;
+                        left: 0 !important;
+                        right: 0 !important;
+
+                        /* ✅ zone cliquable: seulement le logo */
+                        top: 12px !important;        /* padding-top carte */
+                        height: 78px !important;     /* hauteur logo-wrap */
+
+                        opacity: 0 !important;
+                        padding: 0 !important;
+                        border: none !important;
+                        background: transparent !important;
+                        box-shadow: none !important;
+                    }}
+
+                    /* cache le texte du bouton (au cas où) */
+                    section[data-testid="stSidebar"] button[aria-label="{html.escape(label)}"] * {{
+                        display:none !important;
                     }}
                     </style>
                     """,
@@ -1023,6 +1026,7 @@ def render_team_grid_sidebar():
 # ✅ APPEL UNIQUE
 st.sidebar.divider()
 render_team_grid_sidebar()
+
 
 
 st.sidebar.divider()
