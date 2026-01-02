@@ -837,6 +837,27 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
 
+# =====================================================
+# SIDEBAR — Saison + Équipes + Plafonds + Import
+# =====================================================
+st.sidebar.header("📅 Saison")
+
+saisons = ["2024-2025", "2025-2026", "2026-2027"]
+auto = saison_auto()
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
+
+season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
+LOCKED = saison_verrouillee(season)
+
+DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
+HISTORY_FILE = f"{DATA_DIR}/history_{season}.csv"
+st.session_state["DATA_FILE"] = DATA_FILE
+st.session_state["HISTORY_FILE"] = HISTORY_FILE
+st.session_state["LOCKED"] = LOCKED
+
+
 def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
 
@@ -846,13 +867,13 @@ def render_team_grid_sidebar():
         return
 
     # -------------------------------------------------
-    # 1) Lire le query param ?team=... (clic logo) — ✅ API unique
+    # 1) Lire ?team= depuis l’URL (clic logo)
+    #    -> API moderne uniquement
     # -------------------------------------------------
     qp_team = st.query_params.get("team", "")
-    # st.query_params peut retourner list ou str selon contexte
     if isinstance(qp_team, list):
         qp_team = qp_team[0] if qp_team else ""
-    qp_team = unquote(str(qp_team or "")).strip()
+    qp_team = str(qp_team or "").strip()
 
     if qp_team and qp_team in teams and qp_team != get_selected_team():
         pick_team(qp_team)
@@ -865,12 +886,12 @@ def render_team_grid_sidebar():
         selected = teams[0]
 
     # -------------------------------------------------
-    # 2) Helper: image -> base64 data uri (pour <img>)
+    # 2) Helper: image locale -> data URI (base64)
     # -------------------------------------------------
     def _img_data_uri(path: str) -> str:
+        if not path or not os.path.exists(path):
+            return ""
         try:
-            if not path or not os.path.exists(path):
-                return ""
             ext = os.path.splitext(path)[1].lower()
             mime = "image/png"
             if ext in [".jpg", ".jpeg"]:
@@ -885,7 +906,7 @@ def render_team_grid_sidebar():
             return ""
 
     # -------------------------------------------------
-    # 3) CSS: carte + logo cliquable + highlight sélection
+    # 3) CSS — cartes + logo cliquable + sélection
     # -------------------------------------------------
     st.sidebar.markdown(
         """
@@ -893,7 +914,7 @@ def render_team_grid_sidebar():
         .team-card{
             border:1px solid rgba(255,255,255,.10);
             border-radius:16px;
-            padding:10px 8px 10px 8px;
+            padding:10px 8px;
             background: rgba(255,255,255,.03);
             text-align:center;
         }
@@ -915,13 +936,9 @@ def render_team_grid_sidebar():
             opacity:.65;
             margin-top:4px;
         }
-
-        /* Logo cliquable */
         .logo-link{
             display:inline-block;
             border-radius:14px;
-            padding:0;
-            margin:0;
         }
         .logo-link img{
             width:64px;
@@ -936,7 +953,7 @@ def render_team_grid_sidebar():
     )
 
     # -------------------------------------------------
-    # 4) Grille: Logo + Nom (clic = logo seulement)
+    # 4) Grille — logo + nom (clic = logo)
     # -------------------------------------------------
     cols_per_row = 3
     for i in range(0, len(teams), cols_per_row):
@@ -979,6 +996,12 @@ def render_team_grid_sidebar():
                         """,
                         unsafe_allow_html=True
                     )
+
+
+# 👉 appel réel
+st.sidebar.divider()
+render_team_grid_sidebar()
+
 
 
 
