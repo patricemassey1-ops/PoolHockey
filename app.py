@@ -846,18 +846,13 @@ def render_team_grid_sidebar():
         return
 
     # -------------------------------------------------
-    # 1) Lire le query param ?team=... (clic logo)
+    # 1) Lire le query param ?team=... (clic logo) — ✅ API unique
     # -------------------------------------------------
-    try:
-        qp_team = st.query_params.get("team", "")
-        # st.query_params peut retourner list ou str selon version
-        if isinstance(qp_team, list):
-            qp_team = qp_team[0] if qp_team else ""
-        qp_team = unquote(str(qp_team or "")).strip()
-    except Exception:
-        # fallback anciennes versions
-        qp = st.experimental_get_query_params()
-        qp_team = unquote(qp.get("team", [""])[0]).strip()
+    qp_team = st.query_params.get("team", "")
+    # st.query_params peut retourner list ou str selon contexte
+    if isinstance(qp_team, list):
+        qp_team = qp_team[0] if qp_team else ""
+    qp_team = unquote(str(qp_team or "")).strip()
 
     if qp_team and qp_team in teams and qp_team != get_selected_team():
         pick_team(qp_team)
@@ -959,7 +954,6 @@ def render_team_grid_sidebar():
             with row[j]:
                 data_uri = _img_data_uri(path)
 
-                # Carte complète en HTML (aucun div orphelin -> pas de pill)
                 if data_uri:
                     st.sidebar.markdown(
                         f"""
@@ -985,6 +979,7 @@ def render_team_grid_sidebar():
                         """,
                         unsafe_allow_html=True
                     )
+
 
 
 
