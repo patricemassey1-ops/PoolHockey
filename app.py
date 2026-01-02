@@ -1054,27 +1054,34 @@ with tab1:
 # =====================================================
 # TAB A — Alignement
 # =====================================================
-if df.empty:
-    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    st.stop()
-
 with tabA:
     st.subheader("🧾 Alignement")
 
-    st.session_state["data"] = clean_data(st.session_state["data"])
-    df = st.session_state["data"]
+    # ✅ Data safe (sans double clean inutile)
+    df = st.session_state.get("data")
+    if df is None:
+        df = pd.DataFrame(columns=REQUIRED_COLS)
+    df = clean_data(df)
+    st.session_state["data"] = df
 
-    all_owners = sorted(df["Propriétaire"].unique().tolist())
+    # ✅ Si aucune donnée, on garde l’onglet visible et on explique quoi faire
+    if df.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
     selected_team = get_selected_team()
 
+    # Sync sélection d’équipe -> align_owner si possible
     if selected_team and selected_team in all_owners:
         st.session_state["align_owner"] = selected_team
 
     proprietaire = st.selectbox(
         "Propriétaire",
-        ([selected_team] if selected_team in all_owners else all_owners),
+        all_owners,
         key="align_owner",
     )
+
 
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
@@ -1201,13 +1208,14 @@ with tabA:
 # =====================================================
 # TAB J — Joueurs (Autonomes)
 # =====================================================
-if df.empty:
-    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    st.stop()
-
 with tabJ:
     st.subheader("👤 Joueurs (Autonomes)")
     st.caption("Aucun résultat tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
+
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
 
     if players_db is None or players_db.empty:
         st.error("Impossible de charger la base joueurs.")
@@ -1215,6 +1223,7 @@ with tabJ:
         st.stop()
 
     df_db = players_db.copy()
+
 
     if "Player" not in df_db.columns:
         possible = None
@@ -1554,12 +1563,22 @@ with tabH:
 # =====================================================
 # TAB 2 — Transactions
 # =====================================================
-if df.empty:
-    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    st.stop()
-
 with tab2:
     st.subheader("⚖️ Transactions")
+    st.caption("Aucun résultat tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
+
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    if players_db is None or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
+        st.stop()
+
+    df_db = players_db.copy()
+
 
     p = st.selectbox("Propriétaire", plafonds["Propriétaire"], key="tx_owner")
     salaire = st.number_input("Salaire du joueur", min_value=0, step=100000, key="tx_salary")
@@ -1664,10 +1683,6 @@ with tabAdmin:
 # =====================================================
 # TAB 3 — Recommandations
 # =====================================================
-if df.empty:
-    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    st.stop()
-
 with tab3:
     st.subheader("🧠 Recommandations")
 
