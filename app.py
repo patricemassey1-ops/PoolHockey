@@ -1393,6 +1393,7 @@ with tabA:
 
 
 
+
 # =====================================================
 # OPEN MOVE DIALOG (PROD)
 #   - détecte IR -> 3 boutons 1 clic (Actifs/Banc/Mineur)
