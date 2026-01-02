@@ -16,6 +16,7 @@ import re
 import html
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -955,12 +956,65 @@ def render_team_grid_sidebar():
         .logo-link.disabled img{
             filter: none !important;
             transform: none !important;
-            opacity: 1;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
+
+    # -------------------------------------------------
+    # 4) Grille — logo + nom (clic = logo)
+    # -------------------------------------------------
+    cols_per_row = 3
+    for i in range(0, len(teams), cols_per_row):
+        row = st.sidebar.columns(cols_per_row, gap="small")
+
+        for j in range(cols_per_row):
+            if i + j >= len(teams):
+                continue
+
+            team = teams[i + j]
+            path = team_logo_path(team)
+            is_sel = (team == selected)
+            card_cls = "team-card sel" if is_sel else "team-card"
+
+            with row[j]:
+                data_uri = _img_data_uri(path)
+
+                a_cls = "logo-link disabled" if is_sel else "logo-link"
+                href = "" if is_sel else f"?team={team.replace(' ', '%20')}"
+
+                if data_uri:
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="{a_cls}" {"href="+href if href else ""}>
+                            <img src="{data_uri}" alt="{html.escape(team)}" />
+                          </a>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
+                            <div style="font-size:34px;line-height:64px">🖼️</div>
+                          </a>
+                          <div class="team-missing">Logo manquant</div>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+
+# ✅ appel
+st.sidebar.divider()
+render_team_grid_sidebar()
+
 
     # -------------------------------------------------
     # 4) Grille — logo + nom (clic = logo)
