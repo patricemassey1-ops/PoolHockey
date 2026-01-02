@@ -42,10 +42,10 @@ LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche p
 LOGOS = {
     "Nordiques": "data/Nordiques_Logo.png",
     "Cracheurs": "data/Cracheurs_Logo.png",
-    "Prédateurs": "data/Predateurs_Logo.png",
+    "Prédateurs": "data/Predateurs_logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
-    "Canadiens": "data/montreal-canadiens_Logo.png",
+    "Canadiens": "data/montreal-canadiens_logo.png",
 }
 
 def find_logo_for_owner(owner: str) -> str:
