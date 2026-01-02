@@ -1153,12 +1153,26 @@ with tab1:
     LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
     if os.path.exists(LOGO_POOL_FILE):
         st.image(LOGO_POOL_FILE, use_container_width=True)
-	headers = st.columns([4, 2, 2, 2, 2])
-    headers[0].markdown("**Équipe**")
-    headers[1].markdown("**Total Grand Club**")
-    headers[2].markdown("**Montant Disponible GC**")
-    headers[3].markdown("**Total Club École**")
-    headers[4].markdown("**Montant Disponible CE**")
+# =====================================================
+# HEADERS — Tableau (exemple propre)
+# =====================================================
+headers = st.columns([4, 2, 2, 2, 2])
+
+with headers[0]:
+    st.markdown("**Joueur**")
+
+with headers[1]:
+    st.markdown("**Pos**")
+
+with headers[2]:
+    st.markdown("**Équipe**")
+
+with headers[3]:
+    st.markdown("**Salaire**")
+
+with headers[4]:
+    st.markdown("**Statut**")
+
 
     for _, r in plafonds.iterrows():
         cols = st.columns([4, 2, 2, 2, 2])
