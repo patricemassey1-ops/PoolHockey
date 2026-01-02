@@ -845,14 +845,13 @@ def render_team_grid_sidebar():
         st.sidebar.info("Aucune équipe configurée.")
         return
 
-    # ✅ Toujours une équipe active (pas de décoche)
+    # ✅ Toujours une équipe active
     selected = get_selected_team()
     if not selected or selected not in teams:
-        # prend la première équipe par défaut
         pick_team(teams[0])
         selected = teams[0]
 
-    # 🎨 CSS — cartes + indicateur sélection
+    # 🎨 CSS (carte + bouton style “carte cliquable” + dot radio)
     st.sidebar.markdown(
         """
         <style>
@@ -880,7 +879,7 @@ def render_team_grid_sidebar():
             text-align:center;
         }
 
-        /* Petit “radio visuel” */
+        /* Radio visuel */
         .team-dot{
             text-align:center;
             font-size:16px;
@@ -891,7 +890,21 @@ def render_team_grid_sidebar():
         }
         .team-dot.on{ opacity:1; }
 
-        /* Radio (liste) compact */
+        /* Bouton “carte” discret */
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
+            padding: .22rem .35rem !important;
+            font-weight: 900 !important;
+            border-radius: 10px !important;
+            width: 100%;
+        }
+        /* Bouton de sélection = vert si sélectionné */
+        section[data-testid="stSidebar"] button[kind="primary"]{
+            background:#16a34a !important;
+            border:1px solid #16a34a !important;
+            color:white !important;
+        }
+
+        /* Radio réel compact */
         section[data-testid="stSidebar"] div[role="radiogroup"] label{
             padding:2px 0 !important;
         }
@@ -900,8 +913,7 @@ def render_team_grid_sidebar():
         unsafe_allow_html=True
     )
 
-    # ✅ Radio réel (1 seule sélection possible)
-    # (compact + sans label)
+    # ✅ Radio réel (source de vérité UI)
     idx = teams.index(selected)
     chosen = st.sidebar.radio(
         "Équipe sélectionnée",
@@ -911,14 +923,13 @@ def render_team_grid_sidebar():
         key="sidebar_team_radio",
     )
 
-    # Sync vers ton state global
     if chosen != selected:
         pick_team(chosen)
         selected = chosen
 
     st.sidebar.divider()
 
-    # ✅ Grille visuelle (affichage)
+    # ✅ Grille + “clic carte”
     cols_per_row = 3
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
@@ -933,18 +944,33 @@ def render_team_grid_sidebar():
 
             with row[j]:
                 with st.container(border=True):
+                    # Logo
                     if path:
                         st.image(path, width=64)
                     else:
                         st.markdown("🖼️", unsafe_allow_html=True)
                         st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
 
+                    # Nom
                     st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                    # “radio visuel” (● = sélectionné, ○ = non)
+                    # Dot radio visuel
                     dot = "●" if is_sel else "○"
                     cls = "team-dot on" if is_sel else "team-dot"
                     st.markdown(f"<div class='{cls}'>{dot}</div>", unsafe_allow_html=True)
+
+                    # ✅ “clic carte” (bouton discret, pleine largeur)
+                    # - si déjà sélectionné: on affiche un bouton vert "Sélectionné"
+                    # - sinon: bouton "Sélectionner"
+                    if st.button(
+                        "Sélectionné" if is_sel else "Sélectionner",
+                        key=f"card_pick_{team}",
+                        use_container_width=True,
+                        type=("primary" if is_sel else "secondary"),
+                        disabled=is_sel,  # ✅ pas de "décocher"
+                    ):
+                        pick_team(team)
+
 
 
 
