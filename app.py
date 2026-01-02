@@ -841,7 +841,7 @@ def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
     selected = get_selected_team()
 
-    # 🎨 CSS — checkbox compacte + cartes propres
+    # 🎨 CSS — cartes propres + checkbox compacte
     st.sidebar.markdown(
         """
         <style>
@@ -851,7 +851,6 @@ def render_team_grid_sidebar():
             background: rgba(255,255,255,.03) !important;
         }
 
-        /* Nom équipe */
         .team-name{
             font-weight:900;
             font-size:13px;
@@ -870,7 +869,7 @@ def render_team_grid_sidebar():
             text-align:center;
         }
 
-        /* Checkbox plus petite */
+        /* Checkbox légèrement plus petite */
         section[data-testid="stSidebar"] input[type="checkbox"]{
             transform: scale(0.9);
         }
@@ -906,20 +905,23 @@ def render_team_grid_sidebar():
                     # Nom équipe
                     st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                    # ✅ Case à cocher (1 seule sélection possible)
-                    checked = st.checkbox(
-                        "",
-                        value=is_sel,
-                        key=f"chk_team_{team}",
-                    )
+                    # ✅ Checkbox centrée
+                    c1, c2, c3 = st.columns([1, 1, 1])
+                    with c2:
+                        checked = st.checkbox(
+                            "",
+                            value=is_sel,
+                            key=f"chk_team_{team}",
+                        )
 
+                    # Gestion sélection unique
                     if checked and not is_sel:
                         pick_team(team)
 
-                    # Si on décoche l'équipe sélectionnée → rien sélectionné
                     if not checked and is_sel:
                         st.session_state["selected_team"] = ""
                         st.session_state["align_owner"] = ""
+
 
 
 
