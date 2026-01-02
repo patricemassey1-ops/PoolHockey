@@ -42,7 +42,7 @@ LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche p
 LOGOS = {
     "Nordiques": "data/Nordiques_Logo.png",
     "Cracheurs": "data/Cracheurs_Logo.png",
-    "Predateurs": "data/Predateurs_Logo.png",
+    "Prédateurs": "data/Predateurs_Logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
     "Canadiens": "data/montreal-canadiens_Logo.png",
@@ -1004,7 +1004,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# SIDEBAR — Saison & plafonds
+# SIDEBAR — Saison + Équipes + Plafonds
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -1023,38 +1023,101 @@ st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
-# =====================================================
-# SIDEBAR — Équipes (grille de logos cliquables)
-# =====================================================
-st.sidebar.divider()
-st.sidebar.header("🏒 Équipes")  # ✅ plural
 
+# =====================================================
+# SIDEBAR — Sélection Équipes (grille esthétique)
+# =====================================================
+def team_logo_path(team: str) -> str:
+    path = str(LOGOS.get(team, "")).strip()
+    return path if path and os.path.exists(path) else ""
+
+def set_selected_team(team: str):
+    st.session_state["selected_team"] = team
+
+def get_selected_team() -> str:
+    return str(st.session_state.get("selected_team", "")).strip()
+
+def render_team_grid_sidebar():
+    st.sidebar.markdown("### 🏒 Équipes")
+
+    selected = get_selected_team()
+
+    st.sidebar.markdown(
+        """
+        <style>
+        .team-card{
+            border:1px solid rgba(255,255,255,.10);
+            border-radius:14px;
+            padding:10px 8px 8px 8px;
+            background: rgba(255,255,255,.03);
+            text-align:center;
+        }
+        .team-card.selected{
+            border:2px solid rgba(34,197,94,.75);
+            background: rgba(34,197,94,.10);
+        }
+        .team-name{
+            font-weight:900;
+            font-size:13px;
+            margin-top:6px;
+            line-height:1.1;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
+        }
+        .team-missing{
+            font-size:11px;
+            opacity:.65;
+            margin-top:4px;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
+            padding: .25rem .4rem;
+            font-weight:900;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    teams = list(LOGOS.keys())
+    cols_per_row = 3
+
+    for i in range(0, len(teams), cols_per_row):
+        row = st.sidebar.columns(cols_per_row, gap="small")
+        for j in range(cols_per_row):
+            if i + j >= len(teams):
+                continue
+
+            team = teams[i + j]
+            path = team_logo_path(team)
+            is_sel = (team == selected)
+
+            with row[j]:
+                st.markdown(
+                    f"<div class='team-card {'selected' if is_sel else ''}'>",
+                    unsafe_allow_html=True
+                )
+
+                if path:
+                    st.image(path, width=64)
+                else:
+                    st.markdown("🖼️", unsafe_allow_html=True)
+                    st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
+
+                st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
+
+                if st.button("Sélectionner", key=f"pick_{team}", use_container_width=True):
+                    set_selected_team(team)
+                    do_rerun()
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+# init sélection si absent
 if "selected_team" not in st.session_state:
     st.session_state["selected_team"] = ""
 
-def _pick_team(team_name: str):
-    st.session_state["selected_team"] = team_name
-    do_rerun()
-
-teams = list(LOGOS.keys())  # ✅ inclut Prédateurs + Canadiens
-
-# Grille 3 colonnes
-grid = st.sidebar.columns(3)
-
-for i, team_name in enumerate(teams):
-    col = grid[i % 3]
-    logo_path = LOGOS.get(team_name, "")
-
-    with col:
-        if logo_path and os.path.exists(logo_path):
-            st.image(logo_path, use_container_width=True)
-        else:
-            # fallback si logo manquant (pour ne pas "perdre" l'équipe)
-            st.caption(team_name)
-
-        label = "✅" if st.session_state.get("selected_team") == team_name else " "
-        if st.button(f"{label} {team_name}", key=f"team_{team_name}", use_container_width=True):
-            _pick_team(team_name)
+st.sidebar.divider()
+render_team_grid_sidebar()
 
 
 # =====================================================
@@ -1080,6 +1143,7 @@ if st.session_state.get("edit_plafond"):
 
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+
 
 
 # =====================================================
