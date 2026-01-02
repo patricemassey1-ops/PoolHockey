@@ -845,7 +845,7 @@ st.session_state["LOCKED"] = LOCKED
 
 
 def render_team_grid_sidebar():
-    import base64  # ✅ évite NameError si oublié en import global
+    import base64  # garde ça ici si tu n'as pas import base64 global
 
     st.sidebar.markdown("### 🏒 Équipes")
 
@@ -854,20 +854,6 @@ def render_team_grid_sidebar():
         st.sidebar.info("Aucune équipe configurée.")
         return
 
-    # ----------------------------------
-    # Lecture du paramètre URL ?team=
-    # ----------------------------------
-    qp_team = st.query_params.get("team", "")
-    if isinstance(qp_team, list):
-        qp_team = qp_team[0] if qp_team else ""
-    qp_team = str(qp_team or "").strip()
-
-    if qp_team and qp_team in teams and qp_team != get_selected_team():
-        pick_team(qp_team)
-        # 🔄 Nettoyage URL: retirer seulement "team"
-        if "team" in st.query_params:
-            del st.query_params["team"]
-
     selected = get_selected_team()
 
     # Toujours une équipe active
@@ -875,9 +861,7 @@ def render_team_grid_sidebar():
         pick_team(teams[0])
         selected = teams[0]
 
-    # ----------------------------------
-    # Helper image → base64
-    # ----------------------------------
+    # ---- image -> base64 data uri ----
     def _img_data_uri(path: str) -> str:
         if not path or not os.path.exists(path):
             return ""
@@ -887,21 +871,19 @@ def render_team_grid_sidebar():
             mime = "image/jpeg"
         elif ext == ".webp":
             mime = "image/webp"
-
         with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("utf-8")
         return f"data:{mime};base64,{b64}"
 
-    # ----------------------------------
-    # CSS (hover + sélection + disable)
-    # ----------------------------------
+    # ---- CSS: cartes compactes + 2 colonnes + hover glow ----
     st.sidebar.markdown(
         """
         <style>
+        /* Réduit la largeur effective des "cards" */
         .team-card{
             border:1px solid rgba(255,255,255,.12);
-            border-radius:16px;
-            padding:12px 10px 12px 10px;
+            border-radius:14px;
+            padding:10px 8px 12px 8px;
             background: rgba(255,255,255,.03);
             text-align:center;
         }
@@ -919,41 +901,43 @@ def render_team_grid_sidebar():
             text-overflow:ellipsis;
         }
 
-        .logo-link{
-            display:inline-block;
-            border-radius:14px;
+        /* Zone logo */
+        .logo-wrap{
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            height:78px;
         }
-        .logo-link img{
+        .logo-wrap img{
             width:78px;
             height:78px;
             object-fit:contain;
             border-radius:14px;
             transition: filter 140ms ease, transform 140ms ease;
             display:block;
-            margin: 0 auto;
         }
-        /* ✨ hover glow */
-        .logo-link:hover img{
+        .logo-wrap:hover img{
             filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
             transform: scale(1.03);
         }
-        /* 🔒 disable click selected */
-        .logo-link.disabled{
-            pointer-events:none;
-            cursor: default;
+
+        /* Bouton Streamlit "invisible" (clique sur le logo) */
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button.team-logo-btn{
+            padding:0 !important;
+            border:none !important;
+            background:transparent !important;
+            width:100% !important;
+            box-shadow:none !important;
         }
-        .logo-link.disabled img{
-            filter:none !important;
-            transform:none !important;
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button.team-logo-btn:hover{
+            background:transparent !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # ----------------------------------
-    # Grille équipes — ✅ 2 colonnes
-    # ----------------------------------
+    # ---- 2 colonnes ----
     cols_per_row = 2
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
@@ -963,46 +947,67 @@ def render_team_grid_sidebar():
                 continue
 
             team = teams[i + j]
-            path = team_logo_path(team)
             is_sel = (team == selected)
             card_cls = "team-card sel" if is_sel else "team-card"
 
-            href = "" if is_sel else f"?team={team.replace(' ', '%20')}"
-            a_cls = "logo-link disabled" if is_sel else "logo-link"
-
+            path = team_logo_path(team)
             img = _img_data_uri(path) if path else ""
 
             with row[j]:
+                # 1) wrapper carte
+                st.markdown(f"<div class='{card_cls}'>", unsafe_allow_html=True)
+
+                # 2) bouton invisible (clic logo)
+                #    🔒 désactive le clic si déjà sélectionné
+                disabled = bool(is_sel)
+
+                # Contenu du bouton = HTML logo (ou fallback)
                 if img:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""}>
-                            <img src="{img}" alt="{html.escape(team)}" />
-                          </a>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    btn_html = f"<div class='logo-wrap'><img src='{img}' alt='{html.escape(team)}'></div>"
                 else:
-                    # fallback si logo manquant
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
-                            <div style="font-size:38px;line-height:78px">🖼️</div>
-                          </a>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    btn_html = "<div class='logo-wrap' style='font-size:34px'>🖼️</div>"
+
+                # On affiche le HTML du logo
+                st.markdown(btn_html, unsafe_allow_html=True)
+
+                # Et on met le bouton juste en dessous MAIS on le rend invisible
+                # Trick: bouton sans texte + CSS ciblé via key (Streamlit ne permet pas class directement)
+                # -> on utilise un label court et on masque visuellement via CSS "team-logo-btn"
+                clicked = st.button(
+                    " ",
+                    key=f"team_logo_click_{team}",
+                    use_container_width=True,
+                    disabled=disabled,
+                )
+
+                # Patch CSS: cibler le bouton via son key (data-testid stable)
+                # On transforme ce bouton en "invisible" et on le remonte (overlay) sur le logo
+                st.markdown(
+                    f"""
+                    <style>
+                    /* overlay: le bouton du key = team_logo_click_{team} devient invisible et couvre le logo */
+                    button[kind]{{}}
+                    div[data-testid="stButton"]:has(button[kind][data-testid="baseButton-secondary"]):has(button:contains(" ")){{}}
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                # ✅ Action sélection
+                if clicked and not disabled:
+                    pick_team(team)
+
+                # 3) nom
+                st.markdown(f"<div class='team-name'>{html.escape(team)}</div>", unsafe_allow_html=True)
+
+                # 4) fin carte
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ✅ APPEL (IMPORTANT) — un seul divider + un seul call
+# ✅ APPEL UNIQUE
 st.sidebar.divider()
 render_team_grid_sidebar()
+
 
 
 st.sidebar.divider()
