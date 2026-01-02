@@ -1239,14 +1239,26 @@ with tabA:
     if "auto_open_banc" not in st.session_state:
         st.session_state["auto_open_banc"] = False
 
-    # On force l'ouverture du Banc si invalide, sinon on ne force pas la fermeture
-    # (ça évite que ça se referme tout seul si l'utilisateur l'ouvre manuellement)
     if lineup_invalid:
         st.session_state["auto_open_banc"] = True
 
-    # Option GM extrême: bloquer tout le reste tant que non conforme
-    # if lineup_invalid:
-    #     st.stop()
+
+
+with left:
+    with st.container(border=True):
+        st.markdown("### 🟢 Actifs")
+
+        lock_actifs = popup_open or lineup_invalid
+
+        if not lock_actifs:
+            p = roster_click_list(gc_actif, proprietaire, "actifs")
+            if p:
+                 set_move_ctx(proprietaire, p)
+                 do_rerun()
+        else:
+            roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+
 
     # ============================
     # Résumé (STREAMLIT PUR) — compact + alerte GM
