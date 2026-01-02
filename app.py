@@ -1052,6 +1052,11 @@ tab1, tabA, tabJ, tabH, tab2, tab3, tabAdmin = st.tabs(
 # =====================================================
 # TAB 1 — Tableau (FIXED INDENTATION)
 # =====================================================
+if df.empty:
+    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    st.stop()
+
+
 with tab1:
     st.subheader("📊 Tableau")
 
@@ -1093,6 +1098,10 @@ with tab1:
 # =====================================================
 # TAB A — Alignement
 # =====================================================
+if df.empty:
+    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    st.stop()
+
 with tabA:
     st.subheader("🧾 Alignement")
 
@@ -1236,6 +1245,10 @@ with tabA:
 # =====================================================
 # TAB J — Joueurs (Autonomes)
 # =====================================================
+if df.empty:
+    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    st.stop()
+
 with tabJ:
     st.subheader("👤 Joueurs (Autonomes)")
     st.caption("Aucun résultat tant qu’aucun filtre n’est rempli (Nom/Prénom, Équipe, Level/Contrat ou Cap Hit).")
@@ -1585,6 +1598,10 @@ with tabH:
 # =====================================================
 # TAB 2 — Transactions
 # =====================================================
+if df.empty:
+    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    st.stop()
+
 with tab2:
     st.subheader("⚖️ Transactions")
 
@@ -1691,6 +1708,10 @@ with tabAdmin:
 # =====================================================
 # TAB 3 — Recommandations
 # =====================================================
+if df.empty:
+    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    st.stop()
+
 with tab3:
     st.subheader("🧠 Recommandations")
 
