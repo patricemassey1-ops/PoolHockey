@@ -841,28 +841,17 @@ def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
     selected = get_selected_team()
 
-    # 🎨 CSS propre (aucune pill possible)
+    # 🎨 CSS — checkbox compacte + cartes propres
     st.sidebar.markdown(
         """
         <style>
-        /* Boutons */
-        section[data-testid="stSidebar"] button{
-            font-weight:900 !important;
-        }
-
-        /* Bouton sélectionné = vert */
-        section[data-testid="stSidebar"] button[kind="primary"]{
-            background:#16a34a !important;
-            border:1px solid #16a34a !important;
-            color:white !important;
-        }
-
-        /* Carte (container border) */
+        /* Carte */
         section[data-testid="stSidebar"] div[data-testid="stContainer"]{
             border-radius:16px !important;
             background: rgba(255,255,255,.03) !important;
         }
 
+        /* Nom équipe */
         .team-name{
             font-weight:900;
             font-size:13px;
@@ -879,6 +868,11 @@ def render_team_grid_sidebar():
             opacity:.65;
             margin-top:4px;
             text-align:center;
+        }
+
+        /* Checkbox plus petite */
+        section[data-testid="stSidebar"] input[type="checkbox"]{
+            transform: scale(0.9);
         }
         </style>
         """,
@@ -900,24 +894,33 @@ def render_team_grid_sidebar():
             is_sel = (team == selected)
 
             with row[j]:
-                # ✅ Container réel (pas de pill)
                 with st.container(border=True):
+
+                    # Logo
                     if path:
                         st.image(path, width=64)
                     else:
                         st.markdown("🖼️", unsafe_allow_html=True)
                         st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
 
+                    # Nom équipe
                     st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                    # ✅ bouton vert si sélectionné
-                    if st.button(
-                        team,
-                        key=f"pick_{team}",
-                        use_container_width=True,
-                        type=("primary" if is_sel else "secondary"),
-                    ):
+                    # ✅ Case à cocher (1 seule sélection possible)
+                    checked = st.checkbox(
+                        "",
+                        value=is_sel,
+                        key=f"chk_team_{team}",
+                    )
+
+                    if checked and not is_sel:
                         pick_team(team)
+
+                    # Si on décoche l'équipe sélectionnée → rien sélectionné
+                    if not checked and is_sel:
+                        st.session_state["selected_team"] = ""
+                        st.session_state["align_owner"] = ""
+
 
 
 
