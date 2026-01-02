@@ -827,28 +827,13 @@ if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
-LOCKED = saison_verrouillee(season)
-
-DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
-HISTORY_FILE = f"{DATA_DIR}/history_{season}.csv"
-st.session_state["DATA_FILE"] = DATA_FILE
-st.session_state["HISTORY_FILE"] = HISTORY_FILE
-st.session_state["LOCKED"] = LOCKED
-
-
-# =====================================================
-# SIDEBAR — Saison + Équipes + Plafonds + Import
-# =====================================================
-st.sidebar.header("📅 Saison")
-
-saisons = ["2024-2025", "2025-2026", "2026-2027"]
-auto = saison_auto()
-if auto not in saisons:
-    saisons.append(auto)
-    saisons.sort()
-
-season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto))
+# ✅ FIX DuplicateElementId: key unique
+season = st.sidebar.selectbox(
+    "Saison",
+    saisons,
+    index=saisons.index(auto),
+    key="sb_season_select",
+)
 LOCKED = saison_verrouillee(season)
 
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
@@ -867,8 +852,7 @@ def render_team_grid_sidebar():
         return
 
     # -------------------------------------------------
-    # 1) Lire ?team= depuis l’URL (clic logo)
-    #    -> API moderne uniquement
+    # 1) Lire ?team= depuis l’URL (clic logo) — API moderne uniquement
     # -------------------------------------------------
     qp_team = st.query_params.get("team", "")
     if isinstance(qp_team, list):
@@ -877,6 +861,12 @@ def render_team_grid_sidebar():
 
     if qp_team and qp_team in teams and qp_team != get_selected_team():
         pick_team(qp_team)
+        # 🔄 Nettoyer l’URL: retirer seulement "team"
+        try:
+            if "team" in st.query_params:
+                del st.query_params["team"]
+        except Exception:
+            pass
 
     selected = get_selected_team()
 
@@ -906,7 +896,7 @@ def render_team_grid_sidebar():
             return ""
 
     # -------------------------------------------------
-    # 3) CSS — cartes + logo cliquable + sélection
+    # 3) CSS — cartes + hover glow + disable click selected
     # -------------------------------------------------
     st.sidebar.markdown(
         """
@@ -936,6 +926,8 @@ def render_team_grid_sidebar():
             opacity:.65;
             margin-top:4px;
         }
+
+        /* Logo cliquable */
         .logo-link{
             display:inline-block;
             border-radius:14px;
@@ -946,6 +938,24 @@ def render_team_grid_sidebar():
             object-fit:contain;
             border-radius:14px;
             display:block;
+            transition: filter 140ms ease, transform 140ms ease;
+        }
+
+        /* ✨ Hover glow */
+        .logo-link:hover img{
+            filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
+            transform: scale(1.03);
+        }
+
+        /* 🔒 Désactiver clic sur l’équipe déjà sélectionnée */
+        .logo-link.disabled{
+            pointer-events:none;
+            cursor: default;
+        }
+        .logo-link.disabled img{
+            filter: none !important;
+            transform: none !important;
+            opacity: 1;
         }
         </style>
         """,
@@ -971,11 +981,15 @@ def render_team_grid_sidebar():
             with row[j]:
                 data_uri = _img_data_uri(path)
 
+                # 🔒 si sélectionné: pas de href (désactivé)
+                a_cls = "logo-link disabled" if is_sel else "logo-link"
+                href = "" if is_sel else f'?team={quote(team)}'
+
                 if data_uri:
                     st.sidebar.markdown(
                         f"""
                         <div class="{card_cls}">
-                          <a class="logo-link" href="?team={quote(team)}">
+                          <a class="{a_cls}" {"href="+href if href else ""}>
                             <img src="{data_uri}" alt="{html.escape(team)}" />
                           </a>
                           <div class="team-name">{html.escape(team)}</div>
@@ -984,10 +998,11 @@ def render_team_grid_sidebar():
                         unsafe_allow_html=True
                     )
                 else:
+                    # Logo manquant: on garde la zone cliquable si non sélectionné
                     st.sidebar.markdown(
                         f"""
                         <div class="{card_cls}">
-                          <a class="logo-link" href="?team={quote(team)}" style="text-decoration:none">
+                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
                             <div style="font-size:34px;line-height:64px">🖼️</div>
                           </a>
                           <div class="team-missing">Logo manquant</div>
@@ -998,9 +1013,10 @@ def render_team_grid_sidebar():
                     )
 
 
-# 👉 appel réel
+# ✅ appel
 st.sidebar.divider()
 render_team_grid_sidebar()
+
 
 
 
