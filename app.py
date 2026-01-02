@@ -1153,48 +1153,34 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (COMPACT) — BLOC COMPLET
-#   - Jauges GC/CE inchangées
-#   - Metrics compactes + compte Banc + Mineur (F/D/G) + IR
-#   - Pills (Banc/IR) cliquables MAIS BLOQUÉES si popup ouvert
-#   - Actifs + Mineur encadrés (container border=True) pleine hauteur du contenu
-#   - Banc + IR au même endroit (expanders pleine largeur)
-#   - Guard anti re-pick pendant popup
+# TAB A — Alignement (COMPACT + pills cliquables)
+#   - Jauges GC/CE inchangées (cap_bar_html)
+#   - Actifs + Mineur encadrés (border=True)
+#   - Banc + IR en expanders (plein largeur)
+#   - Pills cliquables (Banc/IR ouvrent les expanders)
+#   - Pills désactivées si popup ouvert
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # --- CSS: compact + cards/pills ---
+    # --- CSS (pills + compact) ---
     st.markdown(
         """
         <style>
-          .metricbar{
-            display:flex; flex-wrap:wrap; gap:8px;
-            padding:6px 10px; border:1px solid rgba(255,255,255,.14);
-            border-radius:12px; background:rgba(255,255,255,.03);
-            margin-top:6px; margin-bottom:6px;
-          }
-          .metricpill{
-            display:flex; gap:6px; align-items:baseline;
-            padding:4px 8px; border-radius:999px;
-            background:rgba(255,255,255,.06);
-            border:1px solid rgba(255,255,255,.12);
-            font-weight:900; font-size:12px; line-height:1;
-          }
-          .metricpill b{ opacity:.75; font-weight:900; }
-          .metricpill span{ font-weight:1000; }
-          .dim{ opacity:.75; font-weight:900; font-size:11px; }
-
-          .tinybtn div[data-testid="stButton"] > button{
-            padding: .22rem .55rem !important;
-            border-radius: 999px !important;
+          /* Pills (boutons) look */
+          .pillbtn div[data-testid="stButton"] > button{
+            padding: 0.12rem 0.55rem !important;
+            min-height: 28px !important;
+            height: 28px !important;
+            line-height: 1.0 !important;
             font-weight: 950 !important;
             font-size: 12px !important;
-            height: 30px !important;
+            border-radius: 999px !important;
+            border: 1px solid rgba(255,255,255,.16) !important;
+            background: rgba(255,255,255,.05) !important;
           }
-          .tinybtn.disabled div[data-testid="stButton"] > button{
-            opacity:.45 !important;
-            pointer-events:none !important;
+          .pillbtn div[data-testid="stButton"] > button:disabled{
+            opacity: .45 !important;
           }
         </style>
         """,
@@ -1238,17 +1224,6 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ============================
-    # Compte mineur (positions)
-    # ============================
-    tmpm = ce_all.copy()
-    if "Pos" not in tmpm.columns:
-        tmpm["Pos"] = "F"
-    tmpm["Pos"] = tmpm["Pos"].apply(normalize_pos)
-    nbm_F = int((tmpm["Pos"] == "F").sum())
-    nbm_D = int((tmpm["Pos"] == "D").sum())
-    nbm_G = int((tmpm["Pos"] == "G").sum())
-
-    # ============================
     # Plafonds (IR exclu car dprop_ok)
     # ============================
     cap_gc = int(st.session_state["PLAFOND_GC"])
@@ -1273,106 +1248,85 @@ with tabA:
     popup_open = st.session_state.get("move_ctx") is not None
 
     # ============================
-    # Pills cliquables (ordre demandé)
-    # Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
-    # - Banc/IR togglent les expanders
-    # - Désactivées si popup_open
+    # Pills (cliquables)
+    # Ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
+    # - Banc / IR ouvrent les expanders
     # ============================
-    for k, v in {
-        "show_banc": False,
-        "show_ir": False,
-    }.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+    # flags expander
+    if "show_banc" not in st.session_state:
+        st.session_state["show_banc"] = False
+    if "show_ir" not in st.session_state:
+        st.session_state["show_ir"] = False
 
-st.markdown(
-    """
-    <style>
-      .pillbar{
-        display:flex; flex-wrap:wrap; gap:8px;
-        padding:6px 10px; border:1px solid rgba(255,255,255,.14);
-        border-radius:12px; background:rgba(255,255,255,.03);
-        margin-top:6px; margin-bottom:8px;
-      }
-      /* Style "pill button" */
-      .stButton > button.pillbtn{
-        padding: 0.18rem 0.55rem !important;
-        min-height: 28px !important;
-        height: 28px !important;
-        line-height: 1.0 !important;
-        border-radius: 999px !important;
-        font-weight: 950 !important;
-        font-size: 12px !important;
-        border: 1px solid rgba(255,255,255,.14) !important;
-        background: rgba(255,255,255,.06) !important;
-      }
-      .stButton > button.pillbtn:disabled{
-        opacity: .50 !important;
-      }
-      .pilltxt b{opacity:.72; font-weight:950;}
-      .pilltxt span{font-weight:1000;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-def pill(label: str, value: str, key: str, clickable: bool = False):
-    """
-    clickable=False -> pill info (disabled)
-    clickable=True  -> pill toggle expander (enabled unless popup_open)
-    """
-    text = f"<span class='pilltxt'><b>{label}</b> <span>{value}</span></span>"
-    # Streamlit: on met un bouton mais on peut le désactiver
-    # Si pas clickable -> bouton disabled
-    disabled = popup_open or (not clickable)
-
-    # bouton avec classe CSS
-    # NOTE: Streamlit ne permet pas d'ajouter className directement,
-    # mais on peut cibler via :has() pas stable -> on fait simple:
-    # on force le style sur TOUS les boutons qui ont ce key prefix via CSS? non.
-    # Trick simple: utiliser le paramètre "type" ne suffit pas.
-    # => On applique le style sur tous les boutons de la zone, et ça va.
-    return st.button(
-        label=text,
-        key=key,
-        disabled=disabled,
-        use_container_width=False,
-    )
-
-# Wrapper pour afficher la bar de pills (en 1 ligne + wrap)
-with st.container():
-    st.markdown('<div class="pillbar">', unsafe_allow_html=True)
-
-    # (Les boutons sortent du flux HTML, mais visuellement ça reste "bar" grâce au wrap)
-    # Total/Reste GC/CE
-    pill("Total GC", money(used_gc), "pill_total_gc", clickable=False)
-    pill("Reste GC", money(remain_gc), "pill_reste_gc", clickable=False)
-    pill("Total CE", money(used_ce), "pill_total_ce", clickable=False)
-    pill("Reste CE", money(remain_ce), "pill_reste_ce", clickable=False)
-
-    # Comptes
-    pill("Actifs", f"F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2", "pill_actifs", clickable=False)
-    pill("Mineur", f"{len(ce_all)}", "pill_mineur", clickable=False)
-
-    # ✅ Pills cliquables: Banc / IR
-    if pill("Banc", f"{len(gc_banc)}", "pill_banc", clickable=True):
-        st.session_state["show_banc"] = not st.session_state["show_banc"]
+    def _open_banc():
+        st.session_state["show_banc"] = True
+        st.session_state["show_ir"] = False
         do_rerun()
 
-    if pill("IR", f"{len(injured_all)}", "pill_ir", clickable=True):
-        st.session_state["show_ir"] = not st.session_state["show_ir"]
+    def _open_ir():
+        st.session_state["show_ir"] = True
+        st.session_state["show_banc"] = False
         do_rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    p1, p2, p3, p4 = st.columns(4, gap="small")
+    p5, p6, p7, p8 = st.columns(4, gap="small")
 
+    with p1:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(f"Total GC {money(used_gc)}", disabled=popup_open, key="pill_tgc")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    with b3:
-        st.caption("")
+    with p2:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(f"Reste GC {money(remain_gc)}", disabled=popup_open, key="pill_rgc")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p3:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(f"Total CE {money(used_ce)}", disabled=popup_open, key="pill_tce")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p4:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(f"Reste CE {money(remain_ce)}", disabled=popup_open, key="pill_rce")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p5:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(
+                f"Actifs F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2",
+                disabled=popup_open,
+                key="pill_actifs",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p6:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            st.button(f"Mineur {len(ce_all)}", disabled=popup_open, key="pill_min")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p7:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            if st.button(f"Banc {len(gc_banc)}", disabled=popup_open, key="pill_banc"):
+                _open_banc()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with p8:
+        with st.container():
+            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
+            if st.button(f"IR {len(injured_all)}", disabled=popup_open, key="pill_ir"):
+                _open_ir()
+            st.markdown("</div>", unsafe_allow_html=True)
 
     # ============================
-    # ZONE ROSTER (compact)
-    #   - Actifs & Mineur encadrés
-    #   - Banc + IR au même endroit (expanders pleine largeur)
+    # Zone roster
     # ============================
     left, right = st.columns([1, 1], gap="small")
 
@@ -1380,7 +1334,7 @@ with st.container():
         with st.container(border=True):
             st.markdown("### 🟢 Actifs")
             if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")  # doit afficher Team | Pos | Joueur | Salaire
+                p = roster_click_list(gc_actif, proprietaire, "actifs")
                 if p:
                     set_move_ctx(proprietaire, p)
                     do_rerun()
@@ -1398,34 +1352,34 @@ with st.container():
             else:
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
-    # --- Banc + IR au même endroit (plein largeur) ---
-with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
-    if gc_banc is None or gc_banc.empty:
-        st.caption("Aucun joueur.")
-    else:
-        if not popup_open:
-            p = roster_click_list(gc_banc, proprietaire, "banc")
-            if p:
-                set_move_ctx(proprietaire, p)
-                do_rerun()
+    # ============================
+    # Banc + IR (même endroit, plein largeur)
+    # ============================
+    with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
+        if gc_banc is None or gc_banc.empty:
+            st.caption("Aucun joueur.")
         else:
-            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+            if not popup_open:
+                p = roster_click_list(gc_banc, proprietaire, "banc")
+                if p:
+                    set_move_ctx(proprietaire, p)
+                    do_rerun()
+            else:
+                roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
-    if injured_all is None or injured_all.empty:
-        st.caption("Aucun joueur blessé.")
-    else:
-        if not popup_open:
-            p_ir = roster_click_list(injured_all, proprietaire, "ir")
-            if p_ir:
-                set_move_ctx(proprietaire, p_ir)
-                do_rerun()
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
+        if injured_all is None or injured_all.empty:
+            st.caption("Aucun joueur blessé.")
         else:
-            roster_click_list(injured_all, proprietaire, "ir_disabled")
+            if not popup_open:
+                p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                if p_ir:
+                    set_move_ctx(proprietaire, p_ir)
+                    do_rerun()
+            else:
+                roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-
-
-    # ✅ Pop-up (toujours à la fin du tabA)
+    # ✅ Pop-up (toujours à la fin)
     open_move_dialog()
 
 
