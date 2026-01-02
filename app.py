@@ -1184,14 +1184,25 @@ with tabA:
     # ---------
     # Metrics (avec Banc)
     # ---------
-    top = st.columns([1, 1, 1, 1, 1, 1])
+    def gm_metric(label: str, value: str):
+    	st.markdown(
+        f"""
+        <div style="text-align:left">
+            <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
+            <div style="font-size:20px;font-weight:1000">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    top[0].metric("Total GC", money(used_gc))
-    top[1].metric("Reste GC", money(remain_gc))
-    top[2].metric("Total CE", money(used_ce))
-    top[3].metric("Reste CE", money(remain_ce))
-    top[4].metric("Banc", str(len(gc_banc)))
-    top[5].metric("IR", str(len(injured_all)))
+cols = st.columns(6)
+with cols[0]: gm_metric("Total GC", money(used_gc))
+with cols[1]: gm_metric("Reste GC", money(remain_gc))
+with cols[2]: gm_metric("Total CE", money(used_ce))
+with cols[3]: gm_metric("Reste CE", money(remain_ce))
+with cols[4]: gm_metric("Banc", str(len(gc_banc)))
+with cols[5]: gm_metric("IR", str(len(injured_all)))
+
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
