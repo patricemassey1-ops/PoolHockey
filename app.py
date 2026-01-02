@@ -1187,8 +1187,8 @@ with tabA:
     top[1].metric("Reste GC", money(remain_gc))
     top[2].metric("Total CE", money(used_ce))
     top[3].metric("Reste CE", money(remain_ce))
-    top[4].metric("IR", f"{len(injured_all)}")
-
+    top[4].metric("Banc", f"{len(gc_banc)}")
+	top[5].metric("IR", f"{len(injured_all)}")
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
         unsafe_allow_html=True
