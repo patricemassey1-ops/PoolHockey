@@ -213,6 +213,82 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     </div>
     """
 
+# ============================
+# GM MODE — Détection effectifs invalides
+# ============================
+over_F = nb_F > 12
+over_D = nb_D > 6
+over_G = nb_G > 2
+
+lineup_invalid = over_F or over_D or over_G
+
+# Auto-open Banc si invalide
+if "auto_open_banc" not in st.session_state:
+    st.session_state["auto_open_banc"] = False
+
+if lineup_invalid:
+    st.session_state["auto_open_banc"] = True
+else:
+    st.session_state["auto_open_banc"] = False
+
+# ============================
+# Résumé (STREAMLIT PUR) — GM PRO
+# ============================
+with st.container(border=True):
+    st.markdown("##### 📌 Résumé")
+
+    # ---- État des plafonds ----
+    s1, s2 = st.columns(2, gap="small")
+    with s1:
+        st.success("GC — OK") if remain_gc >= 0 else st.error("GC — Dépassement")
+    with s2:
+        st.success("CE — OK") if remain_ce >= 0 else st.error("CE — Dépassement")
+
+    # ---- Budgets ----
+    b1, b2, b3, b4 = st.columns(4, gap="small")
+    with b1:
+        st.metric("GC — Total", money(used_gc))
+    with b2:
+        st.metric("GC — Reste", money(remain_gc))
+    with b3:
+        st.metric("CE — Total", money(used_ce))
+    with b4:
+        st.metric("CE — Reste", money(remain_ce))
+
+    # ---- Effectifs ----
+    e1, e2, e3, e4, e5, e6 = st.columns(6, gap="small")
+    with e1:
+        st.metric("Actifs — F", f"{nb_F}/12")
+    with e2:
+        st.metric("Actifs — D", f"{nb_D}/6")
+    with e3:
+        st.metric("Actifs — G", f"{nb_G}/2")
+    with e4:
+        st.metric("Mineur", f"{len(ce_all)}")
+    with e5:
+        st.metric("Banc", f"{len(gc_banc)}")
+    with e6:
+        st.metric("IR", f"{len(injured_all)}")
+
+    # ---- Alerte globale GM ----
+    if lineup_invalid:
+        problems = []
+        if over_F: problems.append(f"F {nb_F}/12")
+        if over_D: problems.append(f"D {nb_D}/6")
+        if over_G: problems.append(f"G {nb_G}/2")
+
+        st.error(
+            "🚨 **Effectifs actifs non conformes** : "
+            + " • ".join(problems)
+        )
+        st.caption("👉 Corrige via **Banc**, **Mineur** ou **IR**.")
+    else:
+        st.success("✅ Effectifs actifs conformes.")
+
+    if popup_open:
+        st.info("🔒 Sélection désactivée: un déplacement est en cours.")
+
+
 
 # ----------------------------
 # Context move (popup)
@@ -1153,9 +1229,12 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (STREAMLIT PUR: columns + captions)
+# TAB A — Alignement (STREAMLIT PUR + GM mode)
 #   - Jauges GC/CE inchangées (cap_bar_html)
-#   - Résumé (remplace les pills) en 2 lignes compactes (GC/CE + Effectifs)
+#   - Résumé compact (GC/CE + Effectifs)
+#   - GM mode: alerte globale si F>12, D>6, G>2
+#   - GM mode: lock "Actifs" si non conforme
+#   - GM mode: auto-open Banc si non conforme
 #   - Actifs + Mineur encadrés (border=True)
 #   - Banc + IR en expanders (plein largeur)
 # =====================================================
@@ -1225,19 +1304,29 @@ with tabA:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
     # ============================
-    # Résumé (STREAMLIT PUR) — 2 lignes compactes
-    #   Ligne 1: GC / CE
-    #   Ligne 2: Effectifs
+    # GM MODE — Détection effectifs invalides + auto-open Banc
+    # ============================
+    over_F = nb_F > 12
+    over_D = nb_D > 6
+    over_G = nb_G > 2
+    lineup_invalid = over_F or over_D or over_G
+
+    if "auto_open_banc" not in st.session_state:
+        st.session_state["auto_open_banc"] = False
+
+    if lineup_invalid:
+        st.session_state["auto_open_banc"] = True
+    else:
+        st.session_state["auto_open_banc"] = False
+
+    # ============================
+    # Résumé (STREAMLIT PUR) — compact + alerte GM
     # ============================
     r1 = st.columns([1, 1], gap="small")
     with r1[0]:
-        st.caption(
-            f"**GC** — Total: {money(used_gc)}  |  Reste: {money(remain_gc)}"
-        )
+        st.caption(f"**GC** — Total: {money(used_gc)}  |  Reste: {money(remain_gc)}")
     with r1[1]:
-        st.caption(
-            f"**CE** — Total: {money(used_ce)}  |  Reste: {money(remain_ce)}"
-        )
+        st.caption(f"**CE** — Total: {money(used_ce)}  |  Reste: {money(remain_ce)}")
 
     r2 = st.columns([2, 1, 1, 1], gap="small")
     with r2[0]:
@@ -1249,7 +1338,16 @@ with tabA:
     with r2[3]:
         st.caption(f"**IR** — {len(injured_all)}")
 
-    # petite séparation visuelle
+    if lineup_invalid:
+        problems = []
+        if over_F: problems.append(f"F {nb_F}/12")
+        if over_D: problems.append(f"D {nb_D}/6")
+        if over_G: problems.append(f"G {nb_G}/2")
+        st.error("🚨 **Effectifs actifs non conformes** : " + " • ".join(problems))
+        st.caption("🧠 GM Mode: l’expander **Banc** s’ouvre automatiquement pour corriger.")
+    else:
+        st.success("✅ Effectifs actifs conformes.")
+
     st.divider()
 
     # ============================
@@ -1260,7 +1358,18 @@ with tabA:
     with left:
         with st.container(border=True):
             st.markdown("### 🟢 Actifs")
-            if not popup_open:
+
+            lock_actifs = popup_open or lineup_invalid
+
+            if lineup_invalid:
+                details = []
+                if over_F: details.append(f"F {nb_F}/12")
+                if over_D: details.append(f"D {nb_D}/6")
+                if over_G: details.append(f"G {nb_G}/2")
+                st.error("🚨 Effectifs invalides : " + " • ".join(details))
+                st.caption("👉 Corrige via **Banc**, **Mineur** ou **IR** pour revenir dans les limites.")
+
+            if not lock_actifs:
                 p = roster_click_list(gc_actif, proprietaire, "actifs")
                 if p:
                     set_move_ctx(proprietaire, p)
@@ -1280,9 +1389,9 @@ with tabA:
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
     # ============================
-    # Banc + IR (même endroit, plein largeur)
+    # Banc + IR (plein largeur)
     # ============================
-    with st.expander("🟡 Banc", expanded=False):
+    with st.expander("🟡 Banc", expanded=bool(st.session_state.get("auto_open_banc", False))):
         if gc_banc is None or gc_banc.empty:
             st.caption("Aucun joueur.")
         else:
@@ -1308,6 +1417,7 @@ with tabA:
 
     # ✅ Pop-up (toujours à la fin)
     open_move_dialog()
+
 
 
 
