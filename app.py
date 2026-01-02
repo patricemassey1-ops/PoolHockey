@@ -1593,13 +1593,16 @@ with tab2:
         st.success("✅ Transaction valide")
 
 # =====================================================
-# TAB Admin — Gestion Admin (Import + Export)
+# TAB Admin — Gestion Admin (NE BLOQUE PAS SI df vide)
 # =====================================================
 with tabAdmin:
     st.subheader("🛠️ Gestion Admin")
 
-    # --- Import ---
+    # -----------------------------
+    # 📥 Import
+    # -----------------------------
     st.markdown("### 📥 Import")
+
     uploaded = st.file_uploader(
         "Fichier CSV Fantrax",
         type=["csv", "txt"],
@@ -1619,19 +1622,27 @@ with tabAdmin:
                     owner = os.path.splitext(uploaded.name)[0]
                     df_import["Propriétaire"] = owner
 
-                    st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
+                    # merge + clean + save
+                    cur = st.session_state.get("data")
+                    if cur is None:
+                        cur = pd.DataFrame(columns=REQUIRED_COLS)
+
+                    st.session_state["data"] = pd.concat([cur, df_import], ignore_index=True)
                     st.session_state["data"] = clean_data(st.session_state["data"])
                     st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
 
                     st.success("✅ Import réussi")
                     st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
                     do_rerun()
+
             except Exception as e:
                 st.error(f"❌ Import échoué : {e}")
 
     st.divider()
 
-    # --- Export CSV ---
+    # -----------------------------
+    # 📤 Export CSV
+    # -----------------------------
     st.markdown("### 📤 Export CSV")
 
     data_file = st.session_state.get("DATA_FILE", "")
@@ -1652,7 +1663,7 @@ with tabAdmin:
                     key=f"dl_align_{season}_admin",
                 )
         else:
-            st.info("Aucun fichier d'alignement à exporter.")
+            st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
 
     with c2:
         if hist_file and os.path.exists(hist_file):
@@ -1667,6 +1678,7 @@ with tabAdmin:
                 )
         else:
             st.info("Aucun fichier d'historique à exporter.")
+
 
 
 
