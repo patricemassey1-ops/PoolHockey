@@ -746,10 +746,17 @@ def selectable_roster_table(df_src: pd.DataFrame, key: str, title: str) -> str |
 # =====================================================
 
 def open_move_dialog():
+    """
+    Pop-up déplacement (PROPRE + SAFE)
+    - Si joueur est sur IR (Slot == "Blessé" ou move_source == "ir"): 3 boutons 1 clic + Annuler
+    - Sinon: radio destination + Confirmer/Annuler
+    - AUCUN return "hors fonction" (tout est bien dans _dlg)
+    """
     ctx = st.session_state.get("move_ctx")
     if not ctx:
         return
 
+    # Saison verrouillée
     if st.session_state.get("LOCKED"):
         st.warning("🔒 Saison verrouillée : aucun changement permis.")
         clear_move_ctx()
@@ -761,11 +768,14 @@ def open_move_dialog():
 
     df_all = st.session_state.get("data")
     if df_all is None or df_all.empty:
-        st.error("Aucune donnée.")
+        st.error("Aucune donnée chargée.")
         clear_move_ctx()
         return
 
-    mask = (df_all["Propriétaire"].astype(str).str.strip() == owner) & (df_all["Joueur"].astype(str).str.strip() == joueur)
+    mask = (
+        df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+        & df_all["Joueur"].astype(str).str.strip().eq(joueur)
+    )
     if df_all.loc[mask].empty:
         st.error("Joueur introuvable.")
         clear_move_ctx()
@@ -775,124 +785,153 @@ def open_move_dialog():
     cur_statut = str(row.get("Statut", "")).strip()
     cur_slot = str(row.get("Slot", "")).strip()
     cur_pos = normalize_pos(row.get("Pos", "F"))
-    cur_equipe = str(row.get("Equipe", "")).strip()
-    cur_salaire = int(row.get("Salaire", 0))
+    cur_team = str(row.get("Equipe", "")).strip()
+    cur_sal = int(row.get("Salaire", 0) or 0)
 
-    from_ir = (cur_slot == "Blessé")
+    # IR si slot Blessé OU si l'utilisateur vient de la liste IR
+    from_ir = (cur_slot == "Blessé") or (str(st.session_state.get("move_source", "")) == "ir")
 
     def _close():
         clear_move_ctx()
 
     css = """
     <style>
-      .dlg-main{font-weight:900;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:700;margin-top:2px;font-size:12px;line-height:1.2}
-      .btnrow button{height:44px;font-weight:900}
+      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
+      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+      .btnrow button{height:44px;font-weight:1000}
     </style>
     """
 
     @st.dialog(f"Déplacement — {joueur}", width="small")
     def _dlg():
         st.markdown(css, unsafe_allow_html=True)
-        st.markdown(f"<div class='dlg-main'>{html.escape(owner)} • {html.escape(joueur)}</div>", unsafe_allow_html=True)
+
         st.markdown(
+            f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
             f"<div class='dlg-sub'>{html.escape(cur_statut)}"
             f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
-            f" • {html.escape(cur_pos)} • {html.escape(cur_equipe)} • {money(cur_salaire)}</div>",
+            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
             unsafe_allow_html=True,
         )
 
         st.divider()
 
-        # ==========================
-        # MODE IR (1 clic)
-        # ==========================
+        # =========================================
+        # MODE IR: 3 boutons 1 clic
+        # =========================================
         if from_ir:
             st.caption("Sortie de IR (1 clic)")
+
             bA, bB, bC = st.columns(3)
 
             if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_actif_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Grand Club", "Actif", "IR → Actif")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Actif",
+                    action_label="IR → Actif",
+                )
                 if ok:
                     st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
             if bB.button("🟡 Banc", use_container_width=True, key=f"ir_banc_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Grand Club", "Banc", "IR → Banc")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Grand Club",
+                    to_slot="Banc",
+                    action_label="IR → Banc",
+                )
                 if ok:
                     st.toast(f"🟡 {joueur} → Banc", icon="🟡")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
             if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_min_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, "Club École", "", "IR → Mineur")
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut="Club École",
+                    to_slot="",
+                    action_label="IR → Mineur",
+                )
                 if ok:
                     st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
                     _close()
                     do_rerun()
                 else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
 
             st.divider()
-            if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
+            if st.button("✖️ Annuler", use_container_width=True, key=f"ir_cancel_{owner}_{joueur}_{nonce}"):
                 _close()
                 do_rerun()
 
-            return  # ✅ IMPORTANT: stoppe ici le dialog IR
+        else:
+            # =========================================
+            # MODE NORMAL: radio + confirmer/annuler
+            # =========================================
+            destinations = [
+                ("🟢 Actifs (GC)", ("Grand Club", "Actif")),
+                ("🟡 Banc (GC)", ("Grand Club", "Banc")),
+                ("🔵 Mineur (CE)", ("Club École", "")),
+                ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
+            ]
 
-        # ==========================
-        # MODE NORMAL
-        # ==========================
-        destinations = [
-            ("🟢 Actifs (GC)", ("Grand Club", "Actif")),
-            ("🟡 Banc (GC)", ("Grand Club", "Banc")),
-            ("🔵 Mineur (CE)", ("Club École", "")),
-            ("🩹 Blessé (IR)", (cur_statut, "Blessé")),
-        ]
-        current = (cur_statut, cur_slot if cur_slot else "")
-        destinations = [d for d in destinations if d[1] != current]
+            current = (cur_statut, cur_slot if cur_slot else "")
+            destinations = [d for d in destinations if d[1] != current]
 
-        labels = [d[0] for d in destinations]
-        mapping = {d[0]: d[1] for d in destinations}
+            labels = [d[0] for d in destinations]
+            mapping = {d[0]: d[1] for d in destinations}
 
-        choice = st.radio("Destination", labels, index=0, label_visibility="collapsed", key=f"dest_{owner}_{joueur}_{nonce}")
-        to_statut, to_slot = mapping[choice]
-
-        c1, c2 = st.columns(2)
-        if c1.button("✅ Confirmer", use_container_width=True, type="primary", key=f"ok_{owner}_{joueur}_{nonce}"):
-            ok = apply_move_with_history(
-                proprietaire=owner,
-                joueur=joueur,
-                to_statut=to_statut,
-                to_slot=to_slot,
-                action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+            choice = st.radio(
+                "Destination",
+                labels,
+                index=0,
+                label_visibility="collapsed",
+                key=f"dest_{owner}_{joueur}_{nonce}",
             )
-            if ok:
-                if to_slot == "Blessé":
-                    st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
-                elif to_statut == "Grand Club" and to_slot == "Actif":
-                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-                elif to_statut == "Grand Club" and to_slot == "Banc":
-                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
-                elif to_statut == "Club École":
-                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+            to_statut, to_slot = mapping[choice]
+
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
+                ok = apply_move_with_history(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    to_statut=to_statut,
+                    to_slot=to_slot,
+                    action_label=f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+                )
+                if ok:
+                    if to_slot == "Blessé":
+                        st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
+                    elif to_statut == "Grand Club" and to_slot == "Actif":
+                        st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
+                    elif to_statut == "Grand Club" and to_slot == "Banc":
+                        st.toast(f"🟡 {joueur} → Banc", icon="🟡")
+                    elif to_statut == "Club École":
+                        st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
+                    else:
+                        st.toast("✅ Déplacement enregistré", icon="✅")
+
+                    _close()
+                    do_rerun()
                 else:
-                    st.toast("✅ Déplacement enregistré", icon="✅")
+                    st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
+
+            if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
                 _close()
                 do_rerun()
-            else:
-                st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-
-        if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
-            _close()
-            do_rerun()
 
     _dlg()
+
 
 
 
@@ -1237,7 +1276,7 @@ with tabA:
 
 
 
-        # =========================================
+# =========================================
 # MODE IR: 3 boutons 1 clic
 # =========================================
 if from_ir:
