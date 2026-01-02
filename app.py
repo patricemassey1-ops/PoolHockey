@@ -45,7 +45,7 @@ LOGOS = {
     "Prédateurs": "data/Predateurs_logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
-    "Canadiens": "data/montreal-canadiens_logo.png",
+    "Canadiens": "data/montreal-canadiens-logo.png",
 }
 
 def find_logo_for_owner(owner: str) -> str:
