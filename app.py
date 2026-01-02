@@ -828,7 +828,6 @@ if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-# ✅ FIX DuplicateElementId: key unique
 season = st.sidebar.selectbox(
     "Saison",
     saisons,
@@ -852,9 +851,9 @@ def render_team_grid_sidebar():
         st.sidebar.info("Aucune équipe configurée.")
         return
 
-    # -------------------------------------------------
-    # 1) Lire ?team= depuis l’URL (clic logo) — API moderne uniquement
-    # -------------------------------------------------
+    # ----------------------------------
+    # Lecture du paramètre URL ?team=
+    # ----------------------------------
     qp_team = st.query_params.get("team", "")
     if isinstance(qp_team, list):
         qp_team = qp_team[0] if qp_team else ""
@@ -862,12 +861,9 @@ def render_team_grid_sidebar():
 
     if qp_team and qp_team in teams and qp_team != get_selected_team():
         pick_team(qp_team)
-        # 🔄 Nettoyer l’URL: retirer seulement "team"
-        try:
-            if "team" in st.query_params:
-                del st.query_params["team"]
-        except Exception:
-            pass
+        # Nettoyage URL
+        if "team" in st.query_params:
+            del st.query_params["team"]
 
     selected = get_selected_team()
 
@@ -876,34 +872,31 @@ def render_team_grid_sidebar():
         pick_team(teams[0])
         selected = teams[0]
 
-    # -------------------------------------------------
-    # 2) Helper: image locale -> data URI (base64)
-    # -------------------------------------------------
+    # ----------------------------------
+    # Helper image → base64
+    # ----------------------------------
     def _img_data_uri(path: str) -> str:
         if not path or not os.path.exists(path):
             return ""
-        try:
-            ext = os.path.splitext(path)[1].lower()
-            mime = "image/png"
-            if ext in [".jpg", ".jpeg"]:
-                mime = "image/jpeg"
-            elif ext == ".webp":
-                mime = "image/webp"
+        ext = os.path.splitext(path)[1].lower()
+        mime = "image/png"
+        if ext in [".jpg", ".jpeg"]:
+            mime = "image/jpeg"
+        elif ext == ".webp":
+            mime = "image/webp"
 
-            with open(path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-            return f"data:{mime};base64,{b64}"
-        except Exception:
-            return ""
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:{mime};base64,{b64}"
 
-    # -------------------------------------------------
-    # 3) CSS — cartes + hover glow + disable click selected
-    # -------------------------------------------------
+    # ----------------------------------
+    # CSS (hover + sélection)
+    # ----------------------------------
     st.sidebar.markdown(
         """
         <style>
         .team-card{
-            border:1px solid rgba(255,255,255,.10);
+            border:1px solid rgba(255,255,255,.12);
             border-radius:16px;
             padding:10px 8px;
             background: rgba(255,255,255,.03);
@@ -922,49 +915,28 @@ def render_team_grid_sidebar():
             overflow:hidden;
             text-overflow:ellipsis;
         }
-        .team-missing{
-            font-size:11px;
-            opacity:.65;
-            margin-top:4px;
-        }
-
-        /* Logo cliquable */
-        .logo-link{
-            display:inline-block;
-            border-radius:14px;
-        }
         .logo-link img{
             width:64px;
             height:64px;
             object-fit:contain;
             border-radius:14px;
-            display:block;
             transition: filter 140ms ease, transform 140ms ease;
         }
-
-        /* ✨ Hover glow */
         .logo-link:hover img{
             filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
             transform: scale(1.03);
         }
-
-        /* 🔒 Désactiver clic sur l’équipe déjà sélectionnée */
         .logo-link.disabled{
             pointer-events:none;
-            cursor: default;
-        }
-        .logo-link.disabled img{
-            filter: none !important;
-            transform: none !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # -------------------------------------------------
-    # 4) Grille — logo + nom (clic = logo)
-    # -------------------------------------------------
+    # ----------------------------------
+    # Grille équipes
+    # ----------------------------------
     cols_per_row = 3
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
@@ -977,99 +949,29 @@ def render_team_grid_sidebar():
             path = team_logo_path(team)
             is_sel = (team == selected)
             card_cls = "team-card sel" if is_sel else "team-card"
+            img = _img_data_uri(path)
+
+            href = "" if is_sel else f"?team={team.replace(' ', '%20')}"
+            a_cls = "logo-link disabled" if is_sel else "logo-link"
 
             with row[j]:
-                data_uri = _img_data_uri(path)
-
-                a_cls = "logo-link disabled" if is_sel else "logo-link"
-                href = "" if is_sel else f"?team={team.replace(' ', '%20')}"
-
-                if data_uri:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""}>
-                            <img src="{data_uri}" alt="{html.escape(team)}" />
-                          </a>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
-                            <div style="font-size:34px;line-height:64px">🖼️</div>
-                          </a>
-                          <div class="team-missing">Logo manquant</div>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                st.sidebar.markdown(
+                    f"""
+                    <div class="{card_cls}">
+                      <a class="{a_cls}" {"href="+href if href else ""}>
+                        <img src="{img}" />
+                      </a>
+                      <div class="team-name">{html.escape(team)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
 
-# ✅ appel
+# ✅ APPEL (IMPORTANT)
 st.sidebar.divider()
 render_team_grid_sidebar()
 
-
-    # -------------------------------------------------
-    # 4) Grille — logo + nom (clic = logo)
-    # -------------------------------------------------
-    cols_per_row = 3
-    for i in range(0, len(teams), cols_per_row):
-        row = st.sidebar.columns(cols_per_row, gap="small")
-
-        for j in range(cols_per_row):
-            if i + j >= len(teams):
-                continue
-
-            team = teams[i + j]
-            path = team_logo_path(team)
-            is_sel = (team == selected)
-            card_cls = "team-card sel" if is_sel else "team-card"
-
-            with row[j]:
-                data_uri = _img_data_uri(path)
-
-                # 🔒 si sélectionné: pas de href (désactivé)
-                a_cls = "logo-link disabled" if is_sel else "logo-link"
-                href = "" if is_sel else f'?team={quote(team)}'
-
-                if data_uri:
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""}>
-                            <img src="{data_uri}" alt="{html.escape(team)}" />
-                          </a>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    # Logo manquant: on garde la zone cliquable si non sélectionné
-                    st.sidebar.markdown(
-                        f"""
-                        <div class="{card_cls}">
-                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
-                            <div style="font-size:34px;line-height:64px">🖼️</div>
-                          </a>
-                          <div class="team-missing">Logo manquant</div>
-                          <div class="team-name">{html.escape(team)}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-
-# ✅ appel
-st.sidebar.divider()
-render_team_grid_sidebar()
 
 
 
