@@ -1153,79 +1153,14 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (COMPACT + tableau résumé)
+# TAB A — Alignement (STREAMLIT PUR: columns + captions)
 #   - Jauges GC/CE inchangées (cap_bar_html)
-#   - Résumé (infos des pills) dans un tableau compact
+#   - Résumé (remplace les pills) en 2 lignes compactes (GC/CE + Effectifs)
 #   - Actifs + Mineur encadrés (border=True)
 #   - Banc + IR en expanders (plein largeur)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
-
-    # --- CSS (tableau résumé compact) ---
-# ============================
-# Résumé ultra compact (2 lignes)
-# ============================
-st.markdown(
-    """
-    <style>
-      .sum2{
-        margin-top:6px; margin-bottom:10px;
-        padding:6px 8px;
-        border:1px solid rgba(255,255,255,.10);
-        border-radius:12px;
-        background:rgba(255,255,255,.02);
-        font-size:12px;
-        line-height:1.1;
-      }
-      .sum2 .row{
-        display:flex;
-        flex-wrap:wrap;
-        gap:10px;
-        padding:3px 0;
-      }
-      .sum2 .row + .row{
-        border-top:1px solid rgba(255,255,255,.06);
-      }
-      .sum2 .item{
-        display:inline-flex;
-        gap:6px;
-        white-space:nowrap;
-      }
-      .sum2 .k{
-        font-weight:900;
-        opacity:.72;
-      }
-      .sum2 .v{
-        font-weight:1000;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    f"""
-    <div class="sum2">
-      <div class="row">
-        <div class="item"><span class="k">Total GC</span><span class="v">{money(used_gc)}</span></div>
-        <div class="item"><span class="k">Reste GC</span><span class="v">{money(remain_gc)}</span></div>
-        <div class="item"><span class="k">Total CE</span><span class="v">{money(used_ce)}</span></div>
-        <div class="item"><span class="k">Reste CE</span><span class="v">{money(remain_ce)}</span></div>
-      </div>
-
-      <div class="row">
-        <div class="item"><span class="k">Actifs</span><span class="v">F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2</span></div>
-        <div class="item"><span class="k">Mineur</span><span class="v">{len(ce_all)}</span></div>
-        <div class="item"><span class="k">Banc</span><span class="v">{len(gc_banc)}</span></div>
-        <div class="item"><span class="k">IR</span><span class="v">{len(injured_all)}</span></div>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
 
     # ============================
     # Propriétaire
@@ -1286,36 +1221,36 @@ st.markdown(
     # Guard anti “re-pick” pendant popup
     # ============================
     popup_open = st.session_state.get("move_ctx") is not None
-
-    # ============================
-    # Résumé (remplace les pills)
-    # Ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
-    # ============================
-    st.markdown(
-        f"""
-        <div class="summarywrap">
-          <div class="summarygrid">
-            <table class="summarytbl">
-              <tr><td class="k">Total GC</td><td class="v">{money(used_gc)}</td></tr>
-              <tr><td class="k">Reste GC</td><td class="v">{money(remain_gc)}</td></tr>
-              <tr><td class="k">Total CE</td><td class="v">{money(used_ce)}</td></tr>
-              <tr><td class="k">Reste CE</td><td class="v">{money(remain_ce)}</td></tr>
-            </table>
-
-            <table class="summarytbl">
-              <tr><td class="k">Actifs</td><td class="v">F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2</td></tr>
-              <tr><td class="k">Mineur</td><td class="v">{len(ce_all)}</td></tr>
-              <tr><td class="k">Banc</td><td class="v">{len(gc_banc)}</td></tr>
-              <tr><td class="k">IR</td><td class="v">{len(injured_all)}</td></tr>
-            </table>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+
+    # ============================
+    # Résumé (STREAMLIT PUR) — 2 lignes compactes
+    #   Ligne 1: GC / CE
+    #   Ligne 2: Effectifs
+    # ============================
+    r1 = st.columns([1, 1], gap="small")
+    with r1[0]:
+        st.caption(
+            f"**GC** — Total: {money(used_gc)}  |  Reste: {money(remain_gc)}"
+        )
+    with r1[1]:
+        st.caption(
+            f"**CE** — Total: {money(used_ce)}  |  Reste: {money(remain_ce)}"
+        )
+
+    r2 = st.columns([2, 1, 1, 1], gap="small")
+    with r2[0]:
+        st.caption(f"**Actifs** — F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2")
+    with r2[1]:
+        st.caption(f"**Mineur** — {len(ce_all)}")
+    with r2[2]:
+        st.caption(f"**Banc** — {len(gc_banc)}")
+    with r2[3]:
+        st.caption(f"**IR** — {len(injured_all)}")
+
+    # petite séparation visuelle
+    st.divider()
 
     # ============================
     # Zone roster
@@ -1373,14 +1308,6 @@ st.markdown(
 
     # ✅ Pop-up (toujours à la fin)
     open_move_dialog()
-
-
-
-
-
-
-
-
 
 
 
