@@ -17,6 +17,7 @@ import html
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
+import base64
 
 import pandas as pd
 import streamlit as st
