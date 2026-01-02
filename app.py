@@ -960,6 +960,7 @@ def open_move_dialog():
 # SIDEBAR — Saison & plafonds
 # =====================================================
 st.sidebar.header("📅 Saison")
+
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
 if auto not in saisons:
@@ -975,6 +976,36 @@ st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
+# =====================================================
+# SIDEBAR — Choix équipe (dropdown + logo)
+# =====================================================
+st.sidebar.divider()
+st.sidebar.header("🏒 Équipe")
+st.sidebar.caption("Choisissez votre équipe!")
+
+team_options = []
+for team_name, logo_path in LOGOS.items():
+    if os.path.exists(logo_path):
+        team_options.append((team_name, logo_path))
+
+if team_options:
+    chosen = st.sidebar.selectbox(
+        "Choisissez votre équipe!",
+        team_options,
+        format_func=lambda x: x[0],
+        key="sidebar_team_choice"
+    )
+
+    chosen_name, chosen_logo = chosen
+    st.session_state["selected_team"] = chosen_name
+
+    st.sidebar.image(chosen_logo, use_container_width=True)
+else:
+    st.sidebar.warning("Aucun logo d'équipe trouvé dans /data.")
+
+# =====================================================
+# SIDEBAR — Plafonds
+# =====================================================
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
 
@@ -995,6 +1026,7 @@ if st.session_state.get("edit_plafond"):
 
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+
 
 # =====================================================
 # LOAD DATA / HISTORY quand saison change
