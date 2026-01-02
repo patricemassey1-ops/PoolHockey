@@ -1008,11 +1008,6 @@ tab1, tabA, tabJ, tabH, tab2, tab3, tabAdmin = st.tabs(
 # =====================================================
 # TAB 1 — Tableau (FIXED INDENTATION)
 # =====================================================
-if df.empty:
-    st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    st.stop()
-
-
 with tab1:
     st.subheader("📊 Tableau")
 
