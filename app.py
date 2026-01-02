@@ -1182,26 +1182,33 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ---------
-    # Metrics (avec Banc)
+    # Metrics (GM style, compact, sans ...)
     # ---------
     def gm_metric(label: str, value: str):
-    	st.markdown(
-        f"""
-        <div style="text-align:left">
-            <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
-            <div style="font-size:20px;font-weight:1000">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.markdown(
+            f"""
+            <div style="text-align:left">
+                <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
+                <div style="font-size:20px;font-weight:1000">{value}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-cols = st.columns(6)
-with cols[0]: gm_metric("Total GC", money(used_gc))
-with cols[1]: gm_metric("Reste GC", money(remain_gc))
-with cols[2]: gm_metric("Total CE", money(used_ce))
-with cols[3]: gm_metric("Reste CE", money(remain_ce))
-with cols[4]: gm_metric("Banc", str(len(gc_banc)))
-with cols[5]: gm_metric("IR", str(len(injured_all)))
+    cols = st.columns(6)
+    with cols[0]:
+        gm_metric("Total GC", money(used_gc))
+    with cols[1]:
+        gm_metric("Reste GC", money(remain_gc))
+    with cols[2]:
+        gm_metric("Total CE", money(used_ce))
+    with cols[3]:
+        gm_metric("Reste CE", money(remain_ce))
+    with cols[4]:
+        gm_metric("Banc", str(len(gc_banc)))
+    with cols[5]:
+        gm_metric("IR", str(len(injured_all)))
+
 
 
     st.markdown(
