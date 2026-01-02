@@ -1101,9 +1101,6 @@ if uploaded is not None:
 # =====================================================
 # HEADER
 # =====================================================
-if os.path.exists(LOGO_POOL_FILE):
-    st.image(LOGO_POOL_FILE, use_container_width=True)
-
 st.title("🏒 PMS")
 render_selected_team_header()
 
@@ -1153,6 +1150,10 @@ with tab1:
     LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
     if os.path.exists(LOGO_POOL_FILE):
         st.image(LOGO_POOL_FILE, use_container_width=True)
+
+    render_selected_team_header()
+
+
 # =====================================================
 # HEADERS — Tableau (exemple propre)
 # =====================================================
