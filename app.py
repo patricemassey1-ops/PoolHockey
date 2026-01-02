@@ -216,12 +216,14 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     """
     UI cliquable: 1 bouton par joueur + badges CSS.
     Colonnes: Pos | Team | Joueur | Salaire
+    Tri: Pos (F,D,G) -> Salaire (desc) -> 1ère lettre -> Nom
     Retourne le joueur cliqué (str) ou None.
     """
     if df_src is None or df_src.empty:
         st.info("Aucun joueur.")
         return None
 
+    # CSS compact
     st.markdown(
         """
         <style>
@@ -234,14 +236,36 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     t = df_src.copy()
 
+    # Colonnes garanties
     for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
         if c not in t.columns:
             t[c] = d
 
+    # Normalisations minimales (safe)
+    t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+
+    # ✅ TRI demandé: F -> salaire desc -> initiale -> nom
     t["Pos"] = t["Pos"].apply(normalize_pos)
     t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
 
+    t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
+
+    t["_initial"] = (
+        t["Joueur"].astype(str).str.strip().str.upper().str[0].fillna("?")
+    )
+
+    t = (
+        t.sort_values(
+            by=["_pos", "Salaire", "_initial", "Joueur"],
+            ascending=[True, False, True, True],
+            kind="mergesort",  # tri stable
+        )
+        .drop(columns=["_pos", "_initial"])
+        .reset_index(drop=True)
+    )
+
+    # Header
     h = st.columns([1.3, 1.8, 4.2, 1.7])
     h[0].markdown("**Pos**")
     h[1].markdown("**Team**")
@@ -253,9 +277,10 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         joueur = str(r.get("Joueur", "")).strip()
         if not joueur:
             continue
+
         pos = r.get("Pos", "F")
         team = str(r.get("Equipe", "")).strip()
-        salaire = r.get("Salaire", 0)
+        salaire = int(r.get("Salaire", 0) or 0)
 
         c = st.columns([1.3, 1.8, 4.2, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
@@ -267,6 +292,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c[3].markdown(money(salaire))
 
     return clicked
+
 
 
 # =====================================================
