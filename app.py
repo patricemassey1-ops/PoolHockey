@@ -1273,9 +1273,9 @@ with tabA:
         if over_D: problems.append(f"D {nb_D}/6")
         if over_G: problems.append(f"G {nb_G}/2")
         st.error("🚨 **Effectifs actifs non conformes** : " + " • ".join(problems))
-        st.caption("🧠 GM Mode: l’expander **Banc** s’ouvre automatiquement pour corriger.")
     else:
         st.success("✅ Effectifs actifs conformes.")
+
 
     st.divider()
 
