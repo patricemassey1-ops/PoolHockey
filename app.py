@@ -819,7 +819,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# SIDEBAR — Saison + Équipe + Plafonds (SANS Import)
+# SIDEBAR — Saison (définit fichiers + LOCKED)
 # =====================================================
 st.sidebar.header("📅 Saison")
 
@@ -839,90 +839,34 @@ LOCKED = saison_verrouillee(season)
 
 DATA_FILE = f"{DATA_DIR}/fantrax_{season}.csv"
 HISTORY_FILE = f"{DATA_DIR}/history_{season}.csv"
+
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 st.session_state["LOCKED"] = LOCKED
 
 
-# -----------------------------
-# Équipe (selectbox) + logo
-# -----------------------------
-st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipes")
-
-teams = list(LOGOS.keys())
-if not teams:
-    st.sidebar.info("Aucune équipe configurée.")
-else:
-    cur = str(st.session_state.get("selected_team", "")).strip()
-    if cur not in teams:
-        cur = teams[0]
-        st.session_state["selected_team"] = cur
-        st.session_state["align_owner"] = cur
-
-    chosen = st.sidebar.selectbox(
-        "Choisir une équipe",
-        teams,
-        index=teams.index(cur),
-        key="sb_team_select",
-    )
-
-    if chosen != cur:
-        st.session_state["selected_team"] = chosen
-        st.session_state["align_owner"] = chosen
-        do_rerun()
-
-    st.sidebar.markdown("---")
-    logo_path = team_logo_path(chosen)
-    c1, c2 = st.sidebar.columns([1, 2], vertical_alignment="center")
-    with c1:
-        if logo_path and os.path.exists(logo_path):
-            st.image(logo_path, width=56)
-    with c2:
-        st.markdown(f"**{chosen}**")
-
-
-# -----------------------------
-# Plafonds
-# -----------------------------
-st.sidebar.divider()
-st.sidebar.header("💰 Plafonds")
-
-if st.sidebar.button("✏️ Modifier les plafonds"):
-    st.session_state["edit_plafond"] = True
-
-if st.session_state.get("edit_plafond"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club",
-        value=int(st.session_state["PLAFOND_GC"]),
-        step=500_000
-    )
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École",
-        value=int(st.session_state["PLAFOND_CE"]),
-        step=250_000
-    )
-
-st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
-
-
-
-
-
-
-
 # =====================================================
-# LOAD DATA / HISTORY quand saison change
+# LOAD DATA / HISTORY (persist reboot)
 # =====================================================
 if "season" not in st.session_state or st.session_state["season"] != season:
     if os.path.exists(DATA_FILE):
-        st.session_state["data"] = pd.read_csv(DATA_FILE)
+        try:
+            st.session_state["data"] = pd.read_csv(DATA_FILE)
+        except Exception:
+            st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
     else:
         st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
+        try:
+            st.session_state["data"].to_csv(DATA_FILE, index=False)
+        except Exception:
+            pass
 
     st.session_state["data"] = clean_data(st.session_state["data"])
-    st.session_state["data"].to_csv(DATA_FILE, index=False)
+    try:
+        st.session_state["data"].to_csv(DATA_FILE, index=False)
+    except Exception:
+        pass
+
     st.session_state["season"] = season
 
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
@@ -931,31 +875,7 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
 
 # =====================================================
-# HEADER GLOBAL (TOP)
-# =====================================================
-if os.path.exists(LOGO_POOL_FILE):
-    st.image(LOGO_POOL_FILE, use_container_width=True)
-
-selected_team = get_selected_team()
-logo_team = team_logo_path(selected_team)
-
-hL, hR = st.columns([3, 2], vertical_alignment="center")
-with hL:
-    st.markdown("## 🏒 PMS")
-with hR:
-    r1, r2 = st.columns([1, 4], vertical_alignment="center")
-    with r1:
-        if logo_team:
-            st.image(logo_team, width=46)
-    with r2:
-        if selected_team:
-            st.markdown(f"### {selected_team}")
-        else:
-            st.caption("Sélectionne une équipe dans l’onglet Tableau")
-
-
-# =====================================================
-# DATA (ne stop plus l'app si vide)
+# DATA (safe, ne stop pas l'app)
 # =====================================================
 df = st.session_state.get("data")
 if df is None:
@@ -964,44 +884,55 @@ if df is None:
 df = clean_data(df)
 st.session_state["data"] = df
 
+
 # =====================================================
 # PLAFONDS (safe si df vide)
 # =====================================================
 if df.empty:
-    plafonds = pd.DataFrame(columns=[
-        "Propriétaire", "Logo",
-        "Total Grand Club", "Montant Disponible GC",
-        "Total Club École", "Montant Disponible CE"
-    ])
+    plafonds = pd.DataFrame(
+        columns=[
+            "Propriétaire", "Logo",
+            "Total Grand Club", "Montant Disponible GC",
+            "Total Club École", "Montant Disponible CE",
+        ]
+    )
 else:
     resume = []
-    for p in df["Propriétaire"].unique():
-        d = df[df["Propriétaire"] == p]
+    for p in df["Propriétaire"].dropna().astype(str).unique():
+        d = df[df["Propriétaire"].astype(str) == str(p)]
 
         total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
         total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-        logo = find_logo_for_owner(p)
-
-        resume.append({
-            "Propriétaire": str(p),
-            "Logo": logo,
-            "Total Grand Club": int(total_gc),
-            "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
-            "Total Club École": int(total_ce),
-            "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
-        })
+        resume.append(
+            {
+                "Propriétaire": str(p),
+                "Logo": find_logo_for_owner(p),
+                "Total Grand Club": int(total_gc),
+                "Montant Disponible GC": int(int(st.session_state["PLAFOND_GC"]) - int(total_gc)),
+                "Total Club École": int(total_ce),
+                "Montant Disponible CE": int(int(st.session_state["PLAFOND_CE"]) - int(total_ce)),
+            }
+        )
 
     plafonds = pd.DataFrame(resume)
 
 
-
 # =====================================================
-# TABS
+# TABS (toujours visibles)
 # =====================================================
 tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
-    ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
+    [
+        "📊 Tableau",
+        "🧾 Alignement",
+        "👤 Joueurs",
+        "🕘 Historique",
+        "⚖️ Transactions",
+        "🛠️ Gestion Admin",
+        "🧠 Recommandations",
+    ]
 )
+
 
 # =====================================================
 # TAB Admin — Gestion Admin (IMPORT + EXPORT) — NE BLOQUE JAMAIS
@@ -1010,7 +941,7 @@ with tabAdmin:
     st.subheader("🛠️ Gestion Admin")
 
     # -----------------------------
-    # 📥 Import
+    # 📥 Import (Fantrax)
     # -----------------------------
     st.markdown("### 📥 Import")
 
@@ -1027,6 +958,7 @@ with tabAdmin:
         else:
             try:
                 df_import = parse_fantrax(uploaded)
+
                 if df_import is None or df_import.empty:
                     st.error("❌ Import invalide : aucune donnée exploitable.")
                 else:
@@ -1039,11 +971,14 @@ with tabAdmin:
 
                     st.session_state["data"] = pd.concat([cur, df_import], ignore_index=True)
                     st.session_state["data"] = clean_data(st.session_state["data"])
+
+                    # ✅ persist sur disque
                     st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
 
                     st.success("✅ Import réussi")
                     st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
                     do_rerun()
+
             except Exception as e:
                 st.error(f"❌ Import échoué : {e}")
 
@@ -1056,7 +991,7 @@ with tabAdmin:
 
     data_file = st.session_state.get("DATA_FILE", "")
     hist_file = st.session_state.get("HISTORY_FILE", "")
-    season = st.session_state.get("season", "")
+    season_lbl = st.session_state.get("season", season)
 
     c1, c2 = st.columns(2)
 
@@ -1069,7 +1004,7 @@ with tabAdmin:
                     file_name=os.path.basename(data_file),
                     mime="text/csv",
                     use_container_width=True,
-                    key=f"dl_align_{season}_admin",
+                    key=f"dl_align_{season_lbl}_admin",
                 )
         else:
             st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
@@ -1083,22 +1018,27 @@ with tabAdmin:
                     file_name=os.path.basename(hist_file),
                     mime="text/csv",
                     use_container_width=True,
-                    key=f"dl_hist_{season}_admin",
+                    key=f"dl_hist_{season_lbl}_admin",
                 )
         else:
             st.info("Aucun fichier d'historique à exporter.")
 
+
 # =====================================================
-# TAB 1 — Tableau
+# TAB 1 — Tableau (guard DANS le tab)
 # =====================================================
 with tab1:
     st.subheader("📊 Tableau")
 
-    if df is None or df.empty:
+    if df.empty or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
     # ... ton code Tableau ici ...
+
+
+# (les autres tabs: tabA/tabJ/tabH/tab2/tab3 suivent ensuite, chacun avec son guard interne)
+
 
 
 
