@@ -1153,34 +1153,60 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement (COMPACT + pills cliquables)
+# TAB A — Alignement (COMPACT + tableau résumé)
 #   - Jauges GC/CE inchangées (cap_bar_html)
+#   - Résumé (infos des pills) dans un tableau compact
 #   - Actifs + Mineur encadrés (border=True)
 #   - Banc + IR en expanders (plein largeur)
-#   - Pills cliquables (Banc/IR ouvrent les expanders)
-#   - Pills désactivées si popup ouvert
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # --- CSS (pills + compact) ---
+    # --- CSS (tableau résumé compact) ---
     st.markdown(
         """
         <style>
-          /* Pills (boutons) look */
-          .pillbtn div[data-testid="stButton"] > button{
-            padding: 0.12rem 0.55rem !important;
-            min-height: 28px !important;
-            height: 28px !important;
-            line-height: 1.0 !important;
-            font-weight: 950 !important;
-            font-size: 12px !important;
-            border-radius: 999px !important;
-            border: 1px solid rgba(255,255,255,.16) !important;
-            background: rgba(255,255,255,.05) !important;
+          .summarywrap{
+            margin-top:6px; margin-bottom:10px;
+            border:1px solid rgba(255,255,255,.10);
+            border-radius:12px;
+            background:rgba(255,255,255,.02);
+            padding:6px 8px;
           }
-          .pillbtn div[data-testid="stButton"] > button:disabled{
-            opacity: .45 !important;
+          .summarytbl{
+            width:100%;
+            border-collapse:separate;
+            border-spacing:0 4px; /* espace vertical entre lignes */
+            font-size:12px;
+            line-height:1.1;
+          }
+          .summarytbl td{
+            padding:3px 8px;
+            background:rgba(255,255,255,.03);
+            border:1px solid rgba(255,255,255,.08);
+          }
+          .summarytbl td.k{
+            width:1%;
+            white-space:nowrap;
+            font-weight:900;
+            opacity:.78;
+            border-right:none;
+            border-top-left-radius:10px;
+            border-bottom-left-radius:10px;
+          }
+          .summarytbl td.v{
+            font-weight:950;
+            border-left:none;
+            border-top-right-radius:10px;
+            border-bottom-right-radius:10px;
+          }
+          .summarygrid{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap:8px;
+          }
+          @media (max-width: 900px){
+            .summarygrid{ grid-template-columns: 1fr; }
           }
         </style>
         """,
@@ -1248,82 +1274,34 @@ with tabA:
     popup_open = st.session_state.get("move_ctx") is not None
 
     # ============================
-    # Pills (cliquables)
+    # Résumé (remplace les pills)
     # Ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Mineur, Banc, IR
-    # - Banc / IR ouvrent les expanders
     # ============================
-    # flags expander
-    if "show_banc" not in st.session_state:
-        st.session_state["show_banc"] = False
-    if "show_ir" not in st.session_state:
-        st.session_state["show_ir"] = False
+    st.markdown(
+        f"""
+        <div class="summarywrap">
+          <div class="summarygrid">
+            <table class="summarytbl">
+              <tr><td class="k">Total GC</td><td class="v">{money(used_gc)}</td></tr>
+              <tr><td class="k">Reste GC</td><td class="v">{money(remain_gc)}</td></tr>
+              <tr><td class="k">Total CE</td><td class="v">{money(used_ce)}</td></tr>
+              <tr><td class="k">Reste CE</td><td class="v">{money(remain_ce)}</td></tr>
+            </table>
 
-    def _open_banc():
-        st.session_state["show_banc"] = True
-        st.session_state["show_ir"] = False
-        do_rerun()
+            <table class="summarytbl">
+              <tr><td class="k">Actifs</td><td class="v">F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2</td></tr>
+              <tr><td class="k">Mineur</td><td class="v">{len(ce_all)}</td></tr>
+              <tr><td class="k">Banc</td><td class="v">{len(gc_banc)}</td></tr>
+              <tr><td class="k">IR</td><td class="v">{len(injured_all)}</td></tr>
+            </table>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    def _open_ir():
-        st.session_state["show_ir"] = True
-        st.session_state["show_banc"] = False
-        do_rerun()
-
-    p1, p2, p3, p4 = st.columns(4, gap="small")
-    p5, p6, p7, p8 = st.columns(4, gap="small")
-
-    with p1:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(f"Total GC {money(used_gc)}", disabled=popup_open, key="pill_tgc")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p2:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(f"Reste GC {money(remain_gc)}", disabled=popup_open, key="pill_rgc")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p3:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(f"Total CE {money(used_ce)}", disabled=popup_open, key="pill_tce")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p4:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(f"Reste CE {money(remain_ce)}", disabled=popup_open, key="pill_rce")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p5:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(
-                f"Actifs F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2",
-                disabled=popup_open,
-                key="pill_actifs",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p6:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            st.button(f"Mineur {len(ce_all)}", disabled=popup_open, key="pill_min")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p7:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            if st.button(f"Banc {len(gc_banc)}", disabled=popup_open, key="pill_banc"):
-                _open_banc()
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with p8:
-        with st.container():
-            st.markdown('<div class="pillbtn">', unsafe_allow_html=True)
-            if st.button(f"IR {len(injured_all)}", disabled=popup_open, key="pill_ir"):
-                _open_ir()
-            st.markdown("</div>", unsafe_allow_html=True)
+    if popup_open:
+        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
     # ============================
     # Zone roster
@@ -1355,7 +1333,7 @@ with tabA:
     # ============================
     # Banc + IR (même endroit, plein largeur)
     # ============================
-    with st.expander("🟡 Banc", expanded=bool(st.session_state.get("show_banc", False))):
+    with st.expander("🟡 Banc", expanded=False):
         if gc_banc is None or gc_banc.empty:
             st.caption("Aucun joueur.")
         else:
@@ -1367,7 +1345,7 @@ with tabA:
             else:
                 roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=bool(st.session_state.get("show_ir", False))):
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=False):
         if injured_all is None or injured_all.empty:
             st.caption("Aucun joueur blessé.")
         else:
@@ -1381,6 +1359,7 @@ with tabA:
 
     # ✅ Pop-up (toujours à la fin)
     open_move_dialog()
+
 
 
 
