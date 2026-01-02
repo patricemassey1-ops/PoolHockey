@@ -845,7 +845,7 @@ st.session_state["LOCKED"] = LOCKED
 
 
 def render_team_grid_sidebar():
-    import base64  # si déjà importé globalement, tu peux enlever cette ligne
+    import base64
 
     st.sidebar.markdown("### 🏒 Équipes")
 
@@ -861,9 +861,6 @@ def render_team_grid_sidebar():
         pick_team(teams[0])
         selected = teams[0]
 
-    # ----------------------------------
-    # Helper image → base64 (pour hover glow)
-    # ----------------------------------
     def _img_data_uri(path: str) -> str:
         if not path or not os.path.exists(path):
             return ""
@@ -873,44 +870,37 @@ def render_team_grid_sidebar():
             mime = "image/jpeg"
         elif ext == ".webp":
             mime = "image/webp"
-
         with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("utf-8")
         return f"data:{mime};base64,{b64}"
 
-    # ----------------------------------
-    # CSS: bouton = carte complète (fluide)
-    # ----------------------------------
+    # ✅ CSS: carte + hover glow + bouton overlay qui ne prend AUCUNE place
     st.sidebar.markdown(
         """
         <style>
-        /* Boutons de carte (full width) */
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button.team-card-btn{
-            padding:0 !important;
-            border:none !important;
-            background:transparent !important;
-            width:100% !important;
-            box-shadow:none !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button.team-card-btn:hover{
-            background:transparent !important;
-        }
-
+        /* wrapper carte */
         .team-card{
+            position: relative;
             border:1px solid rgba(255,255,255,.12);
             border-radius:14px;
-            padding:10px 10px 12px 10px;
+            padding:12px 10px 12px 10px;
             background: rgba(255,255,255,.03);
             text-align:center;
-            transition: transform 120ms ease, border-color 120ms ease;
-        }
-        .team-card:hover{
-            transform: translateY(-1px);
-            border-color: rgba(34,197,94,.35);
+            overflow:hidden;
         }
         .team-card.sel{
             border:2px solid rgba(34,197,94,.85);
             background: rgba(34,197,94,.08);
+        }
+
+        .team-name{
+            font-weight:900;
+            font-size:13px;
+            margin-top:8px;
+            line-height:1.1;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
         }
 
         .logo-wrap{
@@ -927,29 +917,36 @@ def render_team_grid_sidebar():
             transition: filter 140ms ease, transform 140ms ease;
             display:block;
         }
-        /* ✨ hover glow */
         .team-card:hover .logo-wrap img{
             filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
             transform: scale(1.03);
         }
 
-        .team-name{
-            font-weight:900;
-            font-size:13px;
-            margin-top:8px;
-            line-height:1.1;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
+        /* ✅ Bouton overlay (clique toute la carte) */
+        .team-overlay-btn{
+            position:absolute;
+            inset:0;
+            opacity:0;
+            z-index:5;
+        }
+
+        /* On force le bouton streamlit à ne pas “réserver” d’espace */
+        section[data-testid="stSidebar"] div[data-testid="stButton"]{
+            margin:0 !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
+            padding:0 !important;
+            border:none !important;
+            background:transparent !important;
+            width:100% !important;
+            height:100% !important;
+            box-shadow:none !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # ----------------------------------
-    # Grille équipes — ✅ 2 colonnes
-    # ----------------------------------
     cols_per_row = 2
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
@@ -960,59 +957,70 @@ def render_team_grid_sidebar():
 
             team = teams[i + j]
             is_sel = (team == selected)
+            card_cls = "team-card sel" if is_sel else "team-card"
 
             path = team_logo_path(team)
             img = _img_data_uri(path) if path else ""
 
-            card_cls = "team-card sel" if is_sel else "team-card"
-
             with row[j]:
-                # ✅ on utilise un bouton Streamlit (fluide) et on dessine la carte en HTML
-                # 🔒 disabled si déjà sélectionné
-                clicked = st.button(
-                    " ",  # label vide
-                    key=f"pick_team_card_{team}",
-                    use_container_width=True,
-                    disabled=is_sel,
-                )
-
-                # Inject un "overlay" visuel dans la zone du bouton via HTML juste en dessous
-                # (le bouton prend la place, et l'utilisateur clique dans la zone)
+                # Carte HTML
                 if img:
-                    card_html = f"""
-                    <div class="{card_cls}">
-                      <div class="logo-wrap"><img src="{img}" alt="{html.escape(team)}"/></div>
-                      <div class="team-name">{html.escape(team)}</div>
-                    </div>
-                    """
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <div class="logo-wrap">
+                            <img src="{img}" alt="{html.escape(team)}"/>
+                          </div>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
                 else:
-                    card_html = f"""
-                    <div class="{card_cls}">
-                      <div class="logo-wrap" style="font-size:36px">🖼️</div>
-                      <div class="team-name">{html.escape(team)}</div>
-                    </div>
-                    """
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <div class="logo-wrap" style="font-size:36px">🖼️</div>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
-                st.markdown(card_html, unsafe_allow_html=True)
+                # ✅ Overlay button: aucun espace visible, mais clique la carte
+                # 🔒 disabled si déjà sélectionné
+                # IMPORTANT: on place le bouton juste après la carte
+                # puis on le “colle” par CSS (position absolute) sur la carte précédente
+                btn_key = f"team_pick_{team}"
+                clicked = st.button(" ", key=btn_key, disabled=is_sel)
 
-                # Patch CSS ciblé: transformer CE bouton en "team-card-btn"
-                # (On cible le dernier bouton rendu dans cette colonne)
-                st.markdown(
-                    """
-                    <script>
-                    // no-op (streamlit sandbox)
-                    </script>
+                # injecte un style ciblé pour coller CE bouton sur la carte juste avant
+                st.sidebar.markdown(
+                    f"""
+                    <style>
+                    /* le bouton rendu avec key={btn_key} devient overlay de la carte précédente */
+                    div[data-testid="stButton"]:has(button[data-testid="baseButton-secondary"][id="{btn_key}"]) {{
+                        position: relative;
+                        height: 0 !important;
+                        margin-top: -126px !important; /* hauteur approx de la carte */
+                        z-index: 10;
+                    }}
+                    div[data-testid="stButton"]:has(button[id="{btn_key}"]) > button {{
+                        position:absolute !important;
+                        inset:0 !important;
+                        height:126px !important; /* même hauteur que la carte */
+                        opacity:0 !important;
+                    }}
+                    </style>
                     """,
                     unsafe_allow_html=True
                 )
-                # NOTE: Streamlit ne permet pas d'ajouter une classe au bouton directement,
-                # mais le style global ci-dessus garde déjà le bouton transparent.
 
                 if clicked and not is_sel:
                     pick_team(team)
 
 
-# ✅ APPEL (IMPORTANT) — un seul divider + un seul call
+# ✅ APPEL UNIQUE
 st.sidebar.divider()
 render_team_grid_sidebar()
 
@@ -1067,6 +1075,7 @@ if uploaded is not None:
                 do_rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
+
 
 
 
