@@ -845,6 +845,8 @@ st.session_state["LOCKED"] = LOCKED
 
 
 def render_team_grid_sidebar():
+    import base64  # ✅ évite NameError si oublié en import global
+
     st.sidebar.markdown("### 🏒 Équipes")
 
     teams = list(LOGOS.keys())
@@ -862,7 +864,7 @@ def render_team_grid_sidebar():
 
     if qp_team and qp_team in teams and qp_team != get_selected_team():
         pick_team(qp_team)
-        # Nettoyage URL
+        # 🔄 Nettoyage URL: retirer seulement "team"
         if "team" in st.query_params:
             del st.query_params["team"]
 
@@ -891,7 +893,7 @@ def render_team_grid_sidebar():
         return f"data:{mime};base64,{b64}"
 
     # ----------------------------------
-    # CSS (hover + sélection)
+    # CSS (hover + sélection + disable)
     # ----------------------------------
     st.sidebar.markdown(
         """
@@ -899,7 +901,7 @@ def render_team_grid_sidebar():
         .team-card{
             border:1px solid rgba(255,255,255,.12);
             border-radius:16px;
-            padding:10px 8px;
+            padding:12px 10px 12px 10px;
             background: rgba(255,255,255,.03);
             text-align:center;
         }
@@ -910,25 +912,39 @@ def render_team_grid_sidebar():
         .team-name{
             font-weight:900;
             font-size:13px;
-            margin-top:6px;
+            margin-top:8px;
             line-height:1.1;
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
         }
+
+        .logo-link{
+            display:inline-block;
+            border-radius:14px;
+        }
         .logo-link img{
-            width:64px;
-            height:64px;
+            width:78px;
+            height:78px;
             object-fit:contain;
             border-radius:14px;
             transition: filter 140ms ease, transform 140ms ease;
+            display:block;
+            margin: 0 auto;
         }
+        /* ✨ hover glow */
         .logo-link:hover img{
             filter: drop-shadow(0 0 10px rgba(34,197,94,.55));
             transform: scale(1.03);
         }
+        /* 🔒 disable click selected */
         .logo-link.disabled{
             pointer-events:none;
+            cursor: default;
+        }
+        .logo-link.disabled img{
+            filter:none !important;
+            transform:none !important;
         }
         </style>
         """,
@@ -936,9 +952,9 @@ def render_team_grid_sidebar():
     )
 
     # ----------------------------------
-    # Grille équipes
+    # Grille équipes — ✅ 2 colonnes
     # ----------------------------------
-    cols_per_row = 3
+    cols_per_row = 2
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
 
@@ -950,43 +966,44 @@ def render_team_grid_sidebar():
             path = team_logo_path(team)
             is_sel = (team == selected)
             card_cls = "team-card sel" if is_sel else "team-card"
-            img = _img_data_uri(path)
 
             href = "" if is_sel else f"?team={team.replace(' ', '%20')}"
             a_cls = "logo-link disabled" if is_sel else "logo-link"
 
+            img = _img_data_uri(path) if path else ""
+
             with row[j]:
-                st.sidebar.markdown(
-                    f"""
-                    <div class="{card_cls}">
-                      <a class="{a_cls}" {"href="+href if href else ""}>
-                        <img src="{img}" />
-                      </a>
-                      <div class="team-name">{html.escape(team)}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                if img:
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="{a_cls}" {"href="+href if href else ""}>
+                            <img src="{img}" alt="{html.escape(team)}" />
+                          </a>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    # fallback si logo manquant
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="{a_cls}" {"href="+href if href else ""} style="text-decoration:none">
+                            <div style="font-size:38px;line-height:78px">🖼️</div>
+                          </a>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
 
-# ✅ APPEL (IMPORTANT)
+# ✅ APPEL (IMPORTANT) — un seul divider + un seul call
 st.sidebar.divider()
 render_team_grid_sidebar()
 
-
-
-
-
-
-
-
-
-
-
-
-
-st.sidebar.divider()
-render_team_grid_sidebar()
 
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
@@ -1038,6 +1055,7 @@ if uploaded is not None:
                 do_rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Import échoué : {e}")
+
 
 
 # =====================================================
