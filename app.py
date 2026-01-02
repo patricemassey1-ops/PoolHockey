@@ -69,10 +69,32 @@ def get_selected_team() -> str:
     return str(st.session_state.get("selected_team", "")).strip()
 
 def team_logo_path(team: str) -> str:
-    """Retourne le path exact du logo de l'équipe (selon LOGOS)."""
-    t = str(team or "").strip()
-    p = LOGOS.get(t, "")
-    return p if p and os.path.exists(p) else ""
+    """Retourne le path logo pour une équipe (si dispo), sinon '' (avec fallback)."""
+    raw = str(LOGOS.get(team, "")).strip()
+    candidates = []
+
+    if raw:
+        candidates.append(raw)
+
+        # variantes simples
+        base = raw.replace("\\", "/")
+        candidates.append(base.lower())
+        candidates.append(base.upper())
+
+        # variantes tirets/underscores
+        candidates.append(base.replace("-", "_"))
+        candidates.append(base.replace("_", "-"))
+
+        # variantes de casse de dossier
+        if base.startswith("data/"):
+            candidates.append("data/" + base[5:].lower())
+            candidates.append("data/" + base[5:].upper())
+
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return ""
+
 
 
 
