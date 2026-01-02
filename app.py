@@ -1273,68 +1273,15 @@ with tabA:
         else:
             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
+	# ============================
+    # POP-UP (toujours à la fin)
+    # ============================
+    open_move_dialog()
 
 
 
-# =========================================
-# MODE IR: 3 boutons 1 clic
-# =========================================
-if from_ir:
-    st.caption("Sortie de IR (1 clic)")
 
-    bA, bB, bC = st.columns(3)
 
-    if bA.button("🟢 Actifs", use_container_width=True, key=f"ir_actif_{owner}_{joueur}_{nonce}"):
-        ok = apply_move_with_history(
-            proprietaire=owner,
-            joueur=joueur,
-            to_statut="Grand Club",
-            to_slot="Actif",
-            action_label="IR → Actif",
-        )
-        if ok:
-            st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-            _close()
-            do_rerun()
-        else:
-            st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
-
-    if bB.button("🟡 Banc", use_container_width=True, key=f"ir_banc_{owner}_{joueur}_{nonce}"):
-        ok = apply_move_with_history(
-            proprietaire=owner,
-            joueur=joueur,
-            to_statut="Grand Club",
-            to_slot="Banc",
-            action_label="IR → Banc",
-        )
-        if ok:
-            st.toast(f"🟡 {joueur} → Banc", icon="🟡")
-            _close()
-            do_rerun()
-        else:
-            st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
-
-    if bC.button("🔵 Mineur", use_container_width=True, key=f"ir_min_{owner}_{joueur}_{nonce}"):
-        ok = apply_move_with_history(
-            proprietaire=owner,
-            joueur=joueur,
-            to_statut="Club École",
-            to_slot="",
-            action_label="IR → Mineur",
-        )
-        if ok:
-            st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
-            _close()
-            do_rerun()
-        else:
-            st.error(st.session_state.get("last_move_error", "") or "Déplacement refusé.")
-
-    st.divider()
-    if st.button("✖️ Annuler", use_container_width=True, key=f"ir_cancel_{owner}_{joueur}_{nonce}"):
-        _close()
-        do_rerun()
-
-else:
     # =========================================
     # MODE NORMAL: radio + confirmer/annuler
     # =========================================
