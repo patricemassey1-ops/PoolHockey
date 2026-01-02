@@ -999,40 +999,54 @@ with hR:
 
 
 # =====================================================
-# DATA + PLAFONDS (EXCLUT BLESSÉS)
+# DATA (ne stop plus l'app si vide)
 # =====================================================
-df = st.session_state["data"]
-if df is None or df.empty:
-    st.info("Aucune donnée")
-    st.stop()
+df = st.session_state.get("data")
+if df is None:
+    df = pd.DataFrame(columns=REQUIRED_COLS)
 
-resume = []
-for p in df["Propriétaire"].unique():
-    d = df[df["Propriétaire"] == p]
+df = clean_data(df)
+st.session_state["data"] = df
 
-    total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
-    total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+# =====================================================
+# PLAFONDS (safe si df vide)
+# =====================================================
+if df.empty:
+    plafonds = pd.DataFrame(columns=[
+        "Propriétaire", "Logo",
+        "Total Grand Club", "Montant Disponible GC",
+        "Total Club École", "Montant Disponible CE"
+    ])
+else:
+    resume = []
+    for p in df["Propriétaire"].unique():
+        d = df[df["Propriétaire"] == p]
 
-    logo = find_logo_for_owner(p)
+        total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
+        total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-    resume.append({
-        "Propriétaire": str(p),
-        "Logo": logo,
-        "Total Grand Club": int(total_gc),
-        "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
-        "Total Club École": int(total_ce),
-        "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
-    })
+        logo = find_logo_for_owner(p)
 
-plafonds = pd.DataFrame(resume)
+        resume.append({
+            "Propriétaire": str(p),
+            "Logo": logo,
+            "Total Grand Club": int(total_gc),
+            "Montant Disponible GC": int(st.session_state["PLAFOND_GC"] - total_gc),
+            "Total Club École": int(total_ce),
+            "Montant Disponible CE": int(st.session_state["PLAFOND_CE"] - total_ce),
+        })
+
+    plafonds = pd.DataFrame(resume)
+
 
 
 # =====================================================
 # TABS
 # =====================================================
-tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
-    ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
+tab1, tabA, tabJ, tabH, tab2, tab3, tabAdmin = st.tabs(
+    ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
 )
+
 
 
 # =====================================================
@@ -1585,6 +1599,93 @@ with tab2:
         st.error("🚨 Dépassement du plafond")
     else:
         st.success("✅ Transaction valide")
+
+# =====================================================
+# TAB Admin — Gestion Admin
+#   ✅ Import déplacé du sidebar
+#   ✅ "Import Fantrax" renommé "Import"
+#   ✅ Export CSV (alignement + historique)
+# =====================================================
+with tabAdmin:
+    st.subheader("🛠️ Gestion Admin")
+
+    # -----------------------------
+    # 📥 Import (renommé)
+    # -----------------------------
+    st.markdown("### 📥 Import")
+    uploaded = st.file_uploader(
+        "Fichier CSV Fantrax",
+        type=["csv", "txt"],
+        help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
+        key=f"fantrax_uploader_{st.session_state['uploader_nonce']}_admin",
+    )
+
+    if uploaded is not None:
+        if st.session_state.get("LOCKED"):
+            st.warning("🔒 Saison verrouillée : import désactivé.")
+        else:
+            try:
+                df_import = parse_fantrax(uploaded)
+                if df_import is None or df_import.empty:
+                    st.error("❌ Import invalide : aucune donnée exploitable.")
+                else:
+                    owner = os.path.splitext(uploaded.name)[0]
+                    df_import["Propriétaire"] = owner
+
+                    st.session_state["data"] = pd.concat([st.session_state["data"], df_import], ignore_index=True)
+                    st.session_state["data"] = clean_data(st.session_state["data"])
+                    st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+
+                    st.success("✅ Import réussi")
+                    st.session_state["uploader_nonce"] += 1
+                    do_rerun()
+
+            except Exception as e:
+                st.error(f"❌ Import échoué : {e}")
+
+    st.divider()
+
+    # -----------------------------
+    # 📤 Export CSV
+    # -----------------------------
+    st.markdown("### 📤 Export CSV")
+
+    season = st.session_state.get("season", "")
+    data_file = st.session_state.get("DATA_FILE", "")
+    hist_file = st.session_state.get("HISTORY_FILE", "")
+
+    c1, c2 = st.columns(2)
+
+    # Export Alignement
+    with c1:
+        if data_file and os.path.exists(data_file):
+            with open(data_file, "rb") as f:
+                st.download_button(
+                    label="⬇️ Export Alignement (CSV)",
+                    data=f.read(),
+                    file_name=os.path.basename(data_file),
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=f"dl_align_{season}",
+                )
+        else:
+            st.info("Aucun fichier d'alignement à exporter.")
+
+    # Export Historique
+    with c2:
+        if hist_file and os.path.exists(hist_file):
+            with open(hist_file, "rb") as f:
+                st.download_button(
+                    label="⬇️ Export Historique (CSV)",
+                    data=f.read(),
+                    file_name=os.path.basename(hist_file),
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=f"dl_hist_{season}",
+                )
+        else:
+            st.info("Aucun fichier d'historique à exporter.")
+
 
 
 # =====================================================
