@@ -204,14 +204,15 @@ def clear_move_ctx():
 # ----------------------------
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     """
-    UI cliquable: 1 bouton par joueur + badges CSS réels.
+    UI cliquable: 1 bouton par joueur + badges CSS.
+    Colonnes: Pos | Team | Joueur | Salaire
     Retourne le joueur cliqué (str) ou None.
     """
     if df_src is None or df_src.empty:
         st.info("Aucun joueur.")
         return None
 
-    # CSS compact + boutons serrés
+    # CSS compact
     st.markdown(
         """
         <style>
@@ -225,7 +226,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t = df_src.copy()
 
     # Colonnes garanties
-    for c, d in {"Joueur":"", "Pos":"F", "Slot":"", "Statut":"", "Equipe":"", "Salaire":0}.items():
+    for c, d in {"Joueur":"", "Pos":"F", "Equipe":"", "Salaire":0}.items():
         if c not in t.columns:
             t[c] = d
 
@@ -234,8 +235,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t["_pos"] = t["Pos"].apply(pos_sort_key)
     t = t.sort_values(["_pos", "Joueur"]).drop(columns=["_pos"]).reset_index(drop=True)
 
-    # Header (Pos | Team | Joueur | Salaire)
-    h = st.columns([2, 2, 4, 2])
+    # Header
+    h = st.columns([1.3, 1.8, 4.2, 1.7])
     h[0].markdown("**Pos**")
     h[1].markdown("**Team**")
     h[2].markdown("**Joueur**")
@@ -249,14 +250,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             continue
 
         pos = r.get("Pos","F")
-        equipe = r.get("Equipe","")
+        team = str(r.get("Equipe","")).strip()
         salaire = r.get("Salaire", 0)
 
-        c = st.columns([2, 2, 4, 2])
+        c = st.columns([1.3, 1.8, 4.2, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
-
-        # ✅ Team au lieu de Slot (badge simple)
-        c[1].markdown(render_badge(str(equipe or "—"), "#334155"), unsafe_allow_html=True)
+        c[1].markdown(team if team else "—")
 
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             st.session_state["move_source"] = source_key
@@ -266,8 +265,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     return clicked
 
-
-    return clicked
 
 
 
@@ -1105,9 +1102,6 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ---------
-    # Owner
-    # ---------
     proprietaire = st.selectbox(
         "Propriétaire",
         sorted(st.session_state["data"]["Propriétaire"].unique()),
@@ -1118,9 +1112,6 @@ with tabA:
     df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == proprietaire].copy()
 
-    # ---------
-    # Groupes
-    # ---------
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
@@ -1130,9 +1121,7 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc  = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # ---------
     # Compte actifs (positions)
-    # ---------
     tmp = gc_actif.copy()
     if "Pos" not in tmp.columns:
         tmp["Pos"] = "F"
@@ -1141,9 +1130,7 @@ with tabA:
     nb_D = int((tmp["Pos"] == "D").sum())
     nb_G = int((tmp["Pos"] == "G").sum())
 
-    # ---------
     # Plafonds (IR exclu car dprop_ok)
-    # ---------
     cap_gc = int(st.session_state["PLAFOND_GC"])
     cap_ce = int(st.session_state["PLAFOND_CE"])
     used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
@@ -1151,18 +1138,14 @@ with tabA:
     remain_gc = cap_gc - used_gc
     remain_ce = cap_ce - used_ce
 
-    # ---------
     # Jauges
-    # ---------
     j1, j2 = st.columns(2)
     with j1:
         st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
     with j2:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
-    # ---------
     # Résumé compact
-    # ---------
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total GC", money(used_gc))
     top[1].metric("Reste GC", money(remain_gc))
@@ -1177,16 +1160,12 @@ with tabA:
 
     st.divider()
 
-    # ---------
     # Guard anti “re-pick” pendant popup
-    # ---------
     popup_open = st.session_state.get("move_ctx") is not None
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
-    # ============================
-    # 2 colonnes: Actifs & Mineur (encadrées)
-    # ============================
+    # Actifs + Mineur (encadrés)
     colA, colB = st.columns(2, gap="small")
 
     with colA:
@@ -1211,9 +1190,7 @@ with tabA:
             else:
                 roster_click_list(ce_all, proprietaire, "min_disabled")
 
-    # ============================
-    # Banc (expander, en dessous)
-    # ============================
+    # Banc (en dessous)
     st.divider()
     with st.expander("🟡 Banc", expanded=True):
         if gc_banc is None or gc_banc.empty:
@@ -1227,9 +1204,7 @@ with tabA:
             else:
                 roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    # ============================
-    # IR (expander, en dessous) — ouvert
-    # ============================
+    # IR (en dessous, ouvert)
     with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
         if injured_all is None or injured_all.empty:
             st.info("Aucun joueur blessé.")
@@ -1242,14 +1217,13 @@ with tabA:
             else:
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    # ============================
     # Pop-up (toujours à la fin)
-    # ============================
     open_move_dialog()
 
 
 
-	def open_move_dialog():
+
+def open_move_dialog():
     """
     Pop-up déplacement (FINAL)
     - Si IR (slot Blessé ou move_source=ir): 3 boutons -> Actifs / Banc / Mineur
@@ -1320,11 +1294,9 @@ with tabA:
         is_ir = (source == "ir") or (cur_slot == "Blessé")
         is_banc = (source == "banc") or (cur_slot == "Banc")
 
-        # ==========================
-        # IR -> 3 boutons: Actif / Banc / Mineur
-        # ==========================
+        # IR -> 3 boutons
         if is_ir:
-            st.caption("Sortie de IR (3 choix)")
+            st.caption("Déplacement IR (3 choix)")
             b1, b2, b3 = st.columns(3)
 
             if b1.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
@@ -1356,9 +1328,7 @@ with tabA:
                 _close(); do_rerun()
             return
 
-        # ==========================
-        # BANC -> 3 boutons: Actif / Mineur / Blessé
-        # ==========================
+        # Banc -> 3 boutons
         if is_banc:
             st.caption("Déplacement Banc (3 choix)")
             b1, b2, b3 = st.columns(3)
@@ -1392,9 +1362,7 @@ with tabA:
                 _close(); do_rerun()
             return
 
-        # ==========================
-        # MODE NORMAL (radio)
-        # ==========================
+        # Mode normal (radio)
         destinations = [
             ("🟢 Actifs (GC)", ("Grand Club", "Actif")),
             ("🟡 Banc (GC)", ("Grand Club", "Banc")),
@@ -1431,6 +1399,7 @@ with tabA:
             _close(); do_rerun()
 
     _dlg()
+
 
 
 
