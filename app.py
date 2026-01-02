@@ -851,10 +851,7 @@ def render_team_grid_sidebar():
             background: rgba(255,255,255,.03);
             text-align:center;
         }
-        .team-card.selected{
-            border:2px solid rgba(34,197,94,.75);
-            background: rgba(34,197,94,.10);
-        }
+
         .team-name{
             font-weight:900;
             font-size:13px;
@@ -864,14 +861,24 @@ def render_team_grid_sidebar():
             overflow:hidden;
             text-overflow:ellipsis;
         }
+
         .team-missing{
             font-size:11px;
             opacity:.65;
             margin-top:4px;
         }
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
-            padding: .25rem .4rem;
+
+        /* Boutons équipes */
+        .team-btn button{
+            padding:.35rem .4rem;
             font-weight:900;
+        }
+
+        /* ✅ Bouton sélectionné */
+        .team-btn.selected button{
+            background-color:#16a34a !important; /* vert */
+            color:white !important;
+            border:1px solid #16a34a !important;
         }
         </style>
         """,
@@ -891,10 +898,10 @@ def render_team_grid_sidebar():
             team = teams[i + j]
             path = team_logo_path(team)
             is_sel = (team == selected)
-            cls = "team-card selected" if is_sel else "team-card"
 
             with row[j]:
-                st.markdown(f"<div class='{cls}'>", unsafe_allow_html=True)
+                # Carte neutre (jamais verte)
+                st.markdown("<div class='team-card'>", unsafe_allow_html=True)
 
                 if path:
                     st.image(path, width=64)
@@ -904,10 +911,15 @@ def render_team_grid_sidebar():
 
                 st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
+                # Bouton (vert si sélectionné)
+                btn_class = "team-btn selected" if is_sel else "team-btn"
+                st.markdown(f"<div class='{btn_class}'>", unsafe_allow_html=True)
+
                 if st.button(team, key=f"pick_{team}", use_container_width=True):
                     pick_team(team)
 
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div></div>", unsafe_allow_html=True)
+
 
 
 st.sidebar.divider()
