@@ -1006,103 +1006,111 @@ else:
 
 
 # =====================================================
-# TABS (toujours visibles)
+# TABS (Admin visible seulement pour Whalers)
 # =====================================================
-tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
-    ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
-)
+is_admin = (get_selected_team() == "Whalers")
 
-
-# =====================================================
-# TAB Admin — Gestion Admin (Import + Export) — toujours accessible
-# =====================================================
-with tabAdmin:
-    st.subheader("🛠️ Gestion Admin")
-
-    # -----------------------------
-    # 📥 Import
-    # -----------------------------
-    st.markdown("### 📥 Import")
-
-    uploaded = st.file_uploader(
-        "Fichier CSV Fantrax",
-        type=["csv", "txt"],
-        help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
-        key=f"fantrax_uploader_{st.session_state.get('uploader_nonce', 0)}_admin",
+if is_admin:
+    tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
+        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
     )
+else:
+    tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
+        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
+    )
+    tabAdmin = None
 
-    if uploaded is not None:
-        if st.session_state.get("LOCKED"):
-            st.warning("🔒 Saison verrouillée : import désactivé.")
-        else:
-            try:
-                df_import = parse_fantrax(uploaded)
 
-                if df_import is None or df_import.empty:
-                    st.error("❌ Import invalide : aucune donnée exploitable.")
-                else:
-                    owner = os.path.splitext(uploaded.name)[0]
-                    df_import["Propriétaire"] = owner
+# =====================================================
+# TAB Admin — Gestion Admin (Whalers seulement)
+# =====================================================
+if tabAdmin is not None:
+    with tabAdmin:
+        st.subheader("🛠️ Gestion Admin")
 
-                    cur_data = st.session_state.get("data")
-                    if cur_data is None:
-                        cur_data = pd.DataFrame(columns=REQUIRED_COLS)
+        # -----------------------------
+        # 📥 Import
+        # -----------------------------
+        st.markdown("### 📥 Import")
 
-                    st.session_state["data"] = pd.concat([cur_data, df_import], ignore_index=True)
-                    st.session_state["data"] = clean_data(st.session_state["data"])
+        uploaded = st.file_uploader(
+            "Fichier CSV Fantrax",
+            type=["csv", "txt"],
+            help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
+            key=f"fantrax_uploader_{st.session_state.get('uploader_nonce', 0)}_admin",
+        )
 
-                    # ✅ Persist sur disque (reboot safe)
-                    st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+        if uploaded is not None:
+            if st.session_state.get("LOCKED"):
+                st.warning("🔒 Saison verrouillée : import désactivé.")
+            else:
+                try:
+                    df_import = parse_fantrax(uploaded)
 
-                    st.success("✅ Import réussi")
-                    st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                    if df_import is None or df_import.empty:
+                        st.error("❌ Import invalide : aucune donnée exploitable.")
+                    else:
+                        owner = os.path.splitext(uploaded.name)[0]
+                        df_import["Propriétaire"] = owner
 
-                    # ✅ Refresh immédiat (df/plafonds) + rerun
-                    do_rerun()
+                        cur_data = st.session_state.get("data")
+                        if cur_data is None:
+                            cur_data = pd.DataFrame(columns=REQUIRED_COLS)
 
-            except Exception as e:
-                st.error(f"❌ Import échoué : {e}")
+                        st.session_state["data"] = pd.concat([cur_data, df_import], ignore_index=True)
+                        st.session_state["data"] = clean_data(st.session_state["data"])
 
-    st.divider()
+                        # ✅ Persist reboot
+                        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
 
-    # -----------------------------
-    # 📤 Export CSV
-    # -----------------------------
-    st.markdown("### 📤 Export CSV")
+                        st.success("✅ Import réussi")
+                        st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                        do_rerun()
 
-    data_file = st.session_state.get("DATA_FILE", "")
-    hist_file = st.session_state.get("HISTORY_FILE", "")
-    season_lbl = st.session_state.get("season", season)
+                except Exception as e:
+                    st.error(f"❌ Import échoué : {e}")
 
-    c1, c2 = st.columns(2)
+        st.divider()
 
-    with c1:
-        if data_file and os.path.exists(data_file):
-            with open(data_file, "rb") as f:
-                st.download_button(
-                    "⬇️ Export Alignement (CSV)",
-                    data=f.read(),
-                    file_name=os.path.basename(data_file),
-                    mime="text/csv",
-                    use_container_width=True,
-                    key=f"dl_align_{season_lbl}_admin",
-                )
-        else:
-            st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
+        # -----------------------------
+        # 📤 Export CSV
+        # -----------------------------
+        st.markdown("### 📤 Export CSV")
 
-    with c2:
-        if hist_file and os.path.exists(hist_file):
-            with open(hist_file, "rb") as f:
-                st.download_button(
-                    "⬇️ Export Historique (CSV)",
-                    data=f.read(),
-                    file_name=os.path.basename(hist_file),
-                    mime="text/csv",
-                    use_container_width=True,
-                    key=f"dl_hist_{season_lbl}_admin",
-                )
-        else:
-            st.info("Aucun fichier d'historique à exporter.")
+        data_file = st.session_state.get("DATA_FILE", "")
+        hist_file = st.session_state.get("HISTORY_FILE", "")
+        season_lbl = st.session_state.get("season", season)
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            if data_file and os.path.exists(data_file):
+                with open(data_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Alignement (CSV)",
+                        data=f.read(),
+                        file_name=os.path.basename(data_file),
+                        mime="text/csv",
+                        use_container_width=True,
+                        key=f"dl_align_{season_lbl}_admin",
+                    )
+            else:
+                st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
+
+        with c2:
+            if hist_file and os.path.exists(hist_file):
+                with open(hist_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Historique (CSV)",
+                        data=f.read(),
+                        file_name=os.path.basename(hist_file),
+                        mime="text/csv",
+                        use_container_width=True,
+                        key=f"dl_hist_{season_lbl}_admin",
+                    )
+            else:
+                st.info("Aucun fichier d'historique à exporter.")
+
 
 
 # =====================================================
