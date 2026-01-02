@@ -1163,30 +1163,42 @@ with tabA:
     st.subheader("🧾 Alignement")
 
     # --- CSS (tableau résumé compact) ---
-    st.markdown(
-        """
-        <style>
-          st.markdown(
+# ============================
+# Résumé ultra compact (2 lignes)
+# ============================
+st.markdown(
     """
     <style>
-      .sumlist{
+      .sum2{
         margin-top:6px; margin-bottom:10px;
         padding:6px 8px;
-        border:1px solid rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.10);
         border-radius:12px;
-        background:rgba(255,255,255,.015);
+        background:rgba(255,255,255,.02);
         font-size:12px;
-        line-height:1.15;
+        line-height:1.1;
       }
-      .sumlist .line{
+      .sum2 .row{
         display:flex;
-        justify-content:space-between;
+        flex-wrap:wrap;
         gap:10px;
         padding:3px 0;
       }
-      .sumlist .line + .line{ border-top:1px dashed rgba(255,255,255,.06); }
-      .sumlist .k{ font-weight:900; opacity:.72; white-space:nowrap; }
-      .sumlist .v{ font-weight:1000; text-align:right; }
+      .sum2 .row + .row{
+        border-top:1px solid rgba(255,255,255,.06);
+      }
+      .sum2 .item{
+        display:inline-flex;
+        gap:6px;
+        white-space:nowrap;
+      }
+      .sum2 .k{
+        font-weight:900;
+        opacity:.72;
+      }
+      .sum2 .v{
+        font-weight:1000;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1194,14 +1206,25 @@ with tabA:
 
 st.markdown(
     f"""
-    <div class="sumlist">
-      <div class="line"><span class="k">GC</span><span class="v">{money(used_gc)} utilisés • {money(remain_gc)} reste</span></div>
-      <div class="line"><span class="k">CE</span><span class="v">{money(used_ce)} utilisés • {money(remain_ce)} reste</span></div>
-      <div class="line"><span class="k">Effectifs</span><span class="v">Actifs F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2 • Mineur {len(ce_all)} • Banc {len(gc_banc)} • IR {len(injured_all)}</span></div>
+    <div class="sum2">
+      <div class="row">
+        <div class="item"><span class="k">Total GC</span><span class="v">{money(used_gc)}</span></div>
+        <div class="item"><span class="k">Reste GC</span><span class="v">{money(remain_gc)}</span></div>
+        <div class="item"><span class="k">Total CE</span><span class="v">{money(used_ce)}</span></div>
+        <div class="item"><span class="k">Reste CE</span><span class="v">{money(remain_ce)}</span></div>
+      </div>
+
+      <div class="row">
+        <div class="item"><span class="k">Actifs</span><span class="v">F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2</span></div>
+        <div class="item"><span class="k">Mineur</span><span class="v">{len(ce_all)}</span></div>
+        <div class="item"><span class="k">Banc</span><span class="v">{len(gc_banc)}</span></div>
+        <div class="item"><span class="k">IR</span><span class="v">{len(injured_all)}</span></div>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
 
 
     # ============================
