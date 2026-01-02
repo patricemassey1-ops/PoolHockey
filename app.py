@@ -1134,8 +1134,9 @@ def render_team_grid_sidebar():
                 st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
                 # ✅ 1 clic (sync selected_team + align_owner)
-                if st.button("Sélectionner", key=f"pick_{team}", use_container_width=True):
-                    pick_team(team)
+                if st.button(f"{label} {team_name}", key=f"team_{team_name}", use_container_width=True):
+    				pick_team(team_name)
+
 
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1361,21 +1362,20 @@ with tabA:
     # ---------
     all_owners = sorted(st.session_state["data"]["Propriétaire"].unique())
     selected_team = get_selected_team()
+all_owners = sorted(st.session_state["data"]["Propriétaire"].unique())
 
-    # si une équipe est choisie et existe dans les owners → on force la liste à 1 choix
-    if selected_team and selected_team in all_owners:
-        owners_list = [selected_team]
-        default_index = 0
-    else:
-        owners_list = all_owners
-        default_index = 0
+# ✅ force la valeur du selectbox à suivre l'équipe choisie
+if selected_team and selected_team in all_owners:
+    if st.session_state.get("align_owner") != selected_team:
+        st.session_state["align_owner"] = selected_team
+
 
     proprietaire = st.selectbox(
-        "Propriétaire",
-        owners_list,
-        index=default_index,
-        key="align_owner",
-    )
+   		"Propriétaire",
+    	([selected_team] if selected_team in all_owners else all_owners),
+    	key="align_owner",
+	)
+
 
     # (le reste de ton code Alignement continue ici, toujours indenté)
 
