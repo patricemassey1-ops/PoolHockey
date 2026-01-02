@@ -42,13 +42,21 @@ LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche p
 LOGOS = {
     "Nordiques": "data/Nordiques_Logo.png",
     "Cracheurs": "data/Cracheurs_Logo.png",
-    "Predateurs": "data/Predateurs_Logo.png",
+    "Prédateurs": "data/Prédateurs_Logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
-    "Canadiens": "data/montreal-Canadiens_Logo.png",
+    "Canadiens": "data/Canadiens_Logo.png",
 }
 
-LOGO_SIZE = 55
+def find_logo_for_owner(owner: str) -> str:
+    o = str(owner or "").strip().lower()
+    for key, path in LOGOS.items():
+        if key.lower() in o and os.path.exists(path):
+            return path
+    return ""
+
+
+
 
 # =====================================================
 # TEAM SELECTION — GLOBAL STATE
