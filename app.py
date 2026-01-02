@@ -1166,52 +1166,43 @@ with tabA:
     st.markdown(
         """
         <style>
-          .summarywrap{
-            margin-top:6px; margin-bottom:10px;
-            border:1px solid rgba(255,255,255,.10);
-            border-radius:12px;
-            background:rgba(255,255,255,.02);
-            padding:6px 8px;
-          }
-          .summarytbl{
-            width:100%;
-            border-collapse:separate;
-            border-spacing:0 4px; /* espace vertical entre lignes */
-            font-size:12px;
-            line-height:1.1;
-          }
-          .summarytbl td{
-            padding:3px 8px;
-            background:rgba(255,255,255,.03);
-            border:1px solid rgba(255,255,255,.08);
-          }
-          .summarytbl td.k{
-            width:1%;
-            white-space:nowrap;
-            font-weight:900;
-            opacity:.78;
-            border-right:none;
-            border-top-left-radius:10px;
-            border-bottom-left-radius:10px;
-          }
-          .summarytbl td.v{
-            font-weight:950;
-            border-left:none;
-            border-top-right-radius:10px;
-            border-bottom-right-radius:10px;
-          }
-          .summarygrid{
-            display:grid;
-            grid-template-columns: 1fr 1fr;
-            gap:8px;
-          }
-          @media (max-width: 900px){
-            .summarygrid{ grid-template-columns: 1fr; }
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+          st.markdown(
+    """
+    <style>
+      .sumlist{
+        margin-top:6px; margin-bottom:10px;
+        padding:6px 8px;
+        border:1px solid rgba(255,255,255,.08);
+        border-radius:12px;
+        background:rgba(255,255,255,.015);
+        font-size:12px;
+        line-height:1.15;
+      }
+      .sumlist .line{
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+        padding:3px 0;
+      }
+      .sumlist .line + .line{ border-top:1px dashed rgba(255,255,255,.06); }
+      .sumlist .k{ font-weight:900; opacity:.72; white-space:nowrap; }
+      .sumlist .v{ font-weight:1000; text-align:right; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    f"""
+    <div class="sumlist">
+      <div class="line"><span class="k">GC</span><span class="v">{money(used_gc)} utilisés • {money(remain_gc)} reste</span></div>
+      <div class="line"><span class="k">CE</span><span class="v">{money(used_ce)} utilisés • {money(remain_ce)} reste</span></div>
+      <div class="line"><span class="k">Effectifs</span><span class="v">Actifs F {nb_F}/12 • D {nb_D}/6 • G {nb_G}/2 • Mineur {len(ce_all)} • Banc {len(gc_banc)} • IR {len(injured_all)}</span></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 
     # ============================
     # Propriétaire
