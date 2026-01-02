@@ -563,14 +563,16 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
         return False
 
     before = df0.loc[mask].iloc[0]
-    from_statut = str(before.get("Statut", "")).strip()
-    from_slot = str(before.get("Slot", "")).strip()
-    pos0 = str(before.get("Pos", "F")).strip()
-    equipe0 = str(before.get("Equipe", "")).strip()
+	from_statut = str(before.get("Statut", "")).strip()
+	from_slot = str(before.get("Slot", "")).strip()
 
-    # Applique changement
-    df0.loc[mask, "Statut"] = to_statut
-    df0.loc[mask, "Slot"] = (to_slot if to_slot else "")
+	# IR conserve statut
+	if to_slot == "Blessé":
+    	to_statut = from_statut
+
+	df0.loc[mask, "Statut"] = to_statut
+	df0.loc[mask, "Slot"] = (to_slot if to_slot else "")
+
 
     # IR Date (Toronto)
     entering_ir = (to_slot == "Blessé") and (from_slot != "Blessé")
