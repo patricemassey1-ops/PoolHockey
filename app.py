@@ -841,15 +841,26 @@ def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
     selected = get_selected_team()
 
+    # 🎨 CSS propre (aucune pill possible)
     st.sidebar.markdown(
         """
         <style>
-        .team-card{
-            border:1px solid rgba(255,255,255,.10);
-            border-radius:14px;
-            padding:10px 8px 8px 8px;
-            background: rgba(255,255,255,.03);
-            text-align:center;
+        /* Boutons */
+        section[data-testid="stSidebar"] button{
+            font-weight:900 !important;
+        }
+
+        /* Bouton sélectionné = vert */
+        section[data-testid="stSidebar"] button[kind="primary"]{
+            background:#16a34a !important;
+            border:1px solid #16a34a !important;
+            color:white !important;
+        }
+
+        /* Carte (container border) */
+        section[data-testid="stSidebar"] div[data-testid="stContainer"]{
+            border-radius:16px !important;
+            background: rgba(255,255,255,.03) !important;
         }
 
         .team-name{
@@ -860,25 +871,14 @@ def render_team_grid_sidebar():
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
+            text-align:center;
         }
 
         .team-missing{
             font-size:11px;
             opacity:.65;
             margin-top:4px;
-        }
-
-        /* Boutons équipes */
-        .team-btn button{
-            padding:.35rem .4rem;
-            font-weight:900;
-        }
-
-        /* ✅ Bouton sélectionné */
-        .team-btn.selected button{
-            background-color:#16a34a !important; /* vert */
-            color:white !important;
-            border:1px solid #16a34a !important;
+            text-align:center;
         }
         </style>
         """,
@@ -900,25 +900,25 @@ def render_team_grid_sidebar():
             is_sel = (team == selected)
 
             with row[j]:
-                # Carte neutre (jamais verte)
-                st.markdown("<div class='team-card'>", unsafe_allow_html=True)
+                # ✅ Container réel (pas de pill)
+                with st.container(border=True):
+                    if path:
+                        st.image(path, width=64)
+                    else:
+                        st.markdown("🖼️", unsafe_allow_html=True)
+                        st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
 
-                if path:
-                    st.image(path, width=64)
-                else:
-                    st.markdown("🖼️", unsafe_allow_html=True)
-                    st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
+                    # ✅ bouton vert si sélectionné
+                    if st.button(
+                        team,
+                        key=f"pick_{team}",
+                        use_container_width=True,
+                        type=("primary" if is_sel else "secondary"),
+                    ):
+                        pick_team(team)
 
-                # Bouton (vert si sélectionné)
-                btn_class = "team-btn selected" if is_sel else "team-btn"
-                st.markdown(f"<div class='{btn_class}'>", unsafe_allow_html=True)
-
-                if st.button(team, key=f"pick_{team}", use_container_width=True):
-                    pick_team(team)
-
-                st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 
