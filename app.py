@@ -42,20 +42,27 @@ LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche p
 LOGOS = {
     "Nordiques": "data/Nordiques_Logo.png",
     "Cracheurs": "data/Cracheurs_Logo.png",
-    "Prédateurs": "data/Prédateurs_Logo.png",
+    "Predateurs": "data/Predateurs_Logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
-    "Canadiens": "data/Canadiens_Logo.png",
+    "Canadiens": "data/montreal-Canadiens_Logo.png",
 }
 
 LOGO_SIZE = 55
 
-def find_logo_for_owner(owner: str) -> str:
-    o = str(owner or "").strip().lower()
-    for key, path in LOGOS.items():
-        if key.lower() in o and os.path.exists(path):
-            return path
-    return ""
+# =====================================================
+# TEAM SELECTION — GLOBAL STATE
+# =====================================================
+if "selected_team" not in st.session_state:
+    st.session_state["selected_team"] = ""
+
+def set_selected_team(team: str):
+    st.session_state["selected_team"] = str(team or "").strip()
+    do_rerun()
+
+def get_selected_team() -> str:
+    return str(st.session_state.get("selected_team", "") or "").strip()
+
 
 
 # =====================================================
@@ -1106,11 +1113,7 @@ LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
 if os.path.exists(LOGO_POOL_FILE):
     st.image(LOGO_POOL_FILE, use_container_width=True)
 
-# équipe sélectionnée (doit exister dans session_state)
-# ex: st.session_state["selected_team"] = "Whalers"
-selected_team = st.session_state.get("selected_team", "")
-
-# récupère le logo de l'équipe choisie si tu as une fonction ou dict LOGOS
+selected_team = get_selected_team()
 team_logo_path = find_logo_for_owner(selected_team) if selected_team else ""
 
 hL, hR = st.columns([3, 2], vertical_alignment="center")
@@ -1126,6 +1129,7 @@ with hR:
     with r2:
         if selected_team:
             st.markdown(f"### {selected_team}")
+
 
 
 
@@ -1173,6 +1177,21 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 with tab1:
     st.subheader("📊 Tableau")
 
+st.markdown("""
+<style>
+.team-row {
+  padding: 10px 10px;
+  border-radius: 12px;
+  margin: 4px 0;
+}
+.team-row.selected {
+  border: 2px solid rgba(34,197,94,.75);
+  background: rgba(34,197,94,.10);
+}
+</style>
+""", unsafe_allow_html=True)
+
+
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipes**")
     headers[1].markdown("**Total Grand Club**")
@@ -1180,13 +1199,41 @@ with tab1:
     headers[3].markdown("**Total Club École**")
     headers[4].markdown("**Montant Disponible CE**")
 
-    for _, r in plafonds.iterrows():
-        cols = st.columns([4, 2, 2, 2, 2])
-        cols[0].markdown(f"**{r['Propriétaire']}**")
-        cols[1].markdown(money(r["Total Grand Club"]))
-        cols[2].markdown(money(r["Montant Disponible GC"]))
-        cols[3].markdown(money(r["Total Club École"]))
-        cols[4].markdown(money(r["Montant Disponible CE"]))
+    selected_team = get_selected_team()  # ou st.session_state.get("selected_team","")
+
+for _, r in plafonds.iterrows():
+    owner = str(r["Propriétaire"])
+    logo_path = str(r.get("Logo", "")).strip()
+
+    is_selected = (owner == selected_team)
+    row_class = "team-row selected" if is_selected else "team-row"
+
+    # wrapper HTML (début)
+    st.markdown(f"<div class='{row_class}'>", unsafe_allow_html=True)
+
+    cols = st.columns([4, 2, 2, 2, 2])
+
+    # Colonne équipe = logo + nom
+    with cols[0]:
+        c_logo, c_name = st.columns([1, 4], vertical_alignment="center")
+        with c_logo:
+            if logo_path and os.path.exists(logo_path):
+                st.image(logo_path, width=44)
+            else:
+                st.markdown("—")
+        with c_name:
+            st.markdown(f"**{owner}**")
+
+    # Totaux
+    cols[1].markdown(money(r["Total Grand Club"]))
+    cols[2].markdown(money(r["Montant Disponible GC"]))
+    cols[3].markdown(money(r["Total Club École"]))
+    cols[4].markdown(money(r["Montant Disponible CE"]))
+
+    # wrapper HTML (fin)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 
 
 
