@@ -1099,10 +1099,34 @@ if uploaded is not None:
             st.sidebar.error(f"❌ Import échoué : {e}")
 
 # =====================================================
-# HEADER
+# HEADER GLOBAL (TOP) — Logo Pool + PMS + Équipe à droite
 # =====================================================
-st.title("🏒 PMS")
-render_selected_team_header()
+LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
+
+if os.path.exists(LOGO_POOL_FILE):
+    st.image(LOGO_POOL_FILE, use_container_width=True)
+
+# équipe sélectionnée (doit exister dans session_state)
+# ex: st.session_state["selected_team"] = "Whalers"
+selected_team = st.session_state.get("selected_team", "")
+
+# récupère le logo de l'équipe choisie si tu as une fonction ou dict LOGOS
+team_logo_path = find_logo_for_owner(selected_team) if selected_team else ""
+
+hL, hR = st.columns([3, 2], vertical_alignment="center")
+
+with hL:
+    st.markdown("## 🏒 PMS")
+
+with hR:
+    r1, r2 = st.columns([1, 4], vertical_alignment="center")
+    with r1:
+        if team_logo_path and os.path.exists(team_logo_path):
+            st.image(team_logo_path, width=44)
+    with r2:
+        if selected_team:
+            st.markdown(f"### {selected_team}")
+
 
 
 df = st.session_state["data"]
@@ -1147,35 +1171,15 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 # TAB 1 — Tableau (renommé + logos)
 # =====================================================
 with tab1:
-
-    # =====================================================
-    # LOGO POOL — TOUJOURS TOUT EN HAUT
-    # =====================================================
-    LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
-    if os.path.exists(LOGO_POOL_FILE):
-        st.image(LOGO_POOL_FILE, use_container_width=True)
-
-    # =====================================================
-    # HEADER ÉQUIPE (optionnel mais recommandé)
-    # =====================================================
-    render_selected_team_header()
-
-    # =====================================================
-    # TITRE / CONTENU DU TABLEAU
-    # =====================================================
     st.subheader("📊 Tableau")
 
-    # =====================================================
-    # HEADERS — Tableau
-    # =====================================================
     headers = st.columns([4, 2, 2, 2, 2])
-    headers[0].markdown("**Équipe**")
+    headers[0].markdown("**Équipes**")
     headers[1].markdown("**Total Grand Club**")
     headers[2].markdown("**Montant Disponible GC**")
     headers[3].markdown("**Total Club École**")
     headers[4].markdown("**Montant Disponible CE**")
 
-    # 👉 et tout ton contenu / boucle ici, toujours indenté
     for _, r in plafonds.iterrows():
         cols = st.columns([4, 2, 2, 2, 2])
         cols[0].markdown(f"**{r['Propriétaire']}**")
@@ -1184,54 +1188,6 @@ with tab1:
         cols[3].markdown(money(r["Total Club École"]))
         cols[4].markdown(money(r["Montant Disponible CE"]))
 
-
-    
-
-# =====================================================
-# HEADERS — Tableau (exemple propre)
-# =====================================================
-headers = st.columns([4, 2, 2, 2, 2])
-
-with headers[0]:
-    st.markdown("**Joueur**")
-
-with headers[1]:
-    st.markdown("**Pos**")
-
-with headers[2]:
-    st.markdown("**Équipe**")
-
-with headers[3]:
-    st.markdown("**Salaire**")
-
-with headers[4]:
-    st.markdown("**Statut**")
-
-
-    for _, r in plafonds.iterrows():
-        cols = st.columns([4, 2, 2, 2, 2])
-
-        owner = str(r["Propriétaire"])
-        logo_path = str(r.get("Logo", "")).strip()
-
-        # --- COLONNE ÉQUIPE ---
-        with cols[0]:
-            c_logo, c_name = st.columns([1, 4])
-
-            with c_logo:
-                if logo_path and os.path.exists(logo_path):
-                    st.image(logo_path, width=LOGO_SIZE)
-                else:
-                    st.markdown("—")
-
-            with c_name:
-                st.markdown(f"**{owner}**")
-
-        # --- AUTRES COLONNES ---
-        cols[1].markdown(money(r["Total Grand Club"]))
-        cols[2].markdown(money(r["Montant Disponible GC"]))
-        cols[3].markdown(money(r["Total Club École"]))
-        cols[4].markdown(money(r["Montant Disponible CE"]))
 
 
 # =====================================================
