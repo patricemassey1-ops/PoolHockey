@@ -1073,10 +1073,11 @@ with tab1:
 
 # =====================================================
 # TAB A — Alignement (COMPLET)
-#   - Remplace st.dataframe + sel_ir par listes cliquables
-#   - Badges couleur réels
-#   - Mini jauge plafonds GC/CE (barre pleine proche du cap, rouge si négatif)
-#   - Guard: ne traite pas de clic si popup ouvert
+#   - Listes cliquables (Actifs / Banc / Mineur / IR)
+#   - Mini jauge plafonds GC/CE
+#   - Guard popup: ne traite pas de clic si popup ouvert
+#   - GM mode: 1 alerte globale si F>12 / D>6 / G>2
+#   - GM mode: bloque les clics sur Actifs si non conforme
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -1118,6 +1119,14 @@ with tabA:
     nb_G = int((tmp["Pos"] == "G").sum())
 
     # ---------
+    # GM mode: alerte globale
+    # ---------
+    over_F = nb_F > 12
+    over_D = nb_D > 6
+    over_G = nb_G > 2
+    lineup_invalid = over_F or over_D or over_G
+
+    # ---------
     # Plafonds (IR exclu car dprop_ok)
     # ---------
     cap_gc = int(st.session_state["PLAFOND_GC"])
@@ -1137,7 +1146,7 @@ with tabA:
         st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
     # ---------
-    # Metrics
+    # Metrics (top)
     # ---------
     top = st.columns([1, 1, 1, 1, 1])
     top[0].metric("Total Grand Club", money(used_gc))
@@ -1146,10 +1155,19 @@ with tabA:
     top[3].metric("Montant Disponible CE", money(remain_ce))
     top[4].metric("Blessés", f"{len(injured_all)}")
 
+    # Ligne d'effectifs (badges couleur OK, mais alerte globale séparée)
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
         unsafe_allow_html=True
     )
+
+    # ✅ UNE seule alerte globale
+    if lineup_invalid:
+        probs = []
+        if over_F: probs.append(f"F {nb_F}/12")
+        if over_D: probs.append(f"D {nb_D}/6")
+        if over_G: probs.append(f"G {nb_G}/2")
+        st.error("🚨 Effectifs actifs non conformes : " + " • ".join(probs))
 
     st.divider()
 
@@ -1157,15 +1175,19 @@ with tabA:
     # Guard anti “re-pick” pendant popup
     # ---------
     popup_open = st.session_state.get("move_ctx") is not None
+    if popup_open:
+        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
     # ============================
     # LISTES CLIQUABLES (couleurs réelles)
     # ============================
     colA, colB, colC = st.columns(3)
 
+    # 🟢 ACTIFS — GM lock si non conforme (et lock si popup)
     with colA:
         st.markdown("### 🟢 Actifs")
-        if not popup_open:
+        lock_actifs = popup_open or lineup_invalid
+        if not lock_actifs:
             p = roster_click_list(gc_actif, proprietaire, "actifs")
             if p:
                 set_move_ctx(proprietaire, p)
@@ -1173,6 +1195,7 @@ with tabA:
         else:
             roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
+    # 🟡 BANC — toujours cliquable si popup fermé (pour corriger)
     with colB:
         st.markdown("### 🟡 Banc")
         if not popup_open:
@@ -1183,6 +1206,7 @@ with tabA:
         else:
             roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
+    # 🔵 MINEUR — toujours cliquable si popup fermé (pour corriger)
     with colC:
         st.markdown("### 🔵 Mineur")
         if not popup_open:
@@ -1210,81 +1234,8 @@ with tabA:
         else:
             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    # ============================
-    # POP-UP (toujours à la fin)
-    # ============================
-    open_move_dialog()
 
 
-
-
-
-
-
-# =====================================================
-# OPEN MOVE DIALOG (PROD)
-#   - détecte IR -> 3 boutons 1 clic (Actifs/Banc/Mineur)
-#   - bouton Annuler 100% fonctionnel
-#   - guard anti re-pick: TabA ne traite pas les clics quand move_ctx != None
-#   - robuste: fetch data depuis st.session_state["data"], et gère erreurs proprement
-# =====================================================
-def open_move_dialog():
-    ctx = st.session_state.get("move_ctx")
-    if not ctx:
-        return
-
-    owner = str(ctx.get("owner", "")).strip()
-    joueur = str(ctx.get("joueur", "")).strip()
-    nonce = int(ctx.get("nonce", 0))
-
-    df_all = st.session_state.get("data")
-    if df_all is None or df_all.empty:
-        st.error("Aucune donnée chargée.")
-        clear_move_ctx()
-        return
-
-    mask = (
-        df_all["Propriétaire"].astype(str).str.strip().eq(owner)
-        & df_all["Joueur"].astype(str).str.strip().eq(joueur)
-    )
-    if df_all[mask].empty:
-        st.error("Joueur introuvable.")
-        clear_move_ctx()
-        return
-
-    row = df_all[mask].iloc[0]
-    cur_statut = str(row.get("Statut", "")).strip()
-    cur_slot = str(row.get("Slot", "")).strip()
-    cur_pos = normalize_pos(row.get("Pos", "F"))
-    cur_team = str(row.get("Equipe", "")).strip()
-    cur_sal = int(row.get("Salaire", 0) or 0)
-
-    from_ir = (cur_slot == "Blessé") or (str(st.session_state.get("move_source","")) == "ir")
-
-    def _close():
-        clear_move_ctx()
-
-    # CSS compact (dialog)
-    css = """
-    <style>
-      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .btnrow button{height:44px;font-weight:1000}
-    </style>
-    """
-
-    @st.dialog("Déplacement", width="small")
-    def _dlg():
-        st.markdown(css, unsafe_allow_html=True)
-        st.markdown(
-            f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
-            f"<div class='dlg-sub'>{html.escape(cur_statut)}"
-            f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
-            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
-            unsafe_allow_html=True
-        )
-
-        st.divider()
 
         # =========================================
         # MODE IR: 3 boutons 1 clic
@@ -1573,14 +1524,11 @@ with tabJ:
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
         st.dataframe(
-            df_actifs_ui,
+            df_show,
             use_container_width=True,
             hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="sel_actifs",
-            unsafe_allow_html=True,
         )
+
 
 
 
