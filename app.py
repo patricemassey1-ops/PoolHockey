@@ -42,10 +42,10 @@ LOGO_POOL_FILE = "data/Logo_Pool.png"         # si tu l'as (sinon il s'affiche p
 LOGOS = {
     "Nordiques": "data/Nordiques_Logo.png",
     "Cracheurs": "data/Cracheurs_Logo.png",
-    "Prédateurs": "data/Prédateurs_Logo.png",
+    "Predateurs": "data/Predateurs_Logo.png",
     "Red Wings": "data/Red_Wings_Logo.png",
     "Whalers": "data/Whalers_Logo.png",
-    "Canadiens": "data/Canadiens_Logo.png",
+    "Canadiens": "data/montreal-canadiens_Logo.png",
 }
 
 def find_logo_for_owner(owner: str) -> str:
@@ -55,6 +55,24 @@ def find_logo_for_owner(owner: str) -> str:
             return path
     return ""
 
+# =====================================================
+# TEAM SELECTION (GLOBAL)
+# =====================================================
+if "selected_team" not in st.session_state:
+    st.session_state["selected_team"] = ""  # "Whalers", etc.
+
+def set_selected_team(team: str):
+    st.session_state["selected_team"] = str(team or "").strip()
+    do_rerun()
+
+def get_selected_team() -> str:
+    return str(st.session_state.get("selected_team", "")).strip()
+
+def team_logo_path(team: str) -> str:
+    """Retourne le path exact du logo de l'équipe (selon LOGOS)."""
+    t = str(team or "").strip()
+    p = LOGOS.get(t, "")
+    return p if p and os.path.exists(p) else ""
 
 
 
@@ -1114,15 +1132,14 @@ if uploaded is not None:
             st.sidebar.error(f"❌ Import échoué : {e}")
 
 # =====================================================
-# HEADER GLOBAL (TOP) — Logo Pool + PMS + Équipe à droite
+# HEADER GLOBAL (TOP) — Logo Pool + PMS + équipe à droite
 # =====================================================
 LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
-
 if os.path.exists(LOGO_POOL_FILE):
     st.image(LOGO_POOL_FILE, use_container_width=True)
 
 selected_team = get_selected_team()
-team_logo_path = find_logo_for_owner(selected_team) if selected_team else ""
+logo_team = team_logo_path(selected_team)
 
 hL, hR = st.columns([3, 2], vertical_alignment="center")
 
@@ -1132,11 +1149,14 @@ with hL:
 with hR:
     r1, r2 = st.columns([1, 4], vertical_alignment="center")
     with r1:
-        if team_logo_path and os.path.exists(team_logo_path):
-            st.image(team_logo_path, width=44)
+        if logo_team:
+            st.image(logo_team, width=46)
     with r2:
         if selected_team:
             st.markdown(f"### {selected_team}")
+        else:
+            st.caption("Sélectionne une équipe dans l’onglet Tableau")
+
 
 
 
@@ -1180,31 +1200,14 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 )
 
 # =====================================================
-# TAB 1 — Tableau (renommé + logos)
+# TAB 1 — Tableau (clic équipe + highlight)
 # =====================================================
 with tab1:
     st.subheader("📊 Tableau")
 
-    # ============================
-    # CSS — Highlight équipe sélectionnée
-    # ============================
-    st.markdown("""
-    <style>
-    .team-row {
-      padding: 10px 10px;
-      border-radius: 12px;
-      margin: 4px 0;
-    }
-    .team-row.selected {
-      border: 2px solid rgba(34,197,94,.75);
-      background: rgba(34,197,94,.10);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    selected_team = get_selected_team()
 
-    # ============================
-    # Headers du tableau
-    # ============================
+    # Header colonnes
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipes**")
     headers[1].markdown("**Total Grand Club**")
@@ -1212,42 +1215,36 @@ with tab1:
     headers[3].markdown("**Total Club École**")
     headers[4].markdown("**Montant Disponible CE**")
 
-    # ============================
-    # Équipe sélectionnée
-    # ============================
-    selected_team = st.session_state.get("selected_team", "")
-
-    # ============================
-    # Lignes du tableau
-    # ============================
+    # Lignes
     for _, r in plafonds.iterrows():
-        owner = str(r["Propriétaire"])
+        owner = str(r["Propriétaire"]).strip()
         logo_path = str(r.get("Logo", "")).strip()
-
         is_selected = (owner == selected_team)
-        row_class = "team-row selected" if is_selected else "team-row"
 
-        # wrapper HTML (début)
-        st.markdown(f"<div class='{row_class}'>", unsafe_allow_html=True)
+        # Ligne encadrée + highlight
+        with st.container(border=True):
+            row = st.columns([4, 2, 2, 2, 2], vertical_alignment="center")
 
-        cols = st.columns([4, 2, 2, 2, 2])
+            # Colonne équipe = logo + bouton (clic)
+            with row[0]:
+                a, b = st.columns([1, 6], vertical_alignment="center")
+                with a:
+                    if logo_path and os.path.exists(logo_path):
+                        st.image(logo_path, width=44)
+                    else:
+                        st.markdown("—")
 
-        # Colonne équipe = logo + nom
-        with cols[0]:
-            c_logo, c_name = st.columns([1, 4], vertical_alignment="center")
-            with c_logo:
-                if logo_path and os.path.exists(logo_path):
-                    st.image(logo_path, width=44)
-                else:
-                    st.markdown("—")
-            with c_name:
-                st.markdown(f"**{owner}**")
+                with b:
+                    label = f"✅ {owner}" if is_selected else owner
+                    if st.button(label, key=f"pick_team_{owner}", use_container_width=True):
+                        set_selected_team(owner)
 
-        # Totaux
-        cols[1].markdown(money(r["Total Grand Club"]))
-        cols[2].markdown(money(r["Montant Disponible GC"]))
-        cols[3].markdown(money(r["Total Club École"]))
-        cols[4].markdown(money(r["Montant Disponible CE"]))
+            # Totaux (ne pas toucher comme tu as demandé)
+            row[1].markdown(money(r["Total Grand Club"]))
+            row[2].markdown(money(r["Montant Disponible GC"]))
+            row[3].markdown(money(r["Total Club École"]))
+            row[4].markdown(money(r["Montant Disponible CE"]))
+
 
         # wrapper HTML (fin)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1267,19 +1264,30 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
-    owners = sorted(st.session_state["data"]["Propriétaire"].unique())
-    selected_team = st.session_state.get("selected_team", "")
+    # ---------
+    # Owner (filtré par équipe sélectionnée)
+    # ---------
+    all_owners = sorted(st.session_state["data"]["Propriétaire"].unique())
+    selected_team = get_selected_team()
 
-    default_index = 0
-    if selected_team in owners:
-        default_index = owners.index(selected_team)
+    # si une équipe est choisie et existe dans les owners → on force la liste à 1 choix
+    if selected_team and selected_team in all_owners:
+        owners_list = [selected_team]
+        default_index = 0
+    else:
+        owners_list = all_owners
+        default_index = 0
 
     proprietaire = st.selectbox(
         "Propriétaire",
-        owners,
+        owners_list,
         index=default_index,
         key="align_owner",
     )
+
+    # (le reste de ton code Alignement continue ici, toujours indenté)
+
+
 
 
     st.session_state["data"] = clean_data(st.session_state["data"])
