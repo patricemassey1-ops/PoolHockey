@@ -1177,21 +1177,26 @@ tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
 with tab1:
     st.subheader("📊 Tableau")
 
-st.markdown("""
-<style>
-.team-row {
-  padding: 10px 10px;
-  border-radius: 12px;
-  margin: 4px 0;
-}
-.team-row.selected {
-  border: 2px solid rgba(34,197,94,.75);
-  background: rgba(34,197,94,.10);
-}
-</style>
-""", unsafe_allow_html=True)
+    # ============================
+    # CSS — Highlight équipe sélectionnée
+    # ============================
+    st.markdown("""
+    <style>
+    .team-row {
+      padding: 10px 10px;
+      border-radius: 12px;
+      margin: 4px 0;
+    }
+    .team-row.selected {
+      border: 2px solid rgba(34,197,94,.75);
+      background: rgba(34,197,94,.10);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-
+    # ============================
+    # Headers du tableau
+    # ============================
     headers = st.columns([4, 2, 2, 2, 2])
     headers[0].markdown("**Équipes**")
     headers[1].markdown("**Total Grand Club**")
@@ -1199,39 +1204,46 @@ st.markdown("""
     headers[3].markdown("**Total Club École**")
     headers[4].markdown("**Montant Disponible CE**")
 
-    selected_team = get_selected_team()  # ou st.session_state.get("selected_team","")
+    # ============================
+    # Équipe sélectionnée
+    # ============================
+    selected_team = st.session_state.get("selected_team", "")
 
-for _, r in plafonds.iterrows():
-    owner = str(r["Propriétaire"])
-    logo_path = str(r.get("Logo", "")).strip()
+    # ============================
+    # Lignes du tableau
+    # ============================
+    for _, r in plafonds.iterrows():
+        owner = str(r["Propriétaire"])
+        logo_path = str(r.get("Logo", "")).strip()
 
-    is_selected = (owner == selected_team)
-    row_class = "team-row selected" if is_selected else "team-row"
+        is_selected = (owner == selected_team)
+        row_class = "team-row selected" if is_selected else "team-row"
 
-    # wrapper HTML (début)
-    st.markdown(f"<div class='{row_class}'>", unsafe_allow_html=True)
+        # wrapper HTML (début)
+        st.markdown(f"<div class='{row_class}'>", unsafe_allow_html=True)
 
-    cols = st.columns([4, 2, 2, 2, 2])
+        cols = st.columns([4, 2, 2, 2, 2])
 
-    # Colonne équipe = logo + nom
-    with cols[0]:
-        c_logo, c_name = st.columns([1, 4], vertical_alignment="center")
-        with c_logo:
-            if logo_path and os.path.exists(logo_path):
-                st.image(logo_path, width=44)
-            else:
-                st.markdown("—")
-        with c_name:
-            st.markdown(f"**{owner}**")
+        # Colonne équipe = logo + nom
+        with cols[0]:
+            c_logo, c_name = st.columns([1, 4], vertical_alignment="center")
+            with c_logo:
+                if logo_path and os.path.exists(logo_path):
+                    st.image(logo_path, width=44)
+                else:
+                    st.markdown("—")
+            with c_name:
+                st.markdown(f"**{owner}**")
 
-    # Totaux
-    cols[1].markdown(money(r["Total Grand Club"]))
-    cols[2].markdown(money(r["Montant Disponible GC"]))
-    cols[3].markdown(money(r["Total Club École"]))
-    cols[4].markdown(money(r["Montant Disponible CE"]))
+        # Totaux
+        cols[1].markdown(money(r["Total Grand Club"]))
+        cols[2].markdown(money(r["Montant Disponible GC"]))
+        cols[3].markdown(money(r["Total Club École"]))
+        cols[4].markdown(money(r["Montant Disponible CE"]))
 
-    # wrapper HTML (fin)
-    st.markdown("</div>", unsafe_allow_html=True)
+        # wrapper HTML (fin)
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
