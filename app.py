@@ -56,39 +56,44 @@ def find_logo_for_owner(owner: str) -> str:
     return ""
 
 # =====================================================
-# TEAM SELECTION (GLOBAL)
+# TEAM SELECTION — GLOBAL (UNIQUE SOURCE OF TRUTH)
 # =====================================================
 if "selected_team" not in st.session_state:
-    st.session_state["selected_team"] = ""  # "Whalers", etc.
+    st.session_state["selected_team"] = ""
 
-def set_selected_team(team: str):
-    st.session_state["selected_team"] = str(team or "").strip()
-    do_rerun()
+def pick_team(team: str):
+    """
+    Sélectionne une équipe (1 clic)
+    - sync selected_team
+    - sync align_owner (onglet Alignement)
+    """
+    team = str(team or "").strip()
+    st.session_state["selected_team"] = team
+    st.session_state["align_owner"] = team
+    st.rerun()
 
 def get_selected_team() -> str:
     return str(st.session_state.get("selected_team", "")).strip()
 
 def team_logo_path(team: str) -> str:
-    """Retourne le path logo pour une équipe (si dispo), sinon '' (avec fallback)."""
+    """Retourne le path logo pour une équipe (si dispo), sinon '' avec fallback."""
     raw = str(LOGOS.get(team, "")).strip()
     candidates = []
 
     if raw:
-        candidates.append(raw)
-
-        # variantes simples
         base = raw.replace("\\", "/")
-        candidates.append(base.lower())
-        candidates.append(base.upper())
-
-        # variantes tirets/underscores
-        candidates.append(base.replace("-", "_"))
-        candidates.append(base.replace("_", "-"))
-
-        # variantes de casse de dossier
+        candidates += [
+            base,
+            base.lower(),
+            base.upper(),
+            base.replace("-", "_"),
+            base.replace("_", "-"),
+        ]
         if base.startswith("data/"):
-            candidates.append("data/" + base[5:].lower())
-            candidates.append("data/" + base[5:].upper())
+            candidates += [
+                "data/" + base[5:].lower(),
+                "data/" + base[5:].upper(),
+            ]
 
     for p in candidates:
         if p and os.path.exists(p):
@@ -96,20 +101,6 @@ def team_logo_path(team: str) -> str:
     return ""
 
 
-
-
-# =====================================================
-# TEAM SELECTION — GLOBAL STATE
-# =====================================================
-if "selected_team" not in st.session_state:
-    st.session_state["selected_team"] = ""
-
-def set_selected_team(team: str):
-    st.session_state["selected_team"] = str(team or "").strip()
-    do_rerun()
-
-def get_selected_team() -> str:
-    return str(st.session_state.get("selected_team", "") or "").strip()
 
 
 
@@ -1056,17 +1047,9 @@ def team_logo_path(team: str) -> str:
 def get_selected_team() -> str:
     return str(st.session_state.get("selected_team", "")).strip()
 
-def pick_team(team_name: str):
-    team_name = str(team_name).strip()
-
-    # 1) équipe sélectionnée
-    st.session_state["selected_team"] = team_name
-
-    # 2) synchronise le selectbox Alignement (évite double clic)
-    st.session_state["align_owner"] = team_name
-
-    do_rerun()  # ou st.rerun()
-
+# =====================================================
+# TEAM GRID — SIDEBAR (FONCTION)
+# =====================================================
 def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
     selected = get_selected_team()
@@ -1113,6 +1096,7 @@ def render_team_grid_sidebar():
 
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
+
         for j in range(cols_per_row):
             if i + j >= len(teams):
                 continue
@@ -1133,12 +1117,12 @@ def render_team_grid_sidebar():
 
                 st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
-                # ✅ 1 clic (sync selected_team + align_owner)
-                if st.button(f"{label} {team_name}", key=f"team_{team_name}", use_container_width=True):
-    				pick_team(team_name)
-
+                # ✅ 1 clic — TOUT passe par pick_team
+                if st.button(team, key=f"pick_{team}", use_container_width=True):
+                    pick_team(team)
 
                 st.markdown("</div>", unsafe_allow_html=True)
+
 
 # init sélection si absent
 if "selected_team" not in st.session_state:
@@ -1309,34 +1293,35 @@ with tab1:
     headers[4].markdown("**Montant Disponible CE**")
 
     # Lignes
-    for _, r in plafonds.iterrows():
-        owner = str(r["Propriétaire"]).strip()
-        logo_path = str(r.get("Logo", "")).strip()
-        is_selected = (owner == selected_team)
+for _, r in plafonds.iterrows():
+    owner = str(r["Propriétaire"]).strip()
+    logo_path = str(r.get("Logo", "")).strip()
+    is_selected = (owner == selected_team)
 
-        # Ligne encadrée + highlight
-        with st.container(border=True):
-            row = st.columns([4, 2, 2, 2, 2], vertical_alignment="center")
+    # Ligne encadrée + highlight (optionnel)
+    with st.container(border=True):
+        row = st.columns([4, 2, 2, 2, 2], vertical_alignment="center")
 
-            # Colonne équipe = logo + bouton (clic)
-            with row[0]:
-                a, b = st.columns([1, 6], vertical_alignment="center")
-                with a:
-                    if logo_path and os.path.exists(logo_path):
-                        st.image(logo_path, width=44)
-                    else:
-                        st.markdown("—")
+        # Colonne équipe = logo + bouton (clic)
+        with row[0]:
+            a, b = st.columns([1, 6], vertical_alignment="center")
 
-                with b:
-                    label = f"✅ {owner}" if is_selected else owner
-                    if st.button(label, key=f"pick_team_{owner}", use_container_width=True):
-                        set_selected_team(owner)
+            with a:
+                if logo_path and os.path.exists(logo_path):
+                    st.image(logo_path, width=44)
+                else:
+                    st.markdown("—")
 
-            # Totaux (ne pas toucher comme tu as demandé)
-            row[1].markdown(money(r["Total Grand Club"]))
-            row[2].markdown(money(r["Montant Disponible GC"]))
-            row[3].markdown(money(r["Total Club École"]))
-            row[4].markdown(money(r["Montant Disponible CE"]))
+            with b:
+                label = f"✅ {owner}" if is_selected else owner
+                if st.button(label, key=f"tbl_pick_{owner}", use_container_width=True):
+                    pick_team(owner)  # ✅ 1 clic + sync Alignement
+
+        # Totaux (ne pas toucher)
+        row[1].markdown(money(r["Total Grand Club"]))
+        row[2].markdown(money(r["Montant Disponible GC"]))
+        row[3].markdown(money(r["Total Club École"]))
+        row[4].markdown(money(r["Montant Disponible CE"]))
 
 
         # wrapper HTML (fin)
@@ -1357,24 +1342,18 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ---------
-    # Owner (filtré par équipe sélectionnée)
-    # ---------
     all_owners = sorted(st.session_state["data"]["Propriétaire"].unique())
     selected_team = get_selected_team()
-all_owners = sorted(st.session_state["data"]["Propriétaire"].unique())
 
-# ✅ force la valeur du selectbox à suivre l'équipe choisie
-if selected_team and selected_team in all_owners:
-    if st.session_state.get("align_owner") != selected_team:
+    if selected_team and selected_team in all_owners:
         st.session_state["align_owner"] = selected_team
 
-
     proprietaire = st.selectbox(
-   		"Propriétaire",
-    	([selected_team] if selected_team in all_owners else all_owners),
-    	key="align_owner",
-	)
+        "Propriétaire",
+        ([selected_team] if selected_team in all_owners else all_owners),
+        key="align_owner",
+    )
+
 
 
     # (le reste de ton code Alignement continue ici, toujours indenté)
