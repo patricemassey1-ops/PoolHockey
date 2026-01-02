@@ -1314,10 +1314,14 @@ with tabA:
     if "auto_open_banc" not in st.session_state:
         st.session_state["auto_open_banc"] = False
 
+    # On force l'ouverture du Banc si invalide, sinon on ne force pas la fermeture
+    # (ça évite que ça se referme tout seul si l'utilisateur l'ouvre manuellement)
     if lineup_invalid:
         st.session_state["auto_open_banc"] = True
-    else:
-        st.session_state["auto_open_banc"] = False
+
+    # Option GM extrême: bloquer tout le reste tant que non conforme
+    # if lineup_invalid:
+    #     st.stop()
 
     # ============================
     # Résumé (STREAMLIT PUR) — compact + alerte GM
@@ -1417,6 +1421,7 @@ with tabA:
 
     # ✅ Pop-up (toujours à la fin)
     open_move_dialog()
+
 
 
 
