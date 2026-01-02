@@ -217,18 +217,30 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     UI cliquable: 1 bouton par joueur + badges CSS.
     Colonnes: Pos | Team | Joueur | Salaire
     Tri: Pos (F,D,G) -> Salaire (desc) -> 1ère lettre -> Nom
-    Retourne le joueur cliqué (str) ou None.
     """
     if df_src is None or df_src.empty:
         st.info("Aucun joueur.")
         return None
 
-    # CSS compact
+    # CSS: boutons plus compacts + texte aligné gauche + salaire nowrap
     st.markdown(
         """
         <style>
-          div[data-testid="stButton"] > button { padding: 0.18rem 0.5rem; font-weight: 900; }
-          .rowline { padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+          div[data-testid="stButton"] > button{
+            padding: 0.18rem 0.45rem;
+            font-weight: 900;
+            text-align: left;
+            justify-content: flex-start;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .salaryCell{
+            white-space: nowrap;
+            text-align: right;
+            font-weight: 900;
+            display: block;
+          }
         </style>
         """,
         unsafe_allow_html=True,
@@ -241,32 +253,36 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         if c not in t.columns:
             t[c] = d
 
-    # Normalisations minimales (safe)
+    # Nettoyage minimal (évite "None" / "nan")
     t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-
-    # ✅ TRI demandé: F -> salaire desc -> initiale -> nom
-    t["Pos"] = t["Pos"].apply(normalize_pos)
-    t["_pos"] = t["Pos"].apply(pos_sort_key)
-
     t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
 
-    t["_initial"] = (
-        t["Joueur"].astype(str).str.strip().str.upper().str[0].fillna("?")
-    )
+    # ✅ Retire les lignes parasites (None/nan/vide)
+    bad = {"", "none", "nan", "null"}
+    t = t[~t["Joueur"].str.lower().isin(bad)].copy()
+    if t.empty:
+        st.info("Aucun joueur.")
+        return None
+
+    # Tri: Pos -> Salaire desc -> initiale -> nom
+    t["Pos"] = t["Pos"].apply(normalize_pos)
+    t["_pos"] = t["Pos"].apply(pos_sort_key)
+    t["_initial"] = t["Joueur"].str.upper().str[0].fillna("?")
 
     t = (
         t.sort_values(
             by=["_pos", "Salaire", "_initial", "Joueur"],
             ascending=[True, False, True, True],
-            kind="mergesort",  # tri stable
+            kind="mergesort",
         )
         .drop(columns=["_pos", "_initial"])
         .reset_index(drop=True)
     )
 
-    # Header
-    h = st.columns([1.3, 1.8, 4.2, 1.7])
+    # ✅ Colonnes: on réduit un peu "Joueur" et on élargit "Salaire"
+    # (ça évite le wrap du salaire)
+    h = st.columns([1.2, 1.6, 3.6, 2.4])
     h[0].markdown("**Pos**")
     h[1].markdown("**Team**")
     h[2].markdown("**Joueur**")
@@ -282,16 +298,17 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         team = str(r.get("Equipe", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
 
-        c = st.columns([1.3, 1.8, 4.2, 1.7])
+        c = st.columns([1.2, 1.6, 3.6, 2.4])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
-        c[1].markdown(team if team else "—")
+        c[1].markdown(team if team and team.lower() not in bad else "—")
 
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             clicked = joueur
 
-        c[3].markdown(money(salaire))
+        c[3].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
+
 
 
 
