@@ -1053,15 +1053,22 @@ def team_logo_path(team: str) -> str:
     path = str(LOGOS.get(team, "")).strip()
     return path if path and os.path.exists(path) else ""
 
-def set_selected_team(team: str):
-    st.session_state["selected_team"] = team
-
 def get_selected_team() -> str:
     return str(st.session_state.get("selected_team", "")).strip()
 
+def pick_team(team_name: str):
+    team_name = str(team_name).strip()
+
+    # 1) équipe sélectionnée
+    st.session_state["selected_team"] = team_name
+
+    # 2) synchronise le selectbox Alignement (évite double clic)
+    st.session_state["align_owner"] = team_name
+
+    do_rerun()  # ou st.rerun()
+
 def render_team_grid_sidebar():
     st.sidebar.markdown("### 🏒 Équipes")
-
     selected = get_selected_team()
 
     st.sidebar.markdown(
@@ -1113,12 +1120,10 @@ def render_team_grid_sidebar():
             team = teams[i + j]
             path = team_logo_path(team)
             is_sel = (team == selected)
+            cls = "team-card selected" if is_sel else "team-card"
 
             with row[j]:
-                st.markdown(
-                    f"<div class='team-card {'selected' if is_sel else ''}'>",
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"<div class='{cls}'>", unsafe_allow_html=True)
 
                 if path:
                     st.image(path, width=64)
@@ -1128,9 +1133,9 @@ def render_team_grid_sidebar():
 
                 st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
 
+                # ✅ 1 clic (sync selected_team + align_owner)
                 if st.button("Sélectionner", key=f"pick_{team}", use_container_width=True):
-                    set_selected_team(team)
-                    do_rerun()
+                    pick_team(team)
 
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1140,6 +1145,7 @@ if "selected_team" not in st.session_state:
 
 st.sidebar.divider()
 render_team_grid_sidebar()
+
 
 
 # =====================================================
