@@ -845,22 +845,67 @@ def render_team_grid_sidebar():
         st.sidebar.info("Aucune équipe configurée.")
         return
 
-    # ✅ Toujours une équipe active
+    # -------------------------------------------------
+    # 1) Lire le query param ?team=... (clic logo)
+    # -------------------------------------------------
+    try:
+        qp_team = st.query_params.get("team", "")
+        # st.query_params peut retourner list ou str selon version
+        if isinstance(qp_team, list):
+            qp_team = qp_team[0] if qp_team else ""
+        qp_team = unquote(str(qp_team or "")).strip()
+    except Exception:
+        # fallback anciennes versions
+        qp = st.experimental_get_query_params()
+        qp_team = unquote(qp.get("team", [""])[0]).strip()
+
+    if qp_team and qp_team in teams and qp_team != get_selected_team():
+        pick_team(qp_team)
+
     selected = get_selected_team()
+
+    # Toujours une équipe active
     if not selected or selected not in teams:
         pick_team(teams[0])
         selected = teams[0]
 
-    # 🎨 CSS (carte + bouton style “carte cliquable” + dot radio)
+    # -------------------------------------------------
+    # 2) Helper: image -> base64 data uri (pour <img>)
+    # -------------------------------------------------
+    def _img_data_uri(path: str) -> str:
+        try:
+            if not path or not os.path.exists(path):
+                return ""
+            ext = os.path.splitext(path)[1].lower()
+            mime = "image/png"
+            if ext in [".jpg", ".jpeg"]:
+                mime = "image/jpeg"
+            elif ext == ".webp":
+                mime = "image/webp"
+
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+            return f"data:{mime};base64,{b64}"
+        except Exception:
+            return ""
+
+    # -------------------------------------------------
+    # 3) CSS: carte + logo cliquable + highlight sélection
+    # -------------------------------------------------
     st.sidebar.markdown(
         """
         <style>
-        /* Cartes (container border) */
-        section[data-testid="stSidebar"] div[data-testid="stContainer"]{
-            border-radius:16px !important;
-            background: rgba(255,255,255,.03) !important;
+        .team-card{
+            border:1px solid rgba(255,255,255,.10);
+            border-radius:16px;
+            padding:10px 8px 10px 8px;
+            background: rgba(255,255,255,.03);
+            text-align:center;
         }
-
+        .team-card.sel{
+            border:2px solid rgba(34,197,94,.85);
+            background: rgba(34,197,94,.08);
+        }
         .team-name{
             font-weight:900;
             font-size:13px;
@@ -869,67 +914,35 @@ def render_team_grid_sidebar():
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
-            text-align:center;
         }
-
         .team-missing{
             font-size:11px;
             opacity:.65;
             margin-top:4px;
-            text-align:center;
         }
 
-        /* Radio visuel */
-        .team-dot{
-            text-align:center;
-            font-size:16px;
-            line-height:16px;
-            margin-top:6px;
-            font-weight:1000;
-            opacity:.35;
+        /* Logo cliquable */
+        .logo-link{
+            display:inline-block;
+            border-radius:14px;
+            padding:0;
+            margin:0;
         }
-        .team-dot.on{ opacity:1; }
-
-        /* Bouton “carte” discret */
-        section[data-testid="stSidebar"] div[data-testid="stButton"] > button{
-            padding: .22rem .35rem !important;
-            font-weight: 900 !important;
-            border-radius: 10px !important;
-            width: 100%;
-        }
-        /* Bouton de sélection = vert si sélectionné */
-        section[data-testid="stSidebar"] button[kind="primary"]{
-            background:#16a34a !important;
-            border:1px solid #16a34a !important;
-            color:white !important;
-        }
-
-        /* Radio réel compact */
-        section[data-testid="stSidebar"] div[role="radiogroup"] label{
-            padding:2px 0 !important;
+        .logo-link img{
+            width:64px;
+            height:64px;
+            object-fit:contain;
+            border-radius:14px;
+            display:block;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # ✅ Radio réel (source de vérité UI)
-    idx = teams.index(selected)
-    chosen = st.sidebar.radio(
-        "Équipe sélectionnée",
-        teams,
-        index=idx,
-        label_visibility="collapsed",
-        key="sidebar_team_radio",
-    )
-
-    if chosen != selected:
-        pick_team(chosen)
-        selected = chosen
-
-    st.sidebar.divider()
-
-    # ✅ Grille + “clic carte”
+    # -------------------------------------------------
+    # 4) Grille: Logo + Nom (clic = logo seulement)
+    # -------------------------------------------------
     cols_per_row = 3
     for i in range(0, len(teams), cols_per_row):
         row = st.sidebar.columns(cols_per_row, gap="small")
@@ -941,35 +954,38 @@ def render_team_grid_sidebar():
             team = teams[i + j]
             path = team_logo_path(team)
             is_sel = (team == selected)
+            card_cls = "team-card sel" if is_sel else "team-card"
 
             with row[j]:
-                with st.container(border=True):
-                    # Logo
-                    if path:
-                        st.image(path, width=64)
-                    else:
-                        st.markdown("🖼️", unsafe_allow_html=True)
-                        st.markdown("<div class='team-missing'>Logo manquant</div>", unsafe_allow_html=True)
+                data_uri = _img_data_uri(path)
 
-                    # Nom
-                    st.markdown(f"<div class='team-name'>{team}</div>", unsafe_allow_html=True)
+                # Carte complète en HTML (aucun div orphelin -> pas de pill)
+                if data_uri:
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="logo-link" href="?team={quote(team)}">
+                            <img src="{data_uri}" alt="{html.escape(team)}" />
+                          </a>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.sidebar.markdown(
+                        f"""
+                        <div class="{card_cls}">
+                          <a class="logo-link" href="?team={quote(team)}" style="text-decoration:none">
+                            <div style="font-size:34px;line-height:64px">🖼️</div>
+                          </a>
+                          <div class="team-missing">Logo manquant</div>
+                          <div class="team-name">{html.escape(team)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
-                    # Dot radio visuel
-                    dot = "●" if is_sel else "○"
-                    cls = "team-dot on" if is_sel else "team-dot"
-                    st.markdown(f"<div class='{cls}'>{dot}</div>", unsafe_allow_html=True)
-
-                    # ✅ “clic carte” (bouton discret, pleine largeur)
-                    # - si déjà sélectionné: on affiche un bouton vert "Sélectionné"
-                    # - sinon: bouton "Sélectionner"
-                    if st.button(
-                        "Sélectionné" if is_sel else "Sélectionner",
-                        key=f"card_pick_{team}",
-                        use_container_width=True,
-                        type=("primary" if is_sel else "secondary"),
-                        disabled=is_sel,  # ✅ pas de "décocher"
-                    ):
-                        pick_team(team)
 
 
 
