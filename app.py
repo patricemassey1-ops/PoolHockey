@@ -192,6 +192,13 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     """
 
 # =====================================================
+# ADMIN GUARD
+# =====================================================
+def _is_admin_whalers() -> bool:
+    return str(get_selected_team() or "").strip().lower() == "whalers"
+
+
+# =====================================================
 # GOOGLE DRIVE — OAUTH FINAL (clean + refresh silencieux)
 # =====================================================
 
