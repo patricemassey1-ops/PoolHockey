@@ -282,42 +282,76 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     </div>
     """
 
+def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
+    """
+    Garantit une colonne 'Propriétaire'.
+    - Si une colonne owner existe déjà (Owner, Team, Propriétaire, etc.), on la renomme -> 'Propriétaire'
+    - Sinon, on crée 'Propriétaire' = fallback_owner
+    """
+    if df is None or df.empty:
+        return df
+
+    cols = list(df.columns)
+    norm = {c: str(c).strip().lower() for c in cols}
+
+    # colonnes possibles qui veulent dire "owner"
+    candidates = [
+        "propriétaire", "proprietaire",
+        "owner", "owners",
+        "team", "équipe", "equipe",
+        "franchise", "club"
+    ]
+
+    found = None
+    for c in cols:
+        if norm[c] in candidates:
+            found = c
+            break
+
+    out = df.copy()
+    if found and found != "Propriétaire":
+        out = out.rename(columns={found: "Propriétaire"})
+
+    if "Propriétaire" not in out.columns:
+        out["Propriétaire"] = str(fallback_owner or "").strip()
+
+    # nettoyage
+    out["Propriétaire"] = out["Propriétaire"].astype(str).str.strip()
+    out.loc[out["Propriétaire"].eq(""), "Propriétaire"] = str(fallback_owner or "").strip()
+    return out
+
+
 def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
     """
-    Essaie de deviner le nom d'équipe/propriétaire à partir des lignes au-dessus du tableau Fantrax.
-    Typique: première ligne = "Whalers", puis une ligne "Skaters", puis l'entête "ID, Pos, Player..."
+    Devine l'équipe/proprio à partir des lignes au-dessus du tableau Fantrax.
+    Typique: 1ère ligne = 'Whalers', puis 'Skaters', puis entête 'ID,Pos,Player,...'
     """
     try:
         raw = uploaded.getvalue()
         text = raw.decode("utf-8", errors="ignore")
         lines = [ln.strip() for ln in text.splitlines()]
-        # garde les premières lignes non vides
-        top = [ln for ln in lines[:20] if ln]
+        top = [ln for ln in lines[:30] if ln]
 
-        # coupe au moment où on atteint l'entête du tableau
         stop_idx = None
         for i, ln in enumerate(top):
             low = ln.lower()
-            if low.startswith("id,") or low.startswith('"id",') or ",player" in low:
+            if low.startswith("id,") or low.startswith('"id",') or (",player" in low):
                 stop_idx = i
                 break
 
         candidates = top[:stop_idx] if stop_idx is not None else top
-
-        # enlève les lignes "Skaters", "Goalies", etc.
         banned = {"skaters", "goalies", "players"}
         candidates = [c for c in candidates if c.strip().lower() not in banned]
 
-        # si la 1re ligne est un nom seul (sans virgule), c'est souvent le owner
         if candidates:
             first = candidates[0].strip().strip('"').strip()
             if first and ("," not in first) and (len(first) <= 40):
                 return first
-
     except Exception:
         pass
 
     return str(fallback or "").strip()
+
 
 
 # =====================================================
@@ -1903,12 +1937,11 @@ if tabAdmin is not None:
                 if st.button("💾 Sauver CSV initiaux", use_container_width=True, key="save_init_csvs_admin"):
                     saved_any = False
 
-                    # -------- ALIGNEMENT
+                    # -------- ALIGNEMENT (Fantrax)
                     if init_align is not None:
                         try:
-                            # 1) Sauvegarde fichier brut
+                            # 1) Sauvegarde fichier brut (persistant)
                             path = save_uploaded_csv(init_align, f"initial_fantrax_{season}.csv")
-
                             manifest["fantrax"] = {
                                 "path": path,
                                 "uploaded_name": init_align.name,
@@ -1916,24 +1949,42 @@ if tabAdmin is not None:
                                 "saved_at": datetime.now().isoformat(),
                             }
 
-                            # 2) Parse Fantrax -> DF interne
+                            # 2) Parse Fantrax -> format interne
                             import io
                             buf = io.BytesIO(init_align.getbuffer())
                             buf.name = init_align.name
-
                             df_import = parse_fantrax(buf)
 
                             if df_import is None or df_import.empty:
                                 st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
                             else:
-                                # ✅ Multi-propriétaires: si une colonne Owner/Team/Propriétaire existe, on la respecte
-                                fallback_owner = guess_owner_from_fantrax_upload(
+                                # --- détecte owner depuis le haut du fichier (ex: 'Whalers')
+                                detected_owner = guess_owner_from_fantrax_upload(
                                     init_align,
-                                    fallback=os.path.splitext(init_align.name)[0]
+                                    fallback=os.path.splitext(init_align.name)[0],
                                 )
 
-                                df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+                                # --- Choix équipe (force owner)
+                                teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+                                if detected_owner and detected_owner not in teams:
+                                    teams = [detected_owner] + teams
+                                if detected_owner and detected_owner not in teams:
+                                    teams = [detected_owner]
+                                if not teams:
+                                    teams = [detected_owner] if detected_owner else [""]
 
+                                st.info(f"Nom détecté dans le haut du fichier : **{detected_owner or '—'}**")
+
+                                chosen_owner = st.selectbox(
+                                    "Importer ces joueurs dans quelle équipe ?",
+                                    teams,
+                                    index=0,
+                                    key="init_align_owner_pick_admin",
+                                )
+
+                                # --- applique owner (même si DF avait une colonne, on force ici)
+                                df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                                df_import["Propriétaire"] = chosen_owner
 
                                 st.session_state["data"] = clean_data(df_import)
 
@@ -1945,7 +1996,7 @@ if tabAdmin is not None:
 
                                 # Sauvegarde Drive (optionnelle)
                                 try:
-                                    if _drive_enabled():
+                                    if "_drive_enabled" in globals() and _drive_enabled():
                                         gdrive_save_df(
                                             st.session_state["data"],
                                             f"fantrax_{season}.csv",
@@ -1954,7 +2005,7 @@ if tabAdmin is not None:
                                 except Exception:
                                     pass
 
-                                st.success("✅ CSV initial sauvegardé et alignement chargé.")
+                                st.success(f"✅ CSV initial sauvegardé et alignement chargé pour **{chosen_owner}**.")
                                 saved_any = True
 
                         except Exception as e:
@@ -1964,7 +2015,6 @@ if tabAdmin is not None:
                     if init_hist is not None:
                         try:
                             path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
-
                             manifest["history"] = {
                                 "path": path,
                                 "uploaded_name": init_hist.name,
@@ -1980,7 +2030,7 @@ if tabAdmin is not None:
                             except Exception:
                                 pass
 
-                            st.success("✅ CSV historique sauvegardé.")
+                            st.success("✅ CSV historique sauvegardé et chargé.")
                             saved_any = True
 
                         except Exception as e:
@@ -2009,13 +2059,35 @@ if tabAdmin is not None:
                             import io
                             with open(fantrax_path, "rb") as f:
                                 buf = io.BytesIO(f.read())
-                            buf.name = manifest.get("fantrax", {}).get("uploaded_name", os.path.basename(fantrax_path))
+                            buf.name = manifest.get("fantrax", {}).get(
+                                "uploaded_name", os.path.basename(fantrax_path)
+                            )
 
                             df_import = parse_fantrax(buf)
 
                             if df_import is not None and not df_import.empty:
-                                fallback_owner = os.path.splitext(buf.name)[0]
-                                df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+                                detected_owner = guess_owner_from_fantrax_upload(
+                                    init_align,
+                                    fallback=os.path.splitext(buf.name)[0],
+                                ) if init_align is not None else os.path.splitext(buf.name)[0]
+
+                                teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+                                if detected_owner and detected_owner not in teams:
+                                    teams = [detected_owner] + teams
+                                if detected_owner and detected_owner not in teams:
+                                    teams = [detected_owner]
+                                if not teams:
+                                    teams = [detected_owner] if detected_owner else [""]
+
+                                chosen_owner = st.selectbox(
+                                    "Recharger l'alignement dans quelle équipe ?",
+                                    teams,
+                                    index=0,
+                                    key="init_align_owner_pick_reload_admin",
+                                )
+
+                                df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                                df_import["Propriétaire"] = chosen_owner
 
                                 st.session_state["data"] = clean_data(df_import)
 
@@ -2112,6 +2184,7 @@ if tabAdmin is not None:
                         )
                 else:
                     st.info("Aucun historique à exporter.")
+
 
 
 
