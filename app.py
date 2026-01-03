@@ -980,9 +980,9 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 
     # 1) Google Drive (priorité)
     if _drive_enabled():
-    try:
-        df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
-        drive_ok = True
+        try:
+            df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
+                drive_ok = True
     except Exception as e:
         df_loaded = None
         drive_ok = False
