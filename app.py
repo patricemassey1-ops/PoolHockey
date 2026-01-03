@@ -1534,17 +1534,19 @@ if tabAdmin is not None:
         if not _is_admin_whalers():
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
-        st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+            st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 
-    # (Optionnel) Debug query params
-    # st.write("DEBUG query params:", dict(st.query_params))
+            # (Optionnel) Debug query params
+            # st.write("DEBUG query params:", dict(st.query_params))
 
-    if not oauth_drive_enabled():
-        st.warning(
-            "OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets."
-        )
-    else:
-        oauth_connect_ui()
+            if not oauth_drive_enabled():
+                st.warning(
+                    "OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / "
+                    "client_secret / redirect_uri dans Secrets."
+                )
+            else:
+                oauth_connect_ui()
+
 
     folder_id = _folder_id() if "_folder_id" in globals() else str(_oauth_cfg().get("folder_id", "")).strip()
     drive_ready = (_drive_enabled() if "_drive_enabled" in globals() else oauth_drive_ready())
