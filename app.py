@@ -284,73 +284,73 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
 
 def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     """
-    Garantit une colonne 'Propriétaire'.
-    - Si une colonne owner existe déjà (Owner, Team, Propriétaire, etc.), on la renomme -> 'Propriétaire'
-    - Sinon, on crée 'Propriétaire' = fallback_owner
+    Assure qu'on a une colonne 'Propriétaire' propre.
+    - Si le CSV contient déjà une colonne Owner/Team/Propriétaire/etc, on la respecte.
+    - Sinon, on met fallback_owner partout.
     """
-    if df is None or df.empty:
-        return df
+    df = df.copy()
 
-    cols = list(df.columns)
-    norm = {c: str(c).strip().lower() for c in cols}
-
-    # colonnes possibles qui veulent dire "owner"
+    # Colonnes possibles dans des CSV externes
     candidates = [
-        "propriétaire", "proprietaire",
-        "owner", "owners",
-        "team", "équipe", "equipe",
-        "franchise", "club"
+        "Propriétaire", "Proprietaire",
+        "Owner", "owner",
+        "Team", "team",
+        "Équipe", "Equipe", "équipe", "equipe",
     ]
 
-    found = None
-    for c in cols:
-        if norm[c] in candidates:
-            found = c
-            break
+    existing = next((c for c in candidates if c in df.columns), None)
 
-    out = df.copy()
-    if found and found != "Propriétaire":
-        out = out.rename(columns={found: "Propriétaire"})
+    # Si une colonne existe mais pas sous le nom exact "Propriétaire", on la mappe
+    if existing and existing != "Propriétaire":
+        df["Propriétaire"] = df[existing]
 
-    if "Propriétaire" not in out.columns:
-        out["Propriétaire"] = str(fallback_owner or "").strip()
+    # Si aucune colonne trouvée, on crée
+    if "Propriétaire" not in df.columns:
+        df["Propriétaire"] = str(fallback_owner).strip()
 
-    # nettoyage
-    out["Propriétaire"] = out["Propriétaire"].astype(str).str.strip()
-    out.loc[out["Propriétaire"].eq(""), "Propriétaire"] = str(fallback_owner or "").strip()
-    return out
+    # Nettoyage (ICI on utilise .str sur UNE SÉRIE, pas sur df)
+    s = df["Propriétaire"]
+    s = s.astype(str).str.strip()
+    s = s.replace({"nan": "", "None": ""})
+    s = s.mask(s.eq(""), str(fallback_owner).strip())
+
+    df["Propriétaire"] = s
+    return df
 
 
 def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
     """
-    Devine l'équipe/proprio à partir des lignes au-dessus du tableau Fantrax.
-    Typique: 1ère ligne = 'Whalers', puis 'Skaters', puis entête 'ID,Pos,Player,...'
+    Tente de détecter le nom en haut du CSV (ex: "Whalers") avant la table.
+    Fonctionne bien avec des exports Excel où le nom est sur une ligne quasi vide.
     """
+    import csv, io
+
     try:
-        raw = uploaded.getvalue()
-        text = raw.decode("utf-8", errors="ignore")
-        lines = [ln.strip() for ln in text.splitlines()]
-        top = [ln for ln in lines[:30] if ln]
+        raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
+        txt = raw.decode("utf-8-sig", errors="ignore")
 
-        stop_idx = None
-        for i, ln in enumerate(top):
-            low = ln.lower()
-            if low.startswith("id,") or low.startswith('"id",') or (",player" in low):
-                stop_idx = i
-                break
+        reader = csv.reader(io.StringIO(txt))
+        for row in reader:
+            cells = [c.strip() for c in row if str(c).strip()]
+            if not cells:
+                continue
 
-        candidates = top[:stop_idx] if stop_idx is not None else top
-        banned = {"skaters", "goalies", "players"}
-        candidates = [c for c in candidates if c.strip().lower() not in banned]
+            v = cells[0]
 
-        if candidates:
-            first = candidates[0].strip().strip('"').strip()
-            if first and ("," not in first) and (len(first) <= 40):
-                return first
+            # ignore des titres/headers courants
+            low = v.lower()
+            if low in {"skaters", "goalies"}:
+                continue
+            if low in {"id", "pos", "player", "team", "age", "salary", "joueur", "équipe"}:
+                continue
+
+            # Un nom d'équipe est généralement court
+            if 1 <= len(v) <= 60:
+                return v
+
+        return str(fallback or "").strip()
     except Exception:
-        pass
-
-    return str(fallback or "").strip()
+        return str(fallback or "").strip()
 
 
 
