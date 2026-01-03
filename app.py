@@ -53,9 +53,18 @@ st.markdown(
 
 LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
 
-# ✅ LOGO POOL — UNE SEULE FOIS, TOUT EN HAUT
+# ✅ LOGO POOL — descendu de ~10 cm
 if os.path.exists(LOGO_POOL_FILE):
-    st.image(LOGO_POOL_FILE, use_container_width=True)
+    st.markdown(
+        f"""
+        <div style="margin-top:380px;">
+            <img src="data:image/png;base64,{base64.b64encode(open(LOGO_POOL_FILE,'rb').read()).decode()}"
+                 style="width:100%; border-radius:12px;" />
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 
 
