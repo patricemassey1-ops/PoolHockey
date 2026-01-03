@@ -771,14 +771,23 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 # =====================================================
 # PLAYERS DB (data/Hockey.Players.csv)
 # =====================================================
+
+# ✅ Assure que PLAYERS_DB_FILE existe bien avant l'appel
+if "PLAYERS_DB_FILE" not in globals():
+    DATA_DIR = "data"
+    os.makedirs(DATA_DIR, exist_ok=True)
+    PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
+
+
 def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
 
 
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str) -> pd.DataFrame:
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         return pd.DataFrame()
+
     dfp = pd.read_csv(path)
 
     name_col = None
@@ -795,6 +804,11 @@ def load_players_db(path: str) -> pd.DataFrame:
 
 
 players_db = load_players_db(PLAYERS_DB_FILE)
+
+# Optionnel: debug doux (sidebar)
+if players_db is None or players_db.empty:
+    st.sidebar.warning(f"⚠️ Base joueurs introuvable ou vide: {PLAYERS_DB_FILE}")
+
 
 
 # =====================================================
