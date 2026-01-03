@@ -59,6 +59,7 @@ if os.path.exists(LOGO_POOL_FILE):
 
 
 
+
 # =====================================================
 # LOGOS (dans /data)
 # =====================================================
@@ -1520,15 +1521,6 @@ else:
 
     plafonds = pd.DataFrame(resume)
 
-
-# =====================================================
-# LOGO POOL — TOUT EN HAUT
-# =====================================================
-if os.path.exists(LOGO_POOL_FILE):
-    st.image(
-        LOGO_POOL_FILE,
-        use_container_width=True
-    )
 
 
 # =====================================================
