@@ -281,6 +281,45 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
       </div>
     </div>
     """
+
+def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
+    """
+    Essaie de deviner le nom d'équipe/propriétaire à partir des lignes au-dessus du tableau Fantrax.
+    Typique: première ligne = "Whalers", puis une ligne "Skaters", puis l'entête "ID, Pos, Player..."
+    """
+    try:
+        raw = uploaded.getvalue()
+        text = raw.decode("utf-8", errors="ignore")
+        lines = [ln.strip() for ln in text.splitlines()]
+        # garde les premières lignes non vides
+        top = [ln for ln in lines[:20] if ln]
+
+        # coupe au moment où on atteint l'entête du tableau
+        stop_idx = None
+        for i, ln in enumerate(top):
+            low = ln.lower()
+            if low.startswith("id,") or low.startswith('"id",') or ",player" in low:
+                stop_idx = i
+                break
+
+        candidates = top[:stop_idx] if stop_idx is not None else top
+
+        # enlève les lignes "Skaters", "Goalies", etc.
+        banned = {"skaters", "goalies", "players"}
+        candidates = [c for c in candidates if c.strip().lower() not in banned]
+
+        # si la 1re ligne est un nom seul (sans virgule), c'est souvent le owner
+        if candidates:
+            first = candidates[0].strip().strip('"').strip()
+            if first and ("," not in first) and (len(first) <= 40):
+                return first
+
+    except Exception:
+        pass
+
+    return str(fallback or "").strip()
+
+
 # =====================================================
 # PERSISTENCE — FICHIERS CSV INITIAUX
 # =====================================================
