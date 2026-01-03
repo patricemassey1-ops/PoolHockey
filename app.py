@@ -614,8 +614,10 @@ def apply_move_with_history(
         if data_file:
             df0.to_csv(data_file, index=False)
     except Exception as e:
-        st.session_state["last_move_error"] = f"Erreur sauvegarde CSV: {e}"
-        return False
+        df_loaded = None
+        drive_ok = False
+        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local). ({e})")
+
 
     # -----------------------------
     # 2) SAVE DRIVE (data) — optionnel
