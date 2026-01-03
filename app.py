@@ -26,6 +26,10 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
+# =====================================================
+# GOOGLE DRIVE CONFIG (global)
+# =====================================================
+GDRIVE_FOLDER_ID = str(st.secrets.get("gdrive", {}).get("folder_id", "")).strip()
 
 
 # =====================================================
@@ -187,39 +191,52 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
 # GOOGLE DRIVE — PERSISTENCE
 # =====================================================
 def gdrive_service():
+    info = dict(st.secrets.get("gdrive", {}))  # copie
+    info.pop("folder_id", None)                # enlève folder_id si présent
+
     creds = service_account.Credentials.from_service_account_info(
-        st.secrets["gdrive"],
-        scopes=["https://www.googleapis.com/auth/drive"]
+        info,
+        scopes=["https://www.googleapis.com/auth/drive"],
     )
     return build("drive", "v3", credentials=creds)
 
 
 def gdrive_get_file_id(service, filename, folder_id):
-    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    safe_name = str(filename).replace("'", "\\'")
+    q = f"name='{safe_name}' and '{folder_id}' in parents and trashed=false"
     res = service.files().list(q=q, fields="files(id,name)").execute()
     files = res.get("files", [])
     return files[0]["id"] if files else None
 
 
-def gdrive_save_df(df, filename, folder_id):
+USE_GDRIVE = bool(GDRIVE_FOLDER_ID)
+
+
+def gdrive_save_df(df: pd.DataFrame, filename: str, folder_id: str) -> bool:
+    """Sauvegarde df en CSV dans Google Drive. Retourne True si OK."""
+    if not folder_id:
+        return False
+
     service = gdrive_service()
     file_id = gdrive_get_file_id(service, filename, folder_id)
 
     csv_bytes = df.to_csv(index=False).encode("utf-8")
-    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv")
+    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
 
     if file_id:
         service.files().update(fileId=file_id, media_body=media).execute()
     else:
-        file_metadata = {
-            "name": filename,
-            "parents": [folder_id],
-            "mimeType": "text/csv",
-        }
+        file_metadata = {"name": filename, "parents": [folder_id]}
         service.files().create(body=file_metadata, media_body=media).execute()
 
+    return True
 
-def gdrive_load_df(filename, folder_id):
+
+def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
+    """Charge un CSV depuis Google Drive et retourne un DataFrame, ou None si absent."""
+    if not folder_id:
+        return None
+
     service = gdrive_service()
     file_id = gdrive_get_file_id(service, filename, folder_id)
     if not file_id:
@@ -235,6 +252,7 @@ def gdrive_load_df(filename, folder_id):
 
     fh.seek(0)
     return pd.read_csv(fh)
+
 
 
 # =====================================================
@@ -963,37 +981,38 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
-st.sidebar.write("Drive folder:", GDRIVE_FOLDER_ID)
 
 
 # =====================================================
 # LOAD DATA / HISTORY quand saison change (persist reboot)
-#   ✅ Google Drive (principal)
+#   ✅ Google Drive (principal si configuré)
 #   ✅ fallback CSV local (secondaire)
 #   ✅ crée un CSV vide si rien n'existe
 # =====================================================
 
-# ID du dossier Google Drive (recommandé dans Secrets)
-GDRIVE_FOLDER_ID = str(st.secrets["gdrive"].get("folder_id", "")).strip()
-
-def _safe_empty_df():
+def _safe_empty_df() -> pd.DataFrame:
     return pd.DataFrame(columns=REQUIRED_COLS)
 
-if "season" not in st.session_state or st.session_state["season"] != season:
-    df_loaded = None
 
-    # -----------------------------
+def _drive_enabled() -> bool:
+    return bool(GDRIVE_FOLDER_ID)
+
+
+# -----------------------------
+# DATA — load on season change
+# -----------------------------
+if "season" not in st.session_state or st.session_state["season"] != season:
+    df_loaded: pd.DataFrame | None = None
+
     # 1) Google Drive (priorité)
-    # -----------------------------
-    if GDRIVE_FOLDER_ID:
+    if _drive_enabled():
         try:
             df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Drive indisponible (fallback local).")
+        except Exception:
+            df_loaded = None
+            st.sidebar.warning("⚠️ Drive indisponible (fallback local).")
 
-    # -----------------------------
     # 2) Fallback local (DATA_FILE)
-    # -----------------------------
     if df_loaded is None:
         if os.path.exists(DATA_FILE):
             try:
@@ -1007,17 +1026,18 @@ if "season" not in st.session_state or st.session_state["season"] != season:
             except Exception:
                 pass
 
-    # Nettoyage + save local (cache)
+    # Clean + store session
     df_loaded = clean_data(df_loaded)
     st.session_state["data"] = df_loaded
 
+    # Save local (cache)
     try:
         st.session_state["data"].to_csv(DATA_FILE, index=False)
     except Exception:
         pass
 
-    # Optionnel : si Drive existe, on assure que le fichier est créé/à jour
-    if GDRIVE_FOLDER_ID:
+    # Save Drive (assure l'existence / à jour)
+    if _drive_enabled():
         try:
             gdrive_save_df(st.session_state["data"], f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
         except Exception:
@@ -1025,11 +1045,39 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 
     st.session_state["season"] = season
 
+
 # -----------------------------
-# HISTORY (local pour l'instant)
+# HISTORY — load on season change (Drive + fallback local)
 # -----------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
-    st.session_state["history"] = load_history(HISTORY_FILE)
+    h_loaded: pd.DataFrame | None = None
+
+    # 1) Drive (priorité)
+    if _drive_enabled():
+        try:
+            h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
+        except Exception:
+            h_loaded = None
+
+    # 2) Local fallback
+    if h_loaded is None:
+        h_loaded = load_history(HISTORY_FILE)
+
+    st.session_state["history"] = h_loaded
+
+    # Save local cache
+    try:
+        st.session_state["history"].to_csv(HISTORY_FILE, index=False)
+    except Exception:
+        pass
+
+    # Save Drive (assure l'existence / à jour)
+    if _drive_enabled():
+        try:
+            gdrive_save_df(st.session_state["history"], f"history_{season}.csv", GDRIVE_FOLDER_ID)
+        except Exception:
+            pass
+
     st.session_state["history_season"] = season
 
 
@@ -1121,92 +1169,159 @@ else:
 # =====================================================
 # TAB Admin — Gestion Admin (Whalers seulement)
 # =====================================================
+def _is_admin_whalers() -> bool:
+    return str(get_selected_team() or "").strip().lower() == "whalers"
+
+
 if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
 
-        # -----------------------------
-        # 📥 Import
-        # -----------------------------
-        st.markdown("### 📥 Import")
+        # 🔒 Guard Whalers
+        if not _is_admin_whalers():
+            st.info("🔒 Accès réservé aux **Whalers**.")
+        else:
+            # -----------------------------
+            # 📥 Import
+            # -----------------------------
+            st.markdown("### 📥 Import")
 
-        uploaded = st.file_uploader(
-            "Fichier CSV Fantrax",
-            type=["csv", "txt"],
-            help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
-            key=f"fantrax_uploader_{st.session_state.get('uploader_nonce', 0)}_admin",
-        )
+            uploaded = st.file_uploader(
+                "Fichier CSV Fantrax",
+                type=["csv", "txt"],
+                help="Le fichier peut contenir Skaters et Goalies séparés par une ligne vide.",
+                key=f"fantrax_uploader_{st.session_state.get('uploader_nonce', 0)}_admin",
+            )
 
-        if uploaded is not None:
-            if st.session_state.get("LOCKED"):
-                st.warning("🔒 Saison verrouillée : import désactivé.")
-            else:
+            if uploaded is not None:
+                if st.session_state.get("LOCKED"):
+                    st.warning("🔒 Saison verrouillée : import désactivé.")
+                else:
+                    try:
+                        df_import = parse_fantrax(uploaded)
+
+                        if df_import is None or df_import.empty:
+                            st.error("❌ Import invalide : aucune donnée exploitable.")
+                        else:
+                            owner = os.path.splitext(uploaded.name)[0]
+                            df_import["Propriétaire"] = owner
+
+                            cur_data = st.session_state.get("data")
+                            if cur_data is None:
+                                cur_data = pd.DataFrame(columns=REQUIRED_COLS)
+
+                            st.session_state["data"] = pd.concat([cur_data, df_import], ignore_index=True)
+                            st.session_state["data"] = clean_data(st.session_state["data"])
+
+                            # ✅ Save local (fallback/cache)
+                            try:
+                                st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+                            except Exception:
+                                pass
+
+                            # ✅ Save Drive (persist reboot) si configuré
+                            try:
+                                if "_drive_enabled" in globals() and _drive_enabled():
+                                    gdrive_save_df(
+                                        st.session_state["data"],
+                                        f"fantrax_{season}.csv",
+                                        GDRIVE_FOLDER_ID,
+                                    )
+                            except Exception:
+                                st.warning("⚠️ Sauvegarde Drive impossible (local ok).")
+
+                            st.success("✅ Import réussi")
+                            st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                            do_rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Import échoué : {e}")
+
+            st.divider()
+
+            # -----------------------------
+            # 📤 Export CSV
+            # -----------------------------
+            st.markdown("### 📤 Export CSV")
+
+            data_file = st.session_state.get("DATA_FILE", "")
+            hist_file = st.session_state.get("HISTORY_FILE", "")
+            season_lbl = st.session_state.get("season", season)
+
+            c1, c2 = st.columns(2)
+
+            # ---- Export Alignement
+            with c1:
+                exported = False
+
+                # 1) Drive prioritaire si dispo
                 try:
-                    df_import = parse_fantrax(uploaded)
+                    if "_drive_enabled" in globals() and _drive_enabled():
+                        df_drive = gdrive_load_df(f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
+                        if df_drive is not None:
+                            st.download_button(
+                                "⬇️ Export Alignement (CSV)",
+                                data=df_drive.to_csv(index=False).encode("utf-8"),
+                                file_name=f"fantrax_{season_lbl}.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                                key=f"dl_align_{season_lbl}_admin_drive",
+                            )
+                            exported = True
+                except Exception:
+                    exported = False
 
-                    if df_import is None or df_import.empty:
-                        st.error("❌ Import invalide : aucune donnée exploitable.")
+                # 2) Fallback local
+                if not exported:
+                    if data_file and os.path.exists(data_file):
+                        with open(data_file, "rb") as f:
+                            st.download_button(
+                                "⬇️ Export Alignement (CSV)",
+                                data=f.read(),
+                                file_name=os.path.basename(data_file),
+                                mime="text/csv",
+                                use_container_width=True,
+                                key=f"dl_align_{season_lbl}_admin_local",
+                            )
                     else:
-                        owner = os.path.splitext(uploaded.name)[0]
-                        df_import["Propriétaire"] = owner
+                        st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
 
-                        cur_data = st.session_state.get("data")
-                        if cur_data is None:
-                            cur_data = pd.DataFrame(columns=REQUIRED_COLS)
+            # ---- Export Historique
+            with c2:
+                exported = False
 
-                        st.session_state["data"] = pd.concat([cur_data, df_import], ignore_index=True)
-                        st.session_state["data"] = clean_data(st.session_state["data"])
+                # 1) Drive prioritaire si dispo
+                try:
+                    if "_drive_enabled" in globals() and _drive_enabled():
+                        h_drive = gdrive_load_df(f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
+                        if h_drive is not None:
+                            st.download_button(
+                                "⬇️ Export Historique (CSV)",
+                                data=h_drive.to_csv(index=False).encode("utf-8"),
+                                file_name=f"history_{season_lbl}.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                                key=f"dl_hist_{season_lbl}_admin_drive",
+                            )
+                            exported = True
+                except Exception:
+                    exported = False
 
-                        # ✅ Persist reboot
-                        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+                # 2) Fallback local
+                if not exported:
+                    if hist_file and os.path.exists(hist_file):
+                        with open(hist_file, "rb") as f:
+                            st.download_button(
+                                "⬇️ Export Historique (CSV)",
+                                data=f.read(),
+                                file_name=os.path.basename(hist_file),
+                                mime="text/csv",
+                                use_container_width=True,
+                                key=f"dl_hist_{season_lbl}_admin_local",
+                            )
+                    else:
+                        st.info("Aucun fichier d'historique à exporter.")
 
-                        st.success("✅ Import réussi")
-                        st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
-                        do_rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Import échoué : {e}")
-
-        st.divider()
-
-        # -----------------------------
-        # 📤 Export CSV
-        # -----------------------------
-        st.markdown("### 📤 Export CSV")
-
-        data_file = st.session_state.get("DATA_FILE", "")
-        hist_file = st.session_state.get("HISTORY_FILE", "")
-        season_lbl = st.session_state.get("season", season)
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            if data_file and os.path.exists(data_file):
-                with open(data_file, "rb") as f:
-                    st.download_button(
-                        "⬇️ Export Alignement (CSV)",
-                        data=f.read(),
-                        file_name=os.path.basename(data_file),
-                        mime="text/csv",
-                        use_container_width=True,
-                        key=f"dl_align_{season_lbl}_admin",
-                    )
-            else:
-                st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
-
-        with c2:
-            if hist_file and os.path.exists(hist_file):
-                with open(hist_file, "rb") as f:
-                    st.download_button(
-                        "⬇️ Export Historique (CSV)",
-                        data=f.read(),
-                        file_name=os.path.basename(hist_file),
-                        mime="text/csv",
-                        use_container_width=True,
-                        key=f"dl_hist_{season_lbl}_admin",
-                    )
-            else:
-                st.info("Aucun fichier d'historique à exporter.")
 
 
 
