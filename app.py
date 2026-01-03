@@ -1534,7 +1534,7 @@ if tabAdmin is not None:
         if not _is_admin_whalers():
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
-    st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+        st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 
     # (Optionnel) Debug query params
     # st.write("DEBUG query params:", dict(st.query_params))
