@@ -23,13 +23,18 @@ import pandas as pd
 import streamlit as st
 
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request
+
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+
 
 # =====================================================
 # GOOGLE DRIVE CONFIG (global)
 # =====================================================
-GDRIVE_FOLDER_ID = str(st.secrets.get("gdrive", {}).get("folder_id", "")).strip()
+GDRIVE_FOLDER_ID = str(st.secrets.get("gdrive_oauth", {}).get("folder_id", "")).strip()
 
 
 # =====================================================
@@ -188,70 +193,123 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     """
 
 # =====================================================
-# GOOGLE DRIVE — PERSISTENCE
+# GOOGLE DRIVE — OAUTH USER (Gmail compatible)
 # =====================================================
-def gdrive_service():
-    info = dict(st.secrets.get("gdrive", {}))  # copie
-    info.pop("folder_id", None)                # enlève folder_id si présent
+OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-    creds = service_account.Credentials.from_service_account_info(
-        info,
-        scopes=["https://www.googleapis.com/auth/drive"],
+
+def _oauth_cfg() -> dict:
+    return dict(st.secrets.get("gdrive_oauth", {}))
+
+
+def oauth_drive_enabled() -> bool:
+    cfg = dict(st.secrets.get("gdrive_oauth", {}))
+    return bool(str(cfg.get("client_id", "")).strip() and str(cfg.get("client_secret", "")).strip())
+
+
+
+def oauth_drive_ready() -> bool:
+    cfg = _oauth_cfg()
+    return bool(str(cfg.get("folder_id", "")).strip() and str(cfg.get("refresh_token", "")).strip())
+
+
+def _build_oauth_flow() -> Flow:
+    cfg = _oauth_cfg()
+    client_config = {
+        "web": {
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+    return Flow.from_client_config(
+        client_config=client_config,
+        scopes=OAUTH_SCOPES,
+        redirect_uri=cfg["redirect_uri"],
     )
+
+
+def _get_oauth_creds() -> Credentials | None:
+    cfg = _oauth_cfg()
+    rt = str(cfg.get("refresh_token", "")).strip()
+    if not rt:
+        return None
+
+    creds = Credentials(
+        token=None,
+        refresh_token=rt,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=cfg["client_id"],
+        client_secret=cfg["client_secret"],
+        scopes=OAUTH_SCOPES,
+    )
+
+    try:
+        if not creds.valid:
+            creds.refresh(Request())
+    except Exception:
+        return None
+
+    return creds
+
+
+def gdrive_service():
+    """
+    Service Drive basé sur OAuth utilisateur.
+    Nécessite [gdrive_oauth] dans Secrets + refresh_token.
+    """
+    creds = _get_oauth_creds()
+    if creds is None:
+        raise RuntimeError("OAuth Drive non prêt: refresh_token manquant (voir onglet Admin).")
     return build("drive", "v3", credentials=creds)
 
 
-def gdrive_get_file_id(service, filename, folder_id):
-    safe_name = str(filename).replace("'", "")
-    q = f"name='{safe_name}' and '{folder_id}' in parents and trashed=false"
-    res = service.files().list(q=q, fields="files(id,name)").execute()
-    files = res.get("files", [])
-    return files[0]["id"] if files else None
+def oauth_connect_ui():
+    """
+    UI Streamlit:
+    - bouton de connexion
+    - récupère ?code=... au retour
+    - affiche refresh_token à copier dans Secrets
+    """
+    if not oauth_drive_enabled():
+        st.error("OAuth non configuré: ajoute client_id/client_secret/redirect_uri dans [gdrive_oauth] (Secrets).")
+        return
 
+    cfg = _oauth_cfg()
+    qp = st.query_params  # Streamlit récent
 
-USE_GDRIVE = bool(GDRIVE_FOLDER_ID)
+    code = qp.get("code", None)
+    if code:
+        try:
+            flow = _build_oauth_flow()
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+            rt = getattr(creds, "refresh_token", None)
 
+            st.success("✅ Connexion Google réussie.")
+            if rt:
+                st.warning("Copie ce refresh_token dans Streamlit Secrets → [gdrive_oauth].refresh_token")
+                st.code(rt)
+                st.caption("Ensuite, enlève `?code=...` de l’URL (ou refresh) après avoir mis à jour Secrets.")
+            else:
+                st.error("⚠️ Aucun refresh_token reçu. Reconnecte-toi (le bouton force prompt=consent).")
+        except Exception as e:
+            st.error(f"❌ OAuth error: {type(e).__name__}: {e}")
+        return
 
-def gdrive_save_df(df: pd.DataFrame, filename: str, folder_id: str) -> bool:
-    """Sauvegarde df en CSV dans Google Drive. Retourne True si OK."""
-    if not folder_id:
-        return False
-
-    service = gdrive_service()
-    file_id = gdrive_get_file_id(service, filename, folder_id)
-
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
-
-    if file_id:
-        service.files().update(fileId=file_id, media_body=media).execute()
+    if not str(cfg.get("refresh_token", "")).strip():
+        flow = _build_oauth_flow()
+        auth_url, _ = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",  # force refresh_token
+        )
+        st.link_button("🔐 Connecter Google Drive", auth_url, use_container_width=True)
+        st.caption("Après l’autorisation, tu reviendras ici avec `?code=...` et je te donnerai le refresh_token.")
     else:
-        file_metadata = {"name": filename, "parents": [folder_id]}
-        service.files().create(body=file_metadata, media_body=media).execute()
+        st.success("OAuth configuré (refresh_token présent).")
 
-    return True
-
-
-def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
-    """Charge un CSV depuis Google Drive et retourne un DataFrame, ou None si absent."""
-    if not folder_id:
-        return None
-
-    service = gdrive_service()
-    file_id = gdrive_get_file_id(service, filename, folder_id)
-    if not file_id:
-        return None
-
-    request = service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-
-    fh.seek(0)
-    return pd.read_csv(fh)
 
 # =====================================================
 # CLEAN DATA
@@ -1234,6 +1292,20 @@ def _is_admin_whalers() -> bool:
     return str(get_selected_team() or "").strip().lower() == "whalers"
 
 
+def _oauth_cfg() -> dict:
+    return dict(st.secrets.get("gdrive_oauth", {}))
+
+
+def oauth_drive_enabled() -> bool:
+    cfg = _oauth_cfg()
+    return bool(str(cfg.get("client_id", "")).strip() and str(cfg.get("client_secret", "")).strip())
+
+
+def oauth_drive_ready() -> bool:
+    cfg = _oauth_cfg()
+    return bool(str(cfg.get("folder_id", "")).strip() and str(cfg.get("refresh_token", "")).strip())
+
+
 if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
@@ -1243,19 +1315,42 @@ if tabAdmin is not None:
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
             # =====================================================
-            # 🧪 TEST GOOGLE DRIVE (LECTURE + ÉCRITURE)
+            # 🔐 OAUTH CONNECT (1 fois)
             # =====================================================
-            st.markdown("### 🧪 Test Google Drive")
+            st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 
-            if not _drive_enabled():
-                st.warning("Google Drive non configuré (folder_id manquant dans Secrets).")
+            if not oauth_drive_enabled():
+                st.warning("OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets.")
             else:
-                # ---- Test lecture (liste fichiers)
+                # Cette fonction doit exister dans ton code (je te l'ai donné dans le bloc OAuth)
+                oauth_connect_ui()
+
+            cfg = dict(st.secrets.get("gdrive_oauth", {}))
+            if str(cfg.get("refresh_token", "")).strip():
+                st.success("✅ OAuth prêt (refresh_token présent).")
+            else:
+                st.info("ℹ️ OAuth pas encore prêt: clique sur 'Connecter Google Drive' pour obtenir le refresh_token.")
+
+            st.divider()
+
+            # =====================================================
+            # 🧪 TEST GOOGLE DRIVE (OAuth)
+            # =====================================================
+            st.markdown("### 🧪 Test Google Drive (OAuth)")
+
+            cfg = _oauth_cfg()
+            folder_id = str(cfg.get("folder_id", "")).strip()
+
+            if not folder_id:
+                st.warning("folder_id manquant dans [gdrive_oauth] (Secrets).")
+            elif not oauth_drive_ready():
+                st.info("OAuth pas encore prêt: connecte-toi ci-dessus pour obtenir un refresh_token, puis colle-le dans Secrets.")
+            else:
                 if st.button("🧪 Tester Google Drive (liste)", use_container_width=True):
                     try:
-                        s = gdrive_service()
+                        s = gdrive_service()  # IMPORTANT: gdrive_service doit utiliser OAuth
                         res = s.files().list(
-                            q=f"'{GDRIVE_FOLDER_ID}' in parents and trashed=false",
+                            q=f"'{folder_id}' in parents and trashed=false",
                             pageSize=10,
                             fields="files(id,name)"
                         ).execute()
@@ -1266,17 +1361,15 @@ if tabAdmin is not None:
                     except Exception as e:
                         st.error(f"❌ Drive KO — {type(e).__name__}: {e}")
 
-                # ---- Test écriture (crée / met à jour un fichier)
                 if st.button("✍️ Tester ÉCRITURE Drive (créer un fichier)", use_container_width=True):
                     try:
                         df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
-                        gdrive_save_df(df_test, "drive_write_test.csv", GDRIVE_FOLDER_ID)
+                        gdrive_save_df(df_test, "drive_write_test.csv", folder_id)
                         st.success("✅ Écriture OK — 'drive_write_test.csv' créé/mis à jour.")
 
-                        # Re-liste après écriture
                         s = gdrive_service()
                         res = s.files().list(
-                            q=f"'{GDRIVE_FOLDER_ID}' in parents and trashed=false",
+                            q=f"'{folder_id}' in parents and trashed=false",
                             pageSize=10,
                             fields="files(id,name)"
                         ).execute()
