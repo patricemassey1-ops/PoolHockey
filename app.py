@@ -1645,16 +1645,6 @@ if tabAdmin is not None:
             st.divider()
 
 
-    else:
-        st.info(
-            "ℹ️ OAuth pas encore prêt : clique sur **Connecter Google Drive** "
-            "pour obtenir le refresh_token, puis colle-le dans Secrets."
-        )
-        st.caption(f"📁 Folder ID: {folder_id}")
-
-    st.divider()
-
-
 
 
             # =====================================================
