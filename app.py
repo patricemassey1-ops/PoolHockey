@@ -612,12 +612,10 @@ def apply_move_with_history(
     try:
         data_file = st.session_state.get("DATA_FILE")
         if data_file:
-            df0.to_csv(data_file, index=False)
+        df0.to_csv(data_file, index=False)
     except Exception as e:
-        df_loaded = None
-        drive_ok = False
-        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local). ({e})")
-
+        st.session_state["last_move_error"] = f"Erreur sauvegarde CSV local: {e}"
+        return False
 
     # -----------------------------
     # 2) SAVE DRIVE (data) — optionnel
@@ -626,9 +624,10 @@ def apply_move_with_history(
         if "_drive_enabled" in globals() and _drive_enabled():
             season_lbl = st.session_state.get("season", "")
             gdrive_save_df(df0, f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
-    except Exception:
+    except Exception as e:
         # On ne bloque pas l'app si Drive down
-        st.warning("⚠️ Sauvegarde Drive impossible (local ok).")
+        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local). ({e})")
+
 
     # -----------------------------
     # 3) HISTORY LOG + SAVE LOCAL (déjà fait dans log_history_row)
