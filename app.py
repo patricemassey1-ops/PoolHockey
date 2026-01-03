@@ -1034,9 +1034,9 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
     # 1) Drive (priorité)
     if _drive_enabled():
-    try:
-        h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
-        drive_ok = True
+        try:
+            h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
+            drive_ok = True
     except Exception as e:
         h_loaded = None
         drive_ok = False
