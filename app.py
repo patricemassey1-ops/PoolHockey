@@ -39,13 +39,24 @@ GDRIVE_FOLDER_ID = str(st.secrets.get("gdrive_oauth", {}).get("folder_id", "")).
 # =====================================================
 # CONFIG STREAMLIT
 # =====================================================
-st.set_page_config("Fantrax Pool Hockey", layout="wide")
+st.set_page_config(page_title="PMS", layout="wide")
 
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+# (optionnel) réduire padding top
+st.markdown(
+    """
+    <style>
+        .block-container { padding-top: 0.5rem; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-PLAYERS_DB_FILE = "data/Hockey.Players.csv"   # ✅ confirmé
-LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+
+# ✅ LOGO POOL — UNE SEULE FOIS, TOUT EN HAUT
+if os.path.exists(LOGO_POOL_FILE):
+    st.image(LOGO_POOL_FILE, use_container_width=True)
+
 
 
 # =====================================================
@@ -1495,13 +1506,6 @@ else:
 
     plafonds = pd.DataFrame(resume)
 
-# =====================================================
-# CONFIG
-# =====================================================
-st.set_page_config(
-    page_title="PMS",
-    layout="wide"
-)
 
 # =====================================================
 # LOGO POOL — TOUT EN HAUT
@@ -1823,18 +1827,14 @@ if tabAdmin is not None:
 # TAB 1 — Tableau
 # =====================================================
 with tab1:
-    if os.path.exists(LOGO_POOL_FILE):
-        st.image(LOGO_POOL_FILE, use_container_width=True)
-
     st.subheader("📊 Tableau")
 
     if df is None or df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
+    # ... ton code Tableau ici ...
 
-
-# (les autres tabs: tabA/tabJ/tabH/tab2/tab3 suivent ensuite, chacun avec son guard interne)
 
 
 
