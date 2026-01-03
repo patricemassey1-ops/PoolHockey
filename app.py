@@ -1592,25 +1592,41 @@ if tabAdmin is not None:
         st.divider()
 
 
-                # =====================================================
-                # 🚀 DRIVE BATCH (Flush + statut)
-                # =====================================================
-                st.markdown("### 🚀 Drive batch (réduction des écritures)")
+               # =====================================================
+               # 🚀 DRIVE BATCH (Flush + statut)
+               # =====================================================
+               if drive_ready:
+                    st.markdown("### 🚀 Drive batch (réduction des écritures)")
 
-                q = st.session_state.get("drive_queue", {})
-                st.caption(f"En attente d'écriture Drive : **{len(q)}** fichier(s).")
+                    q = st.session_state.get("drive_queue", {})
+                    st.caption(f"En attente d'écriture Drive : **{len(q)}** fichier(s).")
 
-                cF1, cF2 = st.columns(2)
-                with cF1:
-                    if st.button("🚀 Flush Drive maintenant", use_container_width=True):
-                        if "flush_drive_queue" in globals():
-                            n, errs = flush_drive_queue(force=True)
-                            if errs:
-                                st.error("❌ Erreurs:\n" + "\n".join(errs))
+                    cF1, cF2 = st.columns(2)
+
+                    with cF1:
+                        if st.button("🚀 Flush Drive maintenant", use_container_width=True, key="admin_flush_drive_now"):
+                            if "flush_drive_queue" in globals():
+                                n, errs = flush_drive_queue(force=True)
+                                if errs:
+                                    st.error("❌ Erreurs:\n" + "\n".join(errs))
+                                else:
+                                    st.success(f"✅ Flush OK — {n} fichier(s) écrit(s) sur Drive.")
                             else:
-                                st.success(f"✅ Flush OK — {n} fichier(s) écrit(s) sur Drive.")
-                        else:
-                            st.error("flush_drive_queue() introuvable (bloc batch non chargé).")
+                                st.error("flush_drive_queue() introuvable (bloc batch non chargé).")
+
+                    with cF2:
+                        if st.button("♻️ Reset Drive cache", use_container_width=True, key="admin_reset_drive"):
+                            try:
+                                st.cache_resource.clear()
+                            except Exception:
+                                pass
+
+                            st.session_state["drive_queue"] = {}
+                            st.session_state["drive_dirty_at"] = 0.0
+                            st.session_state["drive_last_flush"] = 0.0
+
+                            st.success("✅ Cache Drive + queue reset.")
+
 
                 with cF2:
                     if st.button("♻️ Reset Drive cache", use_container_width=True):
