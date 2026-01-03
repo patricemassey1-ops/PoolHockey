@@ -1489,89 +1489,108 @@ else:
 
     plafonds = pd.DataFrame(resume)
 
+# =====================================================
+# TABS (Admin seulement pour Whalers)
+# =====================================================
+is_admin = _is_admin_whalers()
 
+if is_admin:
+    tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
+        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
+    )
+else:
+    tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
+        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
+    )
+    tabAdmin = None
+
+# =====================================================
+# TAB Admin (Whalers only)
+# =====================================================
 if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
 
-        if not _is_admin_whalers():
-            st.info("🔒 Accès réservé aux **Whalers**.")
+        # --- OAuth connect UI
+        st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+        if not oauth_drive_enabled():
+            st.warning(
+                "OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / "
+                "client_secret / redirect_uri dans Secrets."
+            )
         else:
-            st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+            oauth_connect_ui()
 
-            if not oauth_drive_enabled():
-                st.warning(
-                    "OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / "
-                    "client_secret / redirect_uri dans Secrets."
-                )
-            else:
-                oauth_connect_ui()
+        st.divider()
 
-            st.divider()
+        folder_id = _folder_id()
+        drive_ready = _drive_enabled()
 
-            folder_id = _folder_id() if "_folder_id" in globals() else str(_oauth_cfg().get("folder_id", "")).strip()
-            drive_ready = (_drive_enabled() if "_drive_enabled" in globals() else oauth_drive_ready())
+        # --- Statut + batch tools
+        if not folder_id:
+            st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
+            st.caption("Astuce: tu peux créer/trouver 'PoolHockeyData' et copier le folder_id dans Secrets.")
+        elif not drive_ready:
+            st.info("OAuth pas encore prêt (refresh_token manquant).")
+        else:
+            st.success("✅ OAuth prêt — Drive activé.")
+            st.caption(f"📁 Folder ID: {folder_id}")
 
-            if not folder_id:
-                st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
+            st.markdown("### 🚀 Drive batch")
+            q = st.session_state.get("drive_queue", {})
+            st.caption(f"En attente : **{len(q)}** fichier(s)")
 
-            elif drive_ready:
-                st.success("✅ OAuth prêt — Drive activé.")
-                st.caption(f"📁 Folder ID: {folder_id}")
-
-                st.markdown("### 🚀 Drive batch")
-
-                q = st.session_state.get("drive_queue", {})
-                st.caption(f"En attente : **{len(q)}** fichier(s)")
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("🚀 Flush Drive"):
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("🚀 Flush Drive", key="admin_flush_drive", use_container_width=True):
+                    if "flush_drive_queue" in globals():
                         n, errs = flush_drive_queue(force=True)
                         if errs:
                             st.error("\n".join(errs))
                         else:
                             st.success(f"{n} fichier(s) écrits")
+                    else:
+                        st.error("flush_drive_queue() introuvable (bloc batch non chargé).")
 
-                with c2:
-                    if st.button("♻️ Reset cache Drive"):
+            with c2:
+                if st.button("♻️ Reset cache Drive", key="admin_reset_drive_cache", use_container_width=True):
+                    try:
                         st.cache_resource.clear()
-                        st.session_state["drive_queue"] = {}
-                        st.success("Cache reset")
+                    except Exception:
+                        pass
 
-                st.divider()
-
-                st.markdown("### 🧪 Tests Drive")
-
-                t1, t2 = st.columns(2)
-                with t1:
-                    if st.button("Test lecture"):
-                        names = gdrive_list_files(folder_id, limit=10)
-                        st.success(f"{len(names)} fichier(s)")
-                        st.write(names)
-
-                with t2:
-                    if st.button("Test écriture"):
-                        df_test = pd.DataFrame([{"ok": 1}])
-                        gdrive_save_df(df_test, "drive_test.csv", folder_id)
-                        st.success("Écriture OK")
-
-            else:
-                st.info("OAuth pas encore prêt (refresh_token manquant).")
+                    st.session_state["drive_queue"] = {}
+                    st.session_state["drive_dirty_at"] = 0.0
+                    st.session_state["drive_last_flush"] = 0.0
+                    st.success("Cache reset")
 
             st.divider()
 
+            # --- Tests Drive
+            st.markdown("### 🧪 Tests Drive")
 
-            # ✅ Tout ce qui suit reste DANS l'Admin (Whalers only)
-            folder_id = _folder_id() if "_folder_id" in globals() else str(_oauth_cfg().get("folder_id", "")).strip()
-            drive_ready = (_drive_enabled() if "_drive_enabled" in globals() else oauth_drive_ready())
+            t1, t2 = st.columns(2)
+            with t1:
+                if st.button("Test lecture", key="admin_test_read", use_container_width=True):
+                    try:
+                        names = gdrive_list_files(folder_id, limit=10)
+                        st.success(f"{len(names)} fichier(s)")
+                        if names:
+                            st.write(names)
+                    except Exception as e:
+                        st.error(f"❌ Lecture KO — {type(e).__name__}: {e}")
 
-            if not folder_id:
-                st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
-                st.caption("Astuce: utilise le bouton auto-création du dossier (PoolHockeyData) dans la section Tests si tu l'as ajouté.")
-            elif drive_ready:
-                st.success("✅ OAuth prêt (refresh_token présent) — Drive activé.")
-                st.caption(f"📁 Folder ID: {folder_id}")
+            with t2:
+                if st.button("Test écriture", key="admin_test_write", use_container_width=True):
+                    try:
+                        df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
+                        gdrive_save_df(df_test, "drive_test.csv", folder_id)
+                        st.success("✅ Écriture OK")
+                    except Exception as e:
+                        st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
+        st.divider()
+
 
                 # =====================================================
                 # 🚀 DRIVE BATCH (Flush + statut)
