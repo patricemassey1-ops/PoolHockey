@@ -2035,15 +2035,6 @@ st.divider()
 
 
 
-
-
-
-   if tabAdmin is not None:
-    with tabAdmin:
-        st.subheader("🛠️ Gestion Admin")
-
-        # ... OAuth / Drive / Import juste avant ...
-
         # =====================================================
         # 📤 EXPORT CSV
         # =====================================================
