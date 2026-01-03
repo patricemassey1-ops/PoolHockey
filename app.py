@@ -1927,8 +1927,13 @@ if tabAdmin is not None:
                                 st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
                             else:
                                 # ✅ Multi-propriétaires: si une colonne Owner/Team/Propriétaire existe, on la respecte
-                                fallback_owner = os.path.splitext(init_align.name)[0]
+                                fallback_owner = guess_owner_from_fantrax_upload(
+                                    init_align,
+                                    fallback=os.path.splitext(init_align.name)[0]
+                                )
+
                                 df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+
 
                                 st.session_state["data"] = clean_data(df_import)
 
