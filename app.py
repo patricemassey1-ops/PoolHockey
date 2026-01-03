@@ -1502,7 +1502,8 @@ else:
     tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
         ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
     )
-    tabAdmin = None
+    tabAdmin = None  # important pour éviter NameError ailleurs
+
 
 # =====================================================
 # TAB Admin (Whalers only)
@@ -1533,7 +1534,11 @@ if tabAdmin is not None:
             # Optionnel: bouton auto-création/trouver dossier
             if "ensure_drive_folder_id" in globals() and oauth_drive_enabled():
                 st.caption("Option: créer/trouver automatiquement le dossier Drive 'PoolHockeyData'.")
-                if st.button("📁 Créer / Trouver 'PoolHockeyData' (afficher folder_id)", use_container_width=True):
+                if st.button(
+                    "📁 Créer / Trouver 'PoolHockeyData' (afficher folder_id)",
+                    use_container_width=True,
+                    key="admin_create_folder",
+                ):
                     try:
                         fid = ensure_drive_folder_id("PoolHockeyData")
                         if fid:
@@ -1563,7 +1568,11 @@ if tabAdmin is not None:
 
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("🚀 Flush Drive maintenant", key="admin_flush_drive_now", use_container_width=True):
+                if st.button(
+                    "🚀 Flush Drive maintenant",
+                    key="admin_flush_drive_now",
+                    use_container_width=True,
+                ):
                     if "flush_drive_queue" in globals():
                         n, errs = flush_drive_queue(force=True)
                         if errs:
@@ -1574,13 +1583,16 @@ if tabAdmin is not None:
                         st.error("flush_drive_queue() introuvable (bloc batch non chargé).")
 
             with c2:
-                if st.button("♻️ Reset cache Drive", key="admin_reset_drive_cache", use_container_width=True):
+                if st.button(
+                    "♻️ Reset cache Drive",
+                    key="admin_reset_drive_cache",
+                    use_container_width=True,
+                ):
                     try:
                         st.cache_resource.clear()
                     except Exception:
                         pass
 
-                    # reset queue batch
                     st.session_state["drive_queue"] = {}
                     st.session_state["drive_dirty_at"] = 0.0
                     st.session_state["drive_last_flush"] = 0.0
@@ -1596,7 +1608,11 @@ if tabAdmin is not None:
             t1, t2 = st.columns(2)
 
             with t1:
-                if st.button("🧪 Test lecture (liste 10 fichiers)", key="admin_test_read", use_container_width=True):
+                if st.button(
+                    "🧪 Test lecture (liste 10 fichiers)",
+                    key="admin_test_read",
+                    use_container_width=True,
+                ):
                     try:
                         names = gdrive_list_files(folder_id, limit=10)
                         st.success(f"✅ Lecture OK — {len(names)} fichier(s).")
@@ -1606,7 +1622,11 @@ if tabAdmin is not None:
                         st.error(f"❌ Lecture KO — {type(e).__name__}: {e}")
 
             with t2:
-                if st.button("🧪 Test écriture (écraser fichier test)", key="admin_test_write", use_container_width=True):
+                if st.button(
+                    "🧪 Test écriture (écraser fichier test)",
+                    key="admin_test_write",
+                    use_container_width=True,
+                ):
                     try:
                         df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
                         gdrive_save_df(df_test, "drive_test.csv", folder_id)
@@ -1614,9 +1634,7 @@ if tabAdmin is not None:
                     except Exception as e:
                         st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
 
-        st.divider()
-
-
+            st.divider()
 
             # =====================================================
             # 📥 IMPORT FANTRAX
@@ -1647,18 +1665,22 @@ if tabAdmin is not None:
                             if cur_data is None:
                                 cur_data = pd.DataFrame(columns=REQUIRED_COLS)
 
-                            st.session_state["data"] = pd.concat([cur_data, df_import], ignore_index=True)
+                            st.session_state["data"] = pd.concat(
+                                [cur_data, df_import],
+                                ignore_index=True,
+                            )
                             st.session_state["data"] = clean_data(st.session_state["data"])
 
-                            # ✅ Save local (fallback/cache)
+                            # Save local
                             try:
                                 st.session_state["data"].to_csv(
-                                    st.session_state["DATA_FILE"], index=False
+                                    st.session_state["DATA_FILE"],
+                                    index=False,
                                 )
                             except Exception:
                                 pass
 
-                            # ✅ Save Drive (persist reboot) si configuré
+                            # Save Drive
                             try:
                                 if _drive_enabled():
                                     gdrive_save_df(
@@ -1682,6 +1704,8 @@ if tabAdmin is not None:
                         st.error(f"❌ Import échoué : {e}")
 
             st.divider()
+
+
 
 
 
