@@ -51,6 +51,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 import base64
 import os
 import streamlit as st
@@ -140,7 +141,7 @@ st.markdown(
 # =====================================================
 # HEADER STICKY (HTML)
 # =====================================================
-selected_team = get_selected_team()
+selected_team = str(st.session_state.get("selected_team", "")).strip()
 logo_team = team_logo_path(selected_team)
 
 logo_team_b64 = _img_b64(logo_team)
@@ -180,7 +181,6 @@ if banner_b64:
         """,
         unsafe_allow_html=True
     )
-
 
 
 
