@@ -2038,88 +2038,42 @@ st.divider()
 
 
 
-            # -----------------------------
-            # 📤 Export CSV
-            # -----------------------------
-            st.markdown("### 📤 Export CSV")
+    # =====================================================
+    # 📤 EXPORT CSV
+    # =====================================================
+    st.markdown("### 📤 Export CSV")
 
-            data_file = st.session_state.get("DATA_FILE", "")
-            hist_file = st.session_state.get("HISTORY_FILE", "")
-            season_lbl = st.session_state.get("season", season)
+    data_file = st.session_state.get("DATA_FILE", "")
+    hist_file = st.session_state.get("HISTORY_FILE", "")
+    season_lbl = st.session_state.get("season", season)
 
-            c1, c2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-            # ---- Export Alignement
-            with c1:
-                exported = False
+    with c1:
+        if data_file and os.path.exists(data_file):
+            with open(data_file, "rb") as f:
+                st.download_button(
+                    "⬇️ Export Alignement (CSV)",
+                    data=f.read(),
+                    file_name=f"fantrax_{season_lbl}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        else:
+            st.info("Aucun alignement à exporter.")
 
-                # 1) Drive prioritaire si dispo
-                try:
-                    if "_drive_enabled" in globals() and _drive_enabled():
-                        df_drive = gdrive_load_df(f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
-                        if df_drive is not None:
-                            st.download_button(
-                                "⬇️ Export Alignement (CSV)",
-                                data=df_drive.to_csv(index=False).encode("utf-8"),
-                                file_name=f"fantrax_{season_lbl}.csv",
-                                mime="text/csv",
-                                use_container_width=True,
-                                key=f"dl_align_{season_lbl}_admin_drive",
-                            )
-                            exported = True
-                except Exception:
-                    exported = False
-
-                # 2) Fallback local
-                if not exported:
-                    if data_file and os.path.exists(data_file):
-                        with open(data_file, "rb") as f:
-                            st.download_button(
-                                "⬇️ Export Alignement (CSV)",
-                                data=f.read(),
-                                file_name=os.path.basename(data_file),
-                                mime="text/csv",
-                                use_container_width=True,
-                                key=f"dl_align_{season_lbl}_admin_local",
-                            )
-                    else:
-                        st.info("Aucun fichier d'alignement à exporter (importe d’abord).")
-
-            # ---- Export Historique
-            with c2:
-                exported = False
-
-                # 1) Drive prioritaire si dispo
-                try:
-                    if "_drive_enabled" in globals() and _drive_enabled():
-                        h_drive = gdrive_load_df(f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
-                        if h_drive is not None:
-                            st.download_button(
-                                "⬇️ Export Historique (CSV)",
-                                data=h_drive.to_csv(index=False).encode("utf-8"),
-                                file_name=f"history_{season_lbl}.csv",
-                                mime="text/csv",
-                                use_container_width=True,
-                                key=f"dl_hist_{season_lbl}_admin_drive",
-                            )
-                            exported = True
-                except Exception:
-                    exported = False
-
-                # 2) Fallback local
-                if not exported:
-                    if hist_file and os.path.exists(hist_file):
-                        with open(hist_file, "rb") as f:
-                            st.download_button(
-                                "⬇️ Export Historique (CSV)",
-                                data=f.read(),
-                                file_name=os.path.basename(hist_file),
-                                mime="text/csv",
-                                use_container_width=True,
-                                key=f"dl_hist_{season_lbl}_admin_local",
-                            )
-                    else:
-                        st.info("Aucun fichier d'historique à exporter.")
+    with c2:
+        if hist_file and os.path.exists(hist_file):
+            with open(hist_file, "rb") as f:
+                st.download_button(
+                    "⬇️ Export Historique (CSV)",
+                    data=f.read(),
+                    file_name=f"history_{season_lbl}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        else:
+            st.info("Aucun historique à exporter.")
 
 
 
