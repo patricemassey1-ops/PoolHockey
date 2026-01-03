@@ -1367,7 +1367,7 @@ if tabAdmin is not None:
             st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 
             # ✅ DEBUG ICI
-            st.write("DEBUG query params:", dict(st.query_params))
+            # st.write("DEBUG query params:", dict(st.query_params))
 
             if not oauth_drive_enabled():
                 st.warning("OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets.")
