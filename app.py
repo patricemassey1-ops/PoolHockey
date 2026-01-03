@@ -216,6 +216,190 @@ def normalize_pos(pos: str) -> str:
     return "F"
 
 
+# =====================================================
+# 🧠 OWNER / IMPORT HELPERS
+# =====================================================
+def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
+    """
+    Garantit une colonne 'Propriétaire'.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    candidates = {
+        "propriétaire", "proprietaire",
+        "owner", "owners",
+        "team", "équipe", "equipe",
+        "franchise", "club",
+    }
+
+    found = None
+    for c in out.columns:
+        if str(c).strip().lower() in candidates:
+            found = c
+            break
+
+    if found and found != "Propriétaire":
+        out = out.rename(columns={found: "Propriétaire"})
+
+    if "Propriétaire" not in out.columns:
+        out["Propriétaire"] = str(fallback_owner or "").strip()
+
+    out["Propriétaire"] = (
+        out["Propriétaire"]
+        .astype(str)
+        .str.strip()
+        .replace({"nan": "", "None": ""})
+    )
+
+    out.loc[out["Propriétaire"].eq(""), "Propriétaire"] = str(fallback_owner or "").strip()
+    return out
+
+
+def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
+    """
+    Tente de deviner l'équipe dans les lignes au-dessus du tableau Fantrax.
+    """
+    try:
+        raw = uploaded.getvalue()
+        text = raw.decode("utf-8", errors="ignore")
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        top = lines[:30]
+
+        for ln in top:
+            low = ln.lower()
+            if low.startswith("id,") or ",player" in low:
+                break
+            if low not in {"skaters", "goalies", "players"} and "," not in ln and len(ln) <= 40:
+                return ln.strip('"')
+    except Exception:
+        pass
+
+    return str(fallback or "").strip()
+
+
+# =====================================================
+# 📜 HISTORIQUE
+# =====================================================
+def history_add(action: str, details: str = "", owner: str = "", player: str = ""):
+    ts = datetime.now().isoformat(timespec="seconds")
+
+    row = {
+        "Date": ts,
+        "Action": action,
+        "Propriétaire": owner,
+        "Joueur": player,
+        "Détails": details,
+    }
+
+    h = st.session_state.get("history")
+    if h is None or not isinstance(h, pd.DataFrame):
+        h = pd.DataFrame(columns=row.keys())
+
+    for c in row:
+        if c not in h.columns:
+            h[c] = ""
+
+    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+    st.session_state["history"] = h
+
+    # Local
+    try:
+        hist_file = st.session_state.get("HISTORY_FILE")
+        if hist_file:
+            h.to_csv(hist_file, index=False)
+    except Exception:
+        pass
+
+    # Drive (optionnel)
+    try:
+        if "_drive_enabled" in globals() and _drive_enabled():
+            season_lbl = st.session_state.get("season")
+            if season_lbl:
+                gdrive_save_df(h, f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
+    except Exception:
+        pass
+
+
+# =====================================================
+# 🔄 LOAD DATA — CAS B (état courant > initial)
+# =====================================================
+def load_current_or_bootstrap(season: str):
+    """
+    CAS B :
+    1) Charge l'état courant (Drive -> local)
+    2) Sinon bootstrap depuis CSV initial (UNE SEULE FOIS)
+    """
+    data_file = st.session_state["DATA_FILE"]
+    folder_id = str(GDRIVE_FOLDER_ID or "").strip()
+
+    # 1) Drive
+    if folder_id and "_drive_enabled" in globals() and _drive_enabled():
+        try:
+            df_drive = gdrive_load_df(f"fantrax_{season}.csv", folder_id)
+            if df_drive is not None and not df_drive.empty:
+                return clean_data(df_drive), "drive_current"
+        except Exception:
+            pass
+
+    # 2) Local
+    if data_file and os.path.exists(data_file):
+        try:
+            df_local = pd.read_csv(data_file)
+            if not df_local.empty:
+                return clean_data(df_local), "local_current"
+        except Exception:
+            pass
+
+    # 3) Bootstrap initial (1 fois)
+    manifest = load_init_manifest()
+    init_path = manifest.get("fantrax", {}).get("path", "")
+    chosen_owner = manifest.get("fantrax", {}).get("chosen_owner", "")
+
+    if init_path and os.path.exists(init_path):
+        try:
+            import io
+            with open(init_path, "rb") as f:
+                buf = io.BytesIO(f.read())
+            buf.name = manifest.get("fantrax", {}).get(
+                "uploaded_name", os.path.basename(init_path)
+            )
+
+            df_import = parse_fantrax(buf)
+            if df_import is not None and not df_import.empty:
+                df_import = ensure_owner_column(df_import, chosen_owner)
+                df_boot = clean_data(df_import)
+
+                # Sauvegarde état courant
+                try:
+                    df_boot.to_csv(data_file, index=False)
+                except Exception:
+                    pass
+
+                try:
+                    if folder_id and "_drive_enabled" in globals() and _drive_enabled():
+                        gdrive_save_df(df_boot, f"fantrax_{season}.csv", folder_id)
+                except Exception:
+                    pass
+
+                history_add(
+                    action="BOOTSTRAP_INITIAL",
+                    owner=chosen_owner,
+                    details=f"Initial CSV appliqué automatiquement ({buf.name})",
+                )
+
+                return df_boot, "bootstrap_from_initial"
+        except Exception:
+            pass
+
+    return pd.DataFrame(columns=REQUIRED_COLS), "empty"
+
+
+# =====================================================
+# AUTRES HELPERS UI
+# =====================================================
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
@@ -231,19 +415,15 @@ def saison_verrouillee(season: str) -> bool:
 
 def _count_badge(n: int, limit: int) -> str:
     if n > limit:
-        color = "#ef4444"  # rouge
-        icon = " ⚠️"
-    else:
-        color = "#22c55e"  # vert
-        icon = ""
-    return f"<span style='color:{color};font-weight:1000'>{n}</span>/{limit}{icon}"
+        return f"<span style='color:#ef4444;font-weight:1000'>{n}</span>/{limit} ⚠️"
+    return f"<span style='color:#22c55e;font-weight:1000'>{n}</span>/{limit}"
 
 
 def render_badge(text: str, bg: str, fg: str = "white") -> str:
     t = html.escape(str(text or ""))
     return (
         "<span style='display:inline-block;padding:2px 8px;border-radius:999px;"
-        f"background:{bg};color:{fg};font-weight:900;font-size:12px;line-height:18px'>"
+        f"background:{bg};color:{fg};font-weight:900;font-size:12px'>"
         f"{t}</span>"
     )
 
@@ -251,20 +431,17 @@ def render_badge(text: str, bg: str, fg: str = "white") -> str:
 def pos_badge_html(pos: str) -> str:
     p = normalize_pos(pos)
     if p == "F":
-        return render_badge("F", "#16a34a")        # vert
+        return render_badge("F", "#16a34a")
     if p == "D":
-        return render_badge("D", "#2563eb")        # bleu
-    return render_badge("G", "#7c3aed")            # violet
+        return render_badge("D", "#2563eb")
+    return render_badge("G", "#7c3aed")
 
 
 def cap_bar_html(used: int, cap: int, label: str) -> str:
     cap = int(cap or 0)
     used = int(used or 0)
     remain = cap - used
-
-    pct_used = (used / cap) if cap else 0.0
-    pct_used = max(0.0, min(pct_used, 1.0))
-
+    pct = max(0, min((used / cap) if cap else 0, 1))
     color = "#16a34a" if remain >= 0 else "#dc2626"
 
     return f"""
@@ -274,83 +451,13 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
         <span style="color:{color}">{money(remain)}</span>
       </div>
       <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
-        <div style="width:{int(pct_used*100)}%;background:{color};height:100%"></div>
+        <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
       </div>
       <div style="font-size:11px;opacity:.75">
         Utilisé : {money(used)} / {money(cap)}
       </div>
     </div>
     """
-
-def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
-    """
-    Garantit une colonne 'Propriétaire'.
-    - Si une colonne owner existe déjà (Owner, Team, Propriétaire, etc.), on la renomme -> 'Propriétaire'
-    - Sinon, on crée 'Propriétaire' = fallback_owner
-    """
-    if df is None or df.empty:
-        return df
-
-    cols = list(df.columns)
-    norm = {c: str(c).strip().lower() for c in cols}
-
-    # colonnes possibles qui veulent dire "owner"
-    candidates = [
-        "propriétaire", "proprietaire",
-        "owner", "owners",
-        "team", "équipe", "equipe",
-        "franchise", "club"
-    ]
-
-    found = None
-    for c in cols:
-        if norm[c] in candidates:
-            found = c
-            break
-
-    out = df.copy()
-    if found and found != "Propriétaire":
-        out = out.rename(columns={found: "Propriétaire"})
-
-    if "Propriétaire" not in out.columns:
-        out["Propriétaire"] = str(fallback_owner or "").strip()
-
-    # nettoyage
-    out["Propriétaire"] = out["Propriétaire"].astype(str).str.strip()
-    out.loc[out["Propriétaire"].eq(""), "Propriétaire"] = str(fallback_owner or "").strip()
-    return out
-
-
-def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
-    """
-    Devine l'équipe/proprio à partir des lignes au-dessus du tableau Fantrax.
-    Typique: 1ère ligne = 'Whalers', puis 'Skaters', puis entête 'ID,Pos,Player,...'
-    """
-    try:
-        raw = uploaded.getvalue()
-        text = raw.decode("utf-8", errors="ignore")
-        lines = [ln.strip() for ln in text.splitlines()]
-        top = [ln for ln in lines[:30] if ln]
-
-        stop_idx = None
-        for i, ln in enumerate(top):
-            low = ln.lower()
-            if low.startswith("id,") or low.startswith('"id",') or (",player" in low):
-                stop_idx = i
-                break
-
-        candidates = top[:stop_idx] if stop_idx is not None else top
-        banned = {"skaters", "goalies", "players"}
-        candidates = [c for c in candidates if c.strip().lower() not in banned]
-
-        if candidates:
-            first = candidates[0].strip().strip('"').strip()
-            if first and ("," not in first) and (len(first) <= 40):
-                return first
-    except Exception:
-        pass
-
-    return str(fallback or "").strip()
 
 
 
