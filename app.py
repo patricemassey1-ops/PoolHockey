@@ -982,12 +982,13 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     if _drive_enabled():
         try:
             df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
-                drive_ok = True
-    except Exception as e:
-        df_loaded = None
-        drive_ok = False
-        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local data). ({type(e).__name__}: {e})")
-
+            drive_ok = True
+        except Exception as e:
+            df_loaded = None
+            drive_ok = False
+            st.sidebar.warning(
+                f"⚠️ Drive indisponible (fallback local data). ({type(e).__name__}: {e})"
+            )
 
     # 2) Fallback local (DATA_FILE)
     if df_loaded is None:
@@ -1017,10 +1018,11 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     if _drive_enabled() and drive_ok:
         try:
             gdrive_save_df(st.session_state["data"], f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
-        except Exception:
-            st.sidebar.warning("⚠️ Sauvegarde Drive impossible (data).")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Sauvegarde Drive impossible (data). ({type(e).__name__}: {e})")
 
     st.session_state["season"] = season
+
 
 
 # -----------------------------
