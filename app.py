@@ -51,11 +51,135 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+import base64
+import os
+import streamlit as st
 
-# ✅ LOGO POOL — UNE SEULE FOIS, TOUT EN HAUT
-if os.path.exists(LOGO_POOL_FILE):
-    st.image(LOGO_POOL_FILE, use_container_width=True)
+def _img_b64(path: str) -> str:
+    if not path or not os.path.exists(path):
+        return ""
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+# --- paths (adapte si besoin)
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+# logo d'équipe selon ta logique existante:
+# logo_team = team_logo_path(get_selected_team())  # exemple
+# selected_team = get_selected_team()
+
+# =====================================================
+# CSS: header sticky + banner flottant
+# =====================================================
+st.markdown(
+    """
+    <style>
+      /* Réduit un peu le padding global */
+      .block-container { padding-top: .5rem; }
+
+      /* Header sticky */
+      .pms-sticky {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        padding: 10px 0;
+        backdrop-filter: blur(10px);
+        background: rgba(10, 10, 14, 0.70);
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+      .pms-head {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap: 14px;
+      }
+      .pms-left {
+        display:flex;
+        align-items:center;
+        gap: 10px;
+        font-weight: 1000;
+        font-size: 28px;
+      }
+      .pms-right {
+        display:flex;
+        align-items:center;
+        gap: 12px;
+        font-weight: 900;
+        font-size: 24px;
+      }
+      .pms-teamlogo {
+        width: 42px;
+        height: 42px;
+        object-fit: contain;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.06);
+        padding: 4px;
+      }
+
+      /* Banner flottant */
+      .pms-banner-wrap{
+        /* ajuste ici la descente du banner */
+        margin-top: 16px; /* <- mets 380px si tu veux ~10cm plus bas */
+      }
+      .pms-banner{
+        width: 100%;
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      .pms-banner img{
+        width:100%;
+        height:auto;
+        display:block;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =====================================================
+# HEADER STICKY (HTML)
+# =====================================================
+selected_team = get_selected_team()
+logo_team = team_logo_path(selected_team)
+
+logo_team_b64 = _img_b64(logo_team)
+team_logo_html = (
+    f"<img class='pms-teamlogo' src='data:image/png;base64,{logo_team_b64}' />"
+    if logo_team_b64 else
+    ""
+)
+
+st.markdown(
+    f"""
+    <div class="pms-sticky">
+      <div class="pms-head">
+        <div class="pms-left">🏒 PMS</div>
+        <div class="pms-right">
+          {team_logo_html}
+          <div>{selected_team if selected_team else ""}</div>
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# =====================================================
+# BANNER FLOTTANT (logo_pool)
+# =====================================================
+banner_b64 = _img_b64(LOGO_POOL_FILE)
+if banner_b64:
+    st.markdown(
+        f"""
+        <div class="pms-banner-wrap">
+          <div class="pms-banner">
+            <img src="data:image/png;base64,{banner_b64}" />
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 
