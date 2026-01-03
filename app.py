@@ -980,13 +980,14 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 
     # 1) Google Drive (priorité)
     if _drive_enabled():
-        try:
-            df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
-            drive_ok = True
-        except Exception:
-            df_loaded = None
-            drive_ok = False
-            st.sidebar.warning("⚠️ Drive indisponible (fallback local).")
+    try:
+        df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
+        drive_ok = True
+    except Exception as e:
+        df_loaded = None
+        drive_ok = False
+        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local data). ({type(e).__name__}: {e})")
+
 
     # 2) Fallback local (DATA_FILE)
     if df_loaded is None:
@@ -1031,12 +1032,14 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
     # 1) Drive (priorité)
     if _drive_enabled():
-        try:
-            h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
-            drive_ok = True
-        except Exception:
-            h_loaded = None
-            drive_ok = False
+    try:
+        h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
+        drive_ok = True
+    except Exception as e:
+        h_loaded = None
+        drive_ok = False
+        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local history). ({type(e).__name__}: {e})")
+
 
     # 2) Local fallback
     if h_loaded is None:
@@ -1234,6 +1237,31 @@ if tabAdmin is not None:
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
             # -----------------------------
+            # 🧪 Test Google Drive (debug)
+            # -----------------------------
+            st.markdown("### 🧪 Test Google Drive")
+
+            if not _drive_enabled():
+                st.warning("Google Drive non configuré (folder_id manquant dans Secrets).")
+            else:
+                if st.button("🧪 Tester Google Drive", use_container_width=True):
+                    try:
+                        s = gdrive_service()
+                        res = s.files().list(
+                            q=f"'{GDRIVE_FOLDER_ID}' in parents and trashed=false",
+                            pageSize=5,
+                            fields="files(id,name)"
+                        ).execute()
+                        files = res.get("files", [])
+                        st.success(f"✅ Drive OK — {len(files)} fichier(s) visibles dans le dossier.")
+                        if files:
+                            st.write([f["name"] for f in files])
+                    except Exception as e:
+                        st.error(f"❌ Drive KO — {type(e).__name__}: {e}")
+
+            st.divider()
+
+            # -----------------------------
             # 📥 Import
             # -----------------------------
             st.markdown("### 📥 Import")
@@ -1290,6 +1318,7 @@ if tabAdmin is not None:
                         st.error(f"❌ Import échoué : {e}")
 
             st.divider()
+
 
             # -----------------------------
             # 📤 Export CSV
