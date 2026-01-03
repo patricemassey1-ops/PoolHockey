@@ -1807,14 +1807,12 @@ if tabAdmin is not None:
 with tab1:
     if os.path.exists(LOGO_POOL_FILE):
         st.image(LOGO_POOL_FILE, use_container_width=True)
-	
-	st.subheader("📊 Tableau")
+
+    st.subheader("📊 Tableau")
 
     if df is None or df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
-
-    # ... ton code Tableau ici ...
 
 
 
