@@ -749,7 +749,6 @@ st.markdown(
     f"""
     <div class="pms-sticky">
       <div class="pms-head">
-        <div class="pms-left">🏒 PMS</div>
         {team_html}
       </div>
     </div>
