@@ -1242,20 +1242,21 @@ if tabAdmin is not None:
         if not _is_admin_whalers():
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
-            # -----------------------------
-            # 🧪 Test Google Drive (debug)
-            # -----------------------------
+            # =====================================================
+            # 🧪 TEST GOOGLE DRIVE (LECTURE + ÉCRITURE)
+            # =====================================================
             st.markdown("### 🧪 Test Google Drive")
 
             if not _drive_enabled():
                 st.warning("Google Drive non configuré (folder_id manquant dans Secrets).")
             else:
-                if st.button("🧪 Tester Google Drive", use_container_width=True):
+                # ---- Test lecture (liste fichiers)
+                if st.button("🧪 Tester Google Drive (liste)", use_container_width=True):
                     try:
                         s = gdrive_service()
                         res = s.files().list(
                             q=f"'{GDRIVE_FOLDER_ID}' in parents and trashed=false",
-                            pageSize=5,
+                            pageSize=10,
                             fields="files(id,name)"
                         ).execute()
                         files = res.get("files", [])
@@ -1265,11 +1266,32 @@ if tabAdmin is not None:
                     except Exception as e:
                         st.error(f"❌ Drive KO — {type(e).__name__}: {e}")
 
+                # ---- Test écriture (crée / met à jour un fichier)
+                if st.button("✍️ Tester ÉCRITURE Drive (créer un fichier)", use_container_width=True):
+                    try:
+                        df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
+                        gdrive_save_df(df_test, "drive_write_test.csv", GDRIVE_FOLDER_ID)
+                        st.success("✅ Écriture OK — 'drive_write_test.csv' créé/mis à jour.")
+
+                        # Re-liste après écriture
+                        s = gdrive_service()
+                        res = s.files().list(
+                            q=f"'{GDRIVE_FOLDER_ID}' in parents and trashed=false",
+                            pageSize=10,
+                            fields="files(id,name)"
+                        ).execute()
+                        files = res.get("files", [])
+                        st.info(f"📁 Fichiers visibles maintenant : {len(files)}")
+                        if files:
+                            st.write([f["name"] for f in files])
+                    except Exception as e:
+                        st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
             st.divider()
 
-            # -----------------------------
-            # 📥 Import
-            # -----------------------------
+            # =====================================================
+            # 📥 IMPORT FANTRAX
+            # =====================================================
             st.markdown("### 📥 Import")
 
             uploaded = st.file_uploader(
@@ -1301,29 +1323,37 @@ if tabAdmin is not None:
 
                             # ✅ Save local (fallback/cache)
                             try:
-                                st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+                                st.session_state["data"].to_csv(
+                                    st.session_state["DATA_FILE"], index=False
+                                )
                             except Exception:
                                 pass
 
                             # ✅ Save Drive (persist reboot) si configuré
                             try:
-                                if "_drive_enabled" in globals() and _drive_enabled():
+                                if _drive_enabled():
                                     gdrive_save_df(
                                         st.session_state["data"],
                                         f"fantrax_{season}.csv",
                                         GDRIVE_FOLDER_ID,
                                     )
-                            except Exception:
-                                st.warning("⚠️ Sauvegarde Drive impossible (local ok).")
+                            except Exception as e:
+                                st.warning(
+                                    f"⚠️ Sauvegarde Drive impossible (local ok). "
+                                    f"({type(e).__name__}: {e})"
+                                )
 
                             st.success("✅ Import réussi")
-                            st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                            st.session_state["uploader_nonce"] = (
+                                st.session_state.get("uploader_nonce", 0) + 1
+                            )
                             do_rerun()
 
                     except Exception as e:
                         st.error(f"❌ Import échoué : {e}")
 
             st.divider()
+
 
 
             # -----------------------------
