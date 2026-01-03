@@ -2033,44 +2033,43 @@ with c_btn3:
 
 st.divider()
 
+# =====================================================
+# 📤 EXPORT CSV
+# =====================================================
+st.markdown("### 📤 Export CSV")
 
+data_file = st.session_state.get("DATA_FILE", "")
+hist_file = st.session_state.get("HISTORY_FILE", "")
+season_lbl = st.session_state.get("season", season)
 
-        # =====================================================
-        # 📤 EXPORT CSV
-        # =====================================================
-        st.markdown("### 📤 Export CSV")
+c1, c2 = st.columns(2)
 
-        data_file = st.session_state.get("DATA_FILE", "")
-        hist_file = st.session_state.get("HISTORY_FILE", "")
-        season_lbl = st.session_state.get("season", season)
+with c1:
+    if data_file and os.path.exists(data_file):
+        with open(data_file, "rb") as f:
+            st.download_button(
+                "⬇️ Export Alignement (CSV)",
+                data=f.read(),
+                file_name=f"fantrax_{season_lbl}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+    else:
+        st.info("Aucun alignement à exporter.")
 
-        c1, c2 = st.columns(2)
+with c2:
+    if hist_file and os.path.exists(hist_file):
+        with open(hist_file, "rb") as f:
+            st.download_button(
+                "⬇️ Export Historique (CSV)",
+                data=f.read(),
+                file_name=f"history_{season_lbl}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+    else:
+        st.info("Aucun historique à exporter.")
 
-        with c1:
-            if data_file and os.path.exists(data_file):
-                with open(data_file, "rb") as f:
-                    st.download_button(
-                        "⬇️ Export Alignement (CSV)",
-                        data=f.read(),
-                        file_name=f"fantrax_{season_lbl}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-            else:
-                st.info("Aucun alignement à exporter.")
-
-        with c2:
-            if hist_file and os.path.exists(hist_file):
-                with open(hist_file, "rb") as f:
-                    st.download_button(
-                        "⬇️ Export Historique (CSV)",
-                        data=f.read(),
-                        file_name=f"history_{season_lbl}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-            else:
-                st.info("Aucun historique à exporter.")
 
 
 
