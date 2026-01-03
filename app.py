@@ -1037,11 +1037,12 @@ if "history_season" not in st.session_state or st.session_state["history_season"
         try:
             h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
             drive_ok = True
-    except Exception as e:
-        h_loaded = None
-        drive_ok = False
-        st.sidebar.warning(f"⚠️ Drive indisponible (fallback local history). ({type(e).__name__}: {e})")
-
+        except Exception as e:
+            h_loaded = None
+            drive_ok = False
+            st.sidebar.warning(
+                f"⚠️ Drive indisponible (fallback local history). ({type(e).__name__}: {e})"
+            )
 
     # 2) Local fallback
     if h_loaded is None:
@@ -1070,10 +1071,13 @@ if "history_season" not in st.session_state or st.session_state["history_season"
     if _drive_enabled() and drive_ok:
         try:
             gdrive_save_df(st.session_state["history"], f"history_{season}.csv", GDRIVE_FOLDER_ID)
-        except Exception:
-            st.sidebar.warning("⚠️ Sauvegarde Drive impossible (history).")
+        except Exception as e:
+            st.sidebar.warning(
+                f"⚠️ Sauvegarde Drive impossible (history). ({type(e).__name__}: {e})"
+            )
 
     st.session_state["history_season"] = season
+
 
 
 # -----------------------------
