@@ -2038,42 +2038,49 @@ st.divider()
 
 
 
-    # =====================================================
-    # 📤 EXPORT CSV
-    # =====================================================
-    st.markdown("### 📤 Export CSV")
+   if tabAdmin is not None:
+    with tabAdmin:
+        st.subheader("🛠️ Gestion Admin")
 
-    data_file = st.session_state.get("DATA_FILE", "")
-    hist_file = st.session_state.get("HISTORY_FILE", "")
-    season_lbl = st.session_state.get("season", season)
+        # ... OAuth / Drive / Import juste avant ...
 
-    c1, c2 = st.columns(2)
+        # =====================================================
+        # 📤 EXPORT CSV
+        # =====================================================
+        st.markdown("### 📤 Export CSV")
 
-    with c1:
-        if data_file and os.path.exists(data_file):
-            with open(data_file, "rb") as f:
-                st.download_button(
-                    "⬇️ Export Alignement (CSV)",
-                    data=f.read(),
-                    file_name=f"fantrax_{season_lbl}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-        else:
-            st.info("Aucun alignement à exporter.")
+        data_file = st.session_state.get("DATA_FILE", "")
+        hist_file = st.session_state.get("HISTORY_FILE", "")
+        season_lbl = st.session_state.get("season", season)
 
-    with c2:
-        if hist_file and os.path.exists(hist_file):
-            with open(hist_file, "rb") as f:
-                st.download_button(
-                    "⬇️ Export Historique (CSV)",
-                    data=f.read(),
-                    file_name=f"history_{season_lbl}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-        else:
-            st.info("Aucun historique à exporter.")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            if data_file and os.path.exists(data_file):
+                with open(data_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Alignement (CSV)",
+                        data=f.read(),
+                        file_name=f"fantrax_{season_lbl}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+            else:
+                st.info("Aucun alignement à exporter.")
+
+        with c2:
+            if hist_file and os.path.exists(hist_file):
+                with open(hist_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Historique (CSV)",
+                        data=f.read(),
+                        file_name=f"history_{season_lbl}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+            else:
+                st.info("Aucun historique à exporter.")
+
 
 
 
