@@ -1496,6 +1496,24 @@ else:
     plafonds = pd.DataFrame(resume)
 
 # =====================================================
+# CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="PMS",
+    layout="wide"
+)
+
+# =====================================================
+# LOGO POOL — TOUT EN HAUT
+# =====================================================
+if os.path.exists(LOGO_POOL_FILE):
+    st.image(
+        LOGO_POOL_FILE,
+        use_container_width=True
+    )
+
+
+# =====================================================
 # TABS (Admin seulement pour Whalers)
 # =====================================================
 is_admin = _is_admin_whalers()
