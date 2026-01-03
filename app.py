@@ -1824,251 +1824,251 @@ if tabAdmin is not None:
 
             st.divider()
 
-           
-# =====================================================
-# 📥 IMPORT (ADMIN ONLY) — CSV INITIAUX PERSISTANTS
-# =====================================================
-st.markdown("### 📥 Import")
+            # =====================================================
+            # 📥 IMPORT (ADMIN ONLY) — CSV INITIAUX PERSISTANTS
+            # =====================================================
+            st.markdown("### 📥 Import")
 
-# --- Manifest persistant (local)
-manifest = load_init_manifest()
+            # --- Manifest persistant (local)
+            manifest = load_init_manifest()
 
-# =============================
-# ✅ FICHIERS CSV INITIAUX
-# =============================
-st.markdown("#### 🧾 Fichiers CSV initiaux (persistants après reboot)")
+            # =============================
+            # ✅ FICHIERS CSV INITIAUX
+            # =============================
+            st.markdown("#### 🧾 Fichiers CSV initiaux (persistants après reboot)")
 
-c_init1, c_init2 = st.columns(2)
+            c_init1, c_init2 = st.columns(2)
 
-with c_init1:
-    init_align = st.file_uploader(
-        "CSV initial — Alignement (fantrax)",
-        type=["csv", "txt"],
-        help="Optionnel. Sert de base persistante (data/ + manifest).",
-        key=f"init_align_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
-    )
-
-with c_init2:
-    init_hist = st.file_uploader(
-        "CSV initial — Historique",
-        type=["csv", "txt"],
-        help="Optionnel. Sert de base persistante (data/ + manifest).",
-        key=f"init_hist_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
-    )
-
-c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
-
-# =====================================================
-# 💾 SAUVER CSV INITIAUX (SAUVE + CHARGE IMMÉDIATEMENT)
-# =====================================================
-with c_btn1:
-    if st.button("💾 Sauver CSV initiaux", use_container_width=True, key="save_init_csvs_admin"):
-        saved_any = False
-
-        # -------- ALIGNEMENT
-        if init_align is not None:
-            try:
-                # 1) Sauvegarde fichier brut
-                path = save_uploaded_csv(init_align, f"initial_fantrax_{season}.csv")
-
-                manifest["fantrax"] = {
-                    "path": path,
-                    "uploaded_name": init_align.name,
-                    "season": season,
-                    "saved_at": datetime.now().isoformat(),
-                }
-
-                # 2) Parse Fantrax -> DF interne
-                import io
-                buf = io.BytesIO(init_align.getbuffer())
-                buf.name = init_align.name
-
-                df_import = parse_fantrax(buf)
-
-                if df_import is None or df_import.empty:
-                    st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
-                else:
-                    # ✅ Multi-propriétaires: si une colonne Owner/Team/Propriétaire existe, on la respecte
-                    fallback_owner = os.path.splitext(init_align.name)[0]
-                    df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
-
-                    st.session_state["data"] = clean_data(df_import)
-
-                    # Sauvegarde locale standard
-                    try:
-                        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
-                    except Exception:
-                        pass
-
-                    # Sauvegarde Drive (optionnelle)
-                    try:
-                        if _drive_enabled():
-                            gdrive_save_df(
-                                st.session_state["data"],
-                                f"fantrax_{season}.csv",
-                                GDRIVE_FOLDER_ID,
-                            )
-                    except Exception:
-                        pass
-
-                    st.success("✅ CSV initial sauvegardé et alignement chargé.")
-                    saved_any = True
-
-            except Exception as e:
-                st.error(f"❌ Échec sauvegarde alignement : {type(e).__name__}: {e}")
-
-        # -------- HISTORIQUE
-        if init_hist is not None:
-            try:
-                path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
-
-                manifest["history"] = {
-                    "path": path,
-                    "uploaded_name": init_hist.name,
-                    "season": season,
-                    "saved_at": datetime.now().isoformat(),
-                }
-
-                h0 = pd.read_csv(path)
-                st.session_state["history"] = h0
-
-                try:
-                    st.session_state["history"].to_csv(st.session_state["HISTORY_FILE"], index=False)
-                except Exception:
-                    pass
-
-                st.success("✅ CSV historique sauvegardé.")
-                saved_any = True
-
-            except Exception as e:
-                st.error(f"❌ Échec sauvegarde historique : {type(e).__name__}: {e}")
-
-        # -------- FINALISATION
-        if saved_any:
-            try:
-                save_init_manifest(manifest)
-                st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
-                do_rerun()
-            except Exception as e:
-                st.error(f"❌ Échec écriture manifest : {type(e).__name__}: {e}")
-        else:
-            st.info("Aucun fichier initial sélectionné.")
-
-# =====================================================
-# 🔄 RECHARGER DEPUIS CSV INITIAUX
-# =====================================================
-with c_btn2:
-    if st.button("🔄 Recharger depuis CSV initiaux", use_container_width=True, key="reload_from_init_csvs_admin"):
-        # Alignement
-        fantrax_path = manifest.get("fantrax", {}).get("path", "")
-        if fantrax_path and os.path.exists(fantrax_path):
-            try:
-                import io
-                with open(fantrax_path, "rb") as f:
-                    buf = io.BytesIO(f.read())
-                buf.name = manifest.get("fantrax", {}).get(
-                    "uploaded_name", os.path.basename(fantrax_path)
+            with c_init1:
+                init_align = st.file_uploader(
+                    "CSV initial — Alignement (fantrax)",
+                    type=["csv", "txt"],
+                    help="Optionnel. Sert de base persistante (data/ + manifest).",
+                    key=f"init_align_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
                 )
 
-                df_import = parse_fantrax(buf)
+            with c_init2:
+                init_hist = st.file_uploader(
+                    "CSV initial — Historique",
+                    type=["csv", "txt"],
+                    help="Optionnel. Sert de base persistante (data/ + manifest).",
+                    key=f"init_hist_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
+                )
 
-                if df_import is not None and not df_import.empty:
-                    fallback_owner = os.path.splitext(buf.name)[0]
-                    df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+            c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
 
-                    st.session_state["data"] = clean_data(df_import)
+            # =====================================================
+            # 💾 SAUVER CSV INITIAUX (SAUVE + CHARGE IMMÉDIATEMENT)
+            # =====================================================
+            with c_btn1:
+                if st.button("💾 Sauver CSV initiaux", use_container_width=True, key="save_init_csvs_admin"):
+                    saved_any = False
 
-                    try:
-                        st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
-                    except Exception:
-                        pass
+                    # -------- ALIGNEMENT
+                    if init_align is not None:
+                        try:
+                            # 1) Sauvegarde fichier brut
+                            path = save_uploaded_csv(init_align, f"initial_fantrax_{season}.csv")
 
-                    st.success("✅ Alignement rechargé.")
+                            manifest["fantrax"] = {
+                                "path": path,
+                                "uploaded_name": init_align.name,
+                                "season": season,
+                                "saved_at": datetime.now().isoformat(),
+                            }
+
+                            # 2) Parse Fantrax -> DF interne
+                            import io
+                            buf = io.BytesIO(init_align.getbuffer())
+                            buf.name = init_align.name
+
+                            df_import = parse_fantrax(buf)
+
+                            if df_import is None or df_import.empty:
+                                st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
+                            else:
+                                # ✅ Multi-propriétaires: si une colonne Owner/Team/Propriétaire existe, on la respecte
+                                fallback_owner = os.path.splitext(init_align.name)[0]
+                                df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+
+                                st.session_state["data"] = clean_data(df_import)
+
+                                # Sauvegarde locale standard
+                                try:
+                                    st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+                                except Exception:
+                                    pass
+
+                                # Sauvegarde Drive (optionnelle)
+                                try:
+                                    if _drive_enabled():
+                                        gdrive_save_df(
+                                            st.session_state["data"],
+                                            f"fantrax_{season}.csv",
+                                            GDRIVE_FOLDER_ID,
+                                        )
+                                except Exception:
+                                    pass
+
+                                st.success("✅ CSV initial sauvegardé et alignement chargé.")
+                                saved_any = True
+
+                        except Exception as e:
+                            st.error(f"❌ Échec sauvegarde alignement : {type(e).__name__}: {e}")
+
+                    # -------- HISTORIQUE
+                    if init_hist is not None:
+                        try:
+                            path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
+
+                            manifest["history"] = {
+                                "path": path,
+                                "uploaded_name": init_hist.name,
+                                "season": season,
+                                "saved_at": datetime.now().isoformat(),
+                            }
+
+                            h0 = pd.read_csv(path)
+                            st.session_state["history"] = h0
+
+                            try:
+                                st.session_state["history"].to_csv(st.session_state["HISTORY_FILE"], index=False)
+                            except Exception:
+                                pass
+
+                            st.success("✅ CSV historique sauvegardé.")
+                            saved_any = True
+
+                        except Exception as e:
+                            st.error(f"❌ Échec sauvegarde historique : {type(e).__name__}: {e}")
+
+                    # -------- FINALISATION
+                    if saved_any:
+                        try:
+                            save_init_manifest(manifest)
+                            st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                            do_rerun()
+                        except Exception as e:
+                            st.error(f"❌ Échec écriture manifest : {type(e).__name__}: {e}")
+                    else:
+                        st.info("Aucun fichier initial sélectionné.")
+
+            # =====================================================
+            # 🔄 RECHARGER DEPUIS CSV INITIAUX
+            # =====================================================
+            with c_btn2:
+                if st.button("🔄 Recharger depuis CSV initiaux", use_container_width=True, key="reload_from_init_csvs_admin"):
+                    # Alignement
+                    fantrax_path = manifest.get("fantrax", {}).get("path", "")
+                    if fantrax_path and os.path.exists(fantrax_path):
+                        try:
+                            import io
+                            with open(fantrax_path, "rb") as f:
+                                buf = io.BytesIO(f.read())
+                            buf.name = manifest.get("fantrax", {}).get("uploaded_name", os.path.basename(fantrax_path))
+
+                            df_import = parse_fantrax(buf)
+
+                            if df_import is not None and not df_import.empty:
+                                fallback_owner = os.path.splitext(buf.name)[0]
+                                df_import = ensure_owner_column(df_import, fallback_owner=fallback_owner)
+
+                                st.session_state["data"] = clean_data(df_import)
+
+                                try:
+                                    st.session_state["data"].to_csv(st.session_state["DATA_FILE"], index=False)
+                                except Exception:
+                                    pass
+
+                                st.success("✅ Alignement rechargé.")
+                            else:
+                                st.error("❌ CSV initial Fantrax invalide.")
+                        except Exception as e:
+                            st.error(f"❌ Rechargement alignement impossible : {type(e).__name__}: {e}")
+                    else:
+                        st.info("Aucun CSV initial alignement trouvé.")
+
+                    # Historique
+                    hist_path = manifest.get("history", {}).get("path", "")
+                    if hist_path and os.path.exists(hist_path):
+                        try:
+                            h0 = pd.read_csv(hist_path)
+                            st.session_state["history"] = h0
+
+                            try:
+                                st.session_state["history"].to_csv(st.session_state["HISTORY_FILE"], index=False)
+                            except Exception:
+                                pass
+
+                            st.success("✅ Historique rechargé.")
+                        except Exception as e:
+                            st.error(f"❌ Rechargement historique impossible : {type(e).__name__}: {e}")
+                    else:
+                        st.info("Aucun CSV initial historique trouvé.")
+
+                    do_rerun()
+
+            # =====================================================
+            # ℹ️ ÉTAT DU MANIFEST
+            # =====================================================
+            with c_btn3:
+                fantrax_info = manifest.get("fantrax", {})
+                hist_info = manifest.get("history", {})
+
+                def _fmt(info: dict) -> str:
+                    if not info:
+                        return "—"
+                    p = info.get("path", "")
+                    name = info.get("uploaded_name", "")
+                    ts = info.get("saved_at", "")
+                    ok = "✅" if (p and os.path.exists(p)) else "⚠️"
+                    return f"{ok} {name} | {os.path.basename(p)} | {ts}"
+
+                st.caption("**État CSV initiaux (manifest local)**")
+                st.caption(f"Alignement : {_fmt(fantrax_info)}")
+                st.caption(f"Historique : {_fmt(hist_info)}")
+
+            st.divider()
+
+            # =====================================================
+            # 📤 EXPORT CSV (ADMIN ONLY)
+            # =====================================================
+            st.markdown("### 📤 Export CSV")
+
+            data_file = st.session_state.get("DATA_FILE", "")
+            hist_file = st.session_state.get("HISTORY_FILE", "")
+            season_lbl = st.session_state.get("season", season)
+
+            e1, e2 = st.columns(2)
+
+            with e1:
+                if data_file and os.path.exists(data_file):
+                    with open(data_file, "rb") as f:
+                        st.download_button(
+                            "⬇️ Export Alignement (CSV)",
+                            data=f.read(),
+                            file_name=f"fantrax_{season_lbl}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key=f"dl_align_{season_lbl}_admin_local",
+                        )
                 else:
-                    st.error("❌ CSV initial Fantrax invalide.")
-            except Exception as e:
-                st.error(f"❌ Rechargement alignement impossible : {type(e).__name__}: {e}")
-        else:
-            st.info("Aucun CSV initial alignement trouvé.")
+                    st.info("Aucun alignement à exporter.")
 
-        # Historique
-        hist_path = manifest.get("history", {}).get("path", "")
-        if hist_path and os.path.exists(hist_path):
-            try:
-                h0 = pd.read_csv(hist_path)
-                st.session_state["history"] = h0
+            with e2:
+                if hist_file and os.path.exists(hist_file):
+                    with open(hist_file, "rb") as f:
+                        st.download_button(
+                            "⬇️ Export Historique (CSV)",
+                            data=f.read(),
+                            file_name=f"history_{season_lbl}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key=f"dl_hist_{season_lbl}_admin_local",
+                        )
+                else:
+                    st.info("Aucun historique à exporter.")
 
-                try:
-                    st.session_state["history"].to_csv(st.session_state["HISTORY_FILE"], index=False)
-                except Exception:
-                    pass
-
-                st.success("✅ Historique rechargé.")
-            except Exception as e:
-                st.error(f"❌ Rechargement historique impossible : {type(e).__name__}: {e}")
-        else:
-            st.info("Aucun CSV initial historique trouvé.")
-
-        do_rerun()
-
-# =====================================================
-# ℹ️ ÉTAT DU MANIFEST
-# =====================================================
-with c_btn3:
-    fantrax_info = manifest.get("fantrax", {})
-    hist_info = manifest.get("history", {})
-
-    def _fmt(info: dict) -> str:
-        if not info:
-            return "—"
-        p = info.get("path", "")
-        name = info.get("uploaded_name", "")
-        ts = info.get("saved_at", "")
-        ok = "✅" if (p and os.path.exists(p)) else "⚠️"
-        return f"{ok} {name} | {os.path.basename(p)} | {ts}"
-
-    st.caption("**État CSV initiaux (manifest local)**")
-    st.caption(f"Alignement : {_fmt(fantrax_info)}")
-    st.caption(f"Historique : {_fmt(hist_info)}")
-
-st.divider()
-
-# =====================================================
-# 📤 EXPORT CSV
-# =====================================================
-st.markdown("### 📤 Export CSV")
-
-data_file = st.session_state.get("DATA_FILE", "")
-hist_file = st.session_state.get("HISTORY_FILE", "")
-season_lbl = st.session_state.get("season", season)
-
-c1, c2 = st.columns(2)
-
-with c1:
-    if data_file and os.path.exists(data_file):
-        with open(data_file, "rb") as f:
-            st.download_button(
-                "⬇️ Export Alignement (CSV)",
-                data=f.read(),
-                file_name=f"fantrax_{season_lbl}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-    else:
-        st.info("Aucun alignement à exporter.")
-
-with c2:
-    if hist_file and os.path.exists(hist_file):
-        with open(hist_file, "rb") as f:
-            st.download_button(
-                "⬇️ Export Historique (CSV)",
-                data=f.read(),
-                file_name=f"history_{season_lbl}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-    else:
-        st.info("Aucun historique à exporter.")
 
 
 
