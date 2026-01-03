@@ -1592,10 +1592,10 @@ if tabAdmin is not None:
         st.divider()
 
 
-               # =====================================================
-               # 🚀 DRIVE BATCH (Flush + statut)
-               # =====================================================
-               if drive_ready:
+                # =====================================================
+                # 🚀 DRIVE BATCH (Flush + statut)
+                # =====================================================
+                if drive_ready:
                     st.markdown("### 🚀 Drive batch (réduction des écritures)")
 
                     q = st.session_state.get("drive_queue", {})
