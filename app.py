@@ -1361,19 +1361,17 @@ if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
 
-        # 🔒 Guard Whalers
         if not _is_admin_whalers():
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
-            # =====================================================
-            # 🔐 OAUTH CONNECT (1 fois)
-            # =====================================================
             st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+
+            # ✅ DEBUG ICI
+            st.write("DEBUG query params:", dict(st.query_params))
 
             if not oauth_drive_enabled():
                 st.warning("OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets.")
             else:
-                # Cette fonction doit exister dans ton code (je te l'ai donné dans le bloc OAuth)
                 oauth_connect_ui()
 
             cfg = dict(st.secrets.get("gdrive_oauth", {}))
@@ -1399,7 +1397,7 @@ if tabAdmin is not None:
             else:
                 if st.button("🧪 Tester Google Drive (liste)", use_container_width=True):
                     try:
-                        s = gdrive_service()  # IMPORTANT: gdrive_service doit utiliser OAuth
+                        s = gdrive_service()
                         res = s.files().list(
                             q=f"'{folder_id}' in parents and trashed=false",
                             pageSize=10,
@@ -1432,6 +1430,7 @@ if tabAdmin is not None:
                         st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
 
             st.divider()
+
 
             # =====================================================
             # 📥 IMPORT FANTRAX
