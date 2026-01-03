@@ -1432,8 +1432,7 @@ st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE
 # =====================================================
 # HEADER GLOBAL (TOP)
 # =====================================================
-if os.path.exists(LOGO_POOL_FILE):
-    st.image(LOGO_POOL_FILE, use_container_width=True)
+
 
 selected_team = get_selected_team()
 logo_team = team_logo_path(selected_team)
@@ -1806,7 +1805,10 @@ if tabAdmin is not None:
 # TAB 1 — Tableau
 # =====================================================
 with tab1:
-    st.subheader("📊 Tableau")
+    if os.path.exists(LOGO_POOL_FILE):
+        st.image(LOGO_POOL_FILE, use_container_width=True)
+	
+	st.subheader("📊 Tableau")
 
     if df is None or df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
