@@ -731,29 +731,32 @@ def get_selected_team() -> str:
 # HEADER STICKY (HTML)
 # =====================================================
 selected_team = str(st.session_state.get("selected_team", "")).strip()
-logo_team = team_logo_path(selected_team)
 
-logo_team_b64 = _img_b64(logo_team)
-team_logo_html = (
-    f"<img class='pms-teamlogo' src='data:image/png;base64,{logo_team_b64}' />"
-    if logo_team_b64 else
-    ""
-)
+team_html = ""
+if selected_team:
+    logo_path = LOGOS.get(selected_team, "")
+    if logo_path and os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+        team_html = f"""
+            <div class="pms-right">
+                <img class="pms-teamlogo" src="data:image/png;base64,{logo_b64}" />
+                <div>{selected_team}</div>
+            </div>
+        """
 
 st.markdown(
     f"""
     <div class="pms-sticky">
       <div class="pms-head">
         <div class="pms-left">🏒 PMS</div>
-        <div class="pms-right">
-          {team_logo_html}
-          <div>{selected_team if selected_team else ""}</div>
-        </div>
+        {team_html}
       </div>
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 # =====================================================
 # BANNER FLOTTANT (logo_pool)
