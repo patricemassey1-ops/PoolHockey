@@ -294,7 +294,7 @@ def _is_admin_whalers() -> bool:
 # =====================================================
 
 # ✅ Recommandé: scope minimal
-OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 def _oauth_cfg() -> dict:
     return dict(st.secrets.get("gdrive_oauth", {}))
