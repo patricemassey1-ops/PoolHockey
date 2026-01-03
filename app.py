@@ -310,6 +310,57 @@ def oauth_connect_ui():
     else:
         st.success("OAuth configuré (refresh_token présent).")
 
+# -----------------------------
+# Drive helpers (save/load)
+# -----------------------------
+def gdrive_get_file_id(service, filename: str, folder_id: str):
+    safe_name = str(filename).replace("'", "")
+    q = f"name='{safe_name}' and '{folder_id}' in parents and trashed=false"
+    res = service.files().list(q=q, fields="files(id,name)").execute()
+    files = res.get("files", [])
+    return files[0]["id"] if files else None
+
+
+def gdrive_save_df(df: pd.DataFrame, filename: str, folder_id: str) -> bool:
+    if not folder_id:
+        return False
+
+    service = gdrive_service()
+    file_id = gdrive_get_file_id(service, filename, folder_id)
+
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
+
+    if file_id:
+        service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        file_metadata = {"name": filename, "parents": [folder_id]}
+        service.files().create(body=file_metadata, media_body=media).execute()
+
+    return True
+
+
+def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
+    if not folder_id:
+        return None
+
+    service = gdrive_service()
+    file_id = gdrive_get_file_id(service, filename, folder_id)
+    if not file_id:
+        return None
+
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    fh.seek(0)
+    return pd.read_csv(fh)
+
+
 
 # =====================================================
 # CLEAN DATA
@@ -1026,7 +1077,7 @@ def _safe_empty_df() -> pd.DataFrame:
 
 
 def _drive_enabled() -> bool:
-    return bool(GDRIVE_FOLDER_ID)
+    return oauth_drive_ready()
 
 
 # -----------------------------
