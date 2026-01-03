@@ -622,8 +622,8 @@ def apply_move_with_history(
     # -----------------------------
     try:
         if "_drive_enabled" in globals() and _drive_enabled():
-        season_lbl = st.session_state.get("season", "")
-        gdrive_save_df(df0, f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
+            season_lbl = st.session_state.get("season", "")
+            gdrive_save_df(df0, f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
     except Exception as e:
         # On ne bloque pas l'app si Drive down
         st.sidebar.warning(f"⚠️ Drive indisponible (fallback local). ({e})")
