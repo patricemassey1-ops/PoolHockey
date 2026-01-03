@@ -22,7 +22,6 @@ from urllib.parse import quote, unquote
 import pandas as pd
 import streamlit as st
 
-from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
@@ -193,25 +192,25 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     """
 
 # =====================================================
-# GOOGLE DRIVE — OAUTH USER (Gmail compatible)
+# GOOGLE DRIVE — OAUTH FINAL (clean + refresh silencieux)
 # =====================================================
-OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
+# ✅ Recommandé: scope minimal
+OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 def _oauth_cfg() -> dict:
     return dict(st.secrets.get("gdrive_oauth", {}))
 
+def _folder_id() -> str:
+    return str(_oauth_cfg().get("folder_id", "")).strip()
 
 def oauth_drive_enabled() -> bool:
-    cfg = dict(st.secrets.get("gdrive_oauth", {}))
+    cfg = _oauth_cfg()
     return bool(str(cfg.get("client_id", "")).strip() and str(cfg.get("client_secret", "")).strip())
-
-
 
 def oauth_drive_ready() -> bool:
     cfg = _oauth_cfg()
-    return bool(str(cfg.get("folder_id", "")).strip() and str(cfg.get("refresh_token", "")).strip())
-
+    return bool(_folder_id() and str(cfg.get("refresh_token", "")).strip())
 
 def _build_oauth_flow() -> Flow:
     cfg = _oauth_cfg()
@@ -229,57 +228,20 @@ def _build_oauth_flow() -> Flow:
         redirect_uri=cfg["redirect_uri"],
     )
 
-
-def _get_oauth_creds() -> Credentials | None:
-    cfg = _oauth_cfg()
-    rt = str(cfg.get("refresh_token", "")).strip()
-    if not rt:
-        return None
-
-    creds = Credentials(
-        token=None,
-        refresh_token=rt,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=cfg["client_id"],
-        client_secret=cfg["client_secret"],
-        scopes=OAUTH_SCOPES,
-    )
-
-    try:
-        if not creds.valid:
-            creds.refresh(Request())
-    except Exception:
-        return None
-
-    return creds
-
-
-def gdrive_service():
-    """
-    Service Drive basé sur OAuth utilisateur.
-    Nécessite [gdrive_oauth] dans Secrets + refresh_token.
-    """
-    creds = _get_oauth_creds()
-    if creds is None:
-        raise RuntimeError("OAuth Drive non prêt: refresh_token manquant (voir onglet Admin).")
-    return build("drive", "v3", credentials=creds)
-
-
 def oauth_connect_ui():
     """
-    UI Streamlit:
-    - bouton de connexion
-    - récupère ?code=... au retour
-    - affiche refresh_token à copier dans Secrets
+    UI à mettre dans l'onglet Admin:
+    - bouton connecter si pas de refresh_token
+    - si ?code=..., échange et affiche refresh_token à coller dans Secrets
     """
     if not oauth_drive_enabled():
-        st.error("OAuth non configuré: ajoute client_id/client_secret/redirect_uri dans [gdrive_oauth] (Secrets).")
+        st.warning("OAuth Drive non configuré (client_id/client_secret/redirect_uri manquants dans Secrets).")
         return
 
     cfg = _oauth_cfg()
-    qp = st.query_params  # Streamlit récent
-
+    qp = st.query_params
     code = qp.get("code", None)
+
     if code:
         try:
             flow = _build_oauth_flow()
@@ -291,9 +253,9 @@ def oauth_connect_ui():
             if rt:
                 st.warning("Copie ce refresh_token dans Streamlit Secrets → [gdrive_oauth].refresh_token")
                 st.code(rt)
-                st.caption("Ensuite, enlève `?code=...` de l’URL (ou refresh) après avoir mis à jour Secrets.")
+                st.caption("Ensuite enlève `?code=...` de l’URL (ou refresh) après avoir mis à jour Secrets.")
             else:
-                st.error("⚠️ Aucun refresh_token reçu. Reconnecte-toi (le bouton force prompt=consent).")
+                st.error("⚠️ Aucun refresh_token reçu. Révoque l’accès (myaccount.google.com/permissions) puis reconnecte.")
         except Exception as e:
             st.error(f"❌ OAuth error: {type(e).__name__}: {e}")
         return
@@ -303,15 +265,55 @@ def oauth_connect_ui():
         auth_url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
-            prompt="consent",  # force refresh_token
+            prompt="consent",
         )
         st.link_button("🔐 Connecter Google Drive", auth_url, use_container_width=True)
-        st.caption("Après l’autorisation, tu reviendras ici avec `?code=...` et je te donnerai le refresh_token.")
+        st.caption("Après l’autorisation, tu reviens ici avec `?code=...` et je te donne le refresh_token.")
     else:
         st.success("OAuth configuré (refresh_token présent).")
 
+def _get_oauth_creds() -> Credentials:
+    """
+    Construit Credentials + refresh silencieux si nécessaire.
+    Raise si pas prêt.
+    """
+    cfg = _oauth_cfg()
+    rt = str(cfg.get("refresh_token", "")).strip()
+    if not rt:
+        raise RuntimeError("OAuth Drive non prêt: refresh_token manquant (voir Admin).")
+
+    creds = Credentials(
+        token=None,
+        refresh_token=rt,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=cfg["client_id"],
+        client_secret=cfg["client_secret"],
+        scopes=OAUTH_SCOPES,
+    )
+
+    # ✅ Refresh silencieux
+    if not creds.valid:
+        creds.refresh(Request())
+
+    return creds
+
+@st.cache_resource(show_spinner=False)
+def _drive_client_cached() :
+    """
+    Client Drive caché: accélère et évite rebuild à chaque rerun.
+    Le refresh du token se fera via _get_oauth_creds() au moment du build.
+    """
+    creds = _get_oauth_creds()
+    return build("drive", "v3", credentials=creds)
+
+def gdrive_service():
+    return _drive_client_cached()
+
+def _drive_enabled() -> bool:
+    return oauth_drive_ready()
+
 # -----------------------------
-# Drive helpers (save/load)
+# Helpers Drive (liste / save / load)
 # -----------------------------
 def gdrive_get_file_id(service, filename: str, folder_id: str):
     safe_name = str(filename).replace("'", "")
@@ -320,36 +322,41 @@ def gdrive_get_file_id(service, filename: str, folder_id: str):
     files = res.get("files", [])
     return files[0]["id"] if files else None
 
+def gdrive_list_files(folder_id: str, limit: int = 20) -> list[str]:
+    s = gdrive_service()
+    res = s.files().list(
+        q=f"'{folder_id}' in parents and trashed=false",
+        pageSize=int(limit),
+        fields="files(name)",
+    ).execute()
+    return [f["name"] for f in res.get("files", [])]
 
 def gdrive_save_df(df: pd.DataFrame, filename: str, folder_id: str) -> bool:
     if not folder_id:
         return False
-
-    service = gdrive_service()
-    file_id = gdrive_get_file_id(service, filename, folder_id)
+    s = gdrive_service()
+    file_id = gdrive_get_file_id(s, filename, folder_id)
 
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
 
     if file_id:
-        service.files().update(fileId=file_id, media_body=media).execute()
+        s.files().update(fileId=file_id, media_body=media).execute()
     else:
         file_metadata = {"name": filename, "parents": [folder_id]}
-        service.files().create(body=file_metadata, media_body=media).execute()
+        s.files().create(body=file_metadata, media_body=media).execute()
 
     return True
-
 
 def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
     if not folder_id:
         return None
-
-    service = gdrive_service()
-    file_id = gdrive_get_file_id(service, filename, folder_id)
+    s = gdrive_service()
+    file_id = gdrive_get_file_id(s, filename, folder_id)
     if not file_id:
         return None
 
-    request = service.files().get_media(fileId=file_id)
+    request = s.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
 
@@ -360,6 +367,141 @@ def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
     fh.seek(0)
     return pd.read_csv(fh)
 
+# -----------------------------
+# Helpers Drive — Folder (auto-create)
+# -----------------------------
+def gdrive_find_folder_id_by_name(folder_name: str) -> str | None:
+    """Cherche un dossier par nom (non supprimé). Retourne le premier id trouvé."""
+    s = gdrive_service()
+    safe = str(folder_name).replace("'", "")
+    q = (
+        "mimeType='application/vnd.google-apps.folder' "
+        f"and name='{safe}' and trashed=false"
+    )
+    res = s.files().list(q=q, fields="files(id,name)", pageSize=10).execute()
+    files = res.get("files", [])
+    return files[0]["id"] if files else None
+
+
+def gdrive_create_folder(folder_name: str) -> str:
+    """Crée un dossier dans My Drive. Retourne folder_id."""
+    s = gdrive_service()
+    metadata = {"name": str(folder_name), "mimeType": "application/vnd.google-apps.folder"}
+    created = s.files().create(body=metadata, fields="id").execute()
+    return str(created.get("id", "")).strip()
+
+
+def ensure_drive_folder_id(folder_name: str = "PoolHockeyData") -> str | None:
+    """
+    Si folder_id est déjà configuré et Drive prêt → retourne folder_id.
+    Sinon, tente de trouver un dossier du même nom, sinon le crée.
+    Retourne l'id (à copier dans Secrets).
+    """
+    if _drive_enabled():
+        return _folder_id()
+
+    # OAuth configuré mais refresh_token pas encore prêt
+    if not oauth_drive_enabled():
+        return None
+
+    cfg = _oauth_cfg()
+    if not str(cfg.get("refresh_token", "")).strip():
+        return None
+
+    found = gdrive_find_folder_id_by_name(folder_name)
+    if found:
+        return found
+
+    return gdrive_create_folder(folder_name)
+
+# =====================================================
+# DRIVE — BATCH WRITE (queue + flush)
+# =====================================================
+import time
+
+if "drive_queue" not in st.session_state:
+    st.session_state["drive_queue"] = {}  # filename -> df(copy)
+if "drive_dirty_at" not in st.session_state:
+    st.session_state["drive_dirty_at"] = 0.0
+if "drive_last_flush" not in st.session_state:
+    st.session_state["drive_last_flush"] = 0.0
+
+
+def queue_drive_save_df(df: pd.DataFrame, filename: str):
+    if not _drive_enabled():
+        return
+    if df is None or not isinstance(df, pd.DataFrame):
+        return
+
+    st.session_state["drive_queue"][str(filename)] = df.copy()
+    st.session_state["drive_dirty_at"] = time.time()
+
+
+def flush_drive_queue(force: bool = False, max_age_sec: int = 8) -> tuple[int, list[str]]:
+    if not _drive_enabled():
+        return (0, [])
+
+    q = st.session_state.get("drive_queue", {})
+    if not q:
+        return (0, [])
+
+    dirty_at = float(st.session_state.get("drive_dirty_at", 0.0) or 0.0)
+    age = time.time() - dirty_at if dirty_at else 0.0
+    if (not force) and (age < max_age_sec):
+        return (0, [])
+
+    # ✅ folder_id obligatoire
+    folder_id = str(_folder_id() or "").strip()
+    if not folder_id:
+        return (0, ["folder_id manquant: impossible d'écrire sur Drive (queue conservée)."])
+
+    written = 0
+    errors: list[str] = []
+
+    for filename, df in list(q.items()):
+        try:
+            gdrive_save_df(df, filename, folder_id)
+            written += 1
+            del st.session_state["drive_queue"][filename]
+        except Exception as e:
+            errors.append(f"{filename}: {type(e).__name__}: {e}")
+
+    st.session_state["drive_last_flush"] = time.time()
+    if not st.session_state["drive_queue"]:
+        st.session_state["drive_dirty_at"] = 0.0
+
+    return (written, errors)
+
+
+# =====================================================
+# PERSIST — local immédiat + Drive en batch
+# =====================================================
+def persist_data(df_data: pd.DataFrame, season: str):
+    # Local (immédiat)
+    try:
+        data_file = st.session_state.get("DATA_FILE", "")
+        if data_file:
+            df_data.to_csv(data_file, index=False)
+    except Exception:
+        pass
+
+    # Drive (batch)
+    if _drive_enabled():
+        queue_drive_save_df(df_data, f"fantrax_{season}.csv")
+
+
+def persist_history(h: pd.DataFrame, season: str):
+    # Local (immédiat)
+    try:
+        hist_file = st.session_state.get("HISTORY_FILE", "")
+        if hist_file:
+            h.to_csv(hist_file, index=False)
+    except Exception:
+        pass
+
+    # Drive (batch)
+    if _drive_enabled():
+        queue_drive_save_df(h, f"history_{season}.csv")
 
 
 # =====================================================
@@ -659,7 +801,6 @@ def apply_move_with_history(
         return False
 
     df0 = df0.copy()
-
     if "IR Date" not in df0.columns:
         df0["IR Date"] = ""
 
@@ -672,7 +813,6 @@ def apply_move_with_history(
         df0["Propriétaire"].astype(str).str.strip().eq(proprietaire)
         & df0["Joueur"].astype(str).str.strip().eq(joueur)
     )
-
     if df0.loc[mask].empty:
         st.session_state["last_move_error"] = "Joueur introuvable."
         return False
@@ -714,6 +854,36 @@ def apply_move_with_history(
     # Clean + store
     df0 = clean_data(df0)
     st.session_state["data"] = df0
+
+    # History
+    try:
+        log_history_row(
+            proprietaire=proprietaire,
+            joueur=joueur,
+            pos=pos0,
+            equipe=equipe0,
+            from_statut=from_statut,
+            from_slot=from_slot,
+            to_statut=to_statut,
+            to_slot=to_slot,
+            action=action_label,
+        )
+    except Exception:
+        pass
+
+    # Persist (local immédiat + Drive batch)
+    season_lbl = str(st.session_state.get("season", "")).strip()
+    try:
+        persist_data(df0, season_lbl)
+        h = st.session_state.get("history")
+        if isinstance(h, pd.DataFrame):
+            persist_history(h, season_lbl)
+    except Exception as e:
+        st.session_state["last_move_error"] = f"Erreur persistance: {type(e).__name__}: {e}"
+        return False
+
+    return True
+
 
     # -----------------------------
     # 1) SAVE LOCAL (data)
@@ -1364,23 +1534,101 @@ if tabAdmin is not None:
         if not _is_admin_whalers():
             st.info("🔒 Accès réservé aux **Whalers**.")
         else:
-            st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+    st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 
-            # ✅ DEBUG ICI
-            # st.write("DEBUG query params:", dict(st.query_params))
+    # (Optionnel) Debug query params
+    # st.write("DEBUG query params:", dict(st.query_params))
 
-            if not oauth_drive_enabled():
-                st.warning("OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets.")
-            else:
-                oauth_connect_ui()
+    if not oauth_drive_enabled():
+        st.warning(
+            "OAuth Drive non configuré. Ajoute [gdrive_oauth].client_id / client_secret / redirect_uri dans Secrets."
+        )
+    else:
+        oauth_connect_ui()
 
-            cfg = dict(st.secrets.get("gdrive_oauth", {}))
-            if str(cfg.get("refresh_token", "")).strip():
-                st.success("✅ OAuth prêt (refresh_token présent).")
-            else:
-                st.info("ℹ️ OAuth pas encore prêt: clique sur 'Connecter Google Drive' pour obtenir le refresh_token.")
+    folder_id = _folder_id() if "_folder_id" in globals() else str(_oauth_cfg().get("folder_id", "")).strip()
+    drive_ready = (_drive_enabled() if "_drive_enabled" in globals() else oauth_drive_ready())
 
-            st.divider()
+    if not folder_id:
+        st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
+        st.caption("Astuce: utilise le bouton auto-création du dossier (PoolHockeyData) dans la section Tests si tu l'as ajouté.")
+    elif drive_ready:
+        st.success("✅ OAuth prêt (refresh_token présent) — Drive activé.")
+        st.caption(f"📁 Folder ID: {folder_id}")
+
+        # =====================================================
+        # 🚀 DRIVE BATCH (Flush + statut)
+        # =====================================================
+        st.markdown("### 🚀 Drive batch (réduction des écritures)")
+
+        q = st.session_state.get("drive_queue", {})
+        st.caption(f"En attente d'écriture Drive : **{len(q)}** fichier(s).")
+
+        cF1, cF2 = st.columns(2)
+        with cF1:
+            if st.button("🚀 Flush Drive maintenant", use_container_width=True):
+                if "flush_drive_queue" in globals():
+                    n, errs = flush_drive_queue(force=True)
+                    if errs:
+                        st.error("❌ Erreurs:\n" + "\n".join(errs))
+                    else:
+                        st.success(f"✅ Flush OK — {n} fichier(s) écrit(s) sur Drive.")
+                else:
+                    st.error("flush_drive_queue() introuvable (bloc batch non chargé).")
+
+        with cF2:
+            if st.button("♻️ Reset Drive cache", use_container_width=True):
+                # reset caches + queue batch
+                try:
+                    st.cache_resource.clear()
+                except Exception:
+                    pass
+
+                st.session_state["drive_queue"] = {}
+                st.session_state["drive_dirty_at"] = 0.0
+                st.session_state["drive_last_flush"] = 0.0
+
+                st.success("✅ Cache Drive + queue batch reset. Le client Drive sera reconstruit.")
+
+        st.divider()
+
+        # =====================================================
+        # 🧪 TESTS DRIVE (Whalers only + silencieux)
+        # =====================================================
+        st.markdown("### 🧪 Tests Drive (Whalers only)")
+
+        colT1, colT2 = st.columns(2)
+
+        with colT1:
+            if st.button("🧪 Test LECTURE (liste 10 fichiers)", use_container_width=True):
+                try:
+                    names = gdrive_list_files(folder_id, limit=10)
+                    st.success(f"✅ Lecture OK — {len(names)} fichier(s).")
+                    if names:
+                        st.write(names)
+                except Exception as e:
+                    st.error(f"❌ Lecture KO — {type(e).__name__}: {e}")
+
+        with colT2:
+            if st.button("🧪 Test ÉCRITURE (écraser fichier test)", use_container_width=True):
+                try:
+                    df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
+                    gdrive_save_df(df_test, "drive_write_test.csv", folder_id)
+                    st.success("✅ Écriture OK — drive_write_test.csv créé/mis à jour.")
+                except Exception as e:
+                    st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
+    else:
+        st.info(
+            "ℹ️ OAuth pas encore prêt : clique sur **Connecter Google Drive** "
+            "pour obtenir le refresh_token, puis colle-le dans Secrets."
+        )
+        st.caption(f"📁 Folder ID: {folder_id}")
+
+    st.divider()
+
+
+
 
             # =====================================================
             # 🧪 TEST GOOGLE DRIVE (OAuth)
@@ -1428,6 +1676,57 @@ if tabAdmin is not None:
                             st.write([f["name"] for f in files])
                     except Exception as e:
                         st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
+            st.divider()
+
+            # =====================================================
+            # 🧪 TESTS UNITAIRES DRIVE (silencieux)
+            # =====================================================
+            st.markdown("### 🧪 Tests Drive (silencieux)")
+
+            # 1) Auto-création / découverte du dossier si folder_id manquant
+            if oauth_drive_enabled() and not _folder_id():
+                st.info("Aucun folder_id dans Secrets. Tu peux créer/trouver automatiquement le dossier.")
+                if st.button("📁 Créer / Trouver 'PoolHockeyData' et afficher folder_id", use_container_width=True):
+                    try:
+                        fid = ensure_drive_folder_id("PoolHockeyData")
+                        if fid:
+                            st.success("✅ Dossier Drive OK.")
+                            st.warning("Copie ce folder_id dans Streamlit Secrets → [gdrive_oauth].folder_id")
+                            st.code(fid)
+                            st.caption("Ensuite: Save Secrets puis recharge l’app.")
+                        else:
+                            st.error("❌ Impossible (OAuth pas prêt ou config manquante).")
+                    except Exception as e:
+                        st.error(f"❌ Folder error: {type(e).__name__}: {e}")
+
+            # 2) Tests lecture / écriture (silencieux)
+            folder_id = _folder_id()
+            if not folder_id:
+                st.caption("ℹ️ Ajoute un folder_id dans Secrets pour activer les tests lecture/écriture.")
+            elif not _drive_enabled():
+                st.caption("ℹ️ OAuth pas prêt (refresh_token manquant).")
+            else:
+                colT1, colT2 = st.columns(2)
+
+                with colT1:
+                    if st.button("🧪 Test LECTURE (liste 10 fichiers)", use_container_width=True):
+                        try:
+                            names = gdrive_list_files(folder_id, limit=10)
+                            st.success(f"✅ Lecture OK — {len(names)} fichier(s).")
+                            if names:
+                                st.write(names)
+                        except Exception as e:
+                            st.error(f"❌ Lecture KO — {type(e).__name__}: {e}")
+
+                with colT2:
+                    if st.button("🧪 Test ÉCRITURE (écraser fichier test)", use_container_width=True):
+                        try:
+                            df_test = pd.DataFrame([{"ok": 1, "ts": datetime.now().isoformat()}])
+                            gdrive_save_df(df_test, "drive_write_test.csv", folder_id)
+                            st.success("✅ Écriture OK — drive_write_test.csv créé/mis à jour.")
+                        except Exception as e:
+                            st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
 
             st.divider()
 
@@ -2257,4 +2556,11 @@ with tab3:
             st.warning(f"{owner} : rétrogradation recommandée")
         if dispo_ce > 10_000_000:
             st.info(f"{owner} : rappel possible")
+
+# Flush Drive automatique (batch)
+if "flush_drive_queue" in globals():
+    n, errs = flush_drive_queue(force=False, max_age_sec=8)
+    # (DEBUG temporaire)
+    # if n: st.toast(f"Drive flush: {n} fichier(s)", icon="☁️")
+
 
