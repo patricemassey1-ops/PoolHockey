@@ -738,23 +738,17 @@ if selected_team:
     if logo_path and os.path.exists(logo_path):
         with open(logo_path, "rb") as f:
             logo_b64 = base64.b64encode(f.read()).decode()
+
+        # ✅ Logo seulement (aucun texte visible) + accessibilité via alt
+        safe_team = html.escape(selected_team)
         team_html = f"""
-            <div class="pms-right">
-                <img class="pms-teamlogo" src="data:image/png;base64,{logo_b64}" />
-                <div>{selected_team}</div>
-            </div>
+          <div class="pms-right">
+            <img class="pms-teamlogo"
+                 alt="{safe_team}"
+                 src="data:image/png;base64,{logo_b64}" />
+          </div>
         """
 
-st.markdown(
-    f"""
-    <div class="pms-sticky">
-      <div class="pms-head">
-        {team_html}
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 
 # =====================================================
