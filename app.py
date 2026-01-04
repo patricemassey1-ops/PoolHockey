@@ -1479,6 +1479,290 @@ def apply_move_with_history(
 
     return True
 
+# =====================================================
+# 🩹 REMPLACEMENTS IR (avec délai + retour auto + plafond GC)
+# =====================================================
+from datetime import timedelta
+
+TZ = ZoneInfo("America/Toronto")
+
+def now_tor() -> datetime:
+    return datetime.now(TZ)
+
+def effective_midnight_in(days: int) -> str:
+    dt = now_tor() + timedelta(days=int(days))
+    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return dt.isoformat(timespec="seconds")
+
+def _repl_file(season: str) -> str:
+    return os.path.join(DATA_DIR, f"replacements_{season}.csv")
+
+def replacements_init(season: str):
+    if "replacements_season" not in st.session_state or st.session_state["replacements_season"] != season:
+        path = _repl_file(season)
+        st.session_state["REPLACEMENTS_FILE"] = path
+
+        cols = [
+            "case_id", "season", "owner",
+            "injured_player", "injured_pos", "injured_team",
+            "replacement_player", "replacement_from",
+            "created_at", "effective_at",
+            "status",  # PENDING / ACTIVE / CLOSED / REFUSED_CAP / CANCELLED
+            "repl_revert_statut", "repl_revert_slot",
+            "note", "closed_at"
+        ]
+
+        # Load local
+        if os.path.exists(path):
+            try:
+                df_cases = pd.read_csv(path)
+            except Exception:
+                df_cases = pd.DataFrame(columns=cols)
+        else:
+            df_cases = pd.DataFrame(columns=cols)
+
+        # Normalize columns
+        for c in cols:
+            if c not in df_cases.columns:
+                df_cases[c] = ""
+
+        # Normalize types
+        df_cases["case_id"] = (
+            pd.to_numeric(df_cases["case_id"], errors="coerce")
+              .fillna(0)
+              .astype(int)
+        )
+
+        df_cases["owner"] = df_cases["owner"].astype(str).str.strip()
+        df_cases["status"] = df_cases["status"].astype(str).str.strip()
+
+        # 🔑 Store in session
+        st.session_state["replacements"] = df_cases
+        st.session_state["replacements_season"] = season
+
+
+        
+
+def replacements_save(season: str):
+    df_cases = st.session_state.get("replacements")
+    if not isinstance(df_cases, pd.DataFrame):
+        return
+
+    path = st.session_state.get("REPLACEMENTS_FILE", _repl_file(season))
+    try:
+        df_cases.to_csv(path, index=False)
+    except Exception:
+        pass
+
+    # Drive batch (optionnel)
+    if "_drive_enabled" in globals() and _drive_enabled():
+        try:
+            queue_drive_save_df(df_cases, f"replacements_{season}.csv")
+        except Exception:
+            pass
+
+def replacements_next_id(df_cases: pd.DataFrame) -> int:
+    if df_cases is None or df_cases.empty or "case_id" not in df_cases.columns:
+        return 1
+    return int(pd.to_numeric(df_cases["case_id"], errors="coerce").fillna(0).max()) + 1
+
+def gc_used(owner: str, df: pd.DataFrame) -> int:
+    owner = str(owner).strip()
+    d = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
+    return int(d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum())
+
+def cap_ok_for_owner(owner: str, df_after: pd.DataFrame) -> tuple[bool, str]:
+    used = gc_used(owner, df_after)
+    cap = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    if used > cap:
+        return False, f"🚨 Plafond GC dépassé: {money(used)} / {money(cap)}"
+    return True, ""
+
+def find_active_case(df_cases: pd.DataFrame, owner: str, injured_player: str) -> pd.Series | None:
+    if df_cases is None or df_cases.empty:
+        return None
+    owner = str(owner).strip()
+    injured_player = str(injured_player).strip()
+    sub = df_cases[
+        (df_cases["owner"].astype(str).str.strip() == owner) &
+        (df_cases["injured_player"].astype(str).str.strip() == injured_player) &
+        (df_cases["status"].astype(str).isin(["PENDING", "ACTIVE", "REFUSED_CAP"]))
+    ]
+    if sub.empty:
+        return None
+    # dernier case
+    return sub.tail(1).iloc[0]
+
+def create_replacement_case(owner: str, injured_player: str, replacement_player: str, replacement_from: str):
+    season = str(st.session_state.get("season", "")).strip()
+    replacements_init(season)
+
+    df = st.session_state.get("data")
+    df = clean_data(df) if isinstance(df, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    owner = str(owner).strip()
+    injured_player = str(injured_player).strip()
+    replacement_player = str(replacement_player).strip()
+    replacement_from = str(replacement_from).strip().upper()  # BANC / MINEUR
+
+    # Lookup injured + replacement rows
+    m_inj = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(injured_player))
+    m_rep = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(replacement_player))
+
+    if df.loc[m_inj].empty or df.loc[m_rep].empty:
+        st.session_state["last_replace_error"] = "Joueur introuvable (blessé ou remplaçant)."
+        return False
+
+    inj = df.loc[m_inj].iloc[0]
+    rep = df.loc[m_rep].iloc[0]
+
+    # Injured must be IR
+    if str(inj.get("Slot", "")).strip() != "Blessé":
+        st.session_state["last_replace_error"] = "Le joueur blessé n'est pas sur IR."
+        return False
+
+    # Replacement origin determines delay
+    delay_days = 1 if replacement_from == "BANC" else 3
+    eff_at = effective_midnight_in(delay_days)
+
+    # Where replacement must return later
+    revert_statut = str(rep.get("Statut", "")).strip()
+    revert_slot = str(rep.get("Slot", "")).strip()
+
+    # Build case
+    cases = st.session_state["replacements"].copy()
+    case_id = replacements_next_id(cases)
+
+    row = {
+        "case_id": int(case_id),
+        "season": season,
+        "owner": owner,
+        "injured_player": injured_player,
+        "injured_pos": str(inj.get("Pos", "")),
+        "injured_team": str(inj.get("Equipe", "")),
+        "replacement_player": replacement_player,
+        "replacement_from": replacement_from,  # BANC / MINEUR
+        "created_at": now_tor().isoformat(timespec="seconds"),
+        "effective_at": eff_at,
+        "status": "PENDING",
+        "repl_revert_statut": revert_statut,
+        "repl_revert_slot": revert_slot,
+        "note": "",
+        "closed_at": "",
+    }
+
+    cases = pd.concat([cases, pd.DataFrame([row])], ignore_index=True)
+    st.session_state["replacements"] = cases
+    replacements_save(season)
+
+    # History trace
+    try:
+        history_add(
+            action="IR_REPLACEMENT_PLANNED",
+            owner=owner,
+            player=injured_player,
+            details=f"Remplaçant: {replacement_player} ({replacement_from}) | effectif: {eff_at}",
+        )
+    except Exception:
+        pass
+
+    return True
+
+def process_replacements():
+    season = str(st.session_state.get("season", "")).strip()
+    replacements_init(season)
+
+    cases = st.session_state.get("replacements")
+    if not isinstance(cases, pd.DataFrame) or cases.empty:
+        return
+
+    df = st.session_state.get("data")
+    df = clean_data(df) if isinstance(df, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    now = now_tor()
+    changed = False
+
+    # pending ready
+    eff_dt = pd.to_datetime(cases["effective_at"], errors="coerce")
+    ready = cases[
+        (cases["status"].astype(str) == "PENDING") &
+        (eff_dt.notna()) &
+        (eff_dt <= now)
+    ].copy()
+
+    if ready.empty:
+        return
+
+    for _, r in ready.iterrows():
+        owner = str(r["owner"]).strip()
+        injured = str(r["injured_player"]).strip()
+        repl = str(r["replacement_player"]).strip()
+
+        # If injured not IR anymore -> cancel
+        m_inj = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(injured))
+        if df.loc[m_inj].empty or str(df.loc[m_inj].iloc[0].get("Slot","")).strip() != "Blessé":
+            cases.loc[cases["case_id"] == r["case_id"], "status"] = "CANCELLED"
+            continue
+
+        # Apply replacement -> GC Actif
+        m_rep = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(repl))
+        if df.loc[m_rep].empty:
+            cases.loc[cases["case_id"] == r["case_id"], "status"] = "CANCELLED"
+            continue
+
+        df2 = df.copy()
+        df2.loc[m_rep, "Statut"] = "Grand Club"
+        df2.loc[m_rep, "Slot"] = "Actif"
+        df2 = clean_data(df2)
+
+        ok, msg = cap_ok_for_owner(owner, df2)
+        if not ok:
+            cases.loc[cases["case_id"] == r["case_id"], "status"] = "REFUSED_CAP"
+            cases.loc[cases["case_id"] == r["case_id"], "note"] = msg
+            continue
+
+        df = df2
+        changed = True
+        cases.loc[cases["case_id"] == r["case_id"], "status"] = "ACTIVE"
+
+        try:
+            history_add(
+                action="IR_REPLACEMENT_ACTIVE",
+                owner=owner,
+                player=repl,
+                details=f"Remplacement actif (case #{int(r['case_id'])}) pour {injured}",
+            )
+        except Exception:
+            pass
+
+    if changed:
+        st.session_state["data"] = df
+        persist_data(df, season)
+
+    st.session_state["replacements"] = cases
+    replacements_save(season)
+
+def close_replacement_case(case_id: int, note: str = ""):
+    season = str(st.session_state.get("season", "")).strip()
+    replacements_init(season)
+
+    cases = st.session_state.get("replacements")
+    if not isinstance(cases, pd.DataFrame) or cases.empty:
+        return
+
+    m = cases["case_id"].astype(str) == str(case_id)
+    if not m.any():
+        return
+
+    cases.loc[m, "status"] = "CLOSED"
+    cases.loc[m, "closed_at"] = now_tor().isoformat(timespec="seconds")
+    if note:
+        cases.loc[m, "note"] = str(note)
+
+    st.session_state["replacements"] = cases
+    replacements_save(season)
+
+
 
     # -----------------------------
     # 1) SAVE LOCAL (data)
