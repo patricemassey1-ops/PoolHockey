@@ -2242,32 +2242,36 @@ st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
 teams = list(LOGOS.keys())
+
+# ✅ Always define these
+chosen = ""
+cur = str(st.session_state.get("selected_team", "")).strip()
+
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
+    st.session_state["selected_team"] = ""
 else:
-    # init
-    if "sb_team_select" not in st.session_state or st.session_state["sb_team_select"] not in teams:
-        st.session_state["sb_team_select"] = teams[0]
+    # ✅ Ensure cur is valid
+    if cur not in teams:
+        cur = teams[0]
+        st.session_state["selected_team"] = cur
+        st.session_state["sb_team_select"] = cur
 
     def _on_team_change():
-        # source de vérité
-        st.session_state["selected_team"] = st.session_state["sb_team_select"]
-        # (optionnel) aussi pousser dans l'alignement
-        st.session_state["align_owner_select"] = st.session_state["sb_team_select"]
+        pick_team(st.session_state["sb_team_select"])
 
-    st.sidebar.selectbox(
+    chosen = st.sidebar.selectbox(
         "Choisir une équipe",
         teams,
+        index=teams.index(cur),
         key="sb_team_select",
         on_change=_on_team_change,
     )
 
-
-
-
-
+    # ✅ If you still want a manual sync (optional)
     if chosen != cur:
         st.session_state["selected_team"] = chosen
+
         st.session_state["align_owner"] = chosen
         do_rerun()
 
