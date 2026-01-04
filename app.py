@@ -3269,7 +3269,9 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ✅ Data safe (source unique) DANS le tab
+    # -----------------------------
+    # Data safe (source unique)
+    # -----------------------------
     df = st.session_state.get("data")
     if df is None:
         df = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3277,30 +3279,64 @@ with tabA:
     df = clean_data(df)
     st.session_state["data"] = df
 
-    # ✅ Guard : NE PAS st.stop() (sinon ça stoppe toute l'app)
     if df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    else:
-        all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-        if not all_owners:
-            all_owners = ["—"]
+        st.stop()
 
-        selected_team = get_selected_team()
+    # -----------------------------
+    # Propriétaires disponibles
+    # -----------------------------
+    all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+    if not all_owners:
+        st.info("Aucun propriétaire trouvé.")
+        st.stop()
 
-        # Sync sélection d’équipe -> align_owner si possible
-        if selected_team and selected_team in all_owners:
-            st.session_state["align_owner"] = selected_team
+    # -----------------------------
+    # 🔗 Sync SIDEBAR → Alignement
+    # -----------------------------
+    selected_team = get_selected_team()
 
-        # ✅ Guard béton: si la valeur en session_state n'est plus dans options, reset
-        cur_owner = st.session_state.get("align_owner")
-        if cur_owner not in all_owners:
-            st.session_state["align_owner"] = all_owners[0]
+    # Normalisation robuste (évite accents / espaces / casse)
+    owners_norm = {str(o).strip().lower(): o for o in all_owners}
+    sel_norm = str(selected_team).strip().lower()
 
-        proprietaire = st.selectbox(
-            "Propriétaire",
-            all_owners,
-            key="align_owner",
-        )
+    if sel_norm in owners_norm:
+        st.session_state["align_owner"] = owners_norm[sel_norm]
+
+    # Guard béton : align_owner doit être valide
+    if st.session_state.get("align_owner") not in all_owners:
+        st.session_state["align_owner"] = all_owners[0]
+
+    # -----------------------------
+    # Selectbox Alignement (clé différente!)
+    # -----------------------------
+    proprietaire = st.selectbox(
+        "Propriétaire",
+        all_owners,
+        index=all_owners.index(st.session_state["align_owner"]),
+        key="align_owner_select",   # ⚠️ clé différente du state logique
+    )
+
+    # Keep sync logique
+    st.session_state["align_owner"] = proprietaire
+
+    # -----------------------------
+    # Affichage alignement
+    # -----------------------------
+    joueurs_prop = df[df["Propriétaire"].astype(str).str.strip() == proprietaire].copy()
+
+    if joueurs_prop.empty:
+        st.info("Aucun joueur pour cette équipe.")
+        st.stop()
+
+    # === À PARTIR D’ICI, TU REMETS TON CODE EXISTANT ===
+    # Exemples :
+    # - Actifs
+    # - Banc
+    # - Mineurs
+    # - IR
+    # - roster_click_list(...)
+
 
         dprop = df[df["Propriétaire"] == proprietaire].copy()
 
