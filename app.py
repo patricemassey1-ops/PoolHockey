@@ -588,6 +588,14 @@ def oauth_connect_ui():
     else:
         st.success("OAuth configuré (refresh_token présent).")
 
+import ssl
+import time
+import socket
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+
+
 def _get_oauth_creds() -> Credentials:
     """
     Construit Credentials + refresh silencieux si nécessaire.
@@ -613,20 +621,65 @@ def _get_oauth_creds() -> Credentials:
 
     return creds
 
+
+def _is_ssl_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return (
+        isinstance(e, ssl.SSLError)
+        or "ssl" in msg
+        or "bad record mac" in msg
+        or "decryption_failed_or_bad_record_mac" in msg
+        or "wrong version number" in msg
+        or "tlsv" in msg
+    )
+
+
+def _reset_drive_client_cache():
+    # Reconstruit le client Drive si transport cassé
+    try:
+        st.cache_resource.clear()
+    except Exception:
+        pass
+
+
 @st.cache_resource(show_spinner=False)
-def _drive_client_cached() :
+def _drive_client_cached():
     """
     Client Drive caché: accélère et évite rebuild à chaque rerun.
-    Le refresh du token se fera via _get_oauth_creds() au moment du build.
+    Durci:
+      - cache_discovery=False (évite soucis de cache)
+      - timeouts (évite blocages longs)
     """
     creds = _get_oauth_creds()
-    return build("drive", "v3", credentials=creds)
+
+    # ⚙️ Timeouts socket (global) — safe pour Streamlit
+    # (Google API utilise httplib2 en-dessous; ça aide surtout contre connexions qui gèlent)
+    try:
+        socket.setdefaulttimeout(30)
+    except Exception:
+        pass
+
+    # ✅ cache_discovery=False = recommandé en environnements serverless/streamlit
+    return build(
+        "drive",
+        "v3",
+        credentials=creds,
+        cache_discovery=False,
+    )
+
 
 def gdrive_service():
+    """
+    Retourne un service Drive prêt.
+    Si le client caché est corrompu suite à un incident SSL, on le reset au prochain retry
+    (le retry est géré dans gdrive_save_df/gdrive_load_df).
+    """
     return _drive_client_cached()
+
 
 def _drive_enabled() -> bool:
     return oauth_drive_ready()
+
 
 # -----------------------------
 # Helpers Drive (liste / save / load)
@@ -1615,9 +1668,6 @@ st.session_state["LOCKED"] = LOCKED
 def _safe_empty_df() -> pd.DataFrame:
     return pd.DataFrame(columns=REQUIRED_COLS)
 
-
-def _drive_enabled() -> bool:
-    return oauth_drive_ready()
 
 
 # -----------------------------
