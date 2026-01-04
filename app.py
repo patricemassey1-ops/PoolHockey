@@ -3257,7 +3257,7 @@ with tab1:
 
 
 
-# # =====================================================
+# =====================================================
 # TAB A — Alignement
 # =====================================================
 with tabA:
@@ -3285,18 +3285,18 @@ with tabA:
         else:
             # -----------------------------
             # 🔗 Force SIDEBAR → widget "Propriétaire"
-            # IMPORTANT: doit arriver AVANT le selectbox
+            # IMPORTANT: AVANT le selectbox
             # -----------------------------
             sidebar_team = str(st.session_state.get("sb_team_select") or st.session_state.get("selected_team") or "").strip()
 
             owners_norm = {str(o).strip().lower(): o for o in all_owners}
             sidebar_norm = sidebar_team.lower()
 
-            # Si sidebar match un owner -> force le widget
+            # Si sidebar match un owner -> force le widget du tab
             if sidebar_norm in owners_norm:
                 st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
 
-            # Guard: si widget invalide -> fallback
+            # Guard: si invalide -> fallback
             if st.session_state.get("align_owner_select") not in all_owners:
                 st.session_state["align_owner_select"] = all_owners[0]
 
@@ -3310,12 +3310,8 @@ with tabA:
                 key="align_owner_select",
             )
 
-            # garder l'état logique si utilisé ailleurs
+            # état logique si tu l'utilises ailleurs
             st.session_state["align_owner"] = proprietaire
-
-            # (optionnel) si tu veux que changer dans le tab reflète le sidebar :
-            st.session_state["selected_team"] = proprietaire
-            st.session_state["sb_team_select"] = proprietaire
 
             # -----------------------------
             # Affichage alignement
@@ -3445,8 +3441,8 @@ with tabA:
                         else:
                             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-                # Pop-up toujours à la fin du tab
                 open_move_dialog()
+
 
 
 
