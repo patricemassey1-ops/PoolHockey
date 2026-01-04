@@ -2246,6 +2246,9 @@ if not teams:
     st.sidebar.info("Aucune équipe configurée.")
     chosen = ""
 else:
+    def _on_team_change():
+        pick_team(st.session_state["sb_team_select"])
+
     cur = str(st.session_state.get("selected_team", "")).strip()
     if cur not in teams:
         cur = teams[0]
@@ -2257,7 +2260,11 @@ else:
         teams,
         index=teams.index(cur),
         key="sb_team_select",
+        on_change=_on_team_change,
     )
+
+
+
 
     if chosen != cur:
         st.session_state["selected_team"] = chosen
