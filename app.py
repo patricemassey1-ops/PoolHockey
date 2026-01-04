@@ -3296,22 +3296,20 @@ if not all_owners:
     st.stop()
 
 # -----------------------------
-# 🔗 Sync SIDEBAR → Alignement (ROBUSTE)
-#   source de vérité = sb_team_select
+# 🔗 Sync SIDEBAR → Alignement (SANS desired_owner)
 # -----------------------------
 sidebar_team = str(st.session_state.get("sb_team_select", "") or "").strip()
 
 owners_norm = {str(o).strip().lower(): o for o in all_owners}
 sidebar_norm = sidebar_team.lower()
 
+# Forcer la valeur du widget alignement depuis le sidebar
 if sidebar_norm in owners_norm:
     st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
 elif st.session_state.get("align_owner_select") not in all_owners:
     st.session_state["align_owner_select"] = all_owners[0]
 
 
-# ✅ IMPORTANT: forcer la valeur DU WIDGET AVANT sa création
-st.session_state["align_owner_select"] = desired_owner
 
 # -----------------------------
 # Selectbox Alignement
