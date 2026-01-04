@@ -3286,10 +3286,11 @@ else:
                     st.error(f"❌ Restauration historique échouée : {type(e).__name__}: {e}")
 
 # =====================================================
-# 🧩 RESTAURER HISTORIQUE — SEULEMENT POUR UNE ÉQUIPE
+# 🧩 RESTAURER HISTORIQUE — SEULEMENT POUR UNE ÉQUIPE (PRO)
+#   ✅ AUTO dernier backup, preview, diff, merge priorité, persist + flush
 # =====================================================
 st.divider()
-st.markdown("### 🧩 Restaurer l’historique — seulement pour une équipe")
+st.markdown("### 🧩 Restaurer l’historique — seulement pour une équipe (PRO)")
 
 backup_dir = os.path.join(DATA_DIR, "backups")
 os.makedirs(backup_dir, exist_ok=True)
@@ -3367,12 +3368,37 @@ def _dedup_history(h: pd.DataFrame) -> pd.DataFrame:
 
     return h.reset_index(drop=True)
 
+def _hist_team_signature_set(h: pd.DataFrame) -> set:
+    if h is None or not isinstance(h, pd.DataFrame) or h.empty:
+        return set()
+    key_cols = [c for c in ["timestamp","season","proprietaire","joueur","from_statut","from_slot","to_statut","to_slot","action"] if c in h.columns]
+    if not key_cols:
+        return set()
+    return set(tuple(h.loc[i, key_cols].tolist()) for i in range(len(h)))
+
+def _hist_team_id_set(h: pd.DataFrame) -> set:
+    if h is None or not isinstance(h, pd.DataFrame) or h.empty or "id" not in h.columns:
+        return set()
+    s = pd.to_numeric(h["id"], errors="coerce").dropna()
+    if s.empty:
+        return set()
+    return set(s.astype(int).tolist())
+
+def _hist_diff_counts(h_cur_team: pd.DataFrame, h_b_team: pd.DataFrame) -> dict:
+    a = _hist_team_id_set(h_cur_team)
+    b = _hist_team_id_set(h_b_team)
+    if a and b:
+        return {"method": "id", "added": len(b - a), "existing": len(b & a)}
+    sa = _hist_team_signature_set(h_cur_team)
+    sb = _hist_team_signature_set(h_b_team)
+    return {"method": "signature", "added": len(sb - sa), "existing": len(sb & sa)}
+
 
 # --- Sélection équipe
-df_cur = st.session_state.get("data")
+df_data = st.session_state.get("data")
 teams_now = []
-if isinstance(df_cur, pd.DataFrame) and not df_cur.empty and "Propriétaire" in df_cur.columns:
-    teams_now = sorted(df_cur["Propriétaire"].dropna().astype(str).unique().tolist())
+if isinstance(df_data, pd.DataFrame) and not df_data.empty and "Propriétaire" in df_data.columns:
+    teams_now = sorted(df_data["Propriétaire"].dropna().astype(str).unique().tolist())
 
 if not teams_now:
     st.info("Aucune équipe disponible (data vide).")
@@ -3380,31 +3406,27 @@ else:
     team_pick = st.selectbox(
         "Équipe cible (on ne touchera qu’à son historique)",
         teams_now,
-        key="admin_restore_hist_team_only_pick",
+        key="admin_restore_hist_team_only_pick_pro_final",
     )
 
-    latest = _find_latest_hist_backup_for_team(team_pick)
     hist_backups = _list_hist_backups(backup_dir)
-
     if not hist_backups:
         st.warning("Aucun backup historique trouvé dans /data/backups/.")
     else:
-        # Choix fichier: auto par défaut si trouvé, sinon premier
-        default_idx = 0
-        if latest and latest in hist_backups:
-            default_idx = hist_backups.index(latest)
+        latest = _find_latest_hist_backup_for_team(team_pick)
+        default_idx = hist_backups.index(latest) if (latest and latest in hist_backups) else 0
 
         pick_hist = st.selectbox(
             "Choisir le backup historique à utiliser",
             hist_backups,
             index=default_idx,
-            key="admin_restore_hist_team_only_file",
+            key="admin_restore_hist_team_only_file_pro_final",
         )
 
         st.caption(f"Backup choisi : `{pick_hist}`")
         inferred = _infer_team_from_hist_backup_name(pick_hist)
         if inferred:
-            st.caption(f"Équipe détectée dans le nom : **{inferred}** (mais on appliquera à **{team_pick}**).")
+            st.caption(f"Équipe détectée dans le nom : **{inferred}** (mais on applique à **{team_pick}**).")
 
         # Charger backup
         try:
@@ -3415,20 +3437,23 @@ else:
             h_b = None
 
         if isinstance(h_b, pd.DataFrame):
-            # Filtrer backup sur équipe cible (si colonnes ok)
+            # Filtrer backup sur équipe cible
             if "proprietaire" in h_b.columns:
                 h_b_team = h_b[h_b["proprietaire"].astype(str) == str(team_pick)].copy()
             else:
-                # Pas de colonne proprietaire -> on ne peut pas filtrer proprement
                 h_b_team = h_b.copy()
 
-            # Aperçu counts
-            h_cur = st.session_state.get("history")
-            if not isinstance(h_cur, pd.DataFrame):
-                h_cur = pd.DataFrame()
-            h_cur = _normalize_hist_cols(h_cur)
+            # Historique courant
+            h_cur_raw = st.session_state.get("history")
+            if not isinstance(h_cur_raw, pd.DataFrame):
+                h_cur_raw = pd.DataFrame()
 
-            h_cur_team = h_cur[h_cur["proprietaire"].astype(str) == str(team_pick)].copy() if "proprietaire" in h_cur.columns else pd.DataFrame()
+            h_cur = _normalize_hist_cols(h_cur_raw)
+            h_cur_team = (
+                h_cur[h_cur["proprietaire"].astype(str) == str(team_pick)].copy()
+                if "proprietaire" in h_cur.columns
+                else pd.DataFrame(columns=h_cur.columns)
+            )
 
             st.caption(f"Entrées actuelles ({team_pick}) : **{len(h_cur_team)}**")
             st.caption(f"Entrées dans le backup ({team_pick}) : **{len(h_b_team)}**")
@@ -3441,13 +3466,29 @@ else:
                 ["Remplacer l’historique de l’équipe", "MERGE (ajouter + dédupliquer)"],
                 index=0,
                 horizontal=True,
-                key="admin_restore_hist_team_only_mode",
+                key="admin_restore_hist_team_only_mode_pro_final",
             )
 
+            merge_priority = st.radio(
+                "Priorité en cas de doublon (MERGE)",
+                ["Backup prioritaire (recommandé)", "Existant prioritaire"],
+                index=0,
+                horizontal=True,
+                key="admin_hist_team_merge_priority_pro_final",
+                help="Backup prioritaire = si doublon, on garde la version du backup. Existant prioritaire = on garde l'entrée déjà en place.",
+            )
+
+            diff = _hist_diff_counts(h_cur_team, h_b_team)
+            cD1, cD2, cD3 = st.columns(3)
+            cD1.metric("➕ Ajouts (approx)", diff["added"])
+            cD2.metric("✅ Déjà présents (approx)", diff["existing"])
+            cD3.metric("Méthode", diff["method"])
+
+            # Confirmation forte
             typed = st.text_input(
                 f"Pour confirmer, tape : RESTORE HISTORY {team_pick}",
                 value="",
-                key="admin_restore_hist_team_only_type",
+                key="admin_restore_hist_team_only_type_pro_final",
             )
             ok_confirm = (typed.strip() == f"RESTORE HISTORY {team_pick}")
 
@@ -3456,7 +3497,7 @@ else:
                 type="primary",
                 use_container_width=True,
                 disabled=(not ok_confirm),
-                key="admin_restore_hist_team_only_btn",
+                key="admin_restore_hist_team_only_btn_pro_final",
             ):
                 if st.session_state.get("LOCKED"):
                     st.error("🔒 Saison verrouillée : restauration impossible.")
@@ -3469,15 +3510,26 @@ else:
                             # Supprime seulement l'équipe puis injecte backup filtré
                             if "proprietaire" in h_full.columns:
                                 h_full = h_full[h_full["proprietaire"].astype(str) != str(team_pick)].copy()
-                            h_new = pd.concat([h_full, h_b_team], ignore_index=True)
+                            merged_team = h_b_team.copy()
+                            h_new = pd.concat([h_full, merged_team], ignore_index=True)
                         else:
-                            # MERGE seulement pour équipe:
-                            # 1) garde toutes les autres équipes
-                            other = h_full[h_full["proprietaire"].astype(str) != str(team_pick)].copy() if "proprietaire" in h_full.columns else h_full.copy()
-                            # 2) merge équipe ciblée
-                            merged_team = pd.concat([h_cur_team, h_b_team], ignore_index=True)
+                            # MERGE équipe seulement + priorité
+                            other = (
+                                h_full[h_full["proprietaire"].astype(str) != str(team_pick)].copy()
+                                if "proprietaire" in h_full.columns
+                                else h_full.copy()
+                            )
+
+                            # Backup prioritaire => concat [existant, backup] et keep last
+                            # Existant prioritaire => concat [backup, existant] et keep last
+                            if merge_priority.startswith("Backup"):
+                                merged_team = pd.concat([h_cur_team, h_b_team], ignore_index=True)
+                            else:
+                                merged_team = pd.concat([h_b_team, h_cur_team], ignore_index=True)
+
+                            merged_team = _normalize_hist_cols(merged_team)
                             merged_team = _dedup_history(merged_team)
-                            # 3) recompose
+
                             h_new = pd.concat([other, merged_team], ignore_index=True)
 
                         h_new = _normalize_hist_cols(h_new)
@@ -3488,12 +3540,18 @@ else:
                         # Persist
                         persist_history(h_new, st.session_state.get("season", ""))
 
+                        # Résumé
+                        total_after = len(merged_team) if isinstance(merged_team, pd.DataFrame) else 0
+                        st.success(
+                            f"{team_pick} → ajout approx: {diff['added']} | déjà présents: {diff['existing']} | total équipe après: {total_after}"
+                        )
+
                         # Trace
                         try:
                             history_add(
                                 action="RESTORE_HISTORY_TEAM_ONLY",
                                 owner=str(team_pick),
-                                details=f"backup={pick_hist} | mode={mode} | added_team={len(h_b_team)}",
+                                details=f"backup={pick_hist} | mode={mode} | priority={merge_priority} | diff(+{diff['added']}/={diff['existing']})",
                             )
                         except Exception:
                             pass
@@ -3512,6 +3570,7 @@ else:
 
                     except Exception as e:
                         st.error(f"❌ Restauration échouée : {type(e).__name__}: {e}")
+
 
 
 # =====================================================
