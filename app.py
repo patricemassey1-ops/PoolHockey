@@ -1159,15 +1159,26 @@ def log_history_row(proprietaire, joueur, pos, equipe,
 # =====================================================
 # TEAM SELECTION — GLOBAL (UNIQUE SOURCE OF TRUTH)
 # =====================================================
-def pick_team(team: str):
-    team = str(team or "").strip()
-    st.session_state["selected_team"] = team
-    st.session_state["align_owner"] = team
-    do_rerun()
+def pick_team(owner: str):
+    owner = str(owner or "").strip()
+    if not owner:
+        return
 
+    # ✅ ne filtre PAS les données
+    st.session_state["selected_team"] = owner
 
-def get_selected_team() -> str:
-    return str(st.session_state.get("selected_team", "")).strip()
+    # optionnel : synchro immédiate du tab alignement
+    st.session_state["align_owner_select"] = owner
+    st.session_state["align_owner"] = owner
+
+    # (facultatif) ferme un popup si tu veux éviter un état bizarre
+    # st.session_state["move_ctx"] = None
+
+    if "do_rerun" in globals():
+        do_rerun()
+    else:
+        st.rerun()
+
 
 
 # =====================================================
