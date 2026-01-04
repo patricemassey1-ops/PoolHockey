@@ -3286,15 +3286,22 @@ with tabA:
         st.stop()
 
     # -----------------------------
-    # 🔗 Sync SIDEBAR → Alignement (AVANT le widget)
+    # 🔗 Sync SIDEBAR → Alignement (SEULEMENT quand le sidebar change)
     # -----------------------------
     selected_team = str(st.session_state.get("selected_team", "") or "").strip()
 
-    # si le nom du sidebar EXISTE comme propriétaire -> on force
-    if selected_team in all_owners:
-        st.session_state["align_owner_select"] = selected_team
+    # init (premier run)
+    if "last_sidebar_team" not in st.session_state:
+        st.session_state["last_sidebar_team"] = selected_team
 
-    # Guard final: valeur valide
+    # Si le sidebar a changé depuis la dernière fois → on force l'alignement
+    if selected_team and selected_team != st.session_state["last_sidebar_team"]:
+        if selected_team in all_owners:
+            st.session_state["align_owner_select"] = selected_team
+            st.session_state["align_owner"] = selected_team
+        st.session_state["last_sidebar_team"] = selected_team  # update tracker
+
+    # Guard final: valeur valide pour le widget
     if st.session_state.get("align_owner_select") not in all_owners:
         st.session_state["align_owner_select"] = all_owners[0]
 
@@ -3308,8 +3315,9 @@ with tabA:
         key="align_owner_select",
     )
 
-    # state logique si utilisé ailleurs
+    # State logique (si tu l'utilises ailleurs)
     st.session_state["align_owner"] = proprietaire
+
 
     # -----------------------------
     # Affichage alignement (filtré)
