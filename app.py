@@ -221,41 +221,44 @@ def normalize_pos(pos: str) -> str:
 # =====================================================
 def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     """
-    Garantit une colonne 'Propriétaire'.
+    Assure qu'on a une colonne 'Propriétaire' propre.
+    - Si le CSV contient déjà une colonne Owner/Team/Propriétaire/etc, on la respecte.
+    - Sinon, on met fallback_owner partout.
     """
-    if df is None or df.empty:
+    if df is None:
         return df
 
     out = df.copy()
 
-    candidates = {
-        "propriétaire", "proprietaire",
-        "owner", "owners",
-        "team", "équipe", "equipe",
-        "franchise", "club",
-    }
+    # Colonnes possibles dans des CSV externes
+    candidates = [
+        "Propriétaire", "Proprietaire",
+        "Owner", "owner", "Owners", "owners",
+        "Team", "team",
+        "Équipe", "Equipe", "équipe", "equipe",
+        "Franchise", "franchise",
+        "Club", "club",
+    ]
 
-    found = None
-    for c in out.columns:
-        if str(c).strip().lower() in candidates:
-            found = c
-            break
+    existing = next((c for c in candidates if c in out.columns), None)
 
-    if found and found != "Propriétaire":
-        out = out.rename(columns={found: "Propriétaire"})
+    # Si une colonne existe mais pas sous le nom exact "Propriétaire", on la mappe
+    if existing and existing != "Propriétaire":
+        out["Propriétaire"] = out[existing]
 
+    # Si aucune colonne trouvée, on crée
     if "Propriétaire" not in out.columns:
         out["Propriétaire"] = str(fallback_owner or "").strip()
 
-    out["Propriétaire"] = (
-        out["Propriétaire"]
-        .astype(str)
-        .str.strip()
-        .replace({"nan": "", "None": ""})
-    )
+    # ✅ Nettoyage: ICI on travaille sur UNE SÉRIE (out["Propriétaire"]), jamais sur out
+    s = out["Propriétaire"]
+    s = s.astype(str).str.strip()
+    s = s.replace({"nan": "", "None": ""})
+    s = s.mask(s.eq(""), str(fallback_owner or "").strip())
 
-    out.loc[out["Propriétaire"].eq(""), "Propriétaire"] = str(fallback_owner or "").strip()
+    out["Propriétaire"] = s
     return out
+
 
 
 def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
