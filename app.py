@@ -1600,6 +1600,11 @@ def create_replacement_case(owner: str, injured_player: str, replacement_player:
     df = st.session_state.get("data")
     df = clean_data(df) if isinstance(df, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 
+    st.caption("DEBUG owners in df:")
+    st.write(sorted(df["Propriétaire"].astype(str).str.strip().unique().tolist()))
+    st.write(df["Propriétaire"].astype(str).value_counts().head(20))
+
+
     owner = str(owner).strip()
     injured_player = str(injured_player).strip()
     replacement_player = str(replacement_player).strip()
