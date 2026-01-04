@@ -2236,29 +2236,28 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
 
 # -----------------------------
-# SIDEBAR — Équipe (selectbox) + logo
+# Équipes (SIDEBAR)
 # -----------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
 teams = list(LOGOS.keys())
+
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
 else:
-    # Valeur courante (source: sb_team_select -> selected_team -> fallback)
-    cur = str(st.session_state.get("sb_team_select") or st.session_state.get("selected_team") or "").strip()
-    if cur not in teams:
-        cur = teams[0]
+    # init selected_team si absent
+    if "selected_team" not in st.session_state or str(st.session_state["selected_team"]).strip() not in teams:
+        st.session_state["selected_team"] = teams[0]
 
     def _on_team_change():
-        chosen = str(st.session_state.get("sb_team_select") or "").strip()
-        st.session_state["selected_team"] = chosen           # état logique global
-        st.session_state["align_owner_select"] = chosen      # force le tab Alignement
-        # rerun safe si tu as un helper
-        if "do_rerun" in globals():
-            do_rerun()
-        else:
-            st.rerun()
+        # 1 seule action : mettre à jour la source de vérité
+        st.session_state["selected_team"] = st.session_state["sb_team_select"]
+
+    cur = str(st.session_state.get("selected_team", "")).strip()
+    if cur not in teams:
+        cur = teams[0]
+        st.session_state["selected_team"] = cur
 
     st.sidebar.selectbox(
         "Choisir une équipe",
@@ -2267,6 +2266,7 @@ else:
         key="sb_team_select",
         on_change=_on_team_change,
     )
+
 
     # Logo (optionnel)
     logo_path = LOGOS.get(cur, "")
@@ -3275,52 +3275,54 @@ with tabA:
 
     if df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    else:
-        # -----------------------------
-        # Propriétaires disponibles
-        # -----------------------------
-        all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-        if not all_owners:
-            st.info("Aucun propriétaire trouvé.")
-        else:
-            # -----------------------------
-            # 🔗 Force SIDEBAR → widget "Propriétaire"
-            # IMPORTANT: AVANT le selectbox
-            # -----------------------------
-            sidebar_team = str(st.session_state.get("sb_team_select") or st.session_state.get("selected_team") or "").strip()
+        st.stop()
 
-            owners_norm = {str(o).strip().lower(): o for o in all_owners}
-            sidebar_norm = sidebar_team.lower()
+    # -----------------------------
+    # Propriétaires disponibles
+    # -----------------------------
+    all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+    if not all_owners:
+        st.info("Aucun propriétaire trouvé.")
+        st.stop()
 
-            # Si sidebar match un owner -> force le widget du tab
-            if sidebar_norm in owners_norm:
-                st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
+    # -----------------------------
+    # 🔗 Sync SIDEBAR → Alignement (LOGIQUE SIMPLE)
+    # -----------------------------
+    selected_team = str(st.session_state.get("selected_team", "") or "").strip()
 
-            # Guard: si invalide -> fallback
-            if st.session_state.get("align_owner_select") not in all_owners:
-                st.session_state["align_owner_select"] = all_owners[0]
+    # 👉 si le nom du sidebar EXISTE comme propriétaire, on force
+    if selected_team in all_owners:
+        st.session_state["align_owner_select"] = selected_team
 
-            # -----------------------------
-            # Selectbox Alignement (UNE SEULE clé)
-            # -----------------------------
-            proprietaire = st.selectbox(
-                "Propriétaire",
-                all_owners,
-                index=all_owners.index(st.session_state["align_owner_select"]),
-                key="align_owner_select",
-            )
+    # Guard final
+    if st.session_state.get("align_owner_select") not in all_owners:
+        st.session_state["align_owner_select"] = all_owners[0]
 
-            # état logique si tu l'utilises ailleurs
-            st.session_state["align_owner"] = proprietaire
+    # -----------------------------
+    # Selectbox Alignement
+    # -----------------------------
+    proprietaire = st.selectbox(
+        "Propriétaire",
+        all_owners,
+        index=all_owners.index(st.session_state["align_owner_select"]),
+        key="align_owner_select",
+    )
 
-            # -----------------------------
-            # Affichage alignement
-            # -----------------------------
-            dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
+    st.session_state["align_owner"] = proprietaire
 
-            if dprop.empty:
-                st.info("Aucun joueur pour cette équipe.")
-            else:
+    # -----------------------------
+    # Affichage alignement (filtré)
+    # -----------------------------
+    dprop = df[df["Propriétaire"].astype(str).str.strip() == proprietaire].copy()
+
+    if dprop.empty:
+        st.info("Aucun joueur pour cette équipe.")
+        st.stop()
+
+    # =====================================================
+    # ⬇️ ICI : TON CODE EXISTANT (actifs / banc / IR / etc.)
+    # =====================================================
+
                 injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
                 dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
