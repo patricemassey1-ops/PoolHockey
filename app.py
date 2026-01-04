@@ -3329,8 +3329,8 @@ st.session_state["align_owner"] = proprietaire
 st.session_state["align_owner"] = proprietaire
 
 
-    # Keep sync logique (si l'utilisateur change manuellement dans le tab)
-    st.session_state["align_owner"] = proprietaire
+# Keep sync logique (si l'utilisateur change manuellement dans le tab)
+st.session_state["align_owner"] = proprietaire
 
     # -----------------------------
     # Affichage alignement
