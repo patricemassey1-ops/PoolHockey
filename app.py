@@ -2244,24 +2244,24 @@ st.sidebar.markdown("### 🏒 Équipes")
 teams = list(LOGOS.keys())
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
-    chosen = ""
 else:
+    # init
+    if "sb_team_select" not in st.session_state or st.session_state["sb_team_select"] not in teams:
+        st.session_state["sb_team_select"] = teams[0]
+
     def _on_team_change():
-        pick_team(st.session_state["sb_team_select"])
+        # source de vérité
+        st.session_state["selected_team"] = st.session_state["sb_team_select"]
+        # (optionnel) aussi pousser dans l'alignement
+        st.session_state["align_owner_select"] = st.session_state["sb_team_select"]
 
-    cur = str(st.session_state.get("selected_team", "")).strip()
-    if cur not in teams:
-        cur = teams[0]
-        st.session_state["selected_team"] = cur
-        st.session_state["align_owner"] = cur
-
-    chosen = st.sidebar.selectbox(
+    st.sidebar.selectbox(
         "Choisir une équipe",
         teams,
-        index=teams.index(cur),
         key="sb_team_select",
         on_change=_on_team_change,
     )
+
 
 
 
@@ -3283,45 +3283,51 @@ with tabA:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
-    # -----------------------------
-    # Propriétaires disponibles
-    # -----------------------------
-    all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-    if not all_owners:
-        st.info("Aucun propriétaire trouvé.")
-        st.stop()
+ # -----------------------------
+# Propriétaires disponibles
+# -----------------------------
+all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+if not all_owners:
+    st.info("Aucun propriétaire trouvé.")
+    st.stop()
 
-    # -----------------------------
-    # 🔗 Sync SIDEBAR → Alignement
-    # -----------------------------
-    selected_team = get_selected_team()
+# -----------------------------
+# 🔗 Sync SIDEBAR → Alignement (ROBUSTE)
+#   source de vérité = sb_team_select
+# -----------------------------
+sidebar_team = str(st.session_state.get("sb_team_select", "") or "").strip()
 
-    owners_norm = {str(o).strip().lower(): o for o in all_owners}
-    sel_norm = str(selected_team or "").strip().lower()
+owners_norm = {str(o).strip().lower(): o for o in all_owners}
+sidebar_norm = sidebar_team.lower()
 
-    # Valeur "désirée" venant du sidebar (si match)
-    desired_owner = owners_norm.get(sel_norm, None)
+# si le sidebar match un owner -> on force le selectbox du tab
+if sidebar_norm in owners_norm:
+    desired_owner = owners_norm[sidebar_norm]
+else:
+    desired_owner = st.session_state.get("align_owner_select")
+    if desired_owner not in all_owners:
+        desired_owner = all_owners[0]
 
-    # Si pas match, fallback = valeur existante / sinon premier owner
-    if not desired_owner:
-        desired_owner = st.session_state.get("align_owner") if st.session_state.get("align_owner") in all_owners else all_owners[0]
+# ✅ IMPORTANT: forcer la valeur DU WIDGET AVANT sa création
+st.session_state["align_owner_select"] = desired_owner
 
-    # État logique
-    st.session_state["align_owner"] = desired_owner
+# -----------------------------
+# Selectbox Alignement
+# -----------------------------
+proprietaire = st.selectbox(
+    "Propriétaire",
+    all_owners,
+    index=all_owners.index(st.session_state["align_owner_select"]),
+    key="align_owner_select",
+)
 
-    # ✅ IMPORTANT: forcer la valeur DU WIDGET (sinon il reste collé sur l'ancien choix)
-    if st.session_state.get("align_owner_select") != desired_owner:
-        st.session_state["align_owner_select"] = desired_owner
+# garder le state logique si tu l'utilises ailleurs
+st.session_state["align_owner"] = proprietaire
 
-    # -----------------------------
-    # Selectbox Alignement
-    # -----------------------------
-    proprietaire = st.selectbox(
-        "Propriétaire",
-        all_owners,
-        index=all_owners.index(st.session_state["align_owner_select"]),
-        key="align_owner_select",
-    )
+
+# garder le state logique si tu l'utilises ailleurs
+st.session_state["align_owner"] = proprietaire
+
 
     # Keep sync logique (si l'utilisateur change manuellement dans le tab)
     st.session_state["align_owner"] = proprietaire
