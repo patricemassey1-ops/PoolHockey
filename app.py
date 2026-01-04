@@ -3069,11 +3069,12 @@ with tabA:
             gm_metric("IR", str(len(injured_all)))
 
         st.markdown(
-            f"**Actifs** — F {_count_badge(nb_F,12)} • D {_count_badge(nb_D,6)} • G {_count_badge(nb_G,2)}",
+            f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
             unsafe_allow_html=True
         )
 
         st.divider()
+
 
         popup_open = st.session_state.get("move_ctx") is not None
         if popup_open:
@@ -3358,165 +3359,221 @@ with tabJ:
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
 
-    # ✅ Guard (espaces seulement)
+    # ✅ Guard (NE PAS st.stop() sinon ça stoppe toute l'app)
     if df is None or df.empty or plafonds is None or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
+    else:
+        h = st.session_state.get("history")
+        h = h.copy() if isinstance(h, pd.DataFrame) else pd.DataFrame()
 
-    h = st.session_state.get("history", pd.DataFrame()).copy()
-    if h.empty:
-        st.info("Aucune entrée d’historique pour cette saison.")
-        st.stop()
+        if h.empty:
+            st.info("Aucune entrée d’historique pour cette saison.")
+        else:
+            # Colonnes attendues (soft) pour éviter KeyError
+            for c in [
+                "id", "timestamp", "proprietaire", "joueur", "pos",
+                "from_statut", "from_slot", "to_statut", "to_slot", "action"
+            ]:
+                if c not in h.columns:
+                    h[c] = ""
 
-    owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
-    owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
+            owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
+            owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
 
-    if owner_filter != "Tous":
-        h = h[h["proprietaire"].astype(str) == str(owner_filter)]
+            if owner_filter != "Tous":
+                h = h[h["proprietaire"].astype(str) == str(owner_filter)]
 
-    if h.empty:
-        st.info("Aucune entrée pour ce propriétaire.")
-        st.stop()
-
-    h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
-    h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"])
-
-    st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
-
-    head = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
-    head[0].markdown("**Date/Heure**")
-    head[1].markdown("**Propriétaire**")
-    head[2].markdown("**Joueur**")
-    head[3].markdown("**Pos**")
-    head[4].markdown("**De**")
-    head[5].markdown("**Vers**")
-    head[6].markdown("**Action**")
-    head[7].markdown("**↩️**")
-    head[8].markdown("**❌**")
-
-    for _, r in h.iterrows():
-        rid_raw = pd.to_numeric(r.get("id", 0), errors="coerce")
-        rid = 0 if pd.isna(rid_raw) else int(rid_raw)
-
-
-        cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
-
-        cols[0].markdown(str(r.get("timestamp", "")))
-        cols[1].markdown(str(r.get("proprietaire", "")))
-        cols[2].markdown(str(r.get("joueur", "")))
-        cols[3].markdown(str(r.get("pos", "")))
-
-        de = f"{r.get('from_statut', '')}" + (f" ({r.get('from_slot', '')})" if str(r.get("from_slot", "")).strip() else "")
-        vers = f"{r.get('to_statut', '')}" + (f" ({r.get('to_slot', '')})" if str(r.get("to_slot", "")).strip() else "")
-        cols[4].markdown(de)
-        cols[5].markdown(vers)
-        cols[6].markdown(str(r.get("action", "")))
-
-        # =====================================================
-        # UNDO (push local + Drive)
-        # =====================================================
-        if cols[7].button("↩️", key=f"undo_{rid}"):
-            if LOCKED:
-                st.error("🔒 Saison verrouillée : annulation impossible.")
+            if h.empty:
+                st.info("Aucune entrée pour ce propriétaire.")
             else:
-                owner = str(r.get("proprietaire", "")).strip()
-                joueur = str(r.get("joueur", "")).strip()
+                h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
+                h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"], errors="ignore")
 
-                data_df = st.session_state.get("data")
-                if data_df is None or data_df.empty:
-                    st.error("Aucune donnée en mémoire.")
-                else:
-                    mask = (
-                        data_df["Propriétaire"].astype(str).str.strip().eq(owner)
-                        & data_df["Joueur"].astype(str).str.strip().eq(joueur)
+                st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
+
+                # Limite (perf)
+                max_rows = st.number_input(
+                    "Nombre max de lignes à afficher",
+                    min_value=50,
+                    max_value=5000,
+                    value=250,
+                    step=50,
+                    key="hist_max_rows",
+                )
+                h_view = h.head(int(max_rows)).reset_index(drop=True)
+
+                head = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
+                head[0].markdown("**Date/Heure**")
+                head[1].markdown("**Propriétaire**")
+                head[2].markdown("**Joueur**")
+                head[3].markdown("**Pos**")
+                head[4].markdown("**De**")
+                head[5].markdown("**Vers**")
+                head[6].markdown("**Action**")
+                head[7].markdown("**↩️**")
+                head[8].markdown("**❌**")
+
+                def _safe_int(x):
+                    v = pd.to_numeric(x, errors="coerce")
+                    if pd.isna(v):
+                        return None
+                    try:
+                        return int(v)
+                    except Exception:
+                        return None
+
+                # 🔑 UID unique garanti (évite DuplicateElementKey même si id=0 ou doublons)
+                def _uid(r: pd.Series, i: int) -> str:
+                    rid = _safe_int(r.get("id", None))
+                    ts = str(r.get("timestamp", "")).strip()
+                    owner = str(r.get("proprietaire", "")).strip()
+                    joueur = str(r.get("joueur", "")).strip()
+                    action = str(r.get("action", "")).strip()
+                    return f"{rid if rid is not None else 'noid'}|{ts}|{owner}|{joueur}|{action}|{i}"
+
+                for i, r in h_view.iterrows():
+                    uid = _uid(r, i)
+                    rid = _safe_int(r.get("id", None))  # peut être None
+
+                    cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
+
+                    cols[0].markdown(str(r.get("timestamp", "")))
+                    cols[1].markdown(str(r.get("proprietaire", "")))
+                    cols[2].markdown(str(r.get("joueur", "")))
+                    cols[3].markdown(str(r.get("pos", "")))
+
+                    de = f"{r.get('from_statut', '')}" + (
+                        f" ({r.get('from_slot', '')})" if str(r.get("from_slot", "")).strip() else ""
                     )
+                    vers = f"{r.get('to_statut', '')}" + (
+                        f" ({r.get('to_slot', '')})" if str(r.get("to_slot", "")).strip() else ""
+                    )
+                    cols[4].markdown(de)
+                    cols[5].markdown(vers)
+                    cols[6].markdown(str(r.get("action", "")))
 
-                    if data_df.loc[mask].empty:
-                        st.error("Impossible d'annuler : joueur introuvable.")
-                    else:
-                        before = data_df.loc[mask].iloc[0]
-                        cur_statut = str(before.get("Statut", "")).strip()
-                        cur_slot = str(before.get("Slot", "")).strip()
-                        pos0 = str(before.get("Pos", "F")).strip()
-                        equipe0 = str(before.get("Equipe", "")).strip()
+                    # =====================================================
+                    # UNDO (push local + Drive)
+                    # =====================================================
+                    if cols[7].button("↩️", key=f"undo__{uid}", use_container_width=True):
+                        if st.session_state.get("LOCKED"):
+                            st.error("🔒 Saison verrouillée : annulation impossible.")
+                        else:
+                            owner = str(r.get("proprietaire", "")).strip()
+                            joueur = str(r.get("joueur", "")).strip()
 
-                        from_statut = str(r.get("from_statut", "")).strip()
-                        from_slot = str(r.get("from_slot", "")).strip()
+                            data_df = st.session_state.get("data")
+                            if data_df is None or not isinstance(data_df, pd.DataFrame) or data_df.empty:
+                                st.error("Aucune donnée en mémoire.")
+                            else:
+                                mask = (
+                                    data_df["Propriétaire"].astype(str).str.strip().eq(owner)
+                                    & data_df["Joueur"].astype(str).str.strip().eq(joueur)
+                                )
 
-                        # Applique retour arrière
-                        st.session_state["data"].loc[mask, "Statut"] = from_statut
-                        st.session_state["data"].loc[mask, "Slot"] = from_slot if from_slot else ""
+                                if data_df.loc[mask].empty:
+                                    st.error("Impossible d'annuler : joueur introuvable.")
+                                else:
+                                    before = data_df.loc[mask].iloc[0]
+                                    cur_statut = str(before.get("Statut", "")).strip()
+                                    cur_slot = str(before.get("Slot", "")).strip()
+                                    pos0 = str(before.get("Pos", "F")).strip()
+                                    equipe0 = str(before.get("Equipe", "")).strip()
 
-                        # Si on sort de IR -> reset IR Date
-                        if cur_slot == "Blessé" and from_slot != "Blessé":
-                            st.session_state["data"].loc[mask, "IR Date"] = ""
+                                    from_statut = str(r.get("from_statut", "")).strip()
+                                    from_slot = str(r.get("from_slot", "")).strip()
 
-                        # Nettoyage + save local
-                        st.session_state["data"] = clean_data(st.session_state["data"])
-                        data_file = st.session_state.get("DATA_FILE", "")
-                        if data_file:
-                            st.session_state["data"].to_csv(data_file, index=False)
+                                    # Applique retour arrière
+                                    st.session_state["data"].loc[mask, "Statut"] = from_statut
+                                    st.session_state["data"].loc[mask, "Slot"] = (from_slot if from_slot else "")
 
-                        # Log historique (local)
-                        log_history_row(
-                            owner, joueur, pos0, equipe0,
-                            cur_statut, cur_slot,
-                            from_statut,
-                            (from_slot if from_slot else ""),
-                            action=f"UNDO #{rid}",
-                        )
+                                    # Si on sort de IR -> reset IR Date
+                                    if cur_slot == "Blessé" and from_slot != "Blessé":
+                                        st.session_state["data"].loc[mask, "IR Date"] = ""
 
-                        # ✅ PUSH DRIVE (data + history) après UNDO
+                                    # Nettoyage + save local data
+                                    st.session_state["data"] = clean_data(st.session_state["data"])
+                                    data_file = st.session_state.get("DATA_FILE", "")
+                                    if data_file:
+                                        st.session_state["data"].to_csv(data_file, index=False)
+
+                                    # Log historique (local)
+                                    log_history_row(
+                                        owner, joueur, pos0, equipe0,
+                                        cur_statut, cur_slot,
+                                        from_statut,
+                                        (from_slot if from_slot else ""),
+                                        action=f"UNDO #{rid if rid is not None else 'NA'}",
+                                    )
+
+                                    # ✅ PUSH DRIVE (data + history) après UNDO
+                                    try:
+                                        if "_drive_enabled" in globals() and _drive_enabled():
+                                            season_lbl = st.session_state.get("season", season)
+
+                                            gdrive_save_df(
+                                                st.session_state["data"],
+                                                f"fantrax_{season_lbl}.csv",
+                                                GDRIVE_FOLDER_ID,
+                                            )
+
+                                            h_now = st.session_state.get("history")
+                                            if isinstance(h_now, pd.DataFrame):
+                                                gdrive_save_df(
+                                                    h_now,
+                                                    f"history_{season_lbl}.csv",
+                                                    GDRIVE_FOLDER_ID,
+                                                )
+                                    except Exception:
+                                        st.warning("⚠️ Sauvegarde Drive impossible (UNDO) — local OK.")
+
+                                    st.toast("↩️ Changement annulé", icon="↩️")
+                                    do_rerun()
+
+                    # =====================================================
+                    # DELETE (push local + Drive)
+                    # =====================================================
+                    if cols[8].button("❌", key=f"del__{uid}", use_container_width=True):
+                        h2 = st.session_state.get("history")
+                        h2 = h2.copy() if isinstance(h2, pd.DataFrame) else pd.DataFrame()
+
+                        if not h2.empty:
+                            if rid is not None and "id" in h2.columns:
+                                h2["__idnum"] = pd.to_numeric(h2["id"], errors="coerce")
+                                h2 = h2[h2["__idnum"] != rid].drop(columns=["__idnum"], errors="ignore")
+                            else:
+                                # fallback signature (si pas de id fiable)
+                                sig_cols = [
+                                    "timestamp", "season", "proprietaire", "joueur",
+                                    "from_statut", "from_slot", "to_statut", "to_slot", "action"
+                                ]
+                                sig_cols = [c for c in sig_cols if c in h2.columns]
+                                if sig_cols:
+                                    m = pd.Series([True] * len(h2))
+                                    for c in sig_cols:
+                                        m &= (h2[c].astype(str) == str(r.get(c, "")).astype(str))
+                                    h2 = h2[~m].copy()
+
+                        st.session_state["history"] = h2.reset_index(drop=True)
+
+                        # Save local
+                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
+
+                        # ✅ PUSH DRIVE (history) après DELETE
                         try:
                             if "_drive_enabled" in globals() and _drive_enabled():
                                 season_lbl = st.session_state.get("season", season)
-
                                 gdrive_save_df(
-                                    st.session_state["data"],
-                                    f"fantrax_{season_lbl}.csv",
+                                    st.session_state["history"],
+                                    f"history_{season_lbl}.csv",
                                     GDRIVE_FOLDER_ID,
                                 )
-
-                                h_now = st.session_state.get("history")
-                                if isinstance(h_now, pd.DataFrame):
-                                    gdrive_save_df(
-                                        h_now,
-                                        f"history_{season_lbl}.csv",
-                                        GDRIVE_FOLDER_ID,
-                                    )
                         except Exception:
-                            st.warning("⚠️ Sauvegarde Drive impossible (UNDO) — local OK.")
+                            st.warning("⚠️ Sauvegarde Drive impossible (DELETE) — local OK.")
 
-                        st.toast("↩️ Changement annulé", icon="↩️")
+                        st.toast("🗑️ Entrée supprimée", icon="🗑️")
                         do_rerun()
 
-        # =====================================================
-        # DELETE (push local + Drive)
-        # =====================================================
-        if cols[8].button("❌", key=f"del_{rid}"):
-            h2 = st.session_state.get("history", pd.DataFrame()).copy()
-            if not h2.empty and "id" in h2.columns:
-                h2 = h2[h2["id"] != rid]
-
-            st.session_state["history"] = h2
-
-            # Save local
-            save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), h2)
-
-            # ✅ PUSH DRIVE (history) après DELETE
-            try:
-                if "_drive_enabled" in globals() and _drive_enabled():
-                    season_lbl = st.session_state.get("season", season)
-                    gdrive_save_df(
-                        st.session_state["history"],
-                        f"history_{season_lbl}.csv",
-                        GDRIVE_FOLDER_ID,
-                    )
-            except Exception:
-                st.warning("⚠️ Sauvegarde Drive impossible (DELETE) — local OK.")
-
-            st.toast("🗑️ Entrée supprimée", icon="🗑️")
-            do_rerun()
 
 
 
