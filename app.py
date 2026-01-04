@@ -3321,8 +3321,8 @@ proprietaire = st.selectbox(
     key="align_owner_select",
 )
 
-# Keep sync logique (si tu l'utilises ailleurs)
 st.session_state["align_owner"] = proprietaire
+
 
 # -----------------------------
 # Affichage alignement
