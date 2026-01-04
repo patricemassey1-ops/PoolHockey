@@ -1159,26 +1159,15 @@ def log_history_row(proprietaire, joueur, pos, equipe,
 # =====================================================
 # TEAM SELECTION — GLOBAL (UNIQUE SOURCE OF TRUTH)
 # =====================================================
-def pick_team(owner: str):
-    owner = str(owner or "").strip()
-    if not owner:
-        return
+def pick_team(team: str):
+    team = str(team or "").strip()
+    st.session_state["selected_team"] = team
+    st.session_state["align_owner"] = team
+    do_rerun()
 
-    # ✅ ne filtre PAS les données
-    st.session_state["selected_team"] = owner
 
-    # optionnel : synchro immédiate du tab alignement
-    st.session_state["align_owner_select"] = owner
-    st.session_state["align_owner"] = owner
-
-    # (facultatif) ferme un popup si tu veux éviter un état bizarre
-    # st.session_state["move_ctx"] = None
-
-    if "do_rerun" in globals():
-        do_rerun()
-    else:
-        st.rerun()
-
+def get_selected_team() -> str:
+    return str(st.session_state.get("selected_team", "")).strip()
 
 
 # =====================================================
@@ -1489,295 +1478,6 @@ def apply_move_with_history(
         return False
 
     return True
-
-# =====================================================
-# 🩹 REMPLACEMENTS IR (avec délai + retour auto + plafond GC)
-# =====================================================
-from datetime import timedelta
-
-TZ = ZoneInfo("America/Toronto")
-
-def now_tor() -> datetime:
-    return datetime.now(TZ)
-
-def effective_midnight_in(days: int) -> str:
-    dt = now_tor() + timedelta(days=int(days))
-    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return dt.isoformat(timespec="seconds")
-
-def _repl_file(season: str) -> str:
-    return os.path.join(DATA_DIR, f"replacements_{season}.csv")
-
-def replacements_init(season: str):
-    if "replacements_season" not in st.session_state or st.session_state["replacements_season"] != season:
-        path = _repl_file(season)
-        st.session_state["REPLACEMENTS_FILE"] = path
-
-        cols = [
-            "case_id", "season", "owner",
-            "injured_player", "injured_pos", "injured_team",
-            "replacement_player", "replacement_from",
-            "created_at", "effective_at",
-            "status",  # PENDING / ACTIVE / CLOSED / REFUSED_CAP / CANCELLED
-            "repl_revert_statut", "repl_revert_slot",
-            "note", "closed_at"
-        ]
-
-        # Load local
-        if os.path.exists(path):
-            try:
-                df_cases = pd.read_csv(path)
-            except Exception:
-                df_cases = pd.DataFrame(columns=cols)
-        else:
-            df_cases = pd.DataFrame(columns=cols)
-
-        # Normalize columns
-        for c in cols:
-            if c not in df_cases.columns:
-                df_cases[c] = ""
-
-        # Normalize types
-        df_cases["case_id"] = (
-            pd.to_numeric(df_cases["case_id"], errors="coerce")
-              .fillna(0)
-              .astype(int)
-        )
-
-        df_cases["owner"] = df_cases["owner"].astype(str).str.strip()
-        df_cases["status"] = df_cases["status"].astype(str).str.strip()
-
-        # 🔑 Store in session
-        st.session_state["replacements"] = df_cases
-        st.session_state["replacements_season"] = season
-
-
-        
-
-def replacements_save(season: str):
-    df_cases = st.session_state.get("replacements")
-    if not isinstance(df_cases, pd.DataFrame):
-        return
-
-    path = st.session_state.get("REPLACEMENTS_FILE", _repl_file(season))
-    try:
-        df_cases.to_csv(path, index=False)
-    except Exception:
-        pass
-
-    # Drive batch (optionnel)
-    if "_drive_enabled" in globals() and _drive_enabled():
-        try:
-            queue_drive_save_df(df_cases, f"replacements_{season}.csv")
-        except Exception:
-            pass
-
-def replacements_next_id(df_cases: pd.DataFrame) -> int:
-    if df_cases is None or df_cases.empty or "case_id" not in df_cases.columns:
-        return 1
-    return int(pd.to_numeric(df_cases["case_id"], errors="coerce").fillna(0).max()) + 1
-
-def gc_used(owner: str, df: pd.DataFrame) -> int:
-    owner = str(owner).strip()
-    d = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
-    return int(d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum())
-
-def cap_ok_for_owner(owner: str, df_after: pd.DataFrame) -> tuple[bool, str]:
-    used = gc_used(owner, df_after)
-    cap = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    if used > cap:
-        return False, f"🚨 Plafond GC dépassé: {money(used)} / {money(cap)}"
-    return True, ""
-
-def find_active_case(df_cases: pd.DataFrame, owner: str, injured_player: str) -> pd.Series | None:
-    if df_cases is None or df_cases.empty:
-        return None
-    owner = str(owner).strip()
-    injured_player = str(injured_player).strip()
-    sub = df_cases[
-        (df_cases["owner"].astype(str).str.strip() == owner) &
-        (df_cases["injured_player"].astype(str).str.strip() == injured_player) &
-        (df_cases["status"].astype(str).isin(["PENDING", "ACTIVE", "REFUSED_CAP"]))
-    ]
-    if sub.empty:
-        return None
-    # dernier case
-    return sub.tail(1).iloc[0]
-
-def create_replacement_case(owner: str, injured_player: str, replacement_player: str, replacement_from: str):
-    season = str(st.session_state.get("season", "")).strip()
-    replacements_init(season)
-
-    df = st.session_state.get("data")
-    df = clean_data(df) if isinstance(df, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-
-    st.caption("DEBUG owners in df:")
-    st.write(sorted(df["Propriétaire"].astype(str).str.strip().unique().tolist()))
-    st.write(df["Propriétaire"].astype(str).value_counts().head(20))
-
-
-    owner = str(owner).strip()
-    injured_player = str(injured_player).strip()
-    replacement_player = str(replacement_player).strip()
-    replacement_from = str(replacement_from).strip().upper()  # BANC / MINEUR
-
-    # Lookup injured + replacement rows
-    m_inj = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(injured_player))
-    m_rep = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(replacement_player))
-
-    if df.loc[m_inj].empty or df.loc[m_rep].empty:
-        st.session_state["last_replace_error"] = "Joueur introuvable (blessé ou remplaçant)."
-        return False
-
-    inj = df.loc[m_inj].iloc[0]
-    rep = df.loc[m_rep].iloc[0]
-
-    # Injured must be IR
-    if str(inj.get("Slot", "")).strip() != "Blessé":
-        st.session_state["last_replace_error"] = "Le joueur blessé n'est pas sur IR."
-        return False
-
-    # Replacement origin determines delay
-    delay_days = 1 if replacement_from == "BANC" else 3
-    eff_at = effective_midnight_in(delay_days)
-
-    # Where replacement must return later
-    revert_statut = str(rep.get("Statut", "")).strip()
-    revert_slot = str(rep.get("Slot", "")).strip()
-
-    # Build case
-    cases = st.session_state["replacements"].copy()
-    case_id = replacements_next_id(cases)
-
-    row = {
-        "case_id": int(case_id),
-        "season": season,
-        "owner": owner,
-        "injured_player": injured_player,
-        "injured_pos": str(inj.get("Pos", "")),
-        "injured_team": str(inj.get("Equipe", "")),
-        "replacement_player": replacement_player,
-        "replacement_from": replacement_from,  # BANC / MINEUR
-        "created_at": now_tor().isoformat(timespec="seconds"),
-        "effective_at": eff_at,
-        "status": "PENDING",
-        "repl_revert_statut": revert_statut,
-        "repl_revert_slot": revert_slot,
-        "note": "",
-        "closed_at": "",
-    }
-
-    cases = pd.concat([cases, pd.DataFrame([row])], ignore_index=True)
-    st.session_state["replacements"] = cases
-    replacements_save(season)
-
-    # History trace
-    try:
-        history_add(
-            action="IR_REPLACEMENT_PLANNED",
-            owner=owner,
-            player=injured_player,
-            details=f"Remplaçant: {replacement_player} ({replacement_from}) | effectif: {eff_at}",
-        )
-    except Exception:
-        pass
-
-    return True
-
-def process_replacements():
-    season = str(st.session_state.get("season", "")).strip()
-    replacements_init(season)
-
-    cases = st.session_state.get("replacements")
-    if not isinstance(cases, pd.DataFrame) or cases.empty:
-        return
-
-    df = st.session_state.get("data")
-    df = clean_data(df) if isinstance(df, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-
-    now = now_tor()
-    changed = False
-
-    # pending ready
-    eff_dt = pd.to_datetime(cases["effective_at"], errors="coerce")
-    ready = cases[
-        (cases["status"].astype(str) == "PENDING") &
-        (eff_dt.notna()) &
-        (eff_dt <= now)
-    ].copy()
-
-    if ready.empty:
-        return
-
-    for _, r in ready.iterrows():
-        owner = str(r["owner"]).strip()
-        injured = str(r["injured_player"]).strip()
-        repl = str(r["replacement_player"]).strip()
-
-        # If injured not IR anymore -> cancel
-        m_inj = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(injured))
-        if df.loc[m_inj].empty or str(df.loc[m_inj].iloc[0].get("Slot","")).strip() != "Blessé":
-            cases.loc[cases["case_id"] == r["case_id"], "status"] = "CANCELLED"
-            continue
-
-        # Apply replacement -> GC Actif
-        m_rep = (df["Propriétaire"].astype(str).str.strip().eq(owner)) & (df["Joueur"].astype(str).str.strip().eq(repl))
-        if df.loc[m_rep].empty:
-            cases.loc[cases["case_id"] == r["case_id"], "status"] = "CANCELLED"
-            continue
-
-        df2 = df.copy()
-        df2.loc[m_rep, "Statut"] = "Grand Club"
-        df2.loc[m_rep, "Slot"] = "Actif"
-        df2 = clean_data(df2)
-
-        ok, msg = cap_ok_for_owner(owner, df2)
-        if not ok:
-            cases.loc[cases["case_id"] == r["case_id"], "status"] = "REFUSED_CAP"
-            cases.loc[cases["case_id"] == r["case_id"], "note"] = msg
-            continue
-
-        df = df2
-        changed = True
-        cases.loc[cases["case_id"] == r["case_id"], "status"] = "ACTIVE"
-
-        try:
-            history_add(
-                action="IR_REPLACEMENT_ACTIVE",
-                owner=owner,
-                player=repl,
-                details=f"Remplacement actif (case #{int(r['case_id'])}) pour {injured}",
-            )
-        except Exception:
-            pass
-
-    if changed:
-        st.session_state["data"] = df
-        persist_data(df, season)
-
-    st.session_state["replacements"] = cases
-    replacements_save(season)
-
-def close_replacement_case(case_id: int, note: str = ""):
-    season = str(st.session_state.get("season", "")).strip()
-    replacements_init(season)
-
-    cases = st.session_state.get("replacements")
-    if not isinstance(cases, pd.DataFrame) or cases.empty:
-        return
-
-    m = cases["case_id"].astype(str) == str(case_id)
-    if not m.any():
-        return
-
-    cases.loc[m, "status"] = "CLOSED"
-    cases.loc[m, "closed_at"] = now_tor().isoformat(timespec="seconds")
-    if note:
-        cases.loc[m, "note"] = str(note)
-
-    st.session_state["replacements"] = cases
-    replacements_save(season)
-
 
 
     # -----------------------------
@@ -2252,43 +1952,42 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
 
 # -----------------------------
-# Équipes (SIDEBAR)
+# Équipe (selectbox) + logo
 # -----------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
 teams = list(LOGOS.keys())
-
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
+    chosen = ""
 else:
-    # init selected_team si absent
-    if "selected_team" not in st.session_state or str(st.session_state["selected_team"]).strip() not in teams:
-        st.session_state["selected_team"] = teams[0]
-
-    def _on_team_change():
-        # 1 seule action : mettre à jour la source de vérité
-        st.session_state["selected_team"] = st.session_state["sb_team_select"]
-
     cur = str(st.session_state.get("selected_team", "")).strip()
     if cur not in teams:
         cur = teams[0]
         st.session_state["selected_team"] = cur
+        st.session_state["align_owner"] = cur
 
-    st.sidebar.selectbox(
+    chosen = st.sidebar.selectbox(
         "Choisir une équipe",
         teams,
         index=teams.index(cur),
         key="sb_team_select",
-        on_change=_on_team_change,
     )
 
+    if chosen != cur:
+        st.session_state["selected_team"] = chosen
+        st.session_state["align_owner"] = chosen
+        do_rerun()
 
-    # Logo (optionnel)
-    logo_path = LOGOS.get(cur, "")
-    if logo_path and os.path.exists(logo_path):
-        st.sidebar.image(logo_path, width=64)
-
+    st.sidebar.markdown("---")
+    logo_path = team_logo_path(chosen)
+    c1, c2 = st.sidebar.columns([1, 2], vertical_alignment="center")
+    with c1:
+        if logo_path and os.path.exists(logo_path):
+            st.image(logo_path, width=56)
+    with c2:
+        st.markdown(f"**{chosen}**")
 
 # -----------------------------
 # Plafonds (UI)
@@ -3279,9 +2978,7 @@ with tab1:
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # -----------------------------
-    # Data safe (source unique)
-    # -----------------------------
+    # ✅ Data safe (source unique) DANS le tab
     df = st.session_state.get("data")
     if df is None:
         df = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3289,198 +2986,152 @@ with tabA:
     df = clean_data(df)
     st.session_state["data"] = df
 
+    # ✅ Guard : NE PAS st.stop() (sinon ça stoppe toute l'app)
     if df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
+    else:
+        all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+        if not all_owners:
+            all_owners = ["—"]
 
-    # -----------------------------
-    # Propriétaires disponibles
-    # -----------------------------
-    all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-    if not all_owners:
-        st.info("Aucun propriétaire trouvé.")
-        st.stop()
+        selected_team = get_selected_team()
 
-    # -----------------------------
-    # 🔗 Sync SIDEBAR → Alignement (SEULEMENT quand le sidebar change)
-    # -----------------------------
-    selected_team = str(st.session_state.get("selected_team", "") or "").strip()
-
-    # init (premier run)
-    if "last_sidebar_team" not in st.session_state:
-        st.session_state["last_sidebar_team"] = selected_team
-
-    # Si le sidebar a changé depuis la dernière fois → on force l'alignement
-    if selected_team and selected_team != st.session_state["last_sidebar_team"]:
-        if selected_team in all_owners:
-            st.session_state["align_owner_select"] = selected_team
+        # Sync sélection d’équipe -> align_owner si possible
+        if selected_team and selected_team in all_owners:
             st.session_state["align_owner"] = selected_team
-        st.session_state["last_sidebar_team"] = selected_team  # update tracker
 
-    # Guard final: valeur valide pour le widget
-    if st.session_state.get("align_owner_select") not in all_owners:
-        st.session_state["align_owner_select"] = all_owners[0]
+        # ✅ Guard béton: si la valeur en session_state n'est plus dans options, reset
+        cur_owner = st.session_state.get("align_owner")
+        if cur_owner not in all_owners:
+            st.session_state["align_owner"] = all_owners[0]
 
-    # -----------------------------
-    # Selectbox Alignement
-    # -----------------------------
-    proprietaire = st.selectbox(
-        "Propriétaire",
-        all_owners,
-        index=all_owners.index(st.session_state["align_owner_select"]),
-        key="align_owner_select",
-    )
+        proprietaire = st.selectbox(
+            "Propriétaire",
+            all_owners,
+            key="align_owner",
+        )
 
-    # State logique (si tu l'utilises ailleurs)
-    st.session_state["align_owner"] = proprietaire
+        dprop = df[df["Propriétaire"] == proprietaire].copy()
 
+        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+        dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
-    # -----------------------------
-    # Affichage alignement (filtré)
-    # -----------------------------
-    dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
+        gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
+        ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
 
-    if dprop.empty:
-        st.info("Aucun joueur pour cette équipe.")
-        st.stop()
+        gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
+        gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # =====================================================
-    # ✅ TON CODE EXISTANT (actifs / banc / mineur / IR)
-    # =====================================================
-    injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-    dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
+        tmp = gc_actif.copy()
+        if "Pos" not in tmp.columns:
+            tmp["Pos"] = "F"
+        tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+        nb_F = int((tmp["Pos"] == "F").sum())
+        nb_D = int((tmp["Pos"] == "D").sum())
+        nb_G = int((tmp["Pos"] == "G").sum())
 
-    gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
-    ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
+        cap_gc = int(st.session_state["PLAFOND_GC"])
+        cap_ce = int(st.session_state["PLAFOND_CE"])
+        used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
+        used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
+        remain_gc = cap_gc - used_gc
+        remain_ce = cap_ce - used_ce
 
-    gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+        j1, j2 = st.columns(2)
+        with j1:
+            st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+        with j2:
+            st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
-    tmp = gc_actif.copy()
-    if "Pos" not in tmp.columns:
-        tmp["Pos"] = "F"
-    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
+        def gm_metric(label: str, value: str):
+            st.markdown(
+                f"""
+                <div style="text-align:left">
+                    <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
+                    <div style="font-size:20px;font-weight:1000">{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
+        cols = st.columns(6)
+        with cols[0]:
+            gm_metric("Total GC", money(used_gc))
+        with cols[1]:
+            gm_metric("Reste GC", money(remain_gc))
+        with cols[2]:
+            gm_metric("Total CE", money(used_ce))
+        with cols[3]:
+            gm_metric("Reste CE", money(remain_ce))
+        with cols[4]:
+            gm_metric("Banc", str(len(gc_banc)))
+        with cols[5]:
+            gm_metric("IR", str(len(injured_all)))
 
-    j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
-
-    def gm_metric(label: str, value: str):
         st.markdown(
-            f"""
-            <div style="text-align:left">
-                <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
-                <div style="font-size:20px;font-weight:1000">{value}</div>
-            </div>
-            """,
+            f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
             unsafe_allow_html=True
         )
 
-    cols = st.columns(6)
-    with cols[0]:
-        gm_metric("Total GC", money(used_gc))
-    with cols[1]:
-        gm_metric("Reste GC", money(remain_gc))
-    with cols[2]:
-        gm_metric("Total CE", money(used_ce))
-    with cols[3]:
-        gm_metric("Reste CE", money(remain_ce))
-    with cols[4]:
-        gm_metric("Banc", str(len(gc_banc)))
-    with cols[5]:
-        gm_metric("IR", str(len(injured_all)))
+        st.divider()
 
-    st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
-        unsafe_allow_html=True
-    )
 
-    st.divider()
+        popup_open = st.session_state.get("move_ctx") is not None
+        if popup_open:
+            st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
-    popup_open = st.session_state.get("move_ctx") is not None
-    if popup_open:
-        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+        colA, colB = st.columns(2, gap="small")
 
-    colA, colB = st.columns(2, gap="small")
-
-    with colA:
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs")
-            if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs")
-                    if "do_rerun" in globals():
+        with colA:
+            with st.container(border=True):
+                st.markdown("### 🟢 Actifs")
+                if not popup_open:
+                    p = roster_click_list(gc_actif, proprietaire, "actifs")
+                    if p:
+                        set_move_ctx(proprietaire, p, "actifs")
                         do_rerun()
-                    else:
-                        st.rerun()
-            else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+                else:
+                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
-    with colB:
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur")
-            if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min")
-                    if "do_rerun" in globals():
+        with colB:
+            with st.container(border=True):
+                st.markdown("### 🔵 Mineur")
+                if not popup_open:
+                    p = roster_click_list(ce_all, proprietaire, "min")
+                    if p:
+                        set_move_ctx(proprietaire, p, "min")
                         do_rerun()
-                    else:
-                        st.rerun()
+                else:
+                    roster_click_list(ce_all, proprietaire, "min_disabled")
+
+        st.divider()
+
+        with st.expander("🟡 Banc", expanded=True):
+            if gc_banc is None or gc_banc.empty:
+                st.info("Aucun joueur.")
             else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
-
-    st.divider()
-
-    with st.expander("🟡 Banc", expanded=True):
-        if gc_banc is None or gc_banc.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_banc, proprietaire, "banc")
-                if p:
-                    set_move_ctx(proprietaire, p, "banc")
-                    if "do_rerun" in globals():
+                if not popup_open:
+                    p = roster_click_list(gc_banc, proprietaire, "banc")
+                    if p:
+                        set_move_ctx(proprietaire, p, "banc")
                         do_rerun()
-                    else:
-                        st.rerun()
-            else:
-                roster_click_list(gc_banc, proprietaire, "banc_disabled")
+                else:
+                    roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        if injured_all is None or injured_all.empty:
-            st.info("Aucun joueur blessé.")
-        else:
-            if not popup_open:
-                p_ir = roster_click_list(injured_all, proprietaire, "ir")
-                if p_ir:
-                    set_move_ctx(proprietaire, p_ir, "ir")
-                    if "do_rerun" in globals():
+        with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+            if injured_all is None or injured_all.empty:
+                st.info("Aucun joueur blessé.")
+            else:
+                if not popup_open:
+                    p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                    if p_ir:
+                        set_move_ctx(proprietaire, p_ir, "ir")
                         do_rerun()
-                    else:
-                        st.rerun()
-            else:
-                roster_click_list(injured_all, proprietaire, "ir_disabled")
+                else:
+                    roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    # Pop-up toujours à la fin du tab
-    open_move_dialog()
-
-
-
-
+        # Pop-up toujours à la fin du tab
+        open_move_dialog()
 
 
 
@@ -4006,5 +3657,3 @@ if "flush_drive_queue" in globals():
     n, errs = flush_drive_queue(force=False, max_age_sec=8)
     # (DEBUG temporaire)
     # if n: st.toast(f"Drive flush: {n} fichier(s)", icon="☁️")
-
-
