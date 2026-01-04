@@ -3300,13 +3300,11 @@ sidebar_team = str(st.session_state.get("sb_team_select", "") or "").strip()
 owners_norm = {str(o).strip().lower(): o for o in all_owners}
 sidebar_norm = sidebar_team.lower()
 
-# si le sidebar match un owner -> on force le selectbox du tab
 if sidebar_norm in owners_norm:
-    desired_owner = owners_norm[sidebar_norm]
-else:
-    desired_owner = st.session_state.get("align_owner_select")
-    if desired_owner not in all_owners:
-        desired_owner = all_owners[0]
+    st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
+elif st.session_state.get("align_owner_select") not in all_owners:
+    st.session_state["align_owner_select"] = all_owners[0]
+
 
 # ✅ IMPORTANT: forcer la valeur DU WIDGET AVANT sa création
 st.session_state["align_owner_select"] = desired_owner
@@ -3321,81 +3319,55 @@ proprietaire = st.selectbox(
     key="align_owner_select",
 )
 
-# garder le state logique si tu l'utilises ailleurs
+# Keep sync logique (si tu l'utilises ailleurs)
 st.session_state["align_owner"] = proprietaire
 
+# -----------------------------
+# Affichage alignement
+# -----------------------------
+dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
 
-# garder le state logique si tu l'utilises ailleurs
-st.session_state["align_owner"] = proprietaire
+injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
+gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
+ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
 
-# Keep sync logique (si l'utilisateur change manuellement dans le tab)
-st.session_state["align_owner"] = proprietaire
+gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
+gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # -----------------------------
-    # Affichage alignement
-    # -----------------------------
-    dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
+tmp = gc_actif.copy()
+if "Pos" not in tmp.columns:
+    tmp["Pos"] = "F"
+tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+nb_F = int((tmp["Pos"] == "F").sum())
+nb_D = int((tmp["Pos"] == "D").sum())
+nb_G = int((tmp["Pos"] == "G").sum())
 
-    injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-    dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
+cap_gc = int(st.session_state["PLAFOND_GC"])
+cap_ce = int(st.session_state["PLAFOND_CE"])
+used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
+used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
+remain_gc = cap_gc - used_gc
+remain_ce = cap_ce - used_ce
 
-    gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
-    ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
+j1, j2 = st.columns(2)
+with j1:
+    st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+with j2:
+    st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
 
-    gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
-
-    tmp = gc_actif.copy()
-    if "Pos" not in tmp.columns:
-        tmp["Pos"] = "F"
-    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
-
-    cap_gc = int(st.session_state["PLAFOND_GC"])
-    cap_ce = int(st.session_state["PLAFOND_CE"])
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
-
-    j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
-
-    def gm_metric(label: str, value: str):
-        st.markdown(
-            f"""
-            <div style="text-align:left">
-                <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
-                <div style="font-size:20px;font-weight:1000">{value}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    cols = st.columns(6)
-    with cols[0]:
-        gm_metric("Total GC", money(used_gc))
-    with cols[1]:
-        gm_metric("Reste GC", money(remain_gc))
-    with cols[2]:
-        gm_metric("Total CE", money(used_ce))
-    with cols[3]:
-        gm_metric("Reste CE", money(remain_ce))
-    with cols[4]:
-        gm_metric("Banc", str(len(gc_banc)))
-    with cols[5]:
-        gm_metric("IR", str(len(injured_all)))
-
+def gm_metric(label: str, value: str):
     st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
+        f"""
+        <div style="text-align:left">
+            <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
+            <div style="font-size:20px;font-weight:1000">{value}</div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
+
 
     st.divider()
 
