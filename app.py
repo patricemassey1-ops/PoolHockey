@@ -2236,31 +2236,31 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
 
 # -----------------------------
-# Équipe (selectbox) + logo
+# SIDEBAR — Équipe (selectbox) + logo
 # -----------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
 teams = list(LOGOS.keys())
-
-# ✅ Always define these
-chosen = ""
-cur = str(st.session_state.get("selected_team", "")).strip()
-
 if not teams:
     st.sidebar.info("Aucune équipe configurée.")
-    st.session_state["selected_team"] = ""
 else:
-    # ✅ Ensure cur is valid
+    # Valeur courante (source: sb_team_select -> selected_team -> fallback)
+    cur = str(st.session_state.get("sb_team_select") or st.session_state.get("selected_team") or "").strip()
     if cur not in teams:
         cur = teams[0]
-        st.session_state["selected_team"] = cur
-        st.session_state["sb_team_select"] = cur
 
     def _on_team_change():
-        pick_team(st.session_state["sb_team_select"])
+        chosen = str(st.session_state.get("sb_team_select") or "").strip()
+        st.session_state["selected_team"] = chosen           # état logique global
+        st.session_state["align_owner_select"] = chosen      # force le tab Alignement
+        # rerun safe si tu as un helper
+        if "do_rerun" in globals():
+            do_rerun()
+        else:
+            st.rerun()
 
-    chosen = st.sidebar.selectbox(
+    st.sidebar.selectbox(
         "Choisir une équipe",
         teams,
         index=teams.index(cur),
@@ -2268,21 +2268,11 @@ else:
         on_change=_on_team_change,
     )
 
-    # ✅ If you still want a manual sync (optional)
-    if chosen != cur:
-        st.session_state["selected_team"] = chosen
+    # Logo (optionnel)
+    logo_path = LOGOS.get(cur, "")
+    if logo_path and os.path.exists(logo_path):
+        st.sidebar.image(logo_path, width=64)
 
-        st.session_state["align_owner"] = chosen
-        do_rerun()
-
-    st.sidebar.markdown("---")
-    logo_path = team_logo_path(chosen)
-    c1, c2 = st.sidebar.columns([1, 2], vertical_alignment="center")
-    with c1:
-        if logo_path and os.path.exists(logo_path):
-            st.image(logo_path, width=56)
-    with c2:
-        st.markdown(f"**{chosen}**")
 
 # -----------------------------
 # Plafonds (UI)
@@ -3267,7 +3257,7 @@ with tab1:
 
 
 
-# =====================================================
+# # =====================================================
 # TAB A — Alignement
 # =====================================================
 with tabA:
@@ -3285,150 +3275,179 @@ with tabA:
 
     if df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
- # -----------------------------
-# Propriétaires disponibles
-# -----------------------------
-all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-if not all_owners:
-    st.info("Aucun propriétaire trouvé.")
-    st.stop()
-
-# -----------------------------
-# 🔗 Sync SIDEBAR → Alignement (SANS desired_owner)
-# -----------------------------
-sidebar_team = str(st.session_state.get("sb_team_select", "") or "").strip()
-
-owners_norm = {str(o).strip().lower(): o for o in all_owners}
-sidebar_norm = sidebar_team.lower()
-
-# Forcer la valeur du widget alignement depuis le sidebar
-if sidebar_norm in owners_norm:
-    st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
-elif st.session_state.get("align_owner_select") not in all_owners:
-    st.session_state["align_owner_select"] = all_owners[0]
-
-
-
-# -----------------------------
-# Selectbox Alignement
-# -----------------------------
-proprietaire = st.selectbox(
-    "Propriétaire",
-    all_owners,
-    index=all_owners.index(st.session_state["align_owner_select"]),
-    key="align_owner_select",
-)
-
-st.session_state["align_owner"] = proprietaire
-
-
-# -----------------------------
-# Affichage alignement
-# -----------------------------
-dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
-
-injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
-
-gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
-ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
-
-gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
-
-tmp = gc_actif.copy()
-if "Pos" not in tmp.columns:
-    tmp["Pos"] = "F"
-tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-nb_F = int((tmp["Pos"] == "F").sum())
-nb_D = int((tmp["Pos"] == "D").sum())
-nb_G = int((tmp["Pos"] == "G").sum())
-
-cap_gc = int(st.session_state["PLAFOND_GC"])
-cap_ce = int(st.session_state["PLAFOND_CE"])
-used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-remain_gc = cap_gc - used_gc
-remain_ce = cap_ce - used_ce
-
-j1, j2 = st.columns(2)
-with j1:
-    st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
-with j2:
-    st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
-
-def gm_metric(label: str, value: str):
-    st.markdown(
-        f"""
-        <div style="text-align:left">
-            <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
-            <div style="font-size:20px;font-weight:1000">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-    st.divider()
-
-    popup_open = st.session_state.get("move_ctx") is not None
-    if popup_open:
-        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
-
-    colA, colB = st.columns(2, gap="small")
-
-    with colA:
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs")
-            if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs")
-                    do_rerun()
-            else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
-
-    with colB:
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur")
-            if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min")
-                    do_rerun()
-            else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
-
-    st.divider()
-
-    with st.expander("🟡 Banc", expanded=True):
-        if gc_banc is None or gc_banc.empty:
-            st.info("Aucun joueur.")
+    else:
+        # -----------------------------
+        # Propriétaires disponibles
+        # -----------------------------
+        all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+        if not all_owners:
+            st.info("Aucun propriétaire trouvé.")
         else:
-            if not popup_open:
-                p = roster_click_list(gc_banc, proprietaire, "banc")
-                if p:
-                    set_move_ctx(proprietaire, p, "banc")
-                    do_rerun()
-            else:
-                roster_click_list(gc_banc, proprietaire, "banc_disabled")
+            # -----------------------------
+            # 🔗 Force SIDEBAR → widget "Propriétaire"
+            # IMPORTANT: doit arriver AVANT le selectbox
+            # -----------------------------
+            sidebar_team = str(st.session_state.get("sb_team_select") or st.session_state.get("selected_team") or "").strip()
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        if injured_all is None or injured_all.empty:
-            st.info("Aucun joueur blessé.")
-        else:
-            if not popup_open:
-                p_ir = roster_click_list(injured_all, proprietaire, "ir")
-                if p_ir:
-                    set_move_ctx(proprietaire, p_ir, "ir")
-                    do_rerun()
-            else:
-                roster_click_list(injured_all, proprietaire, "ir_disabled")
+            owners_norm = {str(o).strip().lower(): o for o in all_owners}
+            sidebar_norm = sidebar_team.lower()
 
-    # Pop-up toujours à la fin du tab
-    open_move_dialog()
+            # Si sidebar match un owner -> force le widget
+            if sidebar_norm in owners_norm:
+                st.session_state["align_owner_select"] = owners_norm[sidebar_norm]
+
+            # Guard: si widget invalide -> fallback
+            if st.session_state.get("align_owner_select") not in all_owners:
+                st.session_state["align_owner_select"] = all_owners[0]
+
+            # -----------------------------
+            # Selectbox Alignement (UNE SEULE clé)
+            # -----------------------------
+            proprietaire = st.selectbox(
+                "Propriétaire",
+                all_owners,
+                index=all_owners.index(st.session_state["align_owner_select"]),
+                key="align_owner_select",
+            )
+
+            # garder l'état logique si utilisé ailleurs
+            st.session_state["align_owner"] = proprietaire
+
+            # (optionnel) si tu veux que changer dans le tab reflète le sidebar :
+            st.session_state["selected_team"] = proprietaire
+            st.session_state["sb_team_select"] = proprietaire
+
+            # -----------------------------
+            # Affichage alignement
+            # -----------------------------
+            dprop = df[df["Propriétaire"].astype(str).str.strip() == str(proprietaire).strip()].copy()
+
+            if dprop.empty:
+                st.info("Aucun joueur pour cette équipe.")
+            else:
+                injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
+                dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
+
+                gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
+                ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
+
+                gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
+                gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+
+                tmp = gc_actif.copy()
+                if "Pos" not in tmp.columns:
+                    tmp["Pos"] = "F"
+                tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+                nb_F = int((tmp["Pos"] == "F").sum())
+                nb_D = int((tmp["Pos"] == "D").sum())
+                nb_G = int((tmp["Pos"] == "G").sum())
+
+                cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+                cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+                used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
+                used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
+                remain_gc = cap_gc - used_gc
+                remain_ce = cap_ce - used_ce
+
+                j1, j2 = st.columns(2)
+                with j1:
+                    st.markdown(cap_bar_html(used_gc, cap_gc, "📊 Plafond Grand Club (GC)"), unsafe_allow_html=True)
+                with j2:
+                    st.markdown(cap_bar_html(used_ce, cap_ce, "📊 Plafond Club École (CE)"), unsafe_allow_html=True)
+
+                def gm_metric(label: str, value: str):
+                    st.markdown(
+                        f"""
+                        <div style="text-align:left">
+                            <div style="font-size:12px;opacity:.75;font-weight:700">{label}</div>
+                            <div style="font-size:20px;font-weight:1000">{value}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                cols = st.columns(6)
+                with cols[0]:
+                    gm_metric("Total GC", money(used_gc))
+                with cols[1]:
+                    gm_metric("Reste GC", money(remain_gc))
+                with cols[2]:
+                    gm_metric("Total CE", money(used_ce))
+                with cols[3]:
+                    gm_metric("Reste CE", money(remain_ce))
+                with cols[4]:
+                    gm_metric("Banc", str(len(gc_banc)))
+                with cols[5]:
+                    gm_metric("IR", str(len(injured_all)))
+
+                st.markdown(
+                    f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
+                    unsafe_allow_html=True
+                )
+
+                st.divider()
+
+                popup_open = st.session_state.get("move_ctx") is not None
+                if popup_open:
+                    st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+
+                colA, colB = st.columns(2, gap="small")
+
+                with colA:
+                    with st.container(border=True):
+                        st.markdown("### 🟢 Actifs")
+                        if not popup_open:
+                            p = roster_click_list(gc_actif, proprietaire, "actifs")
+                            if p:
+                                set_move_ctx(proprietaire, p, "actifs")
+                                if "do_rerun" in globals(): do_rerun()
+                                else: st.rerun()
+                        else:
+                            roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+                with colB:
+                    with st.container(border=True):
+                        st.markdown("### 🔵 Mineur")
+                        if not popup_open:
+                            p = roster_click_list(ce_all, proprietaire, "min")
+                            if p:
+                                set_move_ctx(proprietaire, p, "min")
+                                if "do_rerun" in globals(): do_rerun()
+                                else: st.rerun()
+                        else:
+                            roster_click_list(ce_all, proprietaire, "min_disabled")
+
+                st.divider()
+
+                with st.expander("🟡 Banc", expanded=True):
+                    if gc_banc is None or gc_banc.empty:
+                        st.info("Aucun joueur.")
+                    else:
+                        if not popup_open:
+                            p = roster_click_list(gc_banc, proprietaire, "banc")
+                            if p:
+                                set_move_ctx(proprietaire, p, "banc")
+                                if "do_rerun" in globals(): do_rerun()
+                                else: st.rerun()
+                        else:
+                            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+                with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+                    if injured_all is None or injured_all.empty:
+                        st.info("Aucun joueur blessé.")
+                    else:
+                        if not popup_open:
+                            p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                            if p_ir:
+                                set_move_ctx(proprietaire, p_ir, "ir")
+                                if "do_rerun" in globals(): do_rerun()
+                                else: st.rerun()
+                        else:
+                            roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+                # Pop-up toujours à la fin du tab
+                open_move_dialog()
+
 
 
 
