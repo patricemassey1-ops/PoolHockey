@@ -829,6 +829,84 @@ def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
 
     return _call_with_retry(_run, retries=3)
 
+# -----------------------------
+# DRIVE — BATCH FLUSH (robuste SSL)
+# -----------------------------
+import time
+
+# Init session si absent
+if "drive_queue" not in st.session_state:
+    st.session_state["drive_queue"] = {}  # filename -> df(copy)
+if "drive_dirty_at" not in st.session_state:
+    st.session_state["drive_dirty_at"] = 0.0
+if "drive_last_flush" not in st.session_state:
+    st.session_state["drive_last_flush"] = 0.0
+
+
+def queue_drive_save_df(df: pd.DataFrame, filename: str):
+    """
+    Ajoute un DF à la queue Drive (batch write).
+    Écriture réelle faite par flush_drive_queue().
+    """
+    if not _drive_enabled():
+        return
+    if df is None or not isinstance(df, pd.DataFrame):
+        return
+
+    st.session_state["drive_queue"][str(filename)] = df.copy()
+    st.session_state["drive_dirty_at"] = time.time()
+
+
+def flush_drive_queue(force: bool = False, max_age_sec: int = 8) -> tuple[int, list[str]]:
+    """
+    Vide la queue Drive avec sécurité réseau.
+    - force=True : flush immédiat
+    - max_age_sec : délai minimum avant flush auto
+    Retourne: (nb_fichiers_écrits, [erreurs])
+    """
+    if not _drive_enabled():
+        return (0, [])
+
+    q = st.session_state.get("drive_queue", {})
+    if not q:
+        return (0, [])
+
+    dirty_at = float(st.session_state.get("drive_dirty_at", 0.0) or 0.0)
+    age = time.time() - dirty_at if dirty_at else 0.0
+
+    if (not force) and (age < max_age_sec):
+        return (0, [])
+
+    folder_id = str(_folder_id() or "").strip()
+    if not folder_id:
+        return (0, ["folder_id manquant: écriture Drive impossible (queue conservée)."])
+
+    written = 0
+    errors: list[str] = []
+
+    for filename, df in list(q.items()):
+        try:
+            gdrive_save_df(df, filename, folder_id)
+            written += 1
+            del st.session_state["drive_queue"][filename]
+
+        except Exception as e:
+            # 🔒 Si SSL/TLS cassé → reset client pour les prochains essais
+            if "_is_ssl_error" in globals() and _is_ssl_error(e):
+                try:
+                    st.cache_resource.clear()
+                except Exception:
+                    pass
+
+            errors.append(f"{filename}: {type(e).__name__}: {e}")
+
+    st.session_state["drive_last_flush"] = time.time()
+
+    if not st.session_state["drive_queue"]:
+        st.session_state["drive_dirty_at"] = 0.0
+
+    return (written, errors)
+
 
 # -----------------------------
 # Helpers Drive — Folder (auto-create)
