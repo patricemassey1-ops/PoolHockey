@@ -682,59 +682,153 @@ def _drive_enabled() -> bool:
 
 
 # -----------------------------
-# Helpers Drive (liste / save / load)
+# Helpers Drive (liste / save / load) — ROBUST (SSL retry + reset)
 # -----------------------------
+import ssl
+import time
+import socket
+from googleapiclient.errors import HttpError
+
+def _is_ssl_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return (
+        isinstance(e, ssl.SSLError)
+        or "ssl" in msg
+        or "bad record mac" in msg
+        or "decryption_failed_or_bad_record_mac" in msg
+        or "wrong version number" in msg
+        or "tlsv" in msg
+    )
+
+def _reset_drive_client_cache():
+    # Important: rebuild le service Drive après un incident TLS
+    try:
+        st.cache_resource.clear()
+    except Exception:
+        pass
+
+def _call_with_retry(fn, *, retries: int = 3, base_sleep: float = 0.6):
+    """
+    Exécute fn() avec retry si erreur SSL/transient.
+    - SSL => reset cache + retry
+    - Socket timeout => retry
+    - HttpError 429/5xx => retry
+    """
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            # Petit timeout global (safe) — évite les transferts qui figent
+            try:
+                socket.setdefaulttimeout(30)
+            except Exception:
+                pass
+
+            return fn()
+
+        except Exception as e:
+            last_err = e
+
+            # Retry sur SSL/TLS cassé
+            if _is_ssl_error(e):
+                _reset_drive_client_cache()
+                time.sleep(base_sleep * attempt)
+                continue
+
+            # Retry sur timeouts réseau
+            if isinstance(e, (socket.timeout, TimeoutError)):
+                _reset_drive_client_cache()
+                time.sleep(base_sleep * attempt)
+                continue
+
+            # Retry sur erreurs API transientes
+            if isinstance(e, HttpError):
+                try:
+                    status = int(getattr(e.resp, "status", 0) or 0)
+                except Exception:
+                    status = 0
+                if status in {429, 500, 502, 503, 504}:
+                    time.sleep(base_sleep * attempt)
+                    continue
+
+            # Sinon: on remonte l'erreur (non-transiente)
+            raise
+
+    # Si on sort de la boucle, on relance la dernière erreur
+    raise last_err
+
+
 def gdrive_get_file_id(service, filename: str, folder_id: str):
     safe_name = str(filename).replace("'", "")
     q = f"name='{safe_name}' and '{folder_id}' in parents and trashed=false"
-    res = service.files().list(q=q, fields="files(id,name)").execute()
-    files = res.get("files", [])
-    return files[0]["id"] if files else None
+
+    def _run():
+        res = service.files().list(q=q, fields="files(id,name)").execute()
+        files = res.get("files", [])
+        return files[0]["id"] if files else None
+
+    return _call_with_retry(_run, retries=3)
+
 
 def gdrive_list_files(folder_id: str, limit: int = 20) -> list[str]:
-    s = gdrive_service()
-    res = s.files().list(
-        q=f"'{folder_id}' in parents and trashed=false",
-        pageSize=int(limit),
-        fields="files(name)",
-    ).execute()
-    return [f["name"] for f in res.get("files", [])]
+    if not folder_id:
+        return []
+    def _run():
+        s = gdrive_service()
+        res = s.files().list(
+            q=f"'{folder_id}' in parents and trashed=false",
+            pageSize=int(limit),
+            fields="files(name)",
+        ).execute()
+        return [f["name"] for f in res.get("files", [])]
+
+    return _call_with_retry(_run, retries=3)
+
 
 def gdrive_save_df(df: pd.DataFrame, filename: str, folder_id: str) -> bool:
     if not folder_id:
         return False
-    s = gdrive_service()
-    file_id = gdrive_get_file_id(s, filename, folder_id)
 
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
+    def _run():
+        s = gdrive_service()
+        file_id = gdrive_get_file_id(s, filename, folder_id)
 
-    if file_id:
-        s.files().update(fileId=file_id, media_body=media).execute()
-    else:
-        file_metadata = {"name": filename, "parents": [folder_id]}
-        s.files().create(body=file_metadata, media_body=media).execute()
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        media = MediaIoBaseUpload(io.BytesIO(csv_bytes), mimetype="text/csv", resumable=False)
 
-    return True
+        if file_id:
+            s.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            file_metadata = {"name": filename, "parents": [folder_id]}
+            s.files().create(body=file_metadata, media_body=media).execute()
+
+        return True
+
+    return bool(_call_with_retry(_run, retries=3))
+
 
 def gdrive_load_df(filename: str, folder_id: str) -> pd.DataFrame | None:
     if not folder_id:
         return None
-    s = gdrive_service()
-    file_id = gdrive_get_file_id(s, filename, folder_id)
-    if not file_id:
-        return None
 
-    request = s.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
+    def _run():
+        s = gdrive_service()
+        file_id = gdrive_get_file_id(s, filename, folder_id)
+        if not file_id:
+            return None
 
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
+        request = s.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
 
-    fh.seek(0)
-    return pd.read_csv(fh)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+        fh.seek(0)
+        return pd.read_csv(fh)
+
+    return _call_with_retry(_run, retries=3)
+
 
 # -----------------------------
 # Helpers Drive — Folder (auto-create)
