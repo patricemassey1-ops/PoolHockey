@@ -2973,12 +2973,18 @@ with tab1:
 
 
 # =====================================================
-# TAB A — Alignement
+# TAB A — Alignement (FULL CORRECTED BLOCK)
+#   ✅ No feedback loop between selected_team and selectbox
+#   ✅ Sidebar/team click can sync ONCE (when it changes)
+#   ✅ User can still manually switch owner in the selectbox
+#   ✅ Filters use robust .astype(str).str.strip() equality
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
 
-    # ✅ Data safe (source unique) DANS le tab
+    # -----------------------------
+    # Data safe (source unique)
+    # -----------------------------
     df = st.session_state.get("data")
     if df is None:
         df = pd.DataFrame(columns=REQUIRED_COLS)
@@ -2986,52 +2992,97 @@ with tabA:
     df = clean_data(df)
     st.session_state["data"] = df
 
-    # ✅ Guard : NE PAS st.stop() (sinon ça stoppe toute l'app)
     if df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
     else:
-        all_owners = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+        # -----------------------------
+        # Owners list (clean)
+        # -----------------------------
+        all_owners = (
+            df["Propriétaire"]
+            .dropna()
+            .astype(str)
+            .map(lambda x: re.sub(r"\s+", " ", x).strip())
+            .unique()
+            .tolist()
+        )
+        all_owners = sorted([o for o in all_owners if o and o.lower() not in {"nan", "none", "null"}])
+
         if not all_owners:
-            all_owners = ["—"]
+            st.info("Aucun propriétaire trouvé dans les données.")
+            st.stop()
 
         selected_team = get_selected_team()
 
-        # Sync sélection d’équipe -> align_owner si possible
-        if selected_team and selected_team in all_owners:
-            st.session_state["align_owner"] = selected_team
+        # -----------------------------
+        # ✅ ONE-WAY SYNC (no loop)
+        # We only auto-sync align_owner when the selected_team CHANGES.
+        # User manual selection won't be overwritten on every rerun.
+        # -----------------------------
+        if "last_synced_team" not in st.session_state:
+            st.session_state["last_synced_team"] = ""
 
-        # ✅ Guard béton: si la valeur en session_state n'est plus dans options, reset
-        cur_owner = st.session_state.get("align_owner")
-        if cur_owner not in all_owners:
+        # Initialize align_owner safely
+        cur_align_owner = str(st.session_state.get("align_owner", "") or "").strip()
+        if cur_align_owner not in all_owners:
             st.session_state["align_owner"] = all_owners[0]
+            cur_align_owner = st.session_state["align_owner"]
 
+        # Auto-sync only when team changed AND is valid
+        if selected_team and selected_team in all_owners and selected_team != st.session_state["last_synced_team"]:
+            st.session_state["align_owner"] = selected_team
+            st.session_state["last_synced_team"] = selected_team
+            cur_align_owner = selected_team
+
+        # -----------------------------
+        # Selectbox (controlled only by session key)
+        # -----------------------------
         proprietaire = st.selectbox(
             "Propriétaire",
             all_owners,
+            index=all_owners.index(st.session_state["align_owner"]) if st.session_state["align_owner"] in all_owners else 0,
             key="align_owner",
         )
 
-        dprop = df[df["Propriétaire"] == proprietaire].copy()
+        # If user manually changes it, update last_synced_team to avoid snap-back
+        if proprietaire != st.session_state.get("last_synced_team", ""):
+            st.session_state["last_synced_team"] = proprietaire
 
-        injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
-        dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
+        # -----------------------------
+        # Filter owner roster (robust)
+        # -----------------------------
+        owner_key = str(proprietaire or "").strip()
+        dprop = df[
+            df["Propriétaire"].astype(str).str.strip().eq(owner_key)
+        ].copy()
 
-        gc_all = dprop_ok[dprop_ok["Statut"] == "Grand Club"].copy()
-        ce_all = dprop_ok[dprop_ok["Statut"] == "Club École"].copy()
+        # Split IR vs non-IR
+        slot_s = dprop.get("Slot", pd.Series([""] * len(dprop))).astype(str).str.strip()
+        injured_all = dprop[slot_s.eq("Blessé")].copy()
+        dprop_ok = dprop[~slot_s.eq("Blessé")].copy()
 
-        gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
-        gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
+        gc_all = dprop_ok[dprop_ok["Statut"].astype(str).str.strip().eq("Grand Club")].copy()
+        ce_all = dprop_ok[dprop_ok["Statut"].astype(str).str.strip().eq("Club École")].copy()
 
+        gc_slot = gc_all.get("Slot", pd.Series([""] * len(gc_all))).astype(str).str.strip()
+        gc_actif = gc_all[gc_slot.eq("Actif")].copy()
+        gc_banc = gc_all[gc_slot.eq("Banc")].copy()
+
+        # -----------------------------
+        # Counts + caps (IR excluded from caps already by your logic)
+        # -----------------------------
         tmp = gc_actif.copy()
         if "Pos" not in tmp.columns:
             tmp["Pos"] = "F"
         tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+
         nb_F = int((tmp["Pos"] == "F").sum())
         nb_D = int((tmp["Pos"] == "D").sum())
         nb_G = int((tmp["Pos"] == "G").sum())
 
         cap_gc = int(st.session_state["PLAFOND_GC"])
         cap_ce = int(st.session_state["PLAFOND_CE"])
+
         used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
         used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
         remain_gc = cap_gc - used_gc
@@ -3075,7 +3126,9 @@ with tabA:
 
         st.divider()
 
-
+        # -----------------------------
+        # Popup lock (prevents changing selection mid-move)
+        # -----------------------------
         popup_open = st.session_state.get("move_ctx") is not None
         if popup_open:
             st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
@@ -3130,8 +3183,9 @@ with tabA:
                 else:
                     roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-        # Pop-up toujours à la fin du tab
+        # Pop-up always at the end of the tab
         open_move_dialog()
+
 
 
 
