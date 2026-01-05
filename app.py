@@ -337,8 +337,15 @@ else:
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
 
-    # ✅ Guard (NE PAS st.stop() sinon ça stoppe toute l'app)
-    if df is None or not isinstance(df, pd.DataFrame) or plafonds is None:
+    # ✅ Utilise la "vraie" data (session_state) au lieu de df (qui peut ne pas exister ici)
+    data_df = st.session_state.get("data", None)
+    plafonds_df = st.session_state.get("plafonds", None)  # optionnel si tu le stockes
+    # si chez toi "plafonds" est une variable globale, on la récupère sans planter
+    if "plafonds" in globals():
+        plafonds_df = globals().get("plafonds")
+
+    # ✅ Guard SAFE: pas de df non défini, pas de crash
+    if data_df is None or not isinstance(data_df, pd.DataFrame) or data_df.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
     else:
         h = st.session_state.get("history")
@@ -385,7 +392,7 @@ with tabH:
             owners = [o for o in owners if o]
             options = ["Tous"] + owners
 
-            default_owner = str(get_selected_team() or "").strip()
+            default_owner = str(get_selected_team() or "").strip() if "get_selected_team" in globals() else ""
             default_index = options.index(default_owner) if default_owner in owners else 0
 
             owner_filter = st.selectbox(
@@ -486,6 +493,7 @@ with tabH:
                     cols[6].markdown(vers)
                     cols[7].markdown(str(r.get("action", "")))
 
+                    # UNDO
                     if cols[8].button("↩️", key=f"undo__{uid}", use_container_width=True):
                         if st.session_state.get("LOCKED"):
                             st.error("🔒 Saison verrouillée : annulation impossible.")
@@ -493,19 +501,19 @@ with tabH:
                             owner = str(r.get("proprietaire", "")).strip()
                             joueur = str(r.get("joueur", "")).strip()
 
-                            data_df = st.session_state.get("data")
-                            if data_df is None or not isinstance(data_df, pd.DataFrame) or data_df.empty:
+                            data_df2 = st.session_state.get("data")
+                            if data_df2 is None or not isinstance(data_df2, pd.DataFrame) or data_df2.empty:
                                 st.error("Aucune donnée en mémoire.")
                             else:
                                 mask = (
-                                    data_df["Propriétaire"].astype(str).str.strip().eq(owner)
-                                    & data_df["Joueur"].astype(str).str.strip().eq(joueur)
+                                    data_df2["Propriétaire"].astype(str).str.strip().eq(owner)
+                                    & data_df2["Joueur"].astype(str).str.strip().eq(joueur)
                                 )
 
-                                if data_df.loc[mask].empty:
+                                if data_df2.loc[mask].empty:
                                     st.error("Impossible d'annuler : joueur introuvable.")
                                 else:
-                                    before = data_df.loc[mask].iloc[0]
+                                    before = data_df2.loc[mask].iloc[0]
                                     cur_statut = str(before.get("Statut", "")).strip()
                                     cur_slot = str(before.get("Slot", "")).strip()
                                     pos0 = str(before.get("Pos", "F")).strip()
@@ -514,21 +522,17 @@ with tabH:
                                     from_statut = str(r.get("from_statut", "")).strip()
                                     from_slot = str(r.get("from_slot", "")).strip()
 
-                                    # Applique retour arrière
                                     st.session_state["data"].loc[mask, "Statut"] = from_statut
                                     st.session_state["data"].loc[mask, "Slot"] = (from_slot if from_slot else "")
 
-                                    # Si on sort de IR -> reset IR Date
                                     if cur_slot == "Blessé" and from_slot != "Blessé":
                                         st.session_state["data"].loc[mask, "IR Date"] = ""
 
-                                    # Nettoyage + save local data
                                     st.session_state["data"] = clean_data(st.session_state["data"])
                                     data_file = st.session_state.get("DATA_FILE", "")
                                     if data_file:
                                         st.session_state["data"].to_csv(data_file, index=False)
 
-                                    # Log historique (local)
                                     log_history_row(
                                         owner, joueur, pos0, equipe0,
                                         cur_statut, cur_slot,
@@ -537,33 +541,20 @@ with tabH:
                                         action=f"UNDO #{rid if rid is not None else 'NA'}",
                                     )
 
-                                    # ✅ PUSH DRIVE (data + history) après UNDO
                                     try:
                                         if "_drive_enabled" in globals() and _drive_enabled():
                                             season_lbl = st.session_state.get("season", season)
-
-                                            gdrive_save_df(
-                                                st.session_state["data"],
-                                                f"fantrax_{season_lbl}.csv",
-                                                GDRIVE_FOLDER_ID,
-                                            )
-
+                                            gdrive_save_df(st.session_state["data"], f"fantrax_{season_lbl}.csv", GDRIVE_FOLDER_ID)
                                             h_now = st.session_state.get("history")
                                             if isinstance(h_now, pd.DataFrame):
-                                                gdrive_save_df(
-                                                    h_now,
-                                                    f"history_{season_lbl}.csv",
-                                                    GDRIVE_FOLDER_ID,
-                                                )
+                                                gdrive_save_df(h_now, f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
                                     except Exception:
                                         st.warning("⚠️ Sauvegarde Drive impossible (UNDO) — local OK.")
 
                                     st.toast("↩️ Changement annulé", icon="↩️")
                                     do_rerun()
 
-                    # =====================================================
-                    # DELETE (push local + Drive)
-                    # =====================================================
+                    # DELETE
                     if cols[9].button("❌", key=f"del__{uid}", use_container_width=True):
                         h2 = st.session_state.get("history")
                         h2 = h2.copy() if isinstance(h2, pd.DataFrame) else pd.DataFrame()
@@ -573,7 +564,6 @@ with tabH:
                                 h2["__idnum"] = pd.to_numeric(h2["id"], errors="coerce")
                                 h2 = h2[h2["__idnum"] != rid].drop(columns=["__idnum"], errors="ignore")
                             else:
-                                # fallback signature (si pas de id fiable)
                                 sig_cols = [
                                     "timestamp", "season", "proprietaire", "joueur",
                                     "from_statut", "from_slot", "to_statut", "to_slot", "action"
@@ -586,31 +576,19 @@ with tabH:
                                     h2 = h2[~m].copy()
 
                         st.session_state["history"] = h2.reset_index(drop=True)
+                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
 
-                        # Save local
-                        save_history(
-                            st.session_state.get("HISTORY_FILE", HISTORY_FILE),
-                            st.session_state["history"],
-                        )
-
-                        # ✅ PUSH DRIVE (history) après DELETE
                         try:
                             if "_drive_enabled" in globals() and _drive_enabled():
                                 season_lbl = st.session_state.get("season", season)
-                                gdrive_save_df(
-                                    st.session_state["history"],
-                                    f"history_{season_lbl}.csv",
-                                    GDRIVE_FOLDER_ID,
-                                )
+                                gdrive_save_df(st.session_state["history"], f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
                         except Exception:
                             st.warning("⚠️ Sauvegarde Drive impossible (DELETE) — local OK.")
 
                         st.toast("🗑️ Entrée supprimée", icon="🗑️")
                         do_rerun()
 
-                # -------------------------------------------------
-                # 🗑️ BULK DELETE BAR
-                # -------------------------------------------------
+                # BULK DELETE
                 sel = list(st.session_state.get("hist_bulk_selected", set()))
                 if sel:
                     st.divider()
@@ -622,12 +600,10 @@ with tabH:
                         h2 = h2.copy() if isinstance(h2, pd.DataFrame) else pd.DataFrame()
 
                         if not h2.empty:
-                            # Recompute a UID for each row in the FULL history (important)
                             tmp = h2.copy()
                             for c in ["id", "timestamp", "proprietaire", "joueur", "action"]:
                                 if c not in tmp.columns:
                                     tmp[c] = ""
-
                             tmp = tmp.reset_index(drop=True)
 
                             tmp["__uid"] = [
@@ -645,21 +621,12 @@ with tabH:
                         st.session_state["history"] = h2.reset_index(drop=True)
                         st.session_state["hist_bulk_selected"] = set()
 
-                        # Save local
-                        save_history(
-                            st.session_state.get("HISTORY_FILE", HISTORY_FILE),
-                            st.session_state["history"],
-                        )
+                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
 
-                        # Push Drive
                         try:
                             if "_drive_enabled" in globals() and _drive_enabled():
                                 season_lbl = st.session_state.get("season", season)
-                                gdrive_save_df(
-                                    st.session_state["history"],
-                                    f"history_{season_lbl}.csv",
-                                    GDRIVE_FOLDER_ID,
-                                )
+                                gdrive_save_df(st.session_state["history"], f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
                         except Exception:
                             st.warning("⚠️ Sauvegarde Drive impossible (BULK DELETE) — local OK.")
 
@@ -669,6 +636,7 @@ with tabH:
                     if c3.button("✖️ Désélectionner tout", use_container_width=True, key="bulk_clear_btn"):
                         st.session_state["hist_bulk_selected"] = set()
                         do_rerun()
+
 
 
 
