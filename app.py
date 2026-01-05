@@ -2899,6 +2899,7 @@ with tab1:
 # TAB A — Alignement (SYNC SIDEBAR ONLY)
 #   ✅ Aucun selectbox "Propriétaire" ici
 #   ✅ Si équipe non importée -> alignement vide (ne montre pas le dernier import)
+#   ✅ Fix: used_gc/used_ce toujours définis (évite NameError)
 # =====================================================
 with tabA:
     st.subheader("🧾 Alignement")
@@ -2921,10 +2922,29 @@ with tabA:
     # Filtre ROBUSTE (strip)
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
 
+    # ============================
+    # ✅ Defaults (évite NameError si équipe vide)
+    # ============================
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+    used_gc = 0
+    used_ce = 0
+    remain_gc = cap_gc
+    remain_ce = cap_ce
+    nb_F = nb_D = nb_G = 0
+
     # Si aucune donnée pour cette équipe -> affichage vide (IMPORTANT)
     if dprop.empty:
         st.warning(f"Aucun alignement importé pour **{proprietaire}**. Va dans 🛠️ Gestion Admin → Import.")
-        # Optionnel: tu peux afficher des sections vides propres
+
+        # Barres de plafond (0/0)
+        j1, j2 = st.columns(2)
+        with j1:
+            st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond Grand Club (GC) — {proprietaire}"), unsafe_allow_html=True)
+        with j2:
+            st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond Club École (CE) — {proprietaire}"), unsafe_allow_html=True)
+
+        # Sections vides propres
         with st.container(border=True):
             st.markdown("### 🟢 Actifs")
             st.info("Aucun joueur.")
@@ -2935,11 +2955,14 @@ with tabA:
             st.info("Aucun joueur.")
         with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
             st.info("Aucun joueur blessé.")
+
         # Ferme tout popup si jamais un ancien move_ctx traînait
         clear_move_ctx()
         st.stop()
 
-    # --- Split IR / non-IR
+    # ============================
+    # Données équipe (non vide)
+    # ============================
     injured_all = dprop[dprop.get("Slot", "") == "Blessé"].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != "Blessé"].copy()
 
@@ -2949,14 +2972,29 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    
+    # Compteurs positions (Actifs GC)
+    tmp = gc_actif.copy()
+    if "Pos" not in tmp.columns:
+        tmp["Pos"] = "F"
+    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+    nb_F = int((tmp["Pos"] == "F").sum())
+    nb_D = int((tmp["Pos"] == "D").sum())
+    nb_G = int((tmp["Pos"] == "G").sum())
 
+    # Plafonds (IR exclu déjà car dprop_ok exclut Blessé)
+    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
+    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
+    remain_gc = cap_gc - used_gc
+    remain_ce = cap_ce - used_ce
+
+    # Barres plafond
     j1, j2 = st.columns(2)
     with j1:
         st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond Grand Club (GC) — {proprietaire}"), unsafe_allow_html=True)
     with j2:
         st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond Club École (CE) — {proprietaire}"), unsafe_allow_html=True)
 
+    # Métriques (pills)
     def gm_metric(label: str, value: str):
         st.markdown(
             f"""
@@ -2969,12 +3007,18 @@ with tabA:
         )
 
     cols = st.columns(6)
-    with cols[0]: gm_metric("Total GC", money(used_gc))
-    with cols[1]: gm_metric("Reste GC", money(remain_gc))
-    with cols[2]: gm_metric("Total CE", money(used_ce))
-    with cols[3]: gm_metric("Reste CE", money(remain_ce))
-    with cols[4]: gm_metric("Banc", str(len(gc_banc)))
-    with cols[5]: gm_metric("IR", str(len(injured_all)))
+    with cols[0]:
+        gm_metric("Total GC", money(used_gc))
+    with cols[1]:
+        gm_metric("Reste GC", money(remain_gc))
+    with cols[2]:
+        gm_metric("Total CE", money(used_ce))
+    with cols[3]:
+        gm_metric("Reste CE", money(remain_ce))
+    with cols[4]:
+        gm_metric("Banc", str(len(gc_banc)))
+    with cols[5]:
+        gm_metric("IR", str(len(injured_all)))
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
@@ -2983,7 +3027,7 @@ with tabA:
 
     st.divider()
 
-    # Popup lock
+    # Popup guard
     popup_open = st.session_state.get("move_ctx") is not None
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
@@ -3040,6 +3084,7 @@ with tabA:
 
     # Pop-up toujours à la fin du tab
     open_move_dialog()
+
 
 
 
