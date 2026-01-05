@@ -283,6 +283,43 @@ def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
     return str(fallback or "").strip()
 
 # =====================================================
+# 📦 INIT MANIFEST (imports multi-équipes)
+# =====================================================
+import json
+import os
+
+DATA_DIR = DATA_DIR if "DATA_DIR" in globals() else "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
+
+
+def load_init_manifest() -> dict:
+    """
+    Charge le manifest JSON des imports initiaux.
+    Retourne toujours un dict valide.
+    """
+    try:
+        if os.path.exists(MANIFEST_FILE):
+            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def save_init_manifest(manifest: dict) -> None:
+    """
+    Sauvegarde le manifest JSON des imports initiaux.
+    """
+    try:
+        with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
+            json.dump(manifest or {}, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print("⚠️ save_init_manifest failed:", e)
+
+
+# =====================================================
 # ADMIN GUARD — Whalers only
 #   (Défaut: admin si l'équipe sélectionnée = "Whalers")
 # =====================================================
