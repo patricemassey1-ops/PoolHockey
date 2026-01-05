@@ -2100,22 +2100,13 @@ else:
 
 # =====================================================
 # TAB Admin (Whalers only) — MULTI TEAM IMPORT SAFE
-#   ✅ Import en haut
-#   ✅ Dropdown équipe AU-DESSUS
-#   ✅ Replace ONLY selected team (keeps others)
-#   ✅ Manifest saved per team (fantrax_by_team)
-#   ✅ Optional: clear team before import
 # =====================================================
 if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
 
-# =====================================================
-# TAB Admin (Whalers only) — MULTI TEAM IMPORT SAFE
-# =====================================================
-if tabAdmin is not None:
-    with tabAdmin:
-        st.subheader("🛠️ Gestion Admin")
+        # ... (tout ton code Admin ici: import multi-équipes, tests drive, export, backups, etc.)
+
 
         # =====================================================
         # 📥 IMPORT (TOP) — MULTI TEAM
@@ -2862,13 +2853,24 @@ if tabAdmin is not None:
 # TAB 1 — Tableau
 # =====================================================
 with tab1:
-    st.subheader("📊 Tableau")
+    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
 
-    if df is None or df.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+    if plafonds is None or plafonds.empty:
+        st.info("Aucune équipe configurée.")
         st.stop()
 
-    # ... ton code Tableau ici ...
+    view = plafonds.copy()
+    view["Total Grand Club"] = view["Total Grand Club"].apply(money)
+    view["Montant Disponible GC"] = view["Montant Disponible GC"].apply(money)
+    view["Total Club École"] = view["Total Club École"].apply(money)
+    view["Montant Disponible CE"] = view["Montant Disponible CE"].apply(money)
+
+    st.dataframe(
+        view[["Importé", "Propriétaire", "Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
 
 
 
