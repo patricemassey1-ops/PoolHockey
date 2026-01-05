@@ -284,46 +284,78 @@ def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
 
 
 # =====================================================
-# 📜 HISTORIQUE
+# 📜 HISTORIQUE — UNIFIÉ (compatible TAB H + log_history_row)
+#   ✅ Même format que log_history_row()
+#   ✅ persist_history() (local + Drive batch)
+#   ✅ Garde la signature (action, details, owner, player)
 # =====================================================
 def history_add(action: str, details: str = "", owner: str = "", player: str = ""):
-    ts = datetime.now().isoformat(timespec="seconds")
-
-    row = {
-        "Date": ts,
-        "Action": action,
-        "Propriétaire": owner,
-        "Joueur": player,
-        "Détails": details,
-    }
-
+    # Assure history DF au bon format
     h = st.session_state.get("history")
     if h is None or not isinstance(h, pd.DataFrame):
-        h = pd.DataFrame(columns=row.keys())
+        h = pd.DataFrame(
+            columns=[
+                "id", "timestamp", "season",
+                "proprietaire", "joueur", "pos", "equipe",
+                "from_statut", "from_slot", "to_statut", "to_slot",
+                "action",
+            ]
+        )
 
-    for c in row:
+    # Colonnes soft (évite KeyError si vieux CSV)
+    for c in [
+        "id", "timestamp", "season",
+        "proprietaire", "joueur", "pos", "equipe",
+        "from_statut", "from_slot", "to_statut", "to_slot",
+        "action",
+    ]:
         if c not in h.columns:
             h[c] = ""
+
+    # Nouvelle ligne
+    rid = next_hist_id(h)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    season_lbl = str(st.session_state.get("season", "") or "").strip()
+
+    owner = str(owner or "").strip()
+    player = str(player or "").strip()
+
+    # Action + détails (lisible)
+    action_txt = str(action or "").strip()
+    details_txt = str(details or "").strip()
+    if details_txt:
+        action_txt = f"{action_txt} — {details_txt}"
+
+    row = {
+        "id": rid,
+        "timestamp": ts,
+        "season": season_lbl,
+        "proprietaire": owner,
+        "joueur": player,
+        "pos": "",
+        "equipe": "",
+        "from_statut": "",
+        "from_slot": "",
+        "to_statut": "",
+        "to_slot": "",
+        "action": action_txt,
+    }
 
     h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
     st.session_state["history"] = h
 
-    # Local
+    # Persist (local + Drive batch)
     try:
-        hist_file = st.session_state.get("HISTORY_FILE")
-        if hist_file:
-            h.to_csv(hist_file, index=False)
+        persist_history(h, season_lbl)
     except Exception:
-        pass
+        # Fallback local minimal si persist_history n'existe pas pour une raison
+        try:
+            hist_file = st.session_state.get("HISTORY_FILE")
+            if hist_file:
+                h.to_csv(hist_file, index=False)
+        except Exception:
+            pass
 
-    # Drive (optionnel)
-    try:
-        if "_drive_enabled" in globals() and _drive_enabled():
-            season_lbl = st.session_state.get("season")
-            if season_lbl:
-                gdrive_save_df(h, f"history_{season_lbl}.csv", GDRIVE_FOLDER_ID)
-    except Exception:
-        pass
 
 
 # =====================================================
@@ -1835,12 +1867,97 @@ st.session_state["LOCKED"] = LOCKED
 #   ✅ Google Drive (principal si configuré)
 #   ✅ fallback CSV local (secondaire)
 #   ✅ crée un CSV vide si rien n'existe
+#   ✅ Évite "dernier import" sur équipes non importées (filtrage LOGOS)
+#   ✅ Migration historique ancien format -> nouveau
 # =====================================================
 
 def _safe_empty_df() -> pd.DataFrame:
     return pd.DataFrame(columns=REQUIRED_COLS)
 
+def _history_expected_cols():
+    return [
+        "id", "timestamp", "season",
+        "proprietaire", "joueur", "pos", "equipe",
+        "from_statut", "from_slot", "to_statut", "to_slot",
+        "action",
+    ]
 
+def _history_empty_df():
+    return pd.DataFrame(columns=_history_expected_cols())
+
+def _is_old_history_format(h: pd.DataFrame) -> bool:
+    old_cols = {"Date", "Action", "Propriétaire", "Joueur"}
+    return isinstance(h, pd.DataFrame) and len(old_cols.intersection(set(h.columns))) >= 3
+
+def _migrate_old_history_to_new(h_old: pd.DataFrame) -> pd.DataFrame:
+    h_old = h_old.copy()
+
+    if "Propriétaire" in h_old.columns and "proprietaire" not in h_old.columns:
+        h_old["proprietaire"] = h_old["Propriétaire"]
+    if "Joueur" in h_old.columns and "joueur" not in h_old.columns:
+        h_old["joueur"] = h_old["Joueur"]
+
+    if "Date" in h_old.columns:
+        h_old["timestamp"] = h_old["Date"].astype(str)
+    else:
+        h_old["timestamp"] = ""
+
+    act = h_old["Action"].astype(str) if "Action" in h_old.columns else ""
+    det = h_old["Détails"].astype(str) if "Détails" in h_old.columns else ""
+    det = det.fillna("").astype(str)
+
+    action_txt = act.fillna("").astype(str)
+    action_txt = action_txt + det.map(lambda x: f" — {x}" if str(x).strip() else "")
+
+    season_lbl = str(st.session_state.get("season", "") or "").strip()
+
+    h_new = pd.DataFrame()
+    h_new["id"] = range(1, len(h_old) + 1)
+    h_new["timestamp"] = h_old["timestamp"].fillna("").astype(str)
+    h_new["season"] = season_lbl
+    h_new["proprietaire"] = h_old.get("proprietaire", "").fillna("").astype(str)
+    h_new["joueur"] = h_old.get("joueur", "").fillna("").astype(str)
+    h_new["pos"] = ""
+    h_new["equipe"] = ""
+    h_new["from_statut"] = ""
+    h_new["from_slot"] = ""
+    h_new["to_statut"] = ""
+    h_new["to_slot"] = ""
+    h_new["action"] = action_txt.fillna("").astype(str)
+
+    # tri temporel si possible
+    h_new["__dt"] = pd.to_datetime(h_new["timestamp"], errors="coerce")
+    h_new = h_new.sort_values("__dt", ascending=True).drop(columns="__dt", errors="ignore").reset_index(drop=True)
+    h_new["id"] = range(1, len(h_new) + 1)
+
+    # assure toutes colonnes
+    for c in _history_expected_cols():
+        if c not in h_new.columns:
+            h_new[c] = ""
+
+    return h_new[_history_expected_cols()]
+
+def _filter_to_known_teams(df_in: pd.DataFrame) -> pd.DataFrame:
+    """
+    Empêche que des équipes non importées 'héritent' d'anciens joueurs.
+    On ne garde que les propriétaires présents dans LOGOS.
+    """
+    if df_in is None or not isinstance(df_in, pd.DataFrame) or df_in.empty:
+        return df_in
+
+    if "Propriétaire" not in df_in.columns:
+        return df_in
+
+    known = []
+    try:
+        known = [str(k).strip() for k in list(LOGOS.keys())]
+    except Exception:
+        known = []
+
+    if not known:
+        return df_in
+
+    return df_in[df_in["Propriétaire"].astype(str).str.strip().isin(known)].copy()
 
 # -----------------------------
 # DATA — load on season change
@@ -1849,8 +1966,8 @@ if "season" not in st.session_state or st.session_state["season"] != season:
     df_loaded: pd.DataFrame | None = None
     drive_ok = False
 
-    # 1) Google Drive (priorité)
-    if _drive_enabled():
+    # 1) Drive (priorité)
+    if "_drive_enabled" in globals() and _drive_enabled():
         try:
             df_loaded = gdrive_load_df(f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
             drive_ok = True
@@ -1861,7 +1978,7 @@ if "season" not in st.session_state or st.session_state["season"] != season:
                 f"⚠️ Drive indisponible (fallback local data). ({type(e).__name__}: {e})"
             )
 
-    # 2) Fallback local (DATA_FILE)
+    # 2) Local fallback
     if df_loaded is None:
         if os.path.exists(DATA_FILE):
             try:
@@ -1875,18 +1992,20 @@ if "season" not in st.session_state or st.session_state["season"] != season:
             except Exception:
                 pass
 
-    # Clean + store session
+    # 3) Clean + filtre équipes connues (évite héritage)
     df_loaded = clean_data(df_loaded)
+    df_loaded = _filter_to_known_teams(df_loaded)
+
     st.session_state["data"] = df_loaded
 
-    # Save local (cache)
+    # 4) Save local cache
     try:
         st.session_state["data"].to_csv(DATA_FILE, index=False)
     except Exception:
         pass
 
-    # Save Drive (assure l'existence / à jour) — seulement si Drive accessible
-    if _drive_enabled() and drive_ok:
+    # 5) Save Drive (optionnel)
+    if "_drive_enabled" in globals() and _drive_enabled() and drive_ok:
         try:
             gdrive_save_df(st.session_state["data"], f"fantrax_{season}.csv", GDRIVE_FOLDER_ID)
         except Exception as e:
@@ -1894,17 +2013,15 @@ if "season" not in st.session_state or st.session_state["season"] != season:
 
     st.session_state["season"] = season
 
-
-
 # -----------------------------
-# HISTORY — load on season change (Drive + fallback local)
+# HISTORY — load on season change
 # -----------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
     h_loaded: pd.DataFrame | None = None
     drive_ok = False
 
     # 1) Drive (priorité)
-    if _drive_enabled():
+    if "_drive_enabled" in globals() and _drive_enabled():
         try:
             h_loaded = gdrive_load_df(f"history_{season}.csv", GDRIVE_FOLDER_ID)
             drive_ok = True
@@ -1917,37 +2034,48 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
     # 2) Local fallback
     if h_loaded is None:
-        h_loaded = load_history(HISTORY_FILE)
+        if os.path.exists(HISTORY_FILE):
+            try:
+                h_loaded = pd.read_csv(HISTORY_FILE)
+            except Exception:
+                h_loaded = _history_empty_df()
+        else:
+            h_loaded = _history_empty_df()
+            try:
+                h_loaded.to_csv(HISTORY_FILE, index=False)
+            except Exception:
+                pass
 
-    # Normalise (au cas où)
+    # 3) Migration ancien format
+    if _is_old_history_format(h_loaded):
+        try:
+            h_loaded = _migrate_old_history_to_new(h_loaded)
+        except Exception:
+            h_loaded = _history_empty_df()
+
+    # 4) Normalise colonnes attendues
     if h_loaded is None or not isinstance(h_loaded, pd.DataFrame):
-        h_loaded = pd.DataFrame(
-            columns=[
-                "id", "timestamp", "season",
-                "proprietaire", "joueur", "pos", "equipe",
-                "from_statut", "from_slot", "to_statut", "to_slot",
-                "action",
-            ]
-        )
+        h_loaded = _history_empty_df()
 
+    for c in _history_expected_cols():
+        if c not in h_loaded.columns:
+            h_loaded[c] = ""
+
+    h_loaded = h_loaded[_history_expected_cols()].copy()
     st.session_state["history"] = h_loaded
 
-    # Save local cache
+    # 5) Persist local + Drive batch (si dispo)
+    season_lbl = str(st.session_state.get("season", season) or season).strip()
     try:
-        st.session_state["history"].to_csv(HISTORY_FILE, index=False)
+        persist_history(st.session_state["history"], season_lbl)
     except Exception:
-        pass
-
-    # Save Drive (assure l'existence / à jour) — seulement si Drive accessible
-    if _drive_enabled() and drive_ok:
         try:
-            gdrive_save_df(st.session_state["history"], f"history_{season}.csv", GDRIVE_FOLDER_ID)
-        except Exception as e:
-            st.sidebar.warning(
-                f"⚠️ Sauvegarde Drive impossible (history). ({type(e).__name__}: {e})"
-            )
+            st.session_state["history"].to_csv(HISTORY_FILE, index=False)
+        except Exception:
+            pass
 
     st.session_state["history_season"] = season
+
 
 
 
