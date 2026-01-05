@@ -928,7 +928,8 @@ elif active_tab == "🧾 Alignement":
 # ------------------------------
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
-    "Aucun résultat tant qu’aucun filtre n’est rempli "
+    st.caption(
+        "Aucun résultat tant qu’aucun filtre n’est rempli "
         "(Nom/Prénom, Équipe, Level/Contrat ou Cap Hit)."
     )
 
@@ -1074,7 +1075,13 @@ elif active_tab == "👤 Joueurs":
         cap_min = cap_max = 0
     else:
         df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
-        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
+
+        cap_apply = st.checkbox(
+            "Activer le filtre Cap Hit",
+            value=False,
+            key="cap_apply",
+        )
+
         cap_min, cap_max = st.slider(
             "Plage Cap Hit",
             min_value=0,
@@ -1102,7 +1109,7 @@ elif active_tab == "👤 Joueurs":
         dff = df_db.copy()
 
         if str(q_name).strip():
-            dff = dff[dff["Player"].str.contains(q_name, case=False, na=False)]
+            dff = dff[dff["Player"].astype(str).str.contains(q_name, case=False, na=False)]
 
         if q_team != "Toutes" and "Team" in dff.columns:
             dff = dff[dff["Team"].astype(str) == q_team]
@@ -1127,15 +1134,14 @@ elif active_tab == "👤 Joueurs":
             df_show = dff[show_cols].copy()
 
             if cap_col in df_show.columns:
-                df_show[cap_col] = df_show[cap_col].apply(
-                    lambda x: _money_space(_cap_to_int(x))
-                )
+                df_show[cap_col] = df_show[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
                 df_show = df_show.rename(columns={cap_col: "Cap Hit"})
 
             for c in df_show.columns:
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
             st.dataframe(df_show, use_container_width=True, hide_index=True)
+
 
 # ------------------------------
 # TAB H — Historique
