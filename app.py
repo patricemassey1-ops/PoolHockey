@@ -2049,36 +2049,41 @@ st.session_state["data"] = df
 
 
 # =====================================================
-# PLAFONDS (safe si df vide)
+# PLAFONDS — toutes les équipes (LOGOS) même si df vide
+#   ✅ IR exclu
+#   ✅ 0$ si équipe vide
+#   ✅ colonne "Importé" (utile pour Tableau)
 # =====================================================
-if df.empty:
-    plafonds = pd.DataFrame(
-        columns=[
-            "Propriétaire", "Logo",
-            "Total Grand Club", "Montant Disponible GC",
-            "Total Club École", "Montant Disponible CE",
-        ]
-    )
-else:
-    resume = []
-    for p in df["Propriétaire"].dropna().astype(str).unique():
-        d = df[df["Propriétaire"].astype(str) == str(p)]
+teams_all = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
 
+resume = []
+for p in teams_all:
+    team = str(p).strip()
+
+    d = df[df["Propriétaire"].astype(str).str.strip().eq(team)].copy()
+
+    # IR exclu
+    if d.empty:
+        total_gc = 0
+        total_ce = 0
+    else:
         total_gc = d[(d["Statut"] == "Grand Club") & (d["Slot"] != "Blessé")]["Salaire"].sum()
         total_ce = d[(d["Statut"] == "Club École") & (d["Slot"] != "Blessé")]["Salaire"].sum()
 
-        resume.append(
-            {
-                "Propriétaire": str(p),
-                "Logo": find_logo_for_owner(p),
-                "Total Grand Club": int(total_gc),
-                "Montant Disponible GC": int(int(st.session_state["PLAFOND_GC"]) - int(total_gc)),
-                "Total Club École": int(total_ce),
-                "Montant Disponible CE": int(int(st.session_state["PLAFOND_CE"]) - int(total_ce)),
-            }
-        )
+    resume.append(
+        {
+            "Importé": "✅" if (not d.empty) else "—",
+            "Propriétaire": team,
+            "Logo": team_logo_path(team),  # logo officiel de l’équipe
+            "Total Grand Club": int(total_gc),
+            "Montant Disponible GC": int(int(st.session_state["PLAFOND_GC"]) - int(total_gc)),
+            "Total Club École": int(total_ce),
+            "Montant Disponible CE": int(int(st.session_state["PLAFOND_CE"]) - int(total_ce)),
+        }
+    )
 
-    plafonds = pd.DataFrame(resume)
+plafonds = pd.DataFrame(resume)
+
 
 
 
@@ -2930,22 +2935,7 @@ with tabA:
     gc_actif = gc_all[gc_all.get("Slot", "") == "Actif"].copy()
     gc_banc = gc_all[gc_all.get("Slot", "") == "Banc"].copy()
 
-    # Compteurs positions
-    tmp = gc_actif.copy()
-    if "Pos" not in tmp.columns:
-        tmp["Pos"] = "F"
-    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
-
-    # Plafonds (IR exclu déjà dans ton code global, ici on suit pareil)
-    cap_gc = int(st.session_state["PLAFOND_GC"])
-    cap_ce = int(st.session_state["PLAFOND_CE"])
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
+    
 
     j1, j2 = st.columns(2)
     with j1:
