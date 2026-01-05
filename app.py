@@ -486,6 +486,22 @@ def normalize_pos(pos: str) -> str:
         return "D"
     return "F"
 
+def render_tableau_header():
+    logo_b64 = _img_b64(LOGO_POOL_FILE)
+
+    st.markdown(
+        f"""
+        <div class="pms-sticky">
+          <div class="pms-head">
+            <div class="pms-left">
+              {'<img src="data:image/png;base64,' + logo_b64 + '" class="pms-teamlogo"/>' if logo_b64 else ''}
+              <span>Tableau — Masses salariales</span>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # =====================================================
 # 🧠 OWNER / IMPORT HELPERS
@@ -3473,8 +3489,10 @@ plafonds = pd.DataFrame(resume)
 # TAB 1 — Tableau
 # =====================================================
 with tab1:
-    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+    render_tableau_header()
 
+    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+    
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
         st.info("Aucune équipe configurée.")
     else:
