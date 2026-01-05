@@ -3489,9 +3489,25 @@ plafonds = pd.DataFrame(resume)
 # TAB 1 — Tableau
 # =====================================================
 with tab1:
-    render_tableau_header()
+    # ✅ Logo pool tout en haut de l'onglet Tableau
+    logo_b64 = _img_b64(LOGO_POOL_FILE)
 
+    st.markdown(
+        f"""
+        <div style="margin:0;padding:0 0 10px 0;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            {'<img src="data:image/png;base64,' + logo_b64 + '" style="height:64px;width:auto;object-fit:contain;display:block;" />' if logo_b64 else ''}
+            <div style="font-size:28px;font-weight:1000;line-height:1.1;">Tableau</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ✅ ensuite seulement ton contenu tableau
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+    # ... ton tableau ici ...
+
     
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
         st.info("Aucune équipe configurée.")
