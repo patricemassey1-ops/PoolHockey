@@ -2099,59 +2099,65 @@ else:
 
 
 # =====================================================
-# TAB Admin (Whalers only) — FULL BLOCK (IMPORT TOP + REPLACE ONE TEAM ONLY)
-#   ✅ Importation tout en haut
-#   ✅ Dropdown équipe AU-DESSUS des uploaders
-#   ✅ CONFIRM: remplace uniquement l'équipe choisie (merge safe)
-#   ✅ Persist via persist_data()/persist_history()
+# TAB Admin (Whalers only) — MULTI TEAM IMPORT SAFE
+#   ✅ Import en haut
+#   ✅ Dropdown équipe AU-DESSUS
+#   ✅ Replace ONLY selected team (keeps others)
+#   ✅ Manifest saved per team (fantrax_by_team)
+#   ✅ Optional: clear team before import
 # =====================================================
 if tabAdmin is not None:
     with tabAdmin:
         st.subheader("🛠️ Gestion Admin")
 
         # =====================================================
-        # 📥 IMPORT (ADMIN ONLY) — EN HAUT
-        #   ✅ Remplace SEULEMENT l'équipe choisie
+        # 📥 IMPORT (TOP) — MULTI TEAM
         # =====================================================
-        st.markdown("### 📥 Import")
-        manifest = load_init_manifest()
+        st.markdown("### 📥 Import (multi-équipes)")
+        manifest = load_init_manifest() or {}
+        if "fantrax_by_team" not in manifest:
+            manifest["fantrax_by_team"] = {}
 
         # --- Choix équipe (AU-DESSUS)
         teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
         if not teams:
             teams = ["Whalers"]
 
-        # Valeur par défaut: équipe sélectionnée (sidebar) si valide
         default_owner = get_selected_team()
         if default_owner not in teams:
             default_owner = teams[0]
 
         chosen_owner = st.selectbox(
-            "Importer l'alignement dans quelle équipe ?",
+            "Équipe à importer",
             teams,
             index=(teams.index(default_owner) if default_owner in teams else 0),
-            key="init_align_owner_pick_admin",
+            key="admin_import_team",
         )
 
-        st.markdown("#### 🧾 CSV initiaux (1 seule fois)")
+        # Option utile quand tu réimportes une même équipe
+        clear_team_before = st.checkbox(
+            f"Vider l’alignement de {chosen_owner} avant import",
+            value=True,
+            help="Recommandé si tu réimportes la même équipe pour éviter des restes/doublons.",
+            key="admin_clear_team_before",
+        )
 
+        st.markdown("#### Fichiers")
         c_init1, c_init2 = st.columns(2)
         with c_init1:
             init_align = st.file_uploader(
                 "CSV — Alignement (Fantrax)",
                 type=["csv", "txt"],
-                help="Import dans UNE équipe. Les autres équipes restent intactes.",
                 key=f"init_align_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
             )
         with c_init2:
             init_hist = st.file_uploader(
                 "CSV — Historique (optionnel)",
                 type=["csv", "txt"],
-                help="Optionnel: injecte un historique initial.",
                 key=f"init_hist_upl_{st.session_state.get('uploader_nonce', 0)}_admin",
             )
 
-        st.caption("Étapes: 1) Prévisualiser → 2) Confirmer l'import (obligatoire)")
+        st.caption("Étapes: 1) Prévisualiser → 2) Confirmer l’import")
 
         c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
 
@@ -2159,9 +2165,9 @@ if tabAdmin is not None:
         # 1) PRÉVISUALISER
         # -----------------------------
         with c_btn1:
-            if st.button("👀 Prévisualiser", use_container_width=True, key="preview_init_csvs_admin"):
+            if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
                 if init_align is None:
-                    st.warning("Choisis un fichier CSV avant de prévisualiser.")
+                    st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
                 else:
                     try:
                         buf = io.BytesIO(init_align.getbuffer())
@@ -2171,7 +2177,6 @@ if tabAdmin is not None:
                         if df_import is None or df_import.empty:
                             st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
                         else:
-                            # ✅ Force l'équipe choisie seulement dans le preview
                             df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
                             df_import["Propriétaire"] = str(chosen_owner).strip()
                             df_import = clean_data(df_import)
@@ -2180,9 +2185,9 @@ if tabAdmin is not None:
                             st.session_state["init_preview_owner"] = str(chosen_owner).strip()
                             st.session_state["init_preview_filename"] = init_align.name
 
-                            st.success(f"✅ Prévisualisation prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                            st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
                     except Exception as e:
-                        st.error(f"❌ Prévisualisation échouée : {type(e).__name__}: {e}")
+                        st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
 
         preview_df = st.session_state.get("init_preview_df")
         if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
@@ -2190,13 +2195,12 @@ if tabAdmin is not None:
                 st.dataframe(preview_df.head(20), use_container_width=True)
 
             st.info(
-                f"Prêt à importer: **{len(preview_df)}** joueur(s) "
-                f"dans **{st.session_state.get('init_preview_owner','')}** "
+                f"Prêt: **{len(preview_df)}** joueur(s) → **{st.session_state.get('init_preview_owner','')}** "
                 f"(fichier: {st.session_state.get('init_preview_filename','')})"
             )
 
         # -----------------------------
-        # 2) CONFIRMER (OBLIGATOIRE) — ✅ REMPLACE SEULEMENT L'ÉQUIPE
+        # 2) CONFIRMER — REPLACE ONLY TEAM
         # -----------------------------
         with c_btn2:
             disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
@@ -2204,75 +2208,80 @@ if tabAdmin is not None:
             if st.button(
                 "✅ Confirmer l'import",
                 use_container_width=True,
-                key="confirm_init_csvs_admin",
                 disabled=disabled_confirm,
+                key="admin_confirm_import",
             ):
                 try:
                     df_team = st.session_state.get("init_preview_df")
                     owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
-                    filename_final = st.session_state.get("init_preview_filename", "")
+                    filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
 
                     if df_team is None or df_team.empty:
-                        st.error("Aucune prévisualisation valide à confirmer.")
+                        st.error("Aucune preview valide.")
                     else:
-                        # 1) Sauvegarde CSV brut initial (manifest)
+                        # ---- Sauvegarde du fichier brut importé (par équipe)
+                        saved_path = ""
                         try:
-                            path = save_uploaded_csv(init_align, f"initial_fantrax_{season}.csv")
+                            safe_team = owner_final.replace(" ", "_")
+                            saved_path = save_uploaded_csv(init_align, f"initial_fantrax_{season}_{safe_team}.csv")
                         except Exception:
-                            path = manifest.get("fantrax", {}).get("path", "")
+                            saved_path = ""
 
-                        manifest["fantrax"] = {
-                            "path": path,
-                            "uploaded_name": filename_final or (init_align.name if init_align else ""),
+                        manifest["fantrax_by_team"][owner_final] = {
+                            "path": saved_path,
+                            "uploaded_name": filename_final,
                             "season": season,
                             "saved_at": datetime.now().isoformat(),
-                            "chosen_owner": owner_final,
+                            "team": owner_final,
                         }
+                        save_init_manifest(manifest)
 
-                        # 2) ✅ MERGE SAFE: on conserve la ligue, on remplace juste owner_final
+                        # ---- Merge: garde les autres équipes, remplace owner_final
                         df_cur = st.session_state.get("data")
                         if df_cur is None or not isinstance(df_cur, pd.DataFrame):
                             df_cur = pd.DataFrame(columns=REQUIRED_COLS)
                         df_cur = clean_data(df_cur)
 
-                        # Force owner_final dans le DF importé
                         df_team = df_team.copy()
                         df_team["Propriétaire"] = owner_final
                         df_team = clean_data(df_team)
 
-                        # Retire l'ancien roster de cette équipe, garde les autres
-                        keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
-                        df_new = pd.concat([keep, df_team], ignore_index=True)
+                        if clear_team_before:
+                            keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                            df_new = pd.concat([keep, df_team], ignore_index=True)
+                        else:
+                            df_new = pd.concat([df_cur, df_team], ignore_index=True)
 
-                        # Dédupe (sécurité)
+                        # Dédupe sécurité
                         if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                            df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                            df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
                             df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
 
                         df_new = clean_data(df_new)
                         st.session_state["data"] = df_new
                         st.session_state["data_dirty"] = True
 
-                        # 3) Persist
+                        # Persist (local + Drive batch)
                         season_lbl = st.session_state.get("season", season)
-                        persist_data(st.session_state["data"], season_lbl)
+                        persist_data(df_new, season_lbl)
 
-                        # 4) (Optionnel mais utile) resync UI sur l'équipe importée
-                        if owner_final:
-                            st.session_state["selected_team"] = owner_final
-                            st.session_state["align_owner"] = owner_final
-                            st.session_state["last_synced_team"] = owner_final
+                        # Optionnel: resync UI
+                        st.session_state["selected_team"] = owner_final
+                        st.session_state["align_owner"] = owner_final
+                        st.session_state["last_synced_team"] = owner_final
 
-                        # 5) Trace historique
+                        # History trace
                         try:
                             history_add(
                                 action="IMPORT_ALIGNEMENT_EQUIPE",
                                 owner=owner_final,
-                                details=f"{len(df_team)} joueurs importés (fichier: {manifest['fantrax'].get('uploaded_name','')})",
+                                details=f"{len(df_team)} joueurs importés (fichier: {filename_final})",
                             )
                         except Exception:
                             pass
 
-                        # 6) Historique initial optionnel (persist_history)
+                        # Historique initial (optionnel)
                         if init_hist is not None:
                             try:
                                 hist_path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
@@ -2282,59 +2291,56 @@ if tabAdmin is not None:
                                     "season": season,
                                     "saved_at": datetime.now().isoformat(),
                                 }
+                                save_init_manifest(manifest)
 
                                 h0 = pd.read_csv(hist_path)
                                 st.session_state["history"] = h0
-                                persist_history(st.session_state["history"], season_lbl)
-
-                                try:
-                                    history_add(
-                                        action="IMPORT_INITIAL_HISTORIQUE",
-                                        owner="",
-                                        details=f"Historique initial importé (fichier: {init_hist.name})",
-                                    )
-                                except Exception:
-                                    pass
+                                persist_history(h0, season_lbl)
                             except Exception as e:
                                 st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
 
-                        # 7) Sauve manifest + cleanup preview
-                        save_init_manifest(manifest)
+                        # (Optionnel mais recommandé) flush Drive immédiat
+                        if "_drive_enabled" in globals() and _drive_enabled() and "flush_drive_queue" in globals():
+                            try:
+                                flush_drive_queue(force=True)
+                            except Exception:
+                                pass
+
+                        # cleanup preview
                         st.session_state.pop("init_preview_df", None)
                         st.session_state.pop("init_preview_owner", None)
                         st.session_state.pop("init_preview_filename", None)
 
-                        st.success(f"✅ Import confirmé. Seule l’équipe **{owner_final}** a été remplacée.")
+                        st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
                         st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
                         do_rerun()
 
                 except Exception as e:
-                    st.error(f"❌ Confirmation échouée : {type(e).__name__}: {e}")
+                    st.error(f"❌ Import échoué : {type(e).__name__}: {e}")
 
         # -----------------------------
-        # État du manifest (info)
+        # 3) État imports (per team)
         # -----------------------------
         with c_btn3:
-            fantrax_info = manifest.get("fantrax", {})
-            hist_info = manifest.get("history", {})
-
-            def _fmt(info: dict) -> str:
-                if not info:
-                    return "—"
-                p = info.get("path", "")
-                name = info.get("uploaded_name", "")
-                ts = info.get("saved_at", "")
-                owner = info.get("chosen_owner", "")
-                ok = "✅" if (p and os.path.exists(p)) else "⚠️"
-                extra = f" | équipe: {owner}" if owner else ""
-                return f"{ok} {name} | {os.path.basename(p) if p else ''} | {ts}{extra}"
-
-            st.caption("**État CSV initiaux (manifest local)**")
-            st.caption(f"Alignement : {_fmt(fantrax_info)}")
-            st.caption(f"Historique : {_fmt(hist_info)}")
+            st.markdown("#### 📌 Derniers imports par équipe")
+            by_team = manifest.get("fantrax_by_team", {}) or {}
+            if not by_team:
+                st.caption("— Aucun import enregistré —")
+            else:
+                rows = []
+                for team, info in by_team.items():
+                    rows.append(
+                        {
+                            "Équipe": team,
+                            "Fichier": info.get("uploaded_name", ""),
+                            "Date": info.get("saved_at", ""),
+                            "Path": os.path.basename(info.get("path", "") or ""),
+                        }
+                    )
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         # =====================================================
-        # 🔐 Connexion Google Drive (OAuth) + Batch + Tests (en dessous)
+        # 🔐 Drive OAuth / Batch / Tests (en dessous)
         # =====================================================
         st.divider()
         st.markdown("### 🔐 Connexion Google Drive (OAuth)")
@@ -2425,6 +2431,7 @@ if tabAdmin is not None:
                         st.success("✅ Écriture OK — drive_test.csv créé/mis à jour.")
                     except Exception as e:
                         st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
 
 
         # =====================================================
