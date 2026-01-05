@@ -2508,13 +2508,28 @@ is_admin = _is_admin_whalers()
 
 if is_admin:
     tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
-        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🛠️ Gestion Admin", "🧠 Recommandations"]
+        [
+            "📊 Tableau",
+            "🧾 Alignement",
+            "👤 Joueurs",
+            "🕘 Historique",
+            "⚖️ Transactions",
+            "🛠️ Gestion Admin",
+            "🧠 Recommandations",
+        ]
     )
 else:
     tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
-        ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions", "🧠 Recommandations"]
+        [
+            "📊 Tableau",
+            "🧾 Alignement",
+            "👤 Joueurs",
+            "🕘 Historique",
+            "⚖️ Transactions",
+            "🧠 Recommandations",
+        ]
     )
-    tabAdmin = None  # important pour éviter NameError ailleurs
+    tabAdmin = None  # 🔒 important pour éviter NameError
 
 
 # =====================================================
@@ -3723,13 +3738,13 @@ with tabJ:
 
 
 # =====================================================
-# TAB H — Historique
+# TAB H — Historique (Montréal + tri récent + filtre + bulk delete)
 # =====================================================
 with tabH:
     st.subheader("🕘 Historique des changements d’alignement")
 
     # ✅ Guard (NE PAS st.stop() sinon ça stoppe toute l'app)
-    if df is None or df.empty or plafonds is None or plafonds.empty:
+    if df is None or not isinstance(df, pd.DataFrame) or plafonds is None:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
     else:
         h = st.session_state.get("history")
@@ -3738,29 +3753,72 @@ with tabH:
         if h.empty:
             st.info("Aucune entrée d’historique pour cette saison.")
         else:
+            # -------------------------------------------------
             # Colonnes attendues (soft) pour éviter KeyError
+            # -------------------------------------------------
             for c in [
-                "id", "timestamp", "proprietaire", "joueur", "pos",
+                "id", "timestamp", "season",
+                "proprietaire", "joueur", "pos", "equipe",
                 "from_statut", "from_slot", "to_statut", "to_slot", "action"
             ]:
                 if c not in h.columns:
                     h[c] = ""
 
-            owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).unique().tolist())
-            owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
+            # -------------------------------------------------
+            # 🔧 Timezone Montréal + tri récent
+            # -------------------------------------------------
+            from zoneinfo import ZoneInfo
+            tz_mtl = ZoneInfo("America/Toronto")  # Montréal = America/Toronto
+
+            # timestamp_dt robuste (accepte ISO ou "YYYY-mm-dd HH:MM:SS")
+            ts = pd.to_datetime(h["timestamp"], errors="coerce", utc=False)
+
+            # Si ts est naive -> on localize en Montréal; si tz-aware -> on convertit
+            try:
+                if getattr(ts.dt, "tz", None) is None:
+                    ts = ts.dt.tz_localize(tz_mtl, nonexistent="shift_forward", ambiguous="NaT")
+                else:
+                    ts = ts.dt.tz_convert(tz_mtl)
+            except Exception:
+                # fallback: laisse naive
+                pass
+
+            h["timestamp_dt"] = ts
+            h = h.sort_values("timestamp_dt", ascending=False)
+
+            # -------------------------------------------------
+            # 🎛️ Filtre propriétaire (Tous + default = sidebar team)
+            # -------------------------------------------------
+            owners = sorted(h["proprietaire"].dropna().astype(str).map(lambda x: x.strip()).unique().tolist())
+            owners = [o for o in owners if o]  # remove empty
+            options = ["Tous"] + owners
+
+            # default = team sidebar (si présent)
+            default_owner = str(get_selected_team() or "").strip()
+            if default_owner in owners:
+                default_index = options.index(default_owner)
+            else:
+                default_index = 0
+
+            owner_filter = st.selectbox(
+                "Filtrer par propriétaire",
+                options,
+                index=default_index,
+                key="hist_owner_filter",
+            )
 
             if owner_filter != "Tous":
-                h = h[h["proprietaire"].astype(str) == str(owner_filter)]
+                h = h[h["proprietaire"].astype(str).str.strip().eq(str(owner_filter).strip())]
 
             if h.empty:
                 st.info("Aucune entrée pour ce propriétaire.")
             else:
-                h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
-                h = h.sort_values("timestamp_dt", ascending=False).drop(columns=["timestamp_dt"], errors="ignore")
-
                 st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
+                st.caption("🗑️ Suppression bulk : coche plusieurs lignes puis supprime en une fois.")
 
+                # -------------------------------------------------
                 # Limite (perf)
+                # -------------------------------------------------
                 max_rows = st.number_input(
                     "Nombre max de lignes à afficher",
                     min_value=50,
@@ -3769,19 +3827,12 @@ with tabH:
                     step=50,
                     key="hist_max_rows",
                 )
+
                 h_view = h.head(int(max_rows)).reset_index(drop=True)
 
-                head = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
-                head[0].markdown("**Date/Heure**")
-                head[1].markdown("**Propriétaire**")
-                head[2].markdown("**Joueur**")
-                head[3].markdown("**Pos**")
-                head[4].markdown("**De**")
-                head[5].markdown("**Vers**")
-                head[6].markdown("**Action**")
-                head[7].markdown("**↩️**")
-                head[8].markdown("**❌**")
-
+                # -------------------------------------------------
+                # Helpers
+                # -------------------------------------------------
                 def _safe_int(x):
                     v = pd.to_numeric(x, errors="coerce")
                     if pd.isna(v):
@@ -3791,25 +3842,70 @@ with tabH:
                     except Exception:
                         return None
 
-                # 🔑 UID unique garanti (évite DuplicateElementKey même si id=0 ou doublons)
+                # 🔑 UID unique garanti (évite DuplicateElementKey même si id doublons)
                 def _uid(r: pd.Series, i: int) -> str:
                     rid = _safe_int(r.get("id", None))
-                    ts = str(r.get("timestamp", "")).strip()
-                    owner = str(r.get("proprietaire", "")).strip()
-                    joueur = str(r.get("joueur", "")).strip()
-                    action = str(r.get("action", "")).strip()
-                    return f"{rid if rid is not None else 'noid'}|{ts}|{owner}|{joueur}|{action}|{i}"
+                    ts0 = str(r.get("timestamp", "")).strip()
+                    owner0 = str(r.get("proprietaire", "")).strip()
+                    joueur0 = str(r.get("joueur", "")).strip()
+                    action0 = str(r.get("action", "")).strip()
+                    return f"{rid if rid is not None else 'noid'}|{ts0}|{owner0}|{joueur0}|{action0}|{i}"
 
+                def _fmt_ts(r: pd.Series) -> str:
+                    t = r.get("timestamp_dt", None)
+                    if pd.isna(t) or t is None:
+                        return str(r.get("timestamp", ""))
+                    try:
+                        # format lisible Montréal
+                        return t.strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        return str(r.get("timestamp", ""))
+
+                # -------------------------------------------------
+                # ✅ Bulk selection state
+                # -------------------------------------------------
+                if "hist_bulk_selected" not in st.session_state:
+                    st.session_state["hist_bulk_selected"] = set()
+
+                # -------------------------------------------------
+                # Header
+                # -------------------------------------------------
+                head = st.columns([0.7, 1.6, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
+                head[0].markdown("**✔**")
+                head[1].markdown("**Date/Heure (MTL)**")
+                head[2].markdown("**Propriétaire**")
+                head[3].markdown("**Joueur**")
+                head[4].markdown("**Pos**")
+                head[5].markdown("**De**")
+                head[6].markdown("**Vers**")
+                head[7].markdown("**Action**")
+                head[8].markdown("**↩️**")
+                head[9].markdown("**❌**")
+
+                # -------------------------------------------------
+                # Rows
+                # -------------------------------------------------
                 for i, r in h_view.iterrows():
                     uid = _uid(r, i)
-                    rid = _safe_int(r.get("id", None))  # peut être None
+                    rid = _safe_int(r.get("id", None))
 
-                    cols = st.columns([1.5, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
+                    cols = st.columns([0.7, 1.6, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
 
-                    cols[0].markdown(str(r.get("timestamp", "")))
-                    cols[1].markdown(str(r.get("proprietaire", "")))
-                    cols[2].markdown(str(r.get("joueur", "")))
-                    cols[3].markdown(str(r.get("pos", "")))
+                    # ✅ checkbox bulk (store UID)
+                    checked = cols[0].checkbox(
+                        "",
+                        value=(uid in st.session_state["hist_bulk_selected"]),
+                        key=f"chk__{uid}",
+                    )
+                    if checked:
+                        st.session_state["hist_bulk_selected"].add(uid)
+                    else:
+                        st.session_state["hist_bulk_selected"].discard(uid)
+
+                    cols[1].markdown(_fmt_ts(r))
+                    cols[2].markdown(str(r.get("proprietaire", "")))
+                    cols[3].markdown(str(r.get("joueur", "")))
+                    cols[4].markdown(str(r.get("pos", "")))
 
                     de = f"{r.get('from_statut', '')}" + (
                         f" ({r.get('from_slot', '')})" if str(r.get("from_slot", "")).strip() else ""
@@ -3817,14 +3913,14 @@ with tabH:
                     vers = f"{r.get('to_statut', '')}" + (
                         f" ({r.get('to_slot', '')})" if str(r.get("to_slot", "")).strip() else ""
                     )
-                    cols[4].markdown(de)
-                    cols[5].markdown(vers)
-                    cols[6].markdown(str(r.get("action", "")))
+                    cols[5].markdown(de)
+                    cols[6].markdown(vers)
+                    cols[7].markdown(str(r.get("action", "")))
 
                     # =====================================================
                     # UNDO (push local + Drive)
                     # =====================================================
-                    if cols[7].button("↩️", key=f"undo__{uid}", use_container_width=True):
+                    if cols[8].button("↩️", key=f"undo__{uid}", use_container_width=True):
                         if st.session_state.get("LOCKED"):
                             st.error("🔒 Saison verrouillée : annulation impossible.")
                         else:
@@ -3902,7 +3998,7 @@ with tabH:
                     # =====================================================
                     # DELETE (push local + Drive)
                     # =====================================================
-                    if cols[8].button("❌", key=f"del__{uid}", use_container_width=True):
+                    if cols[9].button("❌", key=f"del__{uid}", use_container_width=True):
                         h2 = st.session_state.get("history")
                         h2 = h2.copy() if isinstance(h2, pd.DataFrame) else pd.DataFrame()
 
@@ -3920,7 +4016,7 @@ with tabH:
                                 if sig_cols:
                                     m = pd.Series([True] * len(h2))
                                     for c in sig_cols:
-                                        m &= (h2[c].astype(str) == str(r.get(c, "")).astype(str))
+                                        m &= (h2[c].astype(str) == str(r.get(c, "")))
                                     h2 = h2[~m].copy()
 
                         st.session_state["history"] = h2.reset_index(drop=True)
@@ -3942,6 +4038,65 @@ with tabH:
 
                         st.toast("🗑️ Entrée supprimée", icon="🗑️")
                         do_rerun()
+
+                # -------------------------------------------------
+                # 🗑️ BULK DELETE BAR
+                # -------------------------------------------------
+                sel = list(st.session_state.get("hist_bulk_selected", set()))
+                if sel:
+                    st.divider()
+                    c1, c2, c3 = st.columns([2, 1, 2])
+                    c1.info(f"{len(sel)} ligne(s) sélectionnée(s).")
+
+                    if c2.button("🗑️ Supprimer sélection", use_container_width=True, key="bulk_del_btn"):
+                        h2 = st.session_state.get("history")
+                        h2 = h2.copy() if isinstance(h2, pd.DataFrame) else pd.DataFrame()
+
+                        if not h2.empty:
+                            # Recompute a UID for each row in the FULL history (important)
+                            # We'll rebuild UID using same logic but with row index enumeration.
+                            # (stable enough + avoids needing to store ids list only)
+                            tmp = h2.copy()
+                            for c in ["id","timestamp","proprietaire","joueur","action"]:
+                                if c not in tmp.columns:
+                                    tmp[c] = ""
+                            tmp["__uid"] = [
+                                f"{_safe_int(rr.get('id', None)) if _safe_int(rr.get('id', None)) is not None else 'noid'}"
+                                f"|{str(rr.get('timestamp','')).strip()}"
+                                f"|{str(rr.get('proprietaire','')).strip()}"
+                                f"|{str(rr.get('joueur','')).strip()}"
+                                f"|{str(rr.get('action','')).strip()}"
+                                f"|{ii}"
+                                for ii, rr in tmp.reset_index(drop=True).iterrows()
+                            ]
+
+                            h2 = tmp[~tmp["__uid"].isin(set(sel))].drop(columns=["__uid"], errors="ignore")
+
+                        st.session_state["history"] = h2.reset_index(drop=True)
+                        st.session_state["hist_bulk_selected"] = set()
+
+                        # Save local
+                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
+
+                        # Push Drive
+                        try:
+                            if "_drive_enabled" in globals() and _drive_enabled():
+                                season_lbl = st.session_state.get("season", season)
+                                gdrive_save_df(
+                                    st.session_state["history"],
+                                    f"history_{season_lbl}.csv",
+                                    GDRIVE_FOLDER_ID,
+                                )
+                        except Exception:
+                            st.warning("⚠️ Sauvegarde Drive impossible (BULK DELETE) — local OK.")
+
+                        st.toast("🗑️ Suppression en lot effectuée", icon="🗑️")
+                        do_rerun()
+
+                    if c3.button("✖️ Désélectionner tout", use_container_width=True, key="bulk_clear_btn"):
+                        st.session_state["hist_bulk_selected"] = set()
+                        do_rerun()
+
 
 
 
