@@ -51,6 +51,47 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# =====================================================
+# LOGO POOL — TOUT EN HAUT (au-dessus de la nav/tabs)
+# =====================================================
+logo_pool_b64 = _img_b64(LOGO_POOL_FILE)
+
+st.markdown(
+    """
+    <style>
+      /* enlève le padding top pour que ce soit vraiment en haut */
+      .block-container { padding-top: 0rem !important; }
+      header { visibility: hidden; } /* optionnel: enlève l'espace du header Streamlit */
+      .stApp { margin-top: 0rem; }
+
+      .logo-pool-top{
+        margin: 0;
+        padding: 0;
+      }
+      .logo-pool-top img{
+        display:block;
+        height:72px;           /* ajuste ici */
+        width:auto;
+        object-fit:contain;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+if logo_pool_b64:
+    st.markdown(
+        f"""
+        <div class="logo-pool-top">
+          <img src="data:image/png;base64,{logo_pool_b64}" alt="Logo Pool"/>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 
 import base64
 import os
@@ -739,40 +780,367 @@ st.session_state["plafonds"] = plafonds
 
 
 # =====================================================
-# TABS (Admin seulement pour Whalers)
+# NAV (remplace st.tabs) — Option B
+#   ✅ Logo pool au-dessus même de la nav (Tableau seulement)
 # =====================================================
+
+# Admin seulement si Whalers (ou ton flag admin)
 is_admin = _is_admin_whalers()
 
+# Liste des onglets (labels)
+NAV_TABS = [
+    "📊 Tableau",
+    "🧾 Alignement",
+    "👤 Joueurs",
+    "🕘 Historique",
+    "⚖️ Transactions",
+]
 if is_admin:
-    tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
-        [
-            "📊 Tableau",
-            "🧾 Alignement",
-            "👤 Joueurs",
-            "🕘 Historique",
-            "⚖️ Transactions",
-            "🛠️ Gestion Admin",
-            "🧠 Recommandations",
-        ]
-    )
-else:
-    tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
-        [
-            "📊 Tableau",
-            "🧾 Alignement",
-            "👤 Joueurs",
-            "🕘 Historique",
-            "⚖️ Transactions",
-            "🧠 Recommandations",
-        ]
-    )
-    tabAdmin = None  # important
+    NAV_TABS.append("🛠️ Gestion Admin")
+NAV_TABS.append("🧠 Recommandations")
+
+# Etat sélection nav
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "📊 Tableau"
+
+# --- Si la tab active n'est plus valide (ex: admin retiré), fallback
+if st.session_state["active_tab"] not in NAV_TABS:
+    st.session_state["active_tab"] = NAV_TABS[0]
 
 
 # =====================================================
-# TAB H — Historique (Montréal + tri récent + filtre + bulk delete)
+# NAV BAR (au-dessus du contenu)
 # =====================================================
-with tabH:
+active_tab = st.radio(
+    label="",
+    options=NAV_TABS,
+    horizontal=True,
+    key="active_tab",
+)
+
+st.divider()
+
+# =====================================================
+# ROUTING (remplace: with tab1:, with tabA:, etc.)
+# =====================================================
+
+# ------------------------------
+# TAB 1 — Tableau
+# ------------------------------
+if active_tab == "📊 Tableau":
+    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+
+    if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
+        st.info("Aucune équipe configurée.")
+    else:
+        view = plafonds.copy()
+
+        # ✅ Guard colonnes attendues (évite KeyError)
+        cols = [
+            "Importé",
+            "Propriétaire",
+            "Total Grand Club",
+            "Montant Disponible GC",
+            "Total Club École",
+            "Montant Disponible CE",
+        ]
+        for c in cols:
+            if c not in view.columns:
+                # num cols -> 0 ; text cols -> ""
+                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+
+        # ✅ Format $
+        for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
+            view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
+
+        st.dataframe(
+            view[cols],
+            use_container_width=True,
+            hide_index=True,
+        )
+        
+
+# ------------------------------
+# TAB A — Alignement
+# ------------------------------
+elif active_tab == "🧾 Alignement":
+    st.subheader("🧾 Alignement")
+
+    # Source unique des données
+    df = st.session_state.get("data")
+    if df is None or not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(columns=REQUIRED_COLS)
+
+    df = clean_data(df)
+    st.session_state["data"] = df
+
+    # Équipe sélectionnée (sidebar)
+    proprietaire = str(get_selected_team() or "").strip()
+
+    if not proprietaire:
+        st.info("Sélectionne une équipe dans le menu à gauche.")
+        st.stop()
+
+    # Filtre ROBUSTE (strip)
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
+
+    # ============================
+    # ✅ Defaults (évite NameError si équipe vide)
+    # ============================
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+    used_gc = 0
+    used_ce = 0
+    remain_gc = cap_gc
+    remain_ce = cap_ce
+    nb_F = nb_D = nb_G = 0
+
+    # Si aucune donnée pour cette équipe -> affichage vide (IMPORTANT)
+    if dprop.empty:
+        st.warning(f"Aucun alignement importé pour **{proprietaire}**. Va dans 🛠️ Gestion Admin → Import.")
+
+        # Barres de plafond (0/0)
+        j1, j2 = st.columns(2)
+        with j1:
+            st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond Grand Club (GC) — {proprietaire}"), unsafe_allow_html=True)
+        with j2:
+            st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond Club École (CE) — {proprietaire}"), unsafe_allow_html=True)
+
+        # Sections vides propres
+        with st.container(border=True):
+            st.markdown("### 🟢 Actifs")
+            st.info("Aucun joueur.")
+        with st.container(border=True):
+            st.markdown("### 🔵 Mineur")
+            st.info("Aucun joueur.")
+        with st.expander("🟡 Banc", expanded=True):
+            st.info("Aucun joueur.")
+        with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+            st.info("Aucun joueur blessé.")
+
+        # Ferme tout popup si jamais un ancien move_ctx traînait
+        clear_move_ctx()
+        st.stop()
+
+
+# ------------------------------
+# TAB J — Joueurs
+# ------------------------------
+elif active_tab == "👤 Joueurs":
+    st.subheader("👤 Joueurs")
+    "Aucun résultat tant qu’aucun filtre n’est rempli "
+        "(Nom/Prénom, Équipe, Level/Contrat ou Cap Hit)."
+    )
+
+    # -------------------------------------------------
+    # GUARDS (local au tab)
+    # -------------------------------------------------
+    if df is None or df.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    if players_db is None or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
+        st.stop()
+
+    df_db = players_db.copy()
+
+    # -------------------------------------------------
+    # Normalisation colonne Player
+    # -------------------------------------------------
+    if "Player" not in df_db.columns:
+        found = None
+        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
+            if cand in df_db.columns:
+                found = cand
+                break
+        if found:
+            df_db = df_db.rename(columns={found: "Player"})
+        else:
+            st.error(f"Colonne 'Player' introuvable. Colonnes: {list(df_db.columns)}")
+            st.stop()
+
+    # -------------------------------------------------
+    # Helpers
+    # -------------------------------------------------
+    def _clean_intlike(x):
+        s = str(x).strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return ""
+        if re.match(r"^\d+\.0$", s):
+            return s.split(".")[0]
+        return s
+
+    def _cap_to_int(v) -> int:
+        s = str(v if v is not None else "").strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return 0
+        s = s.replace("$", "").replace("€", "").replace("£", "")
+        s = s.replace(",", "").replace(" ", "")
+        s = re.sub(r"\.0+$", "", s)
+        s = re.sub(r"[^\d]", "", s)
+        return int(s) if s.isdigit() else 0
+
+    def _money_space(v: int) -> str:
+        try:
+            return f"{int(v):,}".replace(",", " ") + " $"
+        except Exception:
+            return "0 $"
+
+    def clear_j_name():
+        st.session_state["j_name"] = ""
+
+    # -------------------------------------------------
+    # FILTRES PRINCIPAUX
+    # -------------------------------------------------
+    c1, c2, c3 = st.columns([2, 1, 1])
+
+    # --- Nom / Prénom
+    with c1:
+        a, b = st.columns([12, 1])
+        with a:
+            q_name = st.text_input(
+                "Nom / Prénom",
+                placeholder="Ex: Jack Eichel",
+                key="j_name",
+            )
+        with b:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            st.button(
+                "❌",
+                key="j_name_clear",
+                help="Effacer Nom / Prénom",
+                use_container_width=True,
+                on_click=clear_j_name,
+            )
+
+    # --- Équipe (GUARD)
+    with c2:
+        if "Team" in df_db.columns:
+            teams = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
+            options_team = ["Toutes"] + teams
+
+            cur_team = st.session_state.get("j_team", "Toutes")
+            if cur_team not in options_team:
+                st.session_state["j_team"] = "Toutes"
+
+            q_team = st.selectbox("Équipe", options_team, key="j_team")
+        else:
+            q_team = "Toutes"
+            st.selectbox(
+                "Équipe",
+                ["Toutes"],
+                disabled=True,
+                key="j_team_disabled",
+            )
+
+    # --- Level / Contrat (GUARD IDENTIQUE)
+    with c3:
+        level_col = "Level" if "Level" in df_db.columns else None
+        if level_col:
+            levels = sorted(df_db[level_col].dropna().astype(str).unique().tolist())
+            options_level = ["Tous"] + levels
+
+            cur_level = st.session_state.get("j_level", "Tous")
+            if cur_level not in options_level:
+                st.session_state["j_level"] = "Tous"
+
+            q_level = st.selectbox("Level (Contrat)", options_level, key="j_level")
+        else:
+            q_level = "Tous"
+            st.selectbox(
+                "Level (Contrat)",
+                ["Tous"],
+                disabled=True,
+                key="j_level_disabled",
+            )
+
+    # -------------------------------------------------
+    # CAP HIT
+    # -------------------------------------------------
+    st.divider()
+    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
+
+    cap_col = None
+    for cand in ["Cap Hit", "CapHit", "AAV"]:
+        if cand in df_db.columns:
+            cap_col = cand
+            break
+
+    if not cap_col:
+        st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée → filtre salaire désactivé.")
+        cap_apply = False
+        cap_min = cap_max = 0
+    else:
+        df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
+        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
+        cap_min, cap_max = st.slider(
+            "Plage Cap Hit",
+            min_value=0,
+            max_value=30_000_000,
+            value=(0, 30_000_000),
+            step=250_000,
+            disabled=(not cap_apply),
+            key="cap_slider",
+        )
+        st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
+
+    # -------------------------------------------------
+    # FILTRAGE
+    # -------------------------------------------------
+    has_filter = (
+        bool(str(q_name).strip())
+        or q_team != "Toutes"
+        or q_level != "Tous"
+        or cap_apply
+    )
+
+    if not has_filter:
+        st.info("Entre au moins un filtre pour afficher les résultats.")
+    else:
+        dff = df_db.copy()
+
+        if str(q_name).strip():
+            dff = dff[dff["Player"].str.contains(q_name, case=False, na=False)]
+
+        if q_team != "Toutes" and "Team" in dff.columns:
+            dff = dff[dff["Team"].astype(str) == q_team]
+
+        if q_level != "Tous" and level_col:
+            dff = dff[dff[level_col].astype(str) == q_level]
+
+        if cap_col and cap_apply:
+            dff = dff[(dff["_cap_int"] >= cap_min) & (dff["_cap_int"] <= cap_max)]
+
+        if dff.empty:
+            st.warning("Aucun joueur trouvé avec ces critères.")
+        else:
+            dff = dff.head(250).reset_index(drop=True)
+            st.markdown("### Résultats")
+
+            show_cols = []
+            for c in ["Player", "Team", "Position", cap_col, "Level"]:
+                if c and c in dff.columns:
+                    show_cols.append(c)
+
+            df_show = dff[show_cols].copy()
+
+            if cap_col in df_show.columns:
+                df_show[cap_col] = df_show[cap_col].apply(
+                    lambda x: _money_space(_cap_to_int(x))
+                )
+                df_show = df_show.rename(columns={cap_col: "Cap Hit"})
+
+            for c in df_show.columns:
+                df_show[c] = df_show[c].apply(_clean_intlike)
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+# ------------------------------
+# TAB H — Historique
+# ------------------------------
+elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
 
     # ✅ Utilise la "vraie" data (session_state) au lieu de df (qui peut ne pas exister ici)
@@ -1075,14 +1443,65 @@ with tabH:
                         st.session_state["hist_bulk_selected"] = set()
                         do_rerun()
 
+# ------------------------------
+# TAB 2 — Transactions
+# ------------------------------
+elif active_tab == "⚖️ Transactions":
+    st.subheader("⚖️ Transactions")
+    st.caption("Vérifie si une transaction respecte le plafond GC / CE.")
+
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty or plafonds is None or plafonds.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    # Liste propriétaires safe
+    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).unique().tolist())
+    if not owners:
+        st.info("Aucun propriétaire trouvé. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    p = st.selectbox("Propriétaire", owners, key="tx_owner")
+
+    salaire = st.number_input(
+        "Salaire du joueur",
+        min_value=0,
+        step=100_000,
+        value=0,
+        key="tx_salary",
+    )
+
+    statut = st.radio(
+        "Statut",
+        ["Grand Club", "Club École"],
+        key="tx_statut",
+        horizontal=True,
+    )
+
+    # Sélection de la ligne propriétaire (safe)
+    ligne_df = plafonds[plafonds["Propriétaire"].astype(str) == str(p)]
+    if ligne_df.empty:
+        st.error("Propriétaire introuvable dans les plafonds.")
+        st.stop()
+
+    ligne = ligne_df.iloc[0]
+    reste = int(ligne["Montant Disponible GC"]) if statut == "Grand Club" else int(ligne["Montant Disponible CE"])
+
+    st.metric("Montant disponible", money(reste))
+
+    if int(salaire) > int(reste):
+        st.error("🚨 Dépassement du plafond")
+    else:
+        st.success("✅ Transaction valide")
 
 
-
-# =====================================================
-# TAB ADMIN — IMPORT / EXPORT / BACKUPS (ADMIN ONLY)
-# =====================================================
-if tabAdmin is not None:
-    with tabAdmin:
+# ------------------------------
+# TAB ADMIN — Gestion Admin (si admin)
+# ------------------------------
+elif active_tab == "🛠️ Gestion Admin":
+    if not is_admin:
+        st.error("Accès refusé.")
+    else:
         st.subheader("🛠️ Gestion Admin")
 
         # =====================================================
@@ -1899,6 +2318,35 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     </div>
     """
 
+# =====================================================
+# TAB 3 — Recommandations (plafonds safe)
+# =====================================================
+with tab3:
+    elif active_tab == "🧠 Recommandations":
+    	st.subheader("🧠 Recommandations")
+        st.caption("Recommandations automatiques basées sur les montants disponibles.")
+
+    # ✅ Guard DANS le tab (ne stop pas toute l'app)
+    if df is None or df.empty or plafonds is None or plafonds.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    # Recos
+    for _, r in plafonds.iterrows():
+        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
+        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
+        owner = str(r.get("Propriétaire", "")).strip()
+
+        if dispo_gc < 2_000_000:
+            st.warning(f"{owner} : rétrogradation recommandée")
+        if dispo_ce > 10_000_000:
+            st.info(f"{owner} : rappel possible")
+
+# Flush Drive automatique (batch)
+if "flush_drive_queue" in globals():
+    n, errs = flush_drive_queue(force=False, max_age_sec=8)
+    # (DEBUG temporaire)
+    # if n: st.toast(f"Drive flush: {n} fichier(s)", icon="☁️")
 
 
 
@@ -2496,21 +2944,6 @@ if selected_team:
 
 
 
-# =====================================================
-# BANNER FLOTTANT (logo_pool)
-# =====================================================
-banner_b64 = _img_b64(LOGO_POOL_FILE)
-if banner_b64:
-    st.markdown(
-        f"""
-        <div class="pms-banner-wrap">
-          <div class="pms-banner">
-            <img src="data:image/png;base64,{banner_b64}" />
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 # =====================================================
 # MOVE CONTEXT (popup)
@@ -3485,129 +3918,8 @@ plafonds = pd.DataFrame(resume)
 
 
 
-# =====================================================
-# TAB 1 — Tableau
-# =====================================================
-with tab1:
-    # ✅ Logo pool tout en haut de l'onglet Tableau
-    logo_b64 = _img_b64(LOGO_POOL_FILE)
-
-    st.markdown(
-        f"""
-        <div style="margin:0;padding:0 0 10px 0;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            {'<img src="data:image/png;base64,' + logo_b64 + '" style="height:64px;width:auto;object-fit:contain;display:block;" />' if logo_b64 else ''}
-            <div style="font-size:28px;font-weight:1000;line-height:1.1;">Tableau</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # ✅ ensuite seulement ton contenu tableau
-    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
-    # ... ton tableau ici ...
-
-    
-    if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
-        st.info("Aucune équipe configurée.")
-    else:
-        view = plafonds.copy()
-
-        # ✅ Guard colonnes attendues (évite KeyError)
-        cols = [
-            "Importé",
-            "Propriétaire",
-            "Total Grand Club",
-            "Montant Disponible GC",
-            "Total Club École",
-            "Montant Disponible CE",
-        ]
-        for c in cols:
-            if c not in view.columns:
-                # num cols -> 0 ; text cols -> ""
-                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
-
-        # ✅ Format $
-        for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
-            view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
-
-        st.dataframe(
-            view[cols],
-            use_container_width=True,
-            hide_index=True,
-        )
 
 
-
-
-
-
-
-# =====================================================
-# TAB A — Alignement (SYNC SIDEBAR ONLY)
-#   ✅ Aucun selectbox "Propriétaire" ici
-#   ✅ Si équipe non importée -> alignement vide (ne montre pas le dernier import)
-#   ✅ Fix: used_gc/used_ce toujours définis (évite NameError)
-# =====================================================
-with tabA:
-    st.subheader("🧾 Alignement")
-
-    # Source unique des données
-    df = st.session_state.get("data")
-    if df is None or not isinstance(df, pd.DataFrame):
-        df = pd.DataFrame(columns=REQUIRED_COLS)
-
-    df = clean_data(df)
-    st.session_state["data"] = df
-
-    # Équipe sélectionnée (sidebar)
-    proprietaire = str(get_selected_team() or "").strip()
-
-    if not proprietaire:
-        st.info("Sélectionne une équipe dans le menu à gauche.")
-        st.stop()
-
-    # Filtre ROBUSTE (strip)
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
-
-    # ============================
-    # ✅ Defaults (évite NameError si équipe vide)
-    # ============================
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
-    used_gc = 0
-    used_ce = 0
-    remain_gc = cap_gc
-    remain_ce = cap_ce
-    nb_F = nb_D = nb_G = 0
-
-    # Si aucune donnée pour cette équipe -> affichage vide (IMPORTANT)
-    if dprop.empty:
-        st.warning(f"Aucun alignement importé pour **{proprietaire}**. Va dans 🛠️ Gestion Admin → Import.")
-
-        # Barres de plafond (0/0)
-        j1, j2 = st.columns(2)
-        with j1:
-            st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond Grand Club (GC) — {proprietaire}"), unsafe_allow_html=True)
-        with j2:
-            st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond Club École (CE) — {proprietaire}"), unsafe_allow_html=True)
-
-        # Sections vides propres
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs")
-            st.info("Aucun joueur.")
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur")
-            st.info("Aucun joueur.")
-        with st.expander("🟡 Banc", expanded=True):
-            st.info("Aucun joueur.")
-        with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-            st.info("Aucun joueur blessé.")
-
-        # Ferme tout popup si jamais un ancien move_ctx traînait
-        clear_move_ctx()
-        st.stop()
 
     # ============================
     # Données équipe (non vide)
@@ -3740,307 +4052,4 @@ with tabA:
 
 
 
-# =====================================================
-# TAB J — Joueurs (Autonomes)
-# =====================================================
-with tabJ:
-    st.subheader("👤 Joueurs (Autonomes)")
-    st.caption(
-        "Aucun résultat tant qu’aucun filtre n’est rempli "
-        "(Nom/Prénom, Équipe, Level/Contrat ou Cap Hit)."
-    )
-
-    # -------------------------------------------------
-    # GUARDS (local au tab)
-    # -------------------------------------------------
-    if df is None or df.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    if players_db is None or players_db.empty:
-        st.error("Impossible de charger la base joueurs.")
-        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
-        st.stop()
-
-    df_db = players_db.copy()
-
-    # -------------------------------------------------
-    # Normalisation colonne Player
-    # -------------------------------------------------
-    if "Player" not in df_db.columns:
-        found = None
-        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
-            if cand in df_db.columns:
-                found = cand
-                break
-        if found:
-            df_db = df_db.rename(columns={found: "Player"})
-        else:
-            st.error(f"Colonne 'Player' introuvable. Colonnes: {list(df_db.columns)}")
-            st.stop()
-
-    # -------------------------------------------------
-    # Helpers
-    # -------------------------------------------------
-    def _clean_intlike(x):
-        s = str(x).strip()
-        if s == "" or s.lower() in {"nan", "none"}:
-            return ""
-        if re.match(r"^\d+\.0$", s):
-            return s.split(".")[0]
-        return s
-
-    def _cap_to_int(v) -> int:
-        s = str(v if v is not None else "").strip()
-        if s == "" or s.lower() in {"nan", "none"}:
-            return 0
-        s = s.replace("$", "").replace("€", "").replace("£", "")
-        s = s.replace(",", "").replace(" ", "")
-        s = re.sub(r"\.0+$", "", s)
-        s = re.sub(r"[^\d]", "", s)
-        return int(s) if s.isdigit() else 0
-
-    def _money_space(v: int) -> str:
-        try:
-            return f"{int(v):,}".replace(",", " ") + " $"
-        except Exception:
-            return "0 $"
-
-    def clear_j_name():
-        st.session_state["j_name"] = ""
-
-    # -------------------------------------------------
-    # FILTRES PRINCIPAUX
-    # -------------------------------------------------
-    c1, c2, c3 = st.columns([2, 1, 1])
-
-    # --- Nom / Prénom
-    with c1:
-        a, b = st.columns([12, 1])
-        with a:
-            q_name = st.text_input(
-                "Nom / Prénom",
-                placeholder="Ex: Jack Eichel",
-                key="j_name",
-            )
-        with b:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            st.button(
-                "❌",
-                key="j_name_clear",
-                help="Effacer Nom / Prénom",
-                use_container_width=True,
-                on_click=clear_j_name,
-            )
-
-    # --- Équipe (GUARD)
-    with c2:
-        if "Team" in df_db.columns:
-            teams = sorted(df["Propriétaire"].dropna().astype(str).unique().tolist())
-            options_team = ["Toutes"] + teams
-
-            cur_team = st.session_state.get("j_team", "Toutes")
-            if cur_team not in options_team:
-                st.session_state["j_team"] = "Toutes"
-
-            q_team = st.selectbox("Équipe", options_team, key="j_team")
-        else:
-            q_team = "Toutes"
-            st.selectbox(
-                "Équipe",
-                ["Toutes"],
-                disabled=True,
-                key="j_team_disabled",
-            )
-
-    # --- Level / Contrat (GUARD IDENTIQUE)
-    with c3:
-        level_col = "Level" if "Level" in df_db.columns else None
-        if level_col:
-            levels = sorted(df_db[level_col].dropna().astype(str).unique().tolist())
-            options_level = ["Tous"] + levels
-
-            cur_level = st.session_state.get("j_level", "Tous")
-            if cur_level not in options_level:
-                st.session_state["j_level"] = "Tous"
-
-            q_level = st.selectbox("Level (Contrat)", options_level, key="j_level")
-        else:
-            q_level = "Tous"
-            st.selectbox(
-                "Level (Contrat)",
-                ["Tous"],
-                disabled=True,
-                key="j_level_disabled",
-            )
-
-    # -------------------------------------------------
-    # CAP HIT
-    # -------------------------------------------------
-    st.divider()
-    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
-
-    cap_col = None
-    for cand in ["Cap Hit", "CapHit", "AAV"]:
-        if cand in df_db.columns:
-            cap_col = cand
-            break
-
-    if not cap_col:
-        st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée → filtre salaire désactivé.")
-        cap_apply = False
-        cap_min = cap_max = 0
-    else:
-        df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
-        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
-        cap_min, cap_max = st.slider(
-            "Plage Cap Hit",
-            min_value=0,
-            max_value=30_000_000,
-            value=(0, 30_000_000),
-            step=250_000,
-            disabled=(not cap_apply),
-            key="cap_slider",
-        )
-        st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
-
-    # -------------------------------------------------
-    # FILTRAGE
-    # -------------------------------------------------
-    has_filter = (
-        bool(str(q_name).strip())
-        or q_team != "Toutes"
-        or q_level != "Tous"
-        or cap_apply
-    )
-
-    if not has_filter:
-        st.info("Entre au moins un filtre pour afficher les résultats.")
-    else:
-        dff = df_db.copy()
-
-        if str(q_name).strip():
-            dff = dff[dff["Player"].str.contains(q_name, case=False, na=False)]
-
-        if q_team != "Toutes" and "Team" in dff.columns:
-            dff = dff[dff["Team"].astype(str) == q_team]
-
-        if q_level != "Tous" and level_col:
-            dff = dff[dff[level_col].astype(str) == q_level]
-
-        if cap_col and cap_apply:
-            dff = dff[(dff["_cap_int"] >= cap_min) & (dff["_cap_int"] <= cap_max)]
-
-        if dff.empty:
-            st.warning("Aucun joueur trouvé avec ces critères.")
-        else:
-            dff = dff.head(250).reset_index(drop=True)
-            st.markdown("### Résultats")
-
-            show_cols = []
-            for c in ["Player", "Team", "Position", cap_col, "Level"]:
-                if c and c in dff.columns:
-                    show_cols.append(c)
-
-            df_show = dff[show_cols].copy()
-
-            if cap_col in df_show.columns:
-                df_show[cap_col] = df_show[cap_col].apply(
-                    lambda x: _money_space(_cap_to_int(x))
-                )
-                df_show = df_show.rename(columns={cap_col: "Cap Hit"})
-
-            for c in df_show.columns:
-                df_show[c] = df_show[c].apply(_clean_intlike)
-
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-
-
-
-
-
-
-
-
-# =====================================================
-# TAB 2 — Transactions (plafonds safe)
-# =====================================================
-with tab2:
-    st.subheader("⚖️ Transactions")
-    st.caption("Vérifie si une transaction respecte le plafond GC / CE.")
-
-    # ✅ Guard DANS le tab (ne stop pas toute l'app)
-    if df is None or df.empty or plafonds is None or plafonds.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    # Liste propriétaires safe
-    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).unique().tolist())
-    if not owners:
-        st.info("Aucun propriétaire trouvé. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    p = st.selectbox("Propriétaire", owners, key="tx_owner")
-
-    salaire = st.number_input(
-        "Salaire du joueur",
-        min_value=0,
-        step=100_000,
-        value=0,
-        key="tx_salary",
-    )
-
-    statut = st.radio(
-        "Statut",
-        ["Grand Club", "Club École"],
-        key="tx_statut",
-        horizontal=True,
-    )
-
-    # Sélection de la ligne propriétaire (safe)
-    ligne_df = plafonds[plafonds["Propriétaire"].astype(str) == str(p)]
-    if ligne_df.empty:
-        st.error("Propriétaire introuvable dans les plafonds.")
-        st.stop()
-
-    ligne = ligne_df.iloc[0]
-    reste = int(ligne["Montant Disponible GC"]) if statut == "Grand Club" else int(ligne["Montant Disponible CE"])
-
-    st.metric("Montant disponible", money(reste))
-
-    if int(salaire) > int(reste):
-        st.error("🚨 Dépassement du plafond")
-    else:
-        st.success("✅ Transaction valide")
-
-
-# =====================================================
-# TAB 3 — Recommandations (plafonds safe)
-# =====================================================
-with tab3:
-    st.subheader("🧠 Recommandations")
-    st.caption("Recommandations automatiques basées sur les montants disponibles.")
-
-    # ✅ Guard DANS le tab (ne stop pas toute l'app)
-    if df is None or df.empty or plafonds is None or plafonds.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    # Recos
-    for _, r in plafonds.iterrows():
-        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
-        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
-        owner = str(r.get("Propriétaire", "")).strip()
-
-        if dispo_gc < 2_000_000:
-            st.warning(f"{owner} : rétrogradation recommandée")
-        if dispo_ce > 10_000_000:
-            st.info(f"{owner} : rappel possible")
-
-# Flush Drive automatique (batch)
-if "flush_drive_queue" in globals():
-    n, errs = flush_drive_queue(force=False, max_age_sec=8)
-    # (DEBUG temporaire)
-    # if n: st.toast(f"Drive flush: {n} fichier(s)", icon="☁️")
 
