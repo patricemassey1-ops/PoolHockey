@@ -439,6 +439,8 @@ def log_history_row(
     except Exception:
         pass
 
+
+
 # =====================================================
 # 🧼 No-op helpers (si tu ne les as pas encore)
 # =====================================================
@@ -573,6 +575,150 @@ def get_selected_team() -> str | None:
             return v
 
     return None
+
+# =====================================================
+# ✅ BOOTSTRAP / HELPERS (UNE SEULE FOIS, AVANT LES TABS)
+# =====================================================
+import json
+
+# --- DATA DIR
+DATA_DIR = str(st.session_state.get("DATA_DIR", "data")).strip() or "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+st.session_state["DATA_DIR"] = DATA_DIR
+
+# --- SAISON
+season = str(st.session_state.get("season") or st.session_state.get("SEASON") or "").strip() or "2025-2026"
+st.session_state["season"] = season
+
+# --- FICHIERS LOCAUX
+DATA_FILE = str(st.session_state.get("DATA_FILE") or os.path.join(DATA_DIR, f"fantrax_{season}.csv")).strip()
+HISTORY_FILE = str(st.session_state.get("HISTORY_FILE") or os.path.join(DATA_DIR, f"history_{season}.csv")).strip()
+st.session_state["DATA_FILE"] = DATA_FILE
+st.session_state["HISTORY_FILE"] = HISTORY_FILE
+
+# --- REQUIRED COLS (fallback)
+REQUIRED_COLS = globals().get("REQUIRED_COLS", [
+    "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire", "Statut", "Slot", "IR Date"
+])
+
+# --- RERUN
+def do_rerun():
+    try:
+        st.rerun()
+    except Exception:
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+
+# --- TEAM SELECTION (UNE SEULE DEF)
+def get_selected_team() -> str:
+    v = str(st.session_state.get("selected_team") or "").strip()
+    if v:
+        return v
+    v = str(st.session_state.get("align_owner") or "").strip()
+    if v:
+        return v
+    return ""
+
+# --- ADMIN
+def _is_admin_whalers() -> bool:
+    if bool(st.session_state.get("IS_ADMIN", False)):
+        return True
+    return get_selected_team().lower() == "whalers"
+
+# --- DRIVE OK (ne crash jamais)
+def _drive_ok() -> bool:
+    try:
+        if "_drive_enabled" in globals() and callable(globals()["_drive_enabled"]):
+            return bool(globals()["_drive_enabled"]())
+    except Exception:
+        pass
+    return False
+
+# --- INIT MANIFEST (multi-equipes)
+INIT_MANIFEST_FILE = str(st.session_state.get("INIT_MANIFEST_FILE") or os.path.join(DATA_DIR, "init_manifest.json")).strip()
+st.session_state["INIT_MANIFEST_FILE"] = INIT_MANIFEST_FILE
+
+def load_init_manifest() -> dict:
+    try:
+        if os.path.exists(INIT_MANIFEST_FILE):
+            with open(INIT_MANIFEST_FILE, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    return {}
+
+def save_init_manifest(manifest: dict) -> None:
+    try:
+        with open(INIT_MANIFEST_FILE, "w", encoding="utf-8") as f:
+            json.dump(manifest or {}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+# --- clean_data fallback si pas défini plus haut
+if "clean_data" not in globals():
+    def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+# =====================================================
+# 🔄 LOAD DATA (safe) — utilise load_current_or_bootstrap si présent
+# =====================================================
+def _safe_load_current_or_bootstrap(season_lbl: str):
+    # Si ta vraie fonction existe, on l’utilise
+    if "load_current_or_bootstrap" in globals() and callable(globals()["load_current_or_bootstrap"]):
+        return globals()["load_current_or_bootstrap"](season_lbl)
+
+    # Sinon: fallback local seulement (évite NameError)
+    path = st.session_state["DATA_FILE"]
+    if path and os.path.exists(path):
+        try:
+            d = pd.read_csv(path)
+            if isinstance(d, pd.DataFrame) and not d.empty:
+                return clean_data(d), "local_current"
+        except Exception:
+            pass
+    return pd.DataFrame(columns=REQUIRED_COLS), "empty"
+
+# =====================================================
+# 🚀 INIT LOAD (DATA + HISTORY + PLAFONDS)
+# =====================================================
+# --- DATA
+df_loaded, load_source = _safe_load_current_or_bootstrap(season)
+if df_loaded is None or not isinstance(df_loaded, pd.DataFrame):
+    df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+try:
+    df_loaded = clean_data(df_loaded)
+except Exception:
+    pass
+
+st.session_state["data"] = df_loaded
+df = st.session_state["data"]
+
+# --- HISTORY (Drive -> local -> vide)
+h_loaded = None
+folder_id = str(globals().get("GDRIVE_FOLDER_ID", "") or "").strip()
+
+if folder_id and _drive_ok() and "gdrive_load_df" in globals():
+    try:
+        h_loaded = globals()["gdrive_load_df"](f"history_{season}.csv", folder_id)
+    except Exception:
+        h_loaded = None
+
+if (h_loaded is None) and HISTORY_FILE and os.path.exists(HISTORY_FILE):
+    try:
+        h_loaded = pd.read_csv(HISTORY_FILE)
+    except Exception:
+        h_loaded = None
+
+if h_loaded is None or not isinstance(h_loaded, pd.DataFrame):
+    h_loaded = pd.DataFrame()
+
+st.session_state["history"] = h_loaded
+
+# --- PLAFONDS
+plafonds = st.session_state.get("plafonds", None)
+st.session_state["plafonds"] = plafonds
 
 
 
@@ -1675,84 +1821,6 @@ if tabAdmin is not None:
                             st.error(f"Suppression impossible: {type(e).__name__}: {e}")
 
 
-
-
-
-
-# =====================================================
-# 🔄 LOAD DATA — CAS B (état courant > initial)
-# =====================================================
-def load_current_or_bootstrap(season: str):
-    """
-    CAS B :
-    1) Charge l'état courant (Drive -> local)
-    2) Sinon bootstrap depuis CSV initial (UNE SEULE FOIS)
-    """
-    data_file = st.session_state["DATA_FILE"]
-    folder_id = str(GDRIVE_FOLDER_ID or "").strip()
-
-    # 1) Drive
-    if folder_id and "_drive_enabled" in globals() and _drive_enabled():
-        try:
-            df_drive = gdrive_load_df(f"fantrax_{season}.csv", folder_id)
-            if df_drive is not None and not df_drive.empty:
-                return clean_data(df_drive), "drive_current"
-        except Exception:
-            pass
-
-    # 2) Local
-    if data_file and os.path.exists(data_file):
-        try:
-            df_local = pd.read_csv(data_file)
-            if not df_local.empty:
-                return clean_data(df_local), "local_current"
-        except Exception:
-            pass
-
-    # 3) Bootstrap initial (1 fois)
-    manifest = load_init_manifest()
-    init_path = manifest.get("fantrax", {}).get("path", "")
-    chosen_owner = manifest.get("fantrax", {}).get("chosen_owner", "")
-
-    if init_path and os.path.exists(init_path):
-        try:
-            import io
-            with open(init_path, "rb") as f:
-                buf = io.BytesIO(f.read())
-            buf.name = manifest.get("fantrax", {}).get(
-                "uploaded_name", os.path.basename(init_path)
-            )
-
-            df_import = parse_fantrax(buf)
-            if df_import is not None and not df_import.empty:
-                df_import = ensure_owner_column(df_import, chosen_owner)
-                df_boot = clean_data(df_import)
-
-                # Sauvegarde état courant
-                try:
-                    df_boot.to_csv(data_file, index=False)
-                except Exception:
-                    pass
-
-                try:
-                    if folder_id and "_drive_enabled" in globals() and _drive_enabled():
-                        gdrive_save_df(df_boot, f"fantrax_{season}.csv", folder_id)
-                except Exception:
-                    pass
-
-                history_add(
-                    action="BOOTSTRAP_INITIAL",
-                    owner=chosen_owner,
-                    details=f"Initial CSV appliqué automatiquement ({buf.name})",
-                )
-
-                return df_boot, "bootstrap_from_initial"
-        except Exception:
-            pass
-
-    return pd.DataFrame(columns=REQUIRED_COLS), "empty"
-
-
 # =====================================================
 # AUTRES HELPERS UI
 # =====================================================
@@ -1816,48 +1884,6 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     """
 
 
-
-# =====================================================
-# PERSISTENCE — FICHIERS CSV INITIAUX
-# =====================================================
-import json
-from datetime import datetime
-
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-INIT_MANIFEST = os.path.join(DATA_DIR, "initial_csv_manifest.json")
-
-def load_init_manifest() -> dict:
-    if os.path.exists(INIT_MANIFEST):
-        try:
-            with open(INIT_MANIFEST, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_init_manifest(m: dict) -> None:
-    with open(INIT_MANIFEST, "w", encoding="utf-8") as f:
-        json.dump(m, f, ensure_ascii=False, indent=2)
-
-def save_uploaded_csv(file, save_as_name: str) -> str:
-    safe_name = os.path.basename(save_as_name).strip()
-    if not safe_name.lower().endswith(".csv"):
-        safe_name += ".csv"
-    path = os.path.join(DATA_DIR, safe_name)
-
-    with open(path, "wb") as out:
-        out.write(file.getbuffer())
-
-    return path
-
-
-# =====================================================
-# ADMIN GUARD
-# =====================================================
-def _is_admin_whalers() -> bool:
-    return str(get_selected_team() or "").strip().lower() == "whalers"
 
 
 # =====================================================
