@@ -2860,21 +2860,35 @@ if tabAdmin is not None:
 with tab1:
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
 
-    if plafonds is None or plafonds.empty:
+    if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
         st.info("Aucune équipe configurée.")
-        st.stop()
+    else:
+        view = plafonds.copy()
 
-    view = plafonds.copy()
-    view["Total Grand Club"] = view["Total Grand Club"].apply(money)
-    view["Montant Disponible GC"] = view["Montant Disponible GC"].apply(money)
-    view["Total Club École"] = view["Total Club École"].apply(money)
-    view["Montant Disponible CE"] = view["Montant Disponible CE"].apply(money)
+        # ✅ Guard colonnes attendues (évite KeyError)
+        cols = [
+            "Importé",
+            "Propriétaire",
+            "Total Grand Club",
+            "Montant Disponible GC",
+            "Total Club École",
+            "Montant Disponible CE",
+        ]
+        for c in cols:
+            if c not in view.columns:
+                # num cols -> 0 ; text cols -> ""
+                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
 
-    st.dataframe(
-        view[["Importé", "Propriétaire", "Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+        # ✅ Format $
+        for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
+            view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
+
+        st.dataframe(
+            view[cols],
+            use_container_width=True,
+            hide_index=True,
+        )
+
 
 
 
