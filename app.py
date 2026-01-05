@@ -821,8 +821,29 @@ active_tab = st.radio(
 st.divider()
 
 # =====================================================
-# ROUTING (remplace: with tab1:, with tabA:, etc.)
+# ROUTING PRINCIPAL DES TABS
 # =====================================================
+
+if active_tab == "📊 Tableau":
+    ...
+    
+elif active_tab == "🧾 Alignement":
+    ...
+    
+elif active_tab == "👤 Joueurs":
+    ...
+    
+elif active_tab == "🕘 Historique":
+    ...
+    
+elif active_tab == "⚖️ Transactions":
+    ...
+    
+elif active_tab == "🧠 Recommandations":
+    ...
+    
+else:
+    st.warning("Onglet inconnu")
 
 # ------------------------------
 # TAB 1 — Tableau
