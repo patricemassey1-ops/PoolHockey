@@ -283,6 +283,30 @@ def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
     return str(fallback or "").strip()
 
 # =====================================================
+# 🎯 TEAM SELECTION HELPERS
+# =====================================================
+def get_selected_team() -> str | None:
+    """
+    Retourne l'équipe actuellement sélectionnée dans l'app.
+    Ordre de priorité :
+    1) st.session_state["selected_team"]
+    2) st.session_state["align_owner"]
+    3) None
+    """
+    if "selected_team" in st.session_state:
+        v = str(st.session_state.get("selected_team") or "").strip()
+        if v:
+            return v
+
+    if "align_owner" in st.session_state:
+        v = str(st.session_state.get("align_owner") or "").strip()
+        if v:
+            return v
+
+    return None
+
+
+# =====================================================
 # 📦 INIT MANIFEST (imports multi-équipes)
 # =====================================================
 import json
