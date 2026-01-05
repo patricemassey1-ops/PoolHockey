@@ -189,6 +189,275 @@ if "move_nonce" not in st.session_state:
 if "move_source" not in st.session_state:
     st.session_state["move_source"] = ""
 
+# =====================================================
+# ✅ HELPERS OBLIGATOIRES (anti-NameError)
+# 👉 Colle ce bloc UNE SEULE FOIS en haut de app.py
+#    (après tes imports, avant tes TABS)
+# =====================================================
+import os
+import json
+from datetime import datetime
+
+# -----------------------------
+# Fallbacks safe (si pas déjà définis)
+# -----------------------------
+if "DATA_DIR" not in globals():
+    DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+if "HISTORY_FILE" not in globals():
+    HISTORY_FILE = os.path.join(DATA_DIR, "history.csv")
+
+if "REQUIRED_COLS" not in globals():
+    # Colonnes minimales attendues dans ton DF "data"
+    REQUIRED_COLS = [
+        "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire",
+        "Statut", "Slot", "IR Date"
+    ]
+
+# -----------------------------
+# Rerun safe
+# -----------------------------
+def do_rerun():
+    """Relance Streamlit (compatible selon versions)."""
+    try:
+        st.rerun()
+    except Exception:
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+
+# -----------------------------
+# Team selection
+# -----------------------------
+def get_selected_team() -> str | None:
+    """
+    Retourne l'équipe sélectionnée (sidebar/UI).
+    Priorité:
+    1) selected_team
+    2) align_owner
+    """
+    v = str(st.session_state.get("selected_team") or "").strip()
+    if v:
+        return v
+    v = str(st.session_state.get("align_owner") or "").strip()
+    if v:
+        return v
+    return None
+
+# -----------------------------
+# Admin guard (Whalers only)
+# -----------------------------
+def _is_admin_whalers() -> bool:
+    """
+    Admin seulement si l'équipe sélectionnée est 'Whalers'
+    (et optionnellement si un flag admin est set).
+    """
+    try:
+        # Si tu as déjà un système admin, tu peux setter st.session_state["IS_ADMIN"]=True
+        if bool(st.session_state.get("IS_ADMIN", False)):
+            return True
+    except Exception:
+        pass
+
+    team = str(get_selected_team() or "").strip()
+    return team.lower() == "whalers"
+
+# -----------------------------
+# Drive enabled guard (ne crash jamais)
+# -----------------------------
+def _drive_ok() -> bool:
+    """
+    Retourne True si ton app a Drive configuré ET activé.
+    Ne lance jamais d'erreur si les fonctions n'existent pas.
+    """
+    try:
+        if "_drive_enabled" in globals() and callable(globals()["_drive_enabled"]):
+            return bool(globals()["_drive_enabled"]())
+    except Exception:
+        pass
+    return False
+
+# =====================================================
+# 📦 Manifest (imports init) — JSON local
+# =====================================================
+_MANIFEST_PATH = os.path.join(DATA_DIR, "init_manifest.json")
+
+def load_init_manifest() -> dict:
+    try:
+        if os.path.exists(_MANIFEST_PATH):
+            with open(_MANIFEST_PATH, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    return {}
+
+def save_init_manifest(manifest: dict) -> None:
+    try:
+        with open(_MANIFEST_PATH, "w", encoding="utf-8") as f:
+            json.dump(manifest or {}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+# =====================================================
+# 💾 Persist local (+ Drive si dispo)
+# =====================================================
+def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
+    """
+    Sauve l'alignement localement + (optionnel) push Drive.
+    """
+    try:
+        season_lbl = str(season_lbl or "").strip() or "season"
+        path = st.session_state.get("DATA_FILE") or os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
+        st.session_state["DATA_FILE"] = path
+
+        if isinstance(df, pd.DataFrame):
+            df.to_csv(path, index=False)
+
+        # Push Drive si dispo
+        try:
+            if _drive_ok() and "gdrive_save_df" in globals():
+                folder_id = globals().get("GDRIVE_FOLDER_ID", "") or globals().get("GDRIVE_FOLDER", "")
+                folder_id = str(folder_id or "").strip()
+                if folder_id:
+                    globals()["gdrive_save_df"](df, f"fantrax_{season_lbl}.csv", folder_id)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
+    """
+    Sauve l'historique localement + (optionnel) push Drive.
+    """
+    try:
+        season_lbl = str(season_lbl or "").strip() or "season"
+        path = st.session_state.get("HISTORY_FILE") or os.path.join(DATA_DIR, f"history_{season_lbl}.csv")
+        st.session_state["HISTORY_FILE"] = path
+
+        if isinstance(h, pd.DataFrame):
+            h.to_csv(path, index=False)
+
+        # Push Drive si dispo
+        try:
+            if _drive_ok() and "gdrive_save_df" in globals():
+                folder_id = globals().get("GDRIVE_FOLDER_ID", "") or globals().get("GDRIVE_FOLDER", "")
+                folder_id = str(folder_id or "").strip()
+                if folder_id:
+                    globals()["gdrive_save_df"](h, f"history_{season_lbl}.csv", folder_id)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def save_history(path: str, h: pd.DataFrame) -> None:
+    """Alias simple (ton code l'appelle)."""
+    try:
+        if path and isinstance(h, pd.DataFrame):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            h.to_csv(path, index=False)
+    except Exception:
+        pass
+
+# =====================================================
+# 🧾 Audit simple (évite NameError)
+# =====================================================
+def history_add(action: str, owner: str = "", details: str = "") -> None:
+    """
+    Petit log non-bloquant (ne remplace pas ton vrai système si tu en as un).
+    """
+    try:
+        log = st.session_state.get("audit_log")
+        if not isinstance(log, list):
+            log = []
+        log.append(
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "season": str(st.session_state.get("season", "") or ""),
+                "action": str(action or ""),
+                "owner": str(owner or ""),
+                "details": str(details or ""),
+            }
+        )
+        st.session_state["audit_log"] = log
+    except Exception:
+        pass
+
+def log_history_row(
+    owner: str,
+    joueur: str,
+    pos: str,
+    equipe: str,
+    from_statut: str,
+    from_slot: str,
+    to_statut: str,
+    to_slot: str,
+    action: str = "",
+) -> None:
+    """
+    Ajoute une ligne à st.session_state["history"] sans casser si colonnes manquantes.
+    """
+    try:
+        h = st.session_state.get("history")
+        h = h.copy() if isinstance(h, pd.DataFrame) else pd.DataFrame()
+
+        # Colonnes minimales
+        cols = [
+            "id", "timestamp", "season",
+            "proprietaire", "joueur", "pos", "equipe",
+            "from_statut", "from_slot", "to_statut", "to_slot", "action"
+        ]
+        for c in cols:
+            if c not in h.columns:
+                h[c] = ""
+
+        # id auto
+        try:
+            id_num = pd.to_numeric(h["id"], errors="coerce")
+            next_id = int(id_num.max() + 1) if id_num.notna().any() else 1
+        except Exception:
+            next_id = 1
+
+        row = {
+            "id": next_id,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "season": str(st.session_state.get("season", "") or ""),
+            "proprietaire": str(owner or ""),
+            "joueur": str(joueur or ""),
+            "pos": str(pos or ""),
+            "equipe": str(equipe or ""),
+            "from_statut": str(from_statut or ""),
+            "from_slot": str(from_slot or ""),
+            "to_statut": str(to_statut or ""),
+            "to_slot": str(to_slot or ""),
+            "action": str(action or ""),
+        }
+
+        h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+        st.session_state["history"] = h
+    except Exception:
+        pass
+
+# =====================================================
+# 🧼 No-op helpers (si tu ne les as pas encore)
+# =====================================================
+if "clean_data" not in globals():
+    def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+if "clear_move_ctx" not in globals():
+    def clear_move_ctx():
+        """Nettoie l'état du popup/move dialog si présent."""
+        for k in [
+            "move_ctx", "move_player", "move_owner",
+            "move_from", "move_to", "move_open"
+        ]:
+            try:
+                st.session_state.pop(k, None)
+            except Exception:
+                pass
+
 
 # =====================================================
 # UTILS / HELPERS
@@ -305,60 +574,6 @@ def get_selected_team() -> str | None:
 
     return None
 
-
-# =====================================================
-# 📦 INIT MANIFEST (imports multi-équipes)
-# =====================================================
-import json
-import os
-
-DATA_DIR = DATA_DIR if "DATA_DIR" in globals() else "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
-
-
-def load_init_manifest() -> dict:
-    """
-    Charge le manifest JSON des imports initiaux.
-    Retourne toujours un dict valide.
-    """
-    try:
-        if os.path.exists(MANIFEST_FILE):
-            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
-
-
-def save_init_manifest(manifest: dict) -> None:
-    """
-    Sauvegarde le manifest JSON des imports initiaux.
-    """
-    try:
-        with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-            json.dump(manifest or {}, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print("⚠️ save_init_manifest failed:", e)
-
-
-# =====================================================
-# ADMIN GUARD — Whalers only
-#   (Défaut: admin si l'équipe sélectionnée = "Whalers")
-# =====================================================
-def _is_admin_whalers() -> bool:
-    try:
-        # 1) priorise ta fonction existante si elle existe
-        if "get_selected_team" in globals():
-            team = str(get_selected_team() or "").strip()
-        else:
-            # 2) fallback session_state
-            team = str(st.session_state.get("selected_team", "") or "").strip()
-
-        return team.lower() == "whalers"
-    except Exception:
-        return False
 
 
 # =====================================================
@@ -2150,99 +2365,6 @@ def flush_drive_queue(force: bool = False, max_age_sec: int = 8) -> tuple[int, l
         st.session_state["drive_dirty_at"] = 0.0
 
     return (written, errors)
-
-
-# =====================================================
-# PERSIST — local immédiat + Drive en batch
-# =====================================================
-def persist_data(df_data: pd.DataFrame, season: str):
-    # Local (immédiat)
-    try:
-        data_file = st.session_state.get("DATA_FILE", "")
-        if data_file:
-            df_data.to_csv(data_file, index=False)
-    except Exception:
-        pass
-
-    # Drive (batch)
-    if _drive_enabled():
-        queue_drive_save_df(df_data, f"fantrax_{season}.csv")
-
-
-def persist_history(h: pd.DataFrame, season: str):
-    # Local (immédiat)
-    try:
-        hist_file = st.session_state.get("HISTORY_FILE", "")
-        if hist_file:
-            h.to_csv(hist_file, index=False)
-    except Exception:
-        pass
-
-    # Drive (batch)
-    if _drive_enabled():
-        queue_drive_save_df(h, f"history_{season}.csv")
-
-
-# =====================================================
-# CLEAN DATA
-# =====================================================
-REQUIRED_COLS = ["Propriétaire", "Joueur", "Salaire", "Statut", "Slot", "Pos", "Equipe", "IR Date"]
-
-
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None:
-        return pd.DataFrame(columns=REQUIRED_COLS)
-
-    df = df.copy()
-
-    for c in REQUIRED_COLS:
-        if c not in df.columns:
-            df[c] = ""
-
-    for c in ["Propriétaire", "Joueur", "Statut", "Slot", "Pos", "Equipe", "IR Date"]:
-        df[c] = df[c].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-
-    def _to_int(x):
-        s = str(x).strip().replace(",", "").replace(" ", "")
-        s = re.sub(r"[^\d]", "", s)
-        return int(s) if s.isdigit() else 0
-
-    df["Salaire"] = df["Salaire"].apply(_to_int).astype(int)
-
-    df["Statut"] = df["Statut"].replace(
-        {
-            "GC": "Grand Club",
-            "CE": "Club École",
-            "Club Ecole": "Club École",
-            "GrandClub": "Grand Club",
-        }
-    )
-
-    df["Slot"] = df["Slot"].replace(
-        {
-            "Active": "Actif",
-            "Bench": "Banc",
-            "IR": "Blessé",
-            "Injured": "Blessé",
-        }
-    )
-
-    df["Pos"] = df["Pos"].apply(normalize_pos)
-
-    def _fix_row(r):
-        statut = r["Statut"]
-        slot = r["Slot"]
-        if statut == "Club École":
-            if slot not in {"", "Blessé"}:
-                r["Slot"] = ""
-        else:
-            if slot not in {"Actif", "Banc", "Blessé"}:
-                r["Slot"] = "Actif"
-        return r
-
-    df = df.apply(_fix_row, axis=1)
-    df = df.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last").reset_index(drop=True)
-    return df
 
 
 # =====================================================
