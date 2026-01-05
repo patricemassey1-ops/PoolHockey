@@ -282,6 +282,22 @@ def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
 
     return str(fallback or "").strip()
 
+# =====================================================
+# ADMIN GUARD — Whalers only
+#   (Défaut: admin si l'équipe sélectionnée = "Whalers")
+# =====================================================
+def _is_admin_whalers() -> bool:
+    try:
+        # 1) priorise ta fonction existante si elle existe
+        if "get_selected_team" in globals():
+            team = str(get_selected_team() or "").strip()
+        else:
+            # 2) fallback session_state
+            team = str(st.session_state.get("selected_team", "") or "").strip()
+
+        return team.lower() == "whalers"
+    except Exception:
+        return False
 
 
 # =====================================================
@@ -3272,42 +3288,6 @@ for p in teams_all:
     )
 
 plafonds = pd.DataFrame(resume)
-
-
-
-
-# =====================================================
-# TABS (Admin seulement pour Whalers)
-# =====================================================
-is_admin = _is_admin_whalers()
-
-if is_admin:
-    tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
-        [
-            "📊 Tableau",
-            "🧾 Alignement",
-            "👤 Joueurs",
-            "🕘 Historique",
-            "⚖️ Transactions",
-            "🛠️ Gestion Admin",
-            "🧠 Recommandations",
-        ]
-    )
-else:
-    tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
-        [
-            "📊 Tableau",
-            "🧾 Alignement",
-            "👤 Joueurs",
-            "🕘 Historique",
-            "⚖️ Transactions",
-            "🧠 Recommandations",
-        ]
-    )
-    tabAdmin = None  # important
-
-
-
 
 
 
