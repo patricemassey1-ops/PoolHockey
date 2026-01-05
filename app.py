@@ -283,50 +283,36 @@ def guess_owner_from_fantrax_upload(uploaded, fallback: str = "") -> str:
     return str(fallback or "").strip()
 
 
-from zoneinfo import ZoneInfo
-TZ_MTL = ZoneInfo("America/Toronto")
 
-def _fmt_ts_mtl(ts: str) -> str:
-    s = str(ts or "").strip()
-    if not s:
-        return ""
-    dt = pd.to_datetime(s, errors="coerce")
-    if pd.isna(dt):
-        return s
-    try:
-        if getattr(dt, "tzinfo", None) is None:
-            dt = dt.to_pydatetime().replace(tzinfo=TZ_MTL)
-        else:
-            dt = dt.tz_convert(TZ_MTL).to_pydatetime()
-    except Exception:
-        try:
-            dt = dt.to_pydatetime().replace(tzinfo=TZ_MTL)
-        except Exception:
-            return s
-    return dt.strftime("%Y-%m-%d %H:%M")
+# =====================================================
+# TABS (Admin seulement pour Whalers)
+# =====================================================
+is_admin = _is_admin_whalers()
 
-
-from zoneinfo import ZoneInfo
-TZ_MTL = ZoneInfo("America/Toronto")
-
-def _fmt_ts_mtl(ts: str) -> str:
-    s = str(ts or "").strip()
-    if not s:
-        return ""
-    dt = pd.to_datetime(s, errors="coerce")
-    if pd.isna(dt):
-        return s
-    try:
-        if getattr(dt, "tzinfo", None) is None:
-            dt = dt.to_pydatetime().replace(tzinfo=TZ_MTL)
-        else:
-            dt = dt.tz_convert(TZ_MTL).to_pydatetime()
-    except Exception:
-        try:
-            dt = dt.to_pydatetime().replace(tzinfo=TZ_MTL)
-        except Exception:
-            return s
-    return dt.strftime("%Y-%m-%d %H:%M")
+if is_admin:
+    tab1, tabA, tabJ, tabH, tab2, tabAdmin, tab3 = st.tabs(
+        [
+            "📊 Tableau",
+            "🧾 Alignement",
+            "👤 Joueurs",
+            "🕘 Historique",
+            "⚖️ Transactions",
+            "🛠️ Gestion Admin",
+            "🧠 Recommandations",
+        ]
+    )
+else:
+    tab1, tabA, tabJ, tabH, tab2, tab3 = st.tabs(
+        [
+            "📊 Tableau",
+            "🧾 Alignement",
+            "👤 Joueurs",
+            "🕘 Historique",
+            "⚖️ Transactions",
+            "🧠 Recommandations",
+        ]
+    )
+    tabAdmin = None  # important
 
 
 # =====================================================
@@ -360,19 +346,15 @@ with tabH:
             # 🔧 Timezone Montréal + tri récent
             # -------------------------------------------------
             from zoneinfo import ZoneInfo
-            tz_mtl = ZoneInfo("America/Toronto")  # Montréal = America/Toronto
+            tz_mtl = ZoneInfo("America/Toronto")
 
-            # timestamp_dt robuste (accepte ISO ou "YYYY-mm-dd HH:MM:SS")
             ts = pd.to_datetime(h["timestamp"], errors="coerce", utc=False)
-
-            # Si ts est naive -> on localize en Montréal; si tz-aware -> on convertit
             try:
                 if getattr(ts.dt, "tz", None) is None:
                     ts = ts.dt.tz_localize(tz_mtl, nonexistent="shift_forward", ambiguous="NaT")
                 else:
                     ts = ts.dt.tz_convert(tz_mtl)
             except Exception:
-                # fallback: laisse naive
                 pass
 
             h["timestamp_dt"] = ts
@@ -381,16 +363,14 @@ with tabH:
             # -------------------------------------------------
             # 🎛️ Filtre propriétaire (Tous + default = sidebar team)
             # -------------------------------------------------
-            owners = sorted(h["proprietaire"].dropna().astype(str).map(lambda x: x.strip()).unique().tolist())
-            owners = [o for o in owners if o]  # remove empty
+            owners = sorted(
+                h["proprietaire"].dropna().astype(str).map(lambda x: x.strip()).unique().tolist()
+            )
+            owners = [o for o in owners if o]
             options = ["Tous"] + owners
 
-            # default = team sidebar (si présent)
             default_owner = str(get_selected_team() or "").strip()
-            if default_owner in owners:
-                default_index = options.index(default_owner)
-            else:
-                default_index = 0
+            default_index = options.index(default_owner) if default_owner in owners else 0
 
             owner_filter = st.selectbox(
                 "Filtrer par propriétaire",
@@ -408,9 +388,6 @@ with tabH:
                 st.caption("↩️ = annuler ce changement. ❌ = supprimer l’entrée (sans modifier l’alignement).")
                 st.caption("🗑️ Suppression bulk : coche plusieurs lignes puis supprime en une fois.")
 
-                # -------------------------------------------------
-                # Limite (perf)
-                # -------------------------------------------------
                 max_rows = st.number_input(
                     "Nombre max de lignes à afficher",
                     min_value=50,
@@ -419,12 +396,8 @@ with tabH:
                     step=50,
                     key="hist_max_rows",
                 )
-
                 h_view = h.head(int(max_rows)).reset_index(drop=True)
 
-                # -------------------------------------------------
-                # Helpers
-                # -------------------------------------------------
                 def _safe_int(x):
                     v = pd.to_numeric(x, errors="coerce")
                     if pd.isna(v):
@@ -434,7 +407,6 @@ with tabH:
                     except Exception:
                         return None
 
-                # 🔑 UID unique garanti (évite DuplicateElementKey même si id doublons)
                 def _uid(r: pd.Series, i: int) -> str:
                     rid = _safe_int(r.get("id", None))
                     ts0 = str(r.get("timestamp", "")).strip()
@@ -448,20 +420,13 @@ with tabH:
                     if pd.isna(t) or t is None:
                         return str(r.get("timestamp", ""))
                     try:
-                        # format lisible Montréal
                         return t.strftime("%Y-%m-%d %H:%M:%S")
                     except Exception:
                         return str(r.get("timestamp", ""))
 
-                # -------------------------------------------------
-                # ✅ Bulk selection state
-                # -------------------------------------------------
                 if "hist_bulk_selected" not in st.session_state:
                     st.session_state["hist_bulk_selected"] = set()
 
-                # -------------------------------------------------
-                # Header
-                # -------------------------------------------------
                 head = st.columns([0.7, 1.6, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
                 head[0].markdown("**✔**")
                 head[1].markdown("**Date/Heure (MTL)**")
@@ -474,16 +439,12 @@ with tabH:
                 head[8].markdown("**↩️**")
                 head[9].markdown("**❌**")
 
-                # -------------------------------------------------
-                # Rows
-                # -------------------------------------------------
                 for i, r in h_view.iterrows():
                     uid = _uid(r, i)
                     rid = _safe_int(r.get("id", None))
 
                     cols = st.columns([0.7, 1.6, 1.4, 2.4, 1.0, 1.6, 1.6, 2.0, 0.8, 0.7])
 
-                    # ✅ checkbox bulk (store UID)
                     checked = cols[0].checkbox(
                         "",
                         value=(uid in st.session_state["hist_bulk_selected"]),
@@ -509,9 +470,6 @@ with tabH:
                     cols[6].markdown(vers)
                     cols[7].markdown(str(r.get("action", "")))
 
-                    # =====================================================
-                    # UNDO (push local + Drive)
-                    # =====================================================
                     if cols[8].button("↩️", key=f"undo__{uid}", use_container_width=True):
                         if st.session_state.get("LOCKED"):
                             st.error("🔒 Saison verrouillée : annulation impossible.")
@@ -614,7 +572,10 @@ with tabH:
                         st.session_state["history"] = h2.reset_index(drop=True)
 
                         # Save local
-                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
+                        save_history(
+                            st.session_state.get("HISTORY_FILE", HISTORY_FILE),
+                            st.session_state["history"],
+                        )
 
                         # ✅ PUSH DRIVE (history) après DELETE
                         try:
@@ -646,20 +607,21 @@ with tabH:
 
                         if not h2.empty:
                             # Recompute a UID for each row in the FULL history (important)
-                            # We'll rebuild UID using same logic but with row index enumeration.
-                            # (stable enough + avoids needing to store ids list only)
                             tmp = h2.copy()
-                            for c in ["id","timestamp","proprietaire","joueur","action"]:
+                            for c in ["id", "timestamp", "proprietaire", "joueur", "action"]:
                                 if c not in tmp.columns:
                                     tmp[c] = ""
+
+                            tmp = tmp.reset_index(drop=True)
+
                             tmp["__uid"] = [
-                                f"{_safe_int(rr.get('id', None)) if _safe_int(rr.get('id', None)) is not None else 'noid'}"
-                                f"|{str(rr.get('timestamp','')).strip()}"
-                                f"|{str(rr.get('proprietaire','')).strip()}"
-                                f"|{str(rr.get('joueur','')).strip()}"
-                                f"|{str(rr.get('action','')).strip()}"
+                                f"{(_safe_int(rr.get('id', None)) if _safe_int(rr.get('id', None)) is not None else 'noid')}"
+                                f"|{str(rr.get('timestamp', '')).strip()}"
+                                f"|{str(rr.get('proprietaire', '')).strip()}"
+                                f"|{str(rr.get('joueur', '')).strip()}"
+                                f"|{str(rr.get('action', '')).strip()}"
                                 f"|{ii}"
-                                for ii, rr in tmp.reset_index(drop=True).iterrows()
+                                for ii, rr in tmp.iterrows()
                             ]
 
                             h2 = tmp[~tmp["__uid"].isin(set(sel))].drop(columns=["__uid"], errors="ignore")
@@ -668,7 +630,10 @@ with tabH:
                         st.session_state["hist_bulk_selected"] = set()
 
                         # Save local
-                        save_history(st.session_state.get("HISTORY_FILE", HISTORY_FILE), st.session_state["history"])
+                        save_history(
+                            st.session_state.get("HISTORY_FILE", HISTORY_FILE),
+                            st.session_state["history"],
+                        )
 
                         # Push Drive
                         try:
@@ -688,6 +653,766 @@ with tabH:
                     if c3.button("✖️ Désélectionner tout", use_container_width=True, key="bulk_clear_btn"):
                         st.session_state["hist_bulk_selected"] = set()
                         do_rerun()
+
+
+
+# =====================================================
+# TAB ADMIN — IMPORT / EXPORT / BACKUPS (ADMIN ONLY)
+# =====================================================
+if tabAdmin is not None:
+    with tabAdmin:
+        st.subheader("🛠️ Gestion Admin")
+
+        # =====================================================
+        # 📥 IMPORT (TOP) — MULTI TEAM
+        #   ✅ dropdown équipe en premier
+        #   ✅ uploaders ensuite avec keys uniques
+        # =====================================================
+        st.markdown("### 📥 Import (multi-équipes)")
+        manifest = load_init_manifest() or {}
+        if "fantrax_by_team" not in manifest:
+            manifest["fantrax_by_team"] = {}
+
+        # --- Choix équipe (AU-DESSUS)
+        teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else ["Whalers"]
+        if not teams:
+            teams = ["Whalers"]
+
+        # défaut = équipe sélectionnée dans sidebar si possible
+        default_owner = str(get_selected_team() or "").strip()
+        if default_owner not in teams:
+            default_owner = teams[0]
+
+        chosen_owner = st.selectbox(
+            "Importer l'alignement dans quelle équipe ?",
+            teams,
+            index=(teams.index(default_owner) if default_owner in teams else 0),
+            key="admin_import_team_pick",
+        )
+
+        clear_team_before = st.checkbox(
+            f"Vider l’alignement de {chosen_owner} avant import",
+            value=True,
+            help="Recommandé si tu réimportes la même équipe pour éviter des restes/doublons.",
+            key="admin_clear_team_before",
+        )
+
+        st.markdown("#### Fichiers")
+        u_nonce = int(st.session_state.get("uploader_nonce", 0))
+
+        c_init1, c_init2 = st.columns(2)
+        with c_init1:
+            init_align = st.file_uploader(
+                "CSV — Alignement (Fantrax)",
+                type=["csv", "txt"],
+                help="Import dans UNE équipe. Les autres équipes restent intactes.",
+                key=f"admin_import_align__{season}__{chosen_owner}__{u_nonce}",
+            )
+
+        with c_init2:
+            init_hist = st.file_uploader(
+                "CSV — Historique (optionnel)",
+                type=["csv", "txt"],
+                help="Optionnel: injecte un historique initial.",
+                key=f"admin_import_hist__{season}__{chosen_owner}__{u_nonce}",
+            )
+
+        st.caption("Étapes: 1) Prévisualiser → 2) Confirmer l'import")
+
+        c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
+
+        # -----------------------------
+        # 1) PRÉVISUALISER
+        # -----------------------------
+        with c_btn1:
+            if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
+                if init_align is None:
+                    st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
+                else:
+                    try:
+                        buf = io.BytesIO(init_align.getbuffer())
+                        buf.name = init_align.name
+
+                        df_import = parse_fantrax(buf)
+                        if df_import is None or df_import.empty:
+                            st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
+                        else:
+                            df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                            df_import["Propriétaire"] = str(chosen_owner).strip()
+                            df_import = clean_data(df_import)
+
+                            st.session_state["init_preview_df"] = df_import
+                            st.session_state["init_preview_owner"] = str(chosen_owner).strip()
+                            st.session_state["init_preview_filename"] = init_align.name
+
+                            st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                    except Exception as e:
+                        st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
+
+        preview_df = st.session_state.get("init_preview_df")
+        if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+            with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
+                st.dataframe(preview_df.head(20), use_container_width=True)
+
+            st.info(
+                f"Prêt: **{len(preview_df)}** joueur(s) → **{st.session_state.get('init_preview_owner','')}** "
+                f"(fichier: {st.session_state.get('init_preview_filename','')})"
+            )
+
+        # -----------------------------
+        # 2) CONFIRMER — REPLACE ONLY TEAM
+        # -----------------------------
+        with c_btn2:
+            disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
+
+            if st.button(
+                "✅ Confirmer l'import",
+                use_container_width=True,
+                disabled=disabled_confirm,
+                key="admin_confirm_import",
+            ):
+                try:
+                    df_team = st.session_state.get("init_preview_df")
+                    owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
+                    filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
+
+                    if df_team is None or df_team.empty:
+                        st.error("Aucune preview valide.")
+                    else:
+                        # ---- Sauvegarde brute (par équipe) dans /data
+                        saved_path = ""
+                        try:
+                            safe_team = owner_final.replace(" ", "_")
+                            saved_path = save_uploaded_csv(init_align, f"initial_fantrax_{season}_{safe_team}.csv")
+                        except Exception:
+                            saved_path = ""
+
+                        manifest["fantrax_by_team"][owner_final] = {
+                            "path": saved_path,
+                            "uploaded_name": filename_final,
+                            "season": season,
+                            "saved_at": datetime.now().isoformat(),
+                            "team": owner_final,
+                        }
+                        save_init_manifest(manifest)
+
+                        # ---- Merge: garde les autres équipes, remplace owner_final
+                        df_cur = st.session_state.get("data")
+                        if df_cur is None or not isinstance(df_cur, pd.DataFrame):
+                            df_cur = pd.DataFrame(columns=REQUIRED_COLS)
+                        df_cur = clean_data(df_cur)
+
+                        df_team = df_team.copy()
+                        df_team["Propriétaire"] = owner_final
+                        df_team = clean_data(df_team)
+
+                        if clear_team_before:
+                            keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                            df_new = pd.concat([keep, df_team], ignore_index=True)
+                        else:
+                            df_new = pd.concat([df_cur, df_team], ignore_index=True)
+
+                        # Dédupe sécurité
+                        if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                            df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                            df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
+                            df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+                        df_new = clean_data(df_new)
+                        st.session_state["data"] = df_new
+
+                        # Persist (local + Drive batch)
+                        season_lbl = str(st.session_state.get("season", season)).strip()
+                        persist_data(df_new, season_lbl)
+
+                        # Resync UI
+                        st.session_state["selected_team"] = owner_final
+                        st.session_state["align_owner"] = owner_final
+
+                        # Clear move dialog state (évite popup sur joueur disparu)
+                        clear_move_ctx()
+
+                        # Trace
+                        try:
+                            history_add(
+                                action="IMPORT_ALIGNEMENT_EQUIPE",
+                                owner=owner_final,
+                                details=f"{len(df_team)} joueurs importés (fichier: {filename_final})",
+                            )
+                        except Exception:
+                            pass
+
+                        # Historique initial (optionnel)
+                        if init_hist is not None:
+                            try:
+                                hist_path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
+                                manifest["history"] = {
+                                    "path": hist_path,
+                                    "uploaded_name": init_hist.name,
+                                    "season": season,
+                                    "saved_at": datetime.now().isoformat(),
+                                }
+                                save_init_manifest(manifest)
+
+                                h0 = pd.read_csv(hist_path)
+                                st.session_state["history"] = h0
+                                persist_history(h0, season_lbl)
+                            except Exception as e:
+                                st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
+
+                        # Reset uploaders
+                        st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+                        st.session_state.pop("init_preview_df", None)
+                        st.session_state.pop("init_preview_owner", None)
+                        st.session_state.pop("init_preview_filename", None)
+
+                        st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
+                        do_rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Import échoué : {type(e).__name__}: {e}")
+
+        # -----------------------------
+        # 3) État imports (per team)  ✅ (seulement cette section est dans c_btn3)
+        # -----------------------------
+        with c_btn3:
+            st.markdown("#### 📌 Derniers imports par équipe")
+            by_team = manifest.get("fantrax_by_team", {}) or {}
+            if not by_team:
+                st.caption("— Aucun import enregistré —")
+            else:
+                rows = []
+                for team, info in by_team.items():
+                    rows.append(
+                        {
+                            "Équipe": team,
+                            "Fichier": info.get("uploaded_name", ""),
+                            "Date": info.get("saved_at", ""),
+                            "Path": os.path.basename(info.get("path", "") or ""),
+                        }
+                    )
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        # =====================================================
+        # 📤 EXPORT CSV (ADMIN ONLY)
+        # =====================================================
+        st.markdown("### 📤 Export CSV")
+
+        data_file = st.session_state.get("DATA_FILE", "")
+        hist_file = st.session_state.get("HISTORY_FILE", "")
+        season_lbl = st.session_state.get("season", season)
+
+        e1, e2 = st.columns(2)
+
+        with e1:
+            if data_file and os.path.exists(data_file):
+                with open(data_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Alignement (CSV)",
+                        data=f.read(),
+                        file_name=f"fantrax_{season_lbl}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key=f"dl_align_{season_lbl}_admin_local",
+                    )
+            else:
+                st.info("Aucun alignement à exporter.")
+
+        with e2:
+            if hist_file and os.path.exists(hist_file):
+                with open(hist_file, "rb") as f:
+                    st.download_button(
+                        "⬇️ Export Historique (CSV)",
+                        data=f.read(),
+                        file_name=f"history_{season_lbl}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key=f"dl_hist_{season_lbl}_admin_local",
+                    )
+            else:
+                st.info("Aucun historique à exporter.")
+
+        # =====================================================
+        # 🧨 SUPPRIMER ALIGNEMENT D'UNE ÉQUIPE (ADMIN ONLY) — SAFE + BACKUP
+        # =====================================================
+        st.divider()
+        st.markdown("### 🧨 Supprimer l’alignement d’une équipe")
+
+        df_cur = st.session_state.get("data")
+        if df_cur is None or not isinstance(df_cur, pd.DataFrame):
+            st.warning("Aucune donnée chargée.")
+        else:
+            if "Propriétaire" not in df_cur.columns:
+                st.error("Colonne 'Propriétaire' manquante dans les données.")
+            else:
+                teams_in_data = sorted(df_cur["Propriétaire"].dropna().astype(str).unique().tolist())
+                if not teams_in_data:
+                    st.info("Aucune équipe trouvée dans les données.")
+                else:
+                    colS1, colS2 = st.columns([2, 1], vertical_alignment="center")
+                    with colS1:
+                        del_team = st.selectbox(
+                            "Choisir l’équipe à supprimer (alignement)",
+                            teams_in_data,
+                            key="admin_del_team_pick_safe",
+                        )
+                    with colS2:
+                        del_history_too = st.checkbox(
+                            "Supprimer aussi son historique",
+                            value=False,
+                            key="admin_del_team_history_too_safe",
+                        )
+
+                    n_rows = int((df_cur["Propriétaire"].astype(str) == str(del_team)).sum())
+                    st.caption(f"Joueurs dans l’équipe **{del_team}** : **{n_rows}**")
+
+                    st.markdown("#### Confirmation")
+                    typed = st.text_input(
+                        f"Pour confirmer, retape exactement : {del_team}",
+                        value="",
+                        key="admin_del_team_type_name",
+                    )
+                    confirm_ok = (str(typed).strip() == str(del_team).strip())
+
+                    if st.button(
+                        "🗑️ SUPPRIMER DÉFINITIVEMENT l’alignement de cette équipe",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not confirm_ok),
+                        key="admin_del_team_btn_safe",
+                    ):
+                        if st.session_state.get("LOCKED"):
+                            st.error("🔒 Saison verrouillée : suppression impossible.")
+                        else:
+                            # 1) BACKUP
+                            try:
+                                backup_dir = os.path.join(DATA_DIR, "backups")
+                                os.makedirs(backup_dir, exist_ok=True)
+
+                                season_lbl2 = str(st.session_state.get("season", "")).strip() or "season"
+                                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                                df_team = df_cur[df_cur["Propriétaire"].astype(str) == str(del_team)].copy()
+                                backup_data_path = os.path.join(
+                                    backup_dir,
+                                    f"backup_align_{season_lbl2}_{del_team}_{ts}.csv".replace(" ", "_"),
+                                )
+                                df_team.to_csv(backup_data_path, index=False)
+
+                                backup_hist_path = ""
+                                if del_history_too:
+                                    h = st.session_state.get("history")
+                                    if isinstance(h, pd.DataFrame) and not h.empty:
+                                        if "proprietaire" not in h.columns and "Propriétaire" in h.columns:
+                                            h = h.rename(columns={"Propriétaire": "proprietaire"})
+                                        if "proprietaire" in h.columns:
+                                            h_team = h[h["proprietaire"].astype(str) == str(del_team)].copy()
+                                            backup_hist_path = os.path.join(
+                                                backup_dir,
+                                                f"backup_hist_{season_lbl2}_{del_team}_{ts}.csv".replace(" ", "_"),
+                                            )
+                                            h_team.to_csv(backup_hist_path, index=False)
+
+                                st.success("✅ Backup créé avant suppression.")
+                                st.caption(f"Backup alignement : `{backup_data_path}`")
+                                if backup_hist_path:
+                                    st.caption(f"Backup historique : `{backup_hist_path}`")
+
+                            except Exception as e:
+                                st.warning(f"⚠️ Backup impossible (je continue quand même) : {type(e).__name__}: {e}")
+
+                            # 2) SUPPRESSION DANS DATA
+                            df_new = df_cur.copy()
+                            df_new = df_new[df_new["Propriétaire"].astype(str) != str(del_team)].reset_index(drop=True)
+                            df_new = clean_data(df_new)
+                            st.session_state["data"] = df_new
+
+                            # 3) SUPPRESSION DANS HISTORY (optionnel)
+                            if del_history_too:
+                                h = st.session_state.get("history")
+                                if isinstance(h, pd.DataFrame) and not h.empty:
+                                    if "proprietaire" not in h.columns and "Propriétaire" in h.columns:
+                                        h = h.rename(columns={"Propriétaire": "proprietaire"})
+                                    if "proprietaire" in h.columns:
+                                        h2 = h[h["proprietaire"].astype(str) != str(del_team)].reset_index(drop=True)
+                                        st.session_state["history"] = h2
+                                        try:
+                                            persist_history(h2, st.session_state.get("season", ""))
+                                        except Exception:
+                                            pass
+
+                            # 4) PERSIST (local + Drive batch)
+                            try:
+                                persist_data(df_new, st.session_state.get("season", ""))
+                            except Exception as e:
+                                st.warning(f"⚠️ Suppression OK mais persistance data a échoué: {type(e).__name__}: {e}")
+
+                            # 5) TRACE
+                            try:
+                                history_add(
+                                    action="DELETE_TEAM_ALIGNEMENT",
+                                    owner=str(del_team),
+                                    details=f"Alignement supprimé ({n_rows} lignes). Historique supprimé: {bool(del_history_too)}",
+                                )
+                            except Exception:
+                                pass
+
+                            st.toast(f"🗑️ Alignement supprimé : {del_team}", icon="🗑️")
+
+                            if "flush_drive_queue" in globals():
+                                n, errs = flush_drive_queue(force=True)
+                                if errs:
+                                    st.warning("⚠️ Suppression OK, mais Drive flush a eu des erreurs:\n" + "\n".join(errs))
+                                else:
+                                    st.success(f"✅ Drive flush OK — {n} fichier(s)")
+
+                            do_rerun()
+
+        # =====================================================
+        # ♻️ RESTAURER UN BACKUP (ADMIN PRO) — auto-detect + preview + merge history
+        # =====================================================
+        st.divider()
+        st.markdown("### ♻️ Restaurer un backup (PRO)")
+
+        backup_dir = os.path.join(DATA_DIR, "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        def _list_csv_pro(dirpath: str) -> list[str]:
+            try:
+                files = [f for f in os.listdir(dirpath) if f.lower().endswith(".csv")]
+                files.sort(reverse=True)
+                return files
+            except Exception:
+                return []
+
+        def _infer_team_from_backup_name_pro(fname: str) -> str:
+            try:
+                base = os.path.basename(fname).replace(".csv", "")
+                parts = base.split("_")
+                if len(parts) >= 6 and parts[0] == "backup" and parts[1] == "align":
+                    team = "_".join(parts[3:-1]).replace("_", " ").strip()
+                    return team
+            except Exception:
+                pass
+            return ""
+
+        align_backups = [f for f in _list_csv_pro(backup_dir) if f.lower().startswith("backup_align_")]
+        hist_backups = [f for f in _list_csv_pro(backup_dir) if f.lower().startswith("backup_hist_")]
+
+        if not align_backups:
+            st.info("Aucun backup alignement trouvé dans /data/backups/.")
+        else:
+            pick_align = st.selectbox("Choisir un backup alignement", align_backups, key="admin_restore_align_pick_pro")
+
+            inferred_team = _infer_team_from_backup_name_pro(pick_align)
+            if inferred_team:
+                st.caption(f"Équipe détectée : **{inferred_team}**")
+            else:
+                st.warning("Équipe non détectée automatiquement (nom atypique). Tu pourras la choisir manuellement.")
+
+            df_preview = None
+            preview_err = None
+            try:
+                df_preview = pd.read_csv(os.path.join(backup_dir, pick_align))
+                df_preview = clean_data(df_preview)
+            except Exception as e:
+                preview_err = f"{type(e).__name__}: {e}"
+
+            if preview_err:
+                st.error(f"Impossible de lire le backup: {preview_err}")
+            else:
+                df_cur = st.session_state.get("data")
+                cur_teams = []
+                if isinstance(df_cur, pd.DataFrame) and not df_cur.empty and "Propriétaire" in df_cur.columns:
+                    cur_teams = sorted(df_cur["Propriétaire"].dropna().astype(str).unique().tolist())
+
+                default_team = inferred_team if inferred_team else (cur_teams[0] if cur_teams else "")
+                target_team = st.selectbox(
+                    "Équipe cible (sera forcée dans les lignes du backup)",
+                    options=(cur_teams if cur_teams else ([default_team] if default_team else [""])),
+                    index=(cur_teams.index(default_team) if (default_team in cur_teams) else 0),
+                    key="admin_restore_target_team_pro",
+                )
+                if not target_team:
+                    target_team = default_team
+
+                mode = st.radio(
+                    "Mode de restauration",
+                    ["Remplacer l’équipe", "Ajouter (merge)"],
+                    index=0,
+                    horizontal=True,
+                    key="admin_restore_mode_pro",
+                )
+
+                st.caption(f"Backup: **{pick_align}** • lignes: **{len(df_preview)}**")
+
+                with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
+                    st.dataframe(df_preview.head(20), use_container_width=True)
+
+                st.markdown("#### Historique (optionnel)")
+                restore_hist = st.checkbox(
+                    "Restaurer un backup d’historique",
+                    value=False,
+                    key="admin_restore_hist_toggle_pro",
+                )
+
+                hist_mode = "Remplacer tout"
+                pick_hist = None
+                if restore_hist:
+                    if not hist_backups:
+                        st.warning("Aucun backup historique trouvé.")
+                    else:
+                        pick_hist = st.selectbox("Choisir un backup historique", hist_backups, key="admin_restore_hist_pick_pro")
+                        hist_mode = st.radio(
+                            "Mode historique",
+                            ["Remplacer tout", "MERGE (ajouter + dédupliquer)"],
+                            index=1,
+                            horizontal=True,
+                            key="admin_restore_hist_mode_pro",
+                            help="MERGE garde l'historique existant et ajoute celui du backup, en dédupliquant si possible.",
+                        )
+
+                st.markdown("#### Confirmation")
+                typed_restore = st.text_input(
+                    f"Pour confirmer, tape exactement : RESTORE {target_team}",
+                    value="",
+                    key="admin_restore_type_pro",
+                )
+                confirm_restore = (typed_restore.strip() == f"RESTORE {target_team}")
+
+                if st.button(
+                    "♻️ RESTAURER MAINTENANT",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(not confirm_restore),
+                    key="admin_restore_btn_pro",
+                ):
+                    if st.session_state.get("LOCKED"):
+                        st.error("🔒 Saison verrouillée : restauration impossible.")
+                    else:
+                        try:
+                            df_b = df_preview.copy()
+                            if "Propriétaire" not in df_b.columns:
+                                df_b["Propriétaire"] = str(target_team)
+                            df_b["Propriétaire"] = str(target_team)
+                            df_b = clean_data(df_b)
+
+                            df_cur2 = st.session_state.get("data")
+                            if df_cur2 is None or not isinstance(df_cur2, pd.DataFrame):
+                                df_cur2 = pd.DataFrame(columns=REQUIRED_COLS)
+                            df_cur2 = clean_data(df_cur2)
+
+                            if mode == "Remplacer l’équipe":
+                                df_keep = df_cur2[df_cur2["Propriétaire"].astype(str) != str(target_team)].copy()
+                                df_new = pd.concat([df_keep, df_b], ignore_index=True)
+                            else:
+                                df_new = pd.concat([df_cur2, df_b], ignore_index=True)
+                                if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                                    df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+                            df_new = clean_data(df_new)
+                            st.session_state["data"] = df_new
+                            persist_data(df_new, st.session_state.get("season", ""))
+
+                            if restore_hist and pick_hist:
+                                h_path = os.path.join(backup_dir, pick_hist)
+                                h_b = pd.read_csv(h_path)
+                                if "proprietaire" not in h_b.columns and "Propriétaire" in h_b.columns:
+                                    h_b = h_b.rename(columns={"Propriétaire": "proprietaire"})
+
+                                h_cur = st.session_state.get("history")
+                                if (hist_mode == "MERGE (ajouter + dédupliquer)") and isinstance(h_cur, pd.DataFrame) and not h_cur.empty:
+                                    h_merge = pd.concat([h_cur, h_b], ignore_index=True)
+                                    if "id" in h_merge.columns:
+                                        h_merge = h_merge.drop_duplicates(subset=["id"], keep="last")
+                                    else:
+                                        key_cols = [c for c in ["timestamp", "season", "proprietaire", "joueur", "from_statut", "from_slot", "to_statut", "to_slot", "action"] if c in h_merge.columns]
+                                        if key_cols:
+                                            h_merge = h_merge.drop_duplicates(subset=key_cols, keep="last")
+                                    st.session_state["history"] = h_merge.reset_index(drop=True)
+                                else:
+                                    st.session_state["history"] = h_b
+
+                                try:
+                                    persist_history(st.session_state["history"], st.session_state.get("season", ""))
+                                except Exception:
+                                    pass
+
+                            try:
+                                history_add(
+                                    action="RESTORE_BACKUP_ALIGNEMENT",
+                                    owner=str(target_team),
+                                    details=f"align={pick_align} | mode={mode} | hist={(pick_hist or 'no')} | hist_mode={hist_mode}",
+                                )
+                            except Exception:
+                                pass
+
+                            st.toast("♻️ Backup restauré", icon="♻️")
+
+                            if "flush_drive_queue" in globals():
+                                n, errs = flush_drive_queue(force=True)
+                                if errs:
+                                    st.warning("⚠️ Restore OK, mais Drive flush a eu des erreurs:\n" + "\n".join(errs))
+                                else:
+                                    st.success(f"✅ Drive flush OK — {n} fichier(s)")
+
+                            do_rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Restauration échouée : {type(e).__name__}: {e}")
+
+        # =====================================================
+        # 🗂️ GESTION DES BACKUPS (LISTE + RESTORE + DELETE + ROTATION)
+        # =====================================================
+        st.divider()
+        st.markdown("### 🗂️ Gestion des backups")
+
+        backup_dir = os.path.join(DATA_DIR, "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        def _parse_backup_filename_mgr(fname: str) -> dict:
+            out = {
+                "file": fname,
+                "type": "",
+                "season": "",
+                "team": "",
+                "ts": "",
+                "path": os.path.join(backup_dir, fname),
+            }
+            base = os.path.basename(fname)
+            if not base.lower().endswith(".csv"):
+                return out
+            name = base[:-4]
+            parts = name.split("_")
+            if len(parts) < 5:
+                return out
+            if parts[0] != "backup":
+                return out
+            if parts[1] not in {"align", "hist"}:
+                return out
+            out["type"] = "align" if parts[1] == "align" else "hist"
+            out["season"] = parts[2]
+            out["ts"] = parts[-1]
+            out["team"] = "_".join(parts[3:-1]).replace("_", " ").strip()
+            return out
+
+        def _list_backups_mgr() -> list[dict]:
+            try:
+                files = [
+                    f
+                    for f in os.listdir(backup_dir)
+                    if f.lower().endswith(".csv") and f.lower().startswith("backup_")
+                ]
+                rows = [_parse_backup_filename_mgr(f) for f in files]
+                rows.sort(key=lambda r: r.get("ts", ""), reverse=True)
+                return rows
+            except Exception:
+                return []
+
+        st.markdown("#### 🧹 Rotation auto des backups")
+        keep_n = st.number_input(
+            "Garder les N derniers backups par (type, saison, équipe)",
+            min_value=1,
+            max_value=200,
+            value=30,
+            step=5,
+            key="bk_keep_n",
+        )
+
+        def _apply_rotation_mgr(keep_n: int) -> tuple[int, list[str]]:
+            rows = _list_backups_mgr()
+            groups = {}
+            for r in rows:
+                k = (r.get("type", ""), r.get("season", ""), r.get("team", ""))
+                groups.setdefault(k, []).append(r)
+            deleted = 0
+            errs: list[str] = []
+            for _, items in groups.items():
+                items.sort(key=lambda x: x.get("ts", ""), reverse=True)
+                for r in items[int(keep_n):]:
+                    try:
+                        os.remove(r["path"])
+                        deleted += 1
+                    except Exception as e:
+                        errs.append(f"{r['file']}: {type(e).__name__}: {e}")
+            return deleted, errs
+
+        c_rot1, c_rot2 = st.columns([1, 2])
+        with c_rot1:
+            if st.button("🧹 Appliquer la rotation maintenant", use_container_width=True, key="bk_rotation_btn"):
+                n_del, errs = _apply_rotation_mgr(int(keep_n))
+                if errs:
+                    st.warning("Rotation appliquée avec erreurs:\n" + "\n".join(errs))
+                st.success(f"✅ Rotation terminée — {n_del} fichier(s) supprimé(s).")
+        with c_rot2:
+            st.caption("Astuce: garde 30 ou 50. Les anciens sont supprimés automatiquement par groupe (align/hist, saison, équipe).")
+
+        rows = _list_backups_mgr()
+        if not rows:
+            st.info("Aucun backup trouvé dans `data/backups/`.")
+        else:
+            st.markdown("#### 🔎 Liste des backups")
+
+            all_types = ["Tous", "align", "hist"]
+            all_seasons = ["Toutes"] + sorted(list({r["season"] for r in rows if r.get("season")}), reverse=True)
+            all_teams = ["Toutes"] + sorted(list({r["team"] for r in rows if r.get("team") and r.get("team") != "ALL"}))
+
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                t_filter = st.selectbox("Type", all_types, index=0, key="bk_type_filter")
+            with f2:
+                s_filter = st.selectbox("Saison", all_seasons, index=0, key="bk_season_filter")
+            with f3:
+                team_filter = st.selectbox("Équipe", all_teams, index=0, key="bk_team_filter")
+
+            view = rows
+            if t_filter != "Tous":
+                view = [r for r in view if r.get("type") == t_filter]
+            if s_filter != "Toutes":
+                view = [r for r in view if r.get("season") == s_filter]
+            if team_filter != "Toutes":
+                view = [r for r in view if r.get("team") == team_filter]
+
+            if not view:
+                st.info("Aucun backup ne correspond aux filtres.")
+            else:
+                head = st.columns([1.0, 1.2, 1.8, 1.6, 2.8, 1.1, 1.1])
+                head[0].markdown("**Type**")
+                head[1].markdown("**Saison**")
+                head[2].markdown("**Équipe**")
+                head[3].markdown("**Timestamp**")
+                head[4].markdown("**Fichier**")
+                head[5].markdown("**⬇️**")
+                head[6].markdown("**🗑️**")
+
+                for r in view[:200]:
+                    cols = st.columns([1.0, 1.2, 1.8, 1.6, 2.8, 1.1, 1.1])
+                    cols[0].markdown(r.get("type", ""))
+                    cols[1].markdown(r.get("season", ""))
+                    cols[2].markdown(r.get("team", ""))
+                    cols[3].markdown(r.get("ts", ""))
+                    cols[4].code(r.get("file", ""), language=None)
+
+                    try:
+                        with open(r["path"], "rb") as f:
+                            cols[5].download_button(
+                                "⬇️",
+                                data=f.read(),
+                                file_name=r["file"],
+                                mime="text/csv",
+                                use_container_width=True,
+                                key=f"bk_dl_{r['file']}",
+                            )
+                    except Exception:
+                        cols[5].write("—")
+
+                    if cols[6].button("🗑️", use_container_width=True, key=f"bk_del_{r['file']}"):
+                        try:
+                            os.remove(r["path"])
+                            st.toast("🗑️ Backup supprimé", icon="🗑️")
+                            do_rerun()
+                        except Exception as e:
+                            st.error(f"Suppression impossible: {type(e).__name__}: {e}")
 
 
 
@@ -2582,764 +3307,7 @@ else:
     tabAdmin = None  # important
 
 
-# =====================================================
-# TAB H — Historique (ton bloc)
-# =====================================================
-with tabH:
-    st.subheader("🕘 Historique des changements d’alignement")
 
-    # ✅ Guard (NE PAS st.stop() sinon ça stoppe toute l'app)
-    if df is None or not isinstance(df, pd.DataFrame) or plafonds is None:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-    else:
-        h = st.session_state.get("history")
-        h = h.copy() if isinstance(h, pd.DataFrame) else pd.DataFrame()
-
-        if h.empty:
-            st.info("Aucune entrée d’historique pour cette saison.")
-        else:
-            # ... (garde ton code TAB H ici tel quel)
-            pass
-
-
-
-        # =====================================================
-        # 📥 IMPORT (TOP) — MULTI TEAM
-        #   ✅ dropdown équipe en premier
-        #   ✅ uploaders ensuite avec keys uniques
-        # =====================================================
-        st.markdown("### 📥 Import (multi-équipes)")
-        manifest = load_init_manifest() or {}
-        if "fantrax_by_team" not in manifest:
-            manifest["fantrax_by_team"] = {}
-
-        # --- Choix équipe (AU-DESSUS)
-        teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else ["Whalers"]
-        if not teams:
-            teams = ["Whalers"]
-
-        # défaut = équipe sélectionnée dans sidebar si possible
-        default_owner = str(get_selected_team() or "").strip()
-        if default_owner not in teams:
-            default_owner = teams[0]
-
-        chosen_owner = st.selectbox(
-            "Importer l'alignement dans quelle équipe ?",
-            teams,
-            index=(teams.index(default_owner) if default_owner in teams else 0),
-            key="admin_import_team_pick",
-        )
-
-        clear_team_before = st.checkbox(
-            f"Vider l’alignement de {chosen_owner} avant import",
-            value=True,
-            help="Recommandé si tu réimportes la même équipe pour éviter des restes/doublons.",
-            key="admin_clear_team_before",
-        )
-
-        st.markdown("#### Fichiers")
-        u_nonce = int(st.session_state.get("uploader_nonce", 0))
-
-        c_init1, c_init2 = st.columns(2)
-        with c_init1:
-            init_align = st.file_uploader(
-                "CSV — Alignement (Fantrax)",
-                type=["csv", "txt"],
-                help="Import dans UNE équipe. Les autres équipes restent intactes.",
-                key=f"admin_import_align__{season}__{chosen_owner}__{u_nonce}",
-            )
-
-        with c_init2:
-            init_hist = st.file_uploader(
-                "CSV — Historique (optionnel)",
-                type=["csv", "txt"],
-                help="Optionnel: injecte un historique initial.",
-                key=f"admin_import_hist__{season}__{chosen_owner}__{u_nonce}",
-            )
-
-        st.caption("Étapes: 1) Prévisualiser → 2) Confirmer l'import")
-
-        c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
-
-        # -----------------------------
-        # 1) PRÉVISUALISER
-        # -----------------------------
-        with c_btn1:
-            if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-                if init_align is None:
-                    st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
-                else:
-                    try:
-                        buf = io.BytesIO(init_align.getbuffer())
-                        buf.name = init_align.name
-
-                        df_import = parse_fantrax(buf)
-                        if df_import is None or df_import.empty:
-                            st.error("❌ CSV Fantrax invalide : aucune donnée exploitable.")
-                        else:
-                            df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
-                            df_import["Propriétaire"] = str(chosen_owner).strip()
-                            df_import = clean_data(df_import)
-
-                            st.session_state["init_preview_df"] = df_import
-                            st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                            st.session_state["init_preview_filename"] = init_align.name
-
-                            st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
-                    except Exception as e:
-                        st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
-
-        preview_df = st.session_state.get("init_preview_df")
-        if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
-            with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
-                st.dataframe(preview_df.head(20), use_container_width=True)
-
-            st.info(
-                f"Prêt: **{len(preview_df)}** joueur(s) → **{st.session_state.get('init_preview_owner','')}** "
-                f"(fichier: {st.session_state.get('init_preview_filename','')})"
-            )
-
-        # -----------------------------
-        # 2) CONFIRMER — REPLACE ONLY TEAM
-        # -----------------------------
-        with c_btn2:
-            disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
-
-            if st.button(
-                "✅ Confirmer l'import",
-                use_container_width=True,
-                disabled=disabled_confirm,
-                key="admin_confirm_import",
-            ):
-                try:
-                    df_team = st.session_state.get("init_preview_df")
-                    owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
-                    filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
-
-                    if df_team is None or df_team.empty:
-                        st.error("Aucune preview valide.")
-                    else:
-                        # ---- Sauvegarde brute (par équipe) dans /data
-                        saved_path = ""
-                        try:
-                            safe_team = owner_final.replace(" ", "_")
-                            saved_path = save_uploaded_csv(init_align, f"initial_fantrax_{season}_{safe_team}.csv")
-                        except Exception:
-                            saved_path = ""
-
-                        manifest["fantrax_by_team"][owner_final] = {
-                            "path": saved_path,
-                            "uploaded_name": filename_final,
-                            "season": season,
-                            "saved_at": datetime.now().isoformat(),
-                            "team": owner_final,
-                        }
-                        save_init_manifest(manifest)
-
-                        # ---- Merge: garde les autres équipes, remplace owner_final
-                        df_cur = st.session_state.get("data")
-                        if df_cur is None or not isinstance(df_cur, pd.DataFrame):
-                            df_cur = pd.DataFrame(columns=REQUIRED_COLS)
-                        df_cur = clean_data(df_cur)
-
-                        df_team = df_team.copy()
-                        df_team["Propriétaire"] = owner_final
-                        df_team = clean_data(df_team)
-
-                        if clear_team_before:
-                            keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
-                            df_new = pd.concat([keep, df_team], ignore_index=True)
-                        else:
-                            df_new = pd.concat([df_cur, df_team], ignore_index=True)
-
-                        # Dédupe sécurité
-                        if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
-                            df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
-                            df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
-                            df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-
-                        df_new = clean_data(df_new)
-                        st.session_state["data"] = df_new
-
-                        # Persist (local + Drive batch)
-                        season_lbl = str(st.session_state.get("season", season)).strip()
-                        persist_data(df_new, season_lbl)
-
-                        # Resync UI
-                        st.session_state["selected_team"] = owner_final
-                        st.session_state["align_owner"] = owner_final
-
-                        # Clear move dialog state (évite popup sur joueur disparu)
-                        clear_move_ctx()
-
-                        # Trace
-                        try:
-                            history_add(
-                                action="IMPORT_ALIGNEMENT_EQUIPE",
-                                owner=owner_final,
-                                details=f"{len(df_team)} joueurs importés (fichier: {filename_final})",
-                            )
-                        except Exception:
-                            pass
-
-                        # Historique initial (optionnel)
-                        if init_hist is not None:
-                            try:
-                                hist_path = save_uploaded_csv(init_hist, f"initial_history_{season}.csv")
-                                manifest["history"] = {
-                                    "path": hist_path,
-                                    "uploaded_name": init_hist.name,
-                                    "season": season,
-                                    "saved_at": datetime.now().isoformat(),
-                                }
-                                save_init_manifest(manifest)
-
-                                h0 = pd.read_csv(hist_path)
-                                st.session_state["history"] = h0
-                                persist_history(h0, season_lbl)
-                            except Exception as e:
-                                st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
-
-                        # Reset uploaders
-                        st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
-                        st.session_state.pop("init_preview_df", None)
-                        st.session_state.pop("init_preview_owner", None)
-                        st.session_state.pop("init_preview_filename", None)
-
-                        st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
-                        do_rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Import échoué : {type(e).__name__}: {e}")
-
-        # -----------------------------
-        # 3) État imports (per team)
-        # -----------------------------
-        with c_btn3:
-            st.markdown("#### 📌 Derniers imports par équipe")
-            by_team = manifest.get("fantrax_by_team", {}) or {}
-            if not by_team:
-                st.caption("— Aucun import enregistré —")
-            else:
-                rows = []
-                for team, info in by_team.items():
-                    rows.append(
-                        {
-                            "Équipe": team,
-                            "Fichier": info.get("uploaded_name", ""),
-                            "Date": info.get("saved_at", ""),
-                            "Path": os.path.basename(info.get("path", "") or ""),
-                        }
-                    )
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-            # =====================================================
-            # 📤 EXPORT CSV (ADMIN ONLY)
-            # =====================================================
-            st.markdown("### 📤 Export CSV")
-
-            data_file = st.session_state.get("DATA_FILE", "")
-            hist_file = st.session_state.get("HISTORY_FILE", "")
-            season_lbl = st.session_state.get("season", season)
-
-            e1, e2 = st.columns(2)
-
-            with e1:
-                if data_file and os.path.exists(data_file):
-                    with open(data_file, "rb") as f:
-                        st.download_button(
-                            "⬇️ Export Alignement (CSV)",
-                            data=f.read(),
-                            file_name=f"fantrax_{season_lbl}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key=f"dl_align_{season_lbl}_admin_local",
-                        )
-                else:
-                    st.info("Aucun alignement à exporter.")
-
-            with e2:
-                if hist_file and os.path.exists(hist_file):
-                    with open(hist_file, "rb") as f:
-                        st.download_button(
-                            "⬇️ Export Historique (CSV)",
-                            data=f.read(),
-                            file_name=f"history_{season_lbl}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key=f"dl_hist_{season_lbl}_admin_local",
-                        )
-                else:
-                    st.info("Aucun historique à exporter.")
-
-            # =====================================================
-            # 🧨 SUPPRIMER ALIGNEMENT D'UNE ÉQUIPE (ADMIN ONLY) — SAFE + BACKUP
-            # =====================================================
-            st.divider()
-            st.markdown("### 🧨 Supprimer l’alignement d’une équipe")
-
-            df_cur = st.session_state.get("data")
-            if df_cur is None or not isinstance(df_cur, pd.DataFrame):
-                st.warning("Aucune donnée chargée.")
-            else:
-                if "Propriétaire" not in df_cur.columns:
-                    st.error("Colonne 'Propriétaire' manquante dans les données.")
-                else:
-                    teams_in_data = sorted(df_cur["Propriétaire"].dropna().astype(str).unique().tolist())
-                    if not teams_in_data:
-                        st.info("Aucune équipe trouvée dans les données.")
-                    else:
-                        colS1, colS2 = st.columns([2, 1], vertical_alignment="center")
-                        with colS1:
-                            del_team = st.selectbox(
-                                "Choisir l’équipe à supprimer (alignement)",
-                                teams_in_data,
-                                key="admin_del_team_pick_safe",
-                            )
-                        with colS2:
-                            del_history_too = st.checkbox(
-                                "Supprimer aussi son historique",
-                                value=False,
-                                key="admin_del_team_history_too_safe",
-                            )
-
-                        n_rows = int((df_cur["Propriétaire"].astype(str) == str(del_team)).sum())
-                        st.caption(f"Joueurs dans l’équipe **{del_team}** : **{n_rows}**")
-
-                        st.markdown("#### Confirmation")
-                        typed = st.text_input(
-                            f"Pour confirmer, retape exactement : {del_team}",
-                            value="",
-                            key="admin_del_team_type_name",
-                        )
-                        confirm_ok = (str(typed).strip() == str(del_team).strip())
-
-                        if st.button(
-                            "🗑️ SUPPRIMER DÉFINITIVEMENT l’alignement de cette équipe",
-                            type="primary",
-                            use_container_width=True,
-                            disabled=(not confirm_ok),
-                            key="admin_del_team_btn_safe",
-                        ):
-                            if st.session_state.get("LOCKED"):
-                                st.error("🔒 Saison verrouillée : suppression impossible.")
-                            else:
-                                # 1) BACKUP
-                                try:
-                                    backup_dir = os.path.join(DATA_DIR, "backups")
-                                    os.makedirs(backup_dir, exist_ok=True)
-
-                                    season_lbl = str(st.session_state.get("season", "")).strip() or "season"
-                                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-                                    df_team = df_cur[df_cur["Propriétaire"].astype(str) == str(del_team)].copy()
-                                    backup_data_path = os.path.join(
-                                        backup_dir,
-                                        f"backup_align_{season_lbl}_{del_team}_{ts}.csv".replace(" ", "_"),
-                                    )
-                                    df_team.to_csv(backup_data_path, index=False)
-
-                                    backup_hist_path = ""
-                                    if del_history_too:
-                                        h = st.session_state.get("history")
-                                        if isinstance(h, pd.DataFrame) and not h.empty:
-                                            # harmoniser colonne proprietaire
-                                            if "proprietaire" not in h.columns and "Propriétaire" in h.columns:
-                                                h = h.rename(columns={"Propriétaire": "proprietaire"})
-                                            if "proprietaire" in h.columns:
-                                                h_team = h[h["proprietaire"].astype(str) == str(del_team)].copy()
-                                                backup_hist_path = os.path.join(
-                                                    backup_dir,
-                                                    f"backup_hist_{season_lbl}_{del_team}_{ts}.csv".replace(" ", "_"),
-                                                )
-                                                h_team.to_csv(backup_hist_path, index=False)
-
-                                    st.success("✅ Backup créé avant suppression.")
-                                    st.caption(f"Backup alignement : `{backup_data_path}`")
-                                    if backup_hist_path:
-                                        st.caption(f"Backup historique : `{backup_hist_path}`")
-
-                                except Exception as e:
-                                    st.warning(f"⚠️ Backup impossible (je continue quand même) : {type(e).__name__}: {e}")
-
-                                # 2) SUPPRESSION DANS DATA
-                                df_new = df_cur.copy()
-                                df_new = df_new[df_new["Propriétaire"].astype(str) != str(del_team)].reset_index(drop=True)
-                                df_new = clean_data(df_new)
-                                st.session_state["data"] = df_new
-
-                                # 3) SUPPRESSION DANS HISTORY (optionnel)
-                                if del_history_too:
-                                    h = st.session_state.get("history")
-                                    if isinstance(h, pd.DataFrame) and not h.empty:
-                                        if "proprietaire" not in h.columns and "Propriétaire" in h.columns:
-                                            h = h.rename(columns={"Propriétaire": "proprietaire"})
-                                        if "proprietaire" in h.columns:
-                                            h2 = h[h["proprietaire"].astype(str) != str(del_team)].reset_index(drop=True)
-                                            st.session_state["history"] = h2
-                                            try:
-                                                persist_history(h2, st.session_state.get("season", ""))
-                                            except Exception:
-                                                pass
-
-                                # 4) PERSIST (local + Drive batch)
-                                try:
-                                    persist_data(df_new, st.session_state.get("season", ""))
-                                except Exception as e:
-                                    st.warning(f"⚠️ Suppression OK mais persistance data a échoué: {type(e).__name__}: {e}")
-
-                                # 5) TRACE
-                                try:
-                                    history_add(
-                                        action="DELETE_TEAM_ALIGNEMENT",
-                                        owner=str(del_team),
-                                        details=f"Alignement supprimé ({n_rows} lignes). Historique supprimé: {bool(del_history_too)}",
-                                    )
-                                except Exception:
-                                    pass
-
-                                st.toast(f"🗑️ Alignement supprimé : {del_team}", icon="🗑️")
-
-                                # (optionnel) flush Drive immédiat
-                                if "flush_drive_queue" in globals():
-                                    n, errs = flush_drive_queue(force=True)
-                                    if errs:
-                                        st.warning("⚠️ Suppression OK, mais Drive flush a eu des erreurs:\n" + "\n".join(errs))
-                                    else:
-                                        st.success(f"✅ Drive flush OK — {n} fichier(s)")
-
-                                do_rerun()
-
-            # =====================================================
-            # ♻️ RESTAURER UN BACKUP (ADMIN PRO) — auto-detect + preview + merge history
-            # =====================================================
-            st.divider()
-            st.markdown("### ♻️ Restaurer un backup (PRO)")
-
-            backup_dir = os.path.join(DATA_DIR, "backups")
-            os.makedirs(backup_dir, exist_ok=True)
-
-            def _list_csv_pro(dirpath: str) -> list[str]:
-                try:
-                    files = [f for f in os.listdir(dirpath) if f.lower().endswith(".csv")]
-                    files.sort(reverse=True)
-                    return files
-                except Exception:
-                    return []
-
-            def _infer_team_from_backup_name_pro(fname: str) -> str:
-                try:
-                    base = os.path.basename(fname).replace(".csv", "")
-                    parts = base.split("_")
-                    if len(parts) >= 6 and parts[0] == "backup" and parts[1] == "align":
-                        team = "_".join(parts[3:-1]).replace("_", " ").strip()
-                        return team
-                except Exception:
-                    pass
-                return ""
-
-            align_backups = [f for f in _list_csv_pro(backup_dir) if f.lower().startswith("backup_align_")]
-            hist_backups = [f for f in _list_csv_pro(backup_dir) if f.lower().startswith("backup_hist_")]
-
-            if not align_backups:
-                st.info("Aucun backup alignement trouvé dans /data/backups/.")
-            else:
-                pick_align = st.selectbox("Choisir un backup alignement", align_backups, key="admin_restore_align_pick_pro")
-
-                inferred_team = _infer_team_from_backup_name_pro(pick_align)
-                if inferred_team:
-                    st.caption(f"Équipe détectée : **{inferred_team}**")
-                else:
-                    st.warning("Équipe non détectée automatiquement (nom atypique). Tu pourras la choisir manuellement.")
-
-                df_preview = None
-                preview_err = None
-                try:
-                    df_preview = pd.read_csv(os.path.join(backup_dir, pick_align))
-                    df_preview = clean_data(df_preview)
-                except Exception as e:
-                    preview_err = f"{type(e).__name__}: {e}"
-
-                if preview_err:
-                    st.error(f"Impossible de lire le backup: {preview_err}")
-                else:
-                    df_cur = st.session_state.get("data")
-                    cur_teams = []
-                    if isinstance(df_cur, pd.DataFrame) and not df_cur.empty and "Propriétaire" in df_cur.columns:
-                        cur_teams = sorted(df_cur["Propriétaire"].dropna().astype(str).unique().tolist())
-
-                    default_team = inferred_team if inferred_team else (cur_teams[0] if cur_teams else "")
-                    target_team = st.selectbox(
-                        "Équipe cible (sera forcée dans les lignes du backup)",
-                        options=(cur_teams if cur_teams else ([default_team] if default_team else [""])),
-                        index=(cur_teams.index(default_team) if (default_team in cur_teams) else 0),
-                        key="admin_restore_target_team_pro",
-                    )
-                    if not target_team:
-                        target_team = default_team
-
-                    mode = st.radio(
-                        "Mode de restauration",
-                        ["Remplacer l’équipe", "Ajouter (merge)"],
-                        index=0,
-                        horizontal=True,
-                        key="admin_restore_mode_pro",
-                    )
-
-                    st.caption(f"Backup: **{pick_align}** • lignes: **{len(df_preview)}**")
-
-                    with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
-                        st.dataframe(df_preview.head(20), use_container_width=True)
-
-                    st.markdown("#### Historique (optionnel)")
-                    restore_hist = st.checkbox("Restaurer un backup d’historique", value=False, key="admin_restore_hist_toggle_pro")
-
-                    hist_mode = "Remplacer tout"
-                    pick_hist = None
-                    if restore_hist:
-                        if not hist_backups:
-                            st.warning("Aucun backup historique trouvé.")
-                        else:
-                            pick_hist = st.selectbox("Choisir un backup historique", hist_backups, key="admin_restore_hist_pick_pro")
-                            hist_mode = st.radio(
-                                "Mode historique",
-                                ["Remplacer tout", "MERGE (ajouter + dédupliquer)"],
-                                index=1,
-                                horizontal=True,
-                                key="admin_restore_hist_mode_pro",
-                                help="MERGE garde l'historique existant et ajoute celui du backup, en dédupliquant si possible.",
-                            )
-
-                    st.markdown("#### Confirmation")
-                    typed_restore = st.text_input(
-                        f"Pour confirmer, tape exactement : RESTORE {target_team}",
-                        value="",
-                        key="admin_restore_type_pro",
-                    )
-                    confirm_restore = (typed_restore.strip() == f"RESTORE {target_team}")
-
-                    if st.button(
-                        "♻️ RESTAURER MAINTENANT",
-                        type="primary",
-                        use_container_width=True,
-                        disabled=(not confirm_restore),
-                        key="admin_restore_btn_pro",
-                    ):
-                        if st.session_state.get("LOCKED"):
-                            st.error("🔒 Saison verrouillée : restauration impossible.")
-                        else:
-                            try:
-                                df_b = df_preview.copy()
-                                if "Propriétaire" not in df_b.columns:
-                                    df_b["Propriétaire"] = str(target_team)
-                                df_b["Propriétaire"] = str(target_team)
-                                df_b = clean_data(df_b)
-
-                                df_cur2 = st.session_state.get("data")
-                                if df_cur2 is None or not isinstance(df_cur2, pd.DataFrame):
-                                    df_cur2 = pd.DataFrame(columns=REQUIRED_COLS)
-                                df_cur2 = clean_data(df_cur2)
-
-                                if mode == "Remplacer l’équipe":
-                                    df_keep = df_cur2[df_cur2["Propriétaire"].astype(str) != str(target_team)].copy()
-                                    df_new = pd.concat([df_keep, df_b], ignore_index=True)
-                                else:
-                                    df_new = pd.concat([df_cur2, df_b], ignore_index=True)
-                                    df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-
-                                df_new = clean_data(df_new)
-                                st.session_state["data"] = df_new
-                                persist_data(df_new, st.session_state.get("season", ""))
-
-                                if restore_hist and pick_hist:
-                                    h_path = os.path.join(backup_dir, pick_hist)
-                                    h_b = pd.read_csv(h_path)
-                                    if "proprietaire" not in h_b.columns and "Propriétaire" in h_b.columns:
-                                        h_b = h_b.rename(columns={"Propriétaire": "proprietaire"})
-
-                                    h_cur = st.session_state.get("history")
-                                    if (hist_mode == "MERGE (ajouter + dédupliquer)") and isinstance(h_cur, pd.DataFrame) and not h_cur.empty:
-                                        h_merge = pd.concat([h_cur, h_b], ignore_index=True)
-                                        if "id" in h_merge.columns:
-                                            h_merge = h_merge.drop_duplicates(subset=["id"], keep="last")
-                                        else:
-                                            key_cols = [c for c in ["timestamp", "season", "proprietaire", "joueur", "from_statut", "from_slot", "to_statut", "to_slot", "action"] if c in h_merge.columns]
-                                            if key_cols:
-                                                h_merge = h_merge.drop_duplicates(subset=key_cols, keep="last")
-                                        st.session_state["history"] = h_merge.reset_index(drop=True)
-                                    else:
-                                        st.session_state["history"] = h_b
-
-                                    try:
-                                        persist_history(st.session_state["history"], st.session_state.get("season", ""))
-                                    except Exception:
-                                        pass
-
-                                try:
-                                    history_add(
-                                        action="RESTORE_BACKUP_ALIGNEMENT",
-                                        owner=str(target_team),
-                                        details=f"align={pick_align} | mode={mode} | hist={(pick_hist or 'no')} | hist_mode={hist_mode}",
-                                    )
-                                except Exception:
-                                    pass
-
-                                st.toast("♻️ Backup restauré", icon="♻️")
-
-                                if "flush_drive_queue" in globals():
-                                    n, errs = flush_drive_queue(force=True)
-                                    if errs:
-                                        st.warning("⚠️ Restore OK, mais Drive flush a eu des erreurs:\n" + "\n".join(errs))
-                                    else:
-                                        st.success(f"✅ Drive flush OK — {n} fichier(s)")
-
-                                do_rerun()
-
-                            except Exception as e:
-                                st.error(f"❌ Restauration échouée : {type(e).__name__}: {e}")
-
-            # =====================================================
-            # 🗂️ GESTION DES BACKUPS (LISTE + RESTORE + DELETE + ROTATION)
-            # =====================================================
-            st.divider()
-            st.markdown("### 🗂️ Gestion des backups")
-
-            backup_dir = os.path.join(DATA_DIR, "backups")
-            os.makedirs(backup_dir, exist_ok=True)
-
-            def _parse_backup_filename_mgr(fname: str) -> dict:
-                out = {"file": fname, "type": "", "season": "", "team": "", "ts": "", "path": os.path.join(backup_dir, fname)}
-                base = os.path.basename(fname)
-                if not base.lower().endswith(".csv"):
-                    return out
-                name = base[:-4]
-                parts = name.split("_")
-                if len(parts) < 5:
-                    return out
-                if parts[0] != "backup":
-                    return out
-                if parts[1] not in {"align", "hist"}:
-                    return out
-                out["type"] = "align" if parts[1] == "align" else "hist"
-                out["season"] = parts[2]
-                out["ts"] = parts[-1]
-                out["team"] = "_".join(parts[3:-1]).replace("_", " ").strip()
-                return out
-
-            def _list_backups_mgr() -> list[dict]:
-                try:
-                    files = [f for f in os.listdir(backup_dir) if f.lower().endswith(".csv") and f.lower().startswith("backup_")]
-                    rows = [_parse_backup_filename_mgr(f) for f in files]
-                    rows.sort(key=lambda r: r.get("ts", ""), reverse=True)
-                    return rows
-                except Exception:
-                    return []
-
-            st.markdown("#### 🧹 Rotation auto des backups")
-            keep_n = st.number_input(
-                "Garder les N derniers backups par (type, saison, équipe)",
-                min_value=1,
-                max_value=200,
-                value=30,
-                step=5,
-                key="bk_keep_n",
-            )
-
-            def _apply_rotation_mgr(keep_n: int) -> tuple[int, list[str]]:
-                rows = _list_backups_mgr()
-                groups = {}
-                for r in rows:
-                    k = (r.get("type", ""), r.get("season", ""), r.get("team", ""))
-                    groups.setdefault(k, []).append(r)
-                deleted = 0
-                errs: list[str] = []
-                for _, items in groups.items():
-                    items.sort(key=lambda x: x.get("ts", ""), reverse=True)
-                    for r in items[int(keep_n):]:
-                        try:
-                            os.remove(r["path"])
-                            deleted += 1
-                        except Exception as e:
-                            errs.append(f"{r['file']}: {type(e).__name__}: {e}")
-                return deleted, errs
-
-            c_rot1, c_rot2 = st.columns([1, 2])
-            with c_rot1:
-                if st.button("🧹 Appliquer la rotation maintenant", use_container_width=True, key="bk_rotation_btn"):
-                    n_del, errs = _apply_rotation_mgr(int(keep_n))
-                    if errs:
-                        st.warning("Rotation appliquée avec erreurs:\n" + "\n".join(errs))
-                    st.success(f"✅ Rotation terminée — {n_del} fichier(s) supprimé(s).")
-            with c_rot2:
-                st.caption("Astuce: garde 30 ou 50. Les anciens sont supprimés automatiquement par groupe (align/hist, saison, équipe).")
-
-            rows = _list_backups_mgr()
-            if not rows:
-                st.info("Aucun backup trouvé dans `data/backups/`.")
-            else:
-                st.markdown("#### 🔎 Liste des backups")
-
-                all_types = ["Tous", "align", "hist"]
-                all_seasons = ["Toutes"] + sorted(list({r["season"] for r in rows if r.get("season")}), reverse=True)
-                all_teams = ["Toutes"] + sorted(list({r["team"] for r in rows if r.get("team") and r.get("team") != "ALL"}))
-
-                f1, f2, f3 = st.columns(3)
-                with f1:
-                    t_filter = st.selectbox("Type", all_types, index=0, key="bk_type_filter")
-                with f2:
-                    s_filter = st.selectbox("Saison", all_seasons, index=0, key="bk_season_filter")
-                with f3:
-                    team_filter = st.selectbox("Équipe", all_teams, index=0, key="bk_team_filter")
-
-                view = rows
-                if t_filter != "Tous":
-                    view = [r for r in view if r.get("type") == t_filter]
-                if s_filter != "Toutes":
-                    view = [r for r in view if r.get("season") == s_filter]
-                if team_filter != "Toutes":
-                    view = [r for r in view if r.get("team") == team_filter]
-
-                if not view:
-                    st.info("Aucun backup ne correspond aux filtres.")
-                else:
-                    head = st.columns([1.0, 1.2, 1.8, 1.6, 2.8, 1.1, 1.1])
-                    head[0].markdown("**Type**")
-                    head[1].markdown("**Saison**")
-                    head[2].markdown("**Équipe**")
-                    head[3].markdown("**Timestamp**")
-                    head[4].markdown("**Fichier**")
-                    head[5].markdown("**⬇️**")
-                    head[6].markdown("**🗑️**")
-
-                    for r in view[:200]:
-                        cols = st.columns([1.0, 1.2, 1.8, 1.6, 2.8, 1.1, 1.1])
-                        cols[0].markdown(r.get("type", ""))
-                        cols[1].markdown(r.get("season", ""))
-                        cols[2].markdown(r.get("team", ""))
-                        cols[3].markdown(r.get("ts", ""))
-                        cols[4].code(r.get("file", ""), language=None)
-
-                        try:
-                            with open(r["path"], "rb") as f:
-                                cols[5].download_button(
-                                    "⬇️",
-                                    data=f.read(),
-                                    file_name=r["file"],
-                                    mime="text/csv",
-                                    use_container_width=True,
-                                    key=f"bk_dl_{r['file']}",
-                                )
-                        except Exception:
-                            cols[5].write("—")
-
-                        if cols[6].button("🗑️", use_container_width=True, key=f"bk_del_{r['file']}"):
-                            try:
-                                os.remove(r["path"])
-                                st.toast("🗑️ Backup supprimé", icon="🗑️")
-                                do_rerun()
-                            except Exception as e:
-                                st.error(f"Suppression impossible: {type(e).__name__}: {e}")
 
 
 
