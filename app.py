@@ -1108,9 +1108,142 @@ st.divider()
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
 # =====================================================
+
 if active_tab == "📊 Tableau":
+    # =====================================================
+    # 📊 Tableau — Masses salariales (avec surlignage sélection)
+    # =====================================================
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
-    build_tableau_ui(st.session_state.get("plafonds"))
+
+    selected = str(get_selected_team() or "").strip()
+
+    if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
+        st.info("Aucune équipe configurée.")
+    else:
+        view = plafonds.copy()
+
+        cols = [
+            "Importé",
+            "Propriétaire",
+            "Total Grand Club",
+            "Montant Disponible GC",
+            "Total Club École",
+            "Montant Disponible CE",
+        ]
+        for c in cols:
+            if c not in view.columns:
+                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+
+        def _fmt_money(x):
+            try:
+                return money(int(x))
+            except Exception:
+                return money(0)
+
+        for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
+            view[c] = view[c].apply(_fmt_money)
+
+        st.markdown(
+            """
+            <style>
+              .pms-table-wrap{
+                margin-top: 8px;
+                border: 1px solid rgba(255,255,255,0.10);
+                border-radius: 14px;
+                overflow: hidden;
+              }
+              table.pms-table{
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+              }
+              table.pms-table thead th{
+                text-align: left;
+                padding: 10px 12px;
+                background: rgba(255,255,255,0.06);
+                border-bottom: 1px solid rgba(255,255,255,0.10);
+                font-weight: 900;
+              }
+              table.pms-table tbody td{
+                padding: 10px 12px;
+                border-bottom: 1px solid rgba(255,255,255,0.06);
+                vertical-align: middle;
+                font-weight: 650;
+              }
+              table.pms-table tbody tr:hover{
+                background: rgba(255,255,255,0.04);
+              }
+              tr.pms-selected{
+                background: rgba(34,197,94,0.14) !important;
+                outline: 2px solid rgba(34,197,94,0.25);
+                outline-offset: -2px;
+              }
+              .badge-selected{
+                display:inline-block;
+                padding: 2px 10px;
+                border-radius: 999px;
+                background: rgba(34,197,94,0.20);
+                border: 1px solid rgba(34,197,94,0.35);
+                font-weight: 900;
+                font-size: 12px;
+                margin-left: 8px;
+              }
+              .cell-right{ text-align: right; white-space: nowrap; }
+              .import-ok{ font-weight: 1000; }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        rows_html = []
+        for _, r in view[cols].iterrows():
+            owner = str(r.get("Propriétaire", "")).strip()
+            is_sel = (owner == selected) and bool(selected)
+
+            badge = "<span class='badge-selected'>Sélectionnée</span>" if is_sel else ""
+            tr_class = "pms-selected" if is_sel else ""
+
+            imp = str(r.get("Importé", "")).strip()
+            imp_html = f"<span class='import-ok'>{imp}</span>"
+
+            rows_html.append(
+                f"""
+                <tr class="{tr_class}">
+                  <td>{imp_html}</td>
+                  <td><b>{html.escape(owner)}</b>{badge}</td>
+                  <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
+                  <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
+                  <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
+                  <td class="cell-right">{html.escape(str(r.get("Montant Disponible CE","")))}</td>
+                </tr>
+                """
+            )
+
+        table_html = f"""
+        <div class="pms-table-wrap">
+          <table class="pms-table">
+            <thead>
+              <tr>
+                <th>Importé</th>
+                <th>Propriétaire</th>
+                <th style="text-align:right">Total GC</th>
+                <th style="text-align:right">Reste GC</th>
+                <th style="text-align:right">Total CE</th>
+                <th style="text-align:right">Reste CE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {''.join(rows_html)}
+            </tbody>
+          </table>
+        </div>
+        """
+
+        if not selected:
+            st.info("Sélectionne une équipe dans la barre latérale pour la surligner ici.")
+
+        st.markdown(table_html, unsafe_allow_html=True)
+
 
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
@@ -1253,6 +1386,7 @@ elif active_tab == "🧾 Alignement":
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     open_move_dialog()
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
