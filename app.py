@@ -939,11 +939,11 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
 
     # ✅ Affiche l'équipe sélectionnée (sidebar) au lieu d'une liste cliquable
+    # (optionnel) rien du tout, ou un petit hint si aucune équipe
     selected = str(get_selected_team() or "").strip()
-    if selected:
-        st.success(f"Équipe sélectionnée : **{selected}**")
-    else:
-        st.info("Sélectionne une équipe dans la barre latérale pour voir l'alignement.")
+    if not selected:
+        st.info("Sélectionne une équipe dans la barre latérale.")
+
 
     st.divider()
 
@@ -960,7 +960,12 @@ if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
+season = st.sidebar.selectbox(
+    "Saison",
+    saisons,
+    index=saisons.index(auto),
+    key="sb_season_select",
+)
 st.session_state["season"] = season
 st.session_state["LOCKED"] = saison_verrouillee(season)
 
@@ -990,52 +995,52 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
-# Team picker
+# =====================================================
+# TEAM PICKER (sidebar) — logo sous dropdown, plus gros
+# =====================================================
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
+
 teams = list(LOGOS.keys())
-cur = str(st.session_state.get("selected_team", "")).strip()
-if cur not in teams and teams:
-    cur = teams[0]
-    st.session_state["selected_team"] = cur
-    st.session_state["align_owner"] = cur
+if not teams:
+    st.sidebar.info("Aucune équipe configurée.")
+else:
+    cur = str(st.session_state.get("selected_team", "")).strip()
+    if cur not in teams:
+        cur = teams[0]
+        st.session_state["selected_team"] = cur
+        st.session_state["align_owner"] = cur
 
-chosen = st.sidebar.selectbox("Choisir une équipe", teams if teams else [""], index=(teams.index(cur) if cur in teams else 0), key="sb_team_select")
-if chosen and chosen != cur:
-    st.session_state["selected_team"] = chosen
-    st.session_state["align_owner"] = chosen
-    do_rerun()
-
-logo_path = team_logo_path(get_selected_team())
-if logo_path:
-    st.sidebar.image(logo_path, width=56)
-st.sidebar.markdown(f"**{get_selected_team() or '—'}**")
-
-# =====================================================
-# TOP LOGO POOL
-# =====================================================
-logo_pool_b64 = _img_b64(LOGO_POOL_FILE)
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 0rem !important; }
-      header { visibility: hidden; }
-      .stApp { margin-top: 0rem; }
-      .logo-pool-top{ margin:0; padding:0; }
-      .logo-pool-top img{ display:block; height:72px; width:auto; object-fit:contain; margin:0; padding:0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-if logo_pool_b64:
-    st.markdown(
-        f"""
-        <div class="logo-pool-top">
-          <img src="data:image/png;base64,{logo_pool_b64}" alt="Logo Pool"/>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    chosen = st.sidebar.selectbox(
+        "Choisir une équipe",
+        teams,
+        index=teams.index(cur),
+        key="sb_team_select",
     )
+
+    if chosen != cur:
+        st.session_state["selected_team"] = chosen
+        st.session_state["align_owner"] = chosen
+        do_rerun()
+
+    # ✅ Logo en dessous, plus gros (pleine largeur sidebar)
+    logo_path = team_logo_path(chosen)
+    if logo_path and os.path.exists(logo_path):
+        st.sidebar.image(logo_path, use_container_width=True)  # gros logo
+        # Optionnel: nom en petit en dessous (tu peux enlever si tu veux zéro texte)
+        st.sidebar.caption(f"**{chosen}**")
+
+
+# =====================================================
+# LOGO POOL — TOUT EN HAUT (PLEINE LARGEUR)
+# =====================================================
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+
+if os.path.exists(LOGO_POOL_FILE):
+    st.image(LOGO_POOL_FILE, use_container_width=True)
+    st.markdown("")  # petit espace
+
+
 
 # =====================================================
 # LOAD DATA + HISTORY (local only here; Drive queue flush can be added later)
