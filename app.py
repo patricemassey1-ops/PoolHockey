@@ -47,7 +47,12 @@ except Exception:
 # =====================================================
 # STREAMLIT CONFIG
 # =====================================================
-st.set_page_config(page_title="PMS", layout="wide")
+st.set_page_config(
+    page_title="Pool Hockey",
+    page_icon="🏒",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
 # =====================================================
