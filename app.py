@@ -525,205 +525,68 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
 
 
 # =====================================================
-# MOVE CONTEXT + APPLY MOVE
+# MOVE DIALOG — v2 (Type: Demi-mois vs Blessure + dates d'effet)
+#   ✅ Demi-mois = immédiat
+#   ✅ Blessure:
+#       - Actif -> Mineur : effectif J+3
+#       - Actif -> Banc   : effectif J+1
+#       - Retour -> Actif : immédiat
+#   ✅ Support "pending_moves" (file d'attente) si effectif plus tard
+#   ✅ Garde LOCKED + validations + apply_move_with_history + history
 # =====================================================
-def set_move_ctx(owner: str, joueur: str, source_key: str):
-    st.session_state["move_nonce"] = int(st.session_state.get("move_nonce", 0)) + 1
-    st.session_state["move_source"] = str(source_key or "").strip()
-    st.session_state["move_ctx"] = {
-        "owner": str(owner).strip(),
-        "joueur": str(joueur).strip(),
-        "nonce": st.session_state["move_nonce"],
-    }
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
+import html
+import pandas as pd
+import streamlit as st
 
 
-def clear_move_ctx():
-    st.session_state["move_ctx"] = None
-    st.session_state["move_source"] = ""
-
-
-def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
-    st.session_state["last_move_error"] = ""
-
-    if st.session_state.get("LOCKED"):
-        st.session_state["last_move_error"] = "🔒 Saison verrouillée : modification impossible."
-        return False
-
-    df0 = st.session_state.get("data")
-    if df0 is None or not isinstance(df0, pd.DataFrame) or df0.empty:
-        st.session_state["last_move_error"] = "Aucune donnée en mémoire."
-        return False
-
-    df0 = df0.copy()
-    if "IR Date" not in df0.columns:
-        df0["IR Date"] = ""
-
-    proprietaire = str(proprietaire or "").strip()
-    joueur = str(joueur or "").strip()
-    to_statut = str(to_statut or "").strip()
-    to_slot = str(to_slot or "").strip()
-
-    mask = (
-        df0["Propriétaire"].astype(str).str.strip().eq(proprietaire)
-        & df0["Joueur"].astype(str).str.strip().eq(joueur)
-    )
-    if df0.loc[mask].empty:
-        st.session_state["last_move_error"] = "Joueur introuvable."
-        return False
-
-    before = df0.loc[mask].iloc[0]
-    from_statut = str(before.get("Statut", "")).strip()
-    from_slot = str(before.get("Slot", "")).strip()
-    pos0 = str(before.get("Pos", "F")).strip()
-    equipe0 = str(before.get("Equipe", "")).strip()
-
-    # IR keeps current statut
-    if to_slot == SLOT_IR:
-        to_statut = from_statut
-
-    allowed_slots_gc = {SLOT_ACTIF, SLOT_BANC, SLOT_IR}
-    allowed_slots_ce = {"", SLOT_IR}
-
-    if to_statut == STATUT_GC and to_slot not in allowed_slots_gc:
-        st.session_state["last_move_error"] = f"Slot invalide GC : {to_slot}"
-        return False
-    if to_statut == STATUT_CE and to_slot not in allowed_slots_ce:
-        st.session_state["last_move_error"] = f"Slot invalide CE : {to_slot}"
-        return False
-
-    # Apply
-    df0.loc[mask, "Statut"] = to_statut
-    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
-
-    entering_ir = (to_slot == SLOT_IR) and (from_slot != SLOT_IR)
-    leaving_ir = (from_slot == SLOT_IR) and (to_slot != SLOT_IR)
-
-    if entering_ir:
-        df0.loc[mask, "IR Date"] = datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M")
-    elif leaving_ir:
-        df0.loc[mask, "IR Date"] = ""
-
-    df0 = clean_data(df0)
-    st.session_state["data"] = df0
-
-    # History
+def _today_local() -> date:
+    # Timezone user: America/Toronto (comme ton contexte)
     try:
-        log_history_row(
-            proprietaire=proprietaire,
-            joueur=joueur,
-            pos=pos0,
-            equipe=equipe0,
-            from_statut=from_statut,
-            from_slot=from_slot,
-            to_statut=to_statut,
-            to_slot=to_slot,
-            action=action_label,
-        )
+        return datetime.now(ZoneInfo("America/Toronto")).date()
     except Exception:
-        pass
-
-    # Persist
-    season_lbl = str(st.session_state.get("season", "")).strip()
-    try:
-        persist_data(df0, season_lbl)
-    except Exception as e:
-        st.session_state["last_move_error"] = f"Erreur persistance: {type(e).__name__}: {e}"
-        return False
-
-    return True
+        return datetime.now().date()
 
 
-# =====================================================
-# UI — roster click list (your compact list)
-# =====================================================
-def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
-    if df_src is None or not isinstance(df_src, pd.DataFrame) or df_src.empty:
-        st.info("Aucun joueur.")
-        return None
-
-    st.markdown(
-        """
-        <style>
-          div[data-testid="stButton"] > button{
-            padding: 0.18rem 0.45rem;
-            font-weight: 900;
-            text-align: left;
-            justify-content: flex-start;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .salaryCell{
-            white-space: nowrap;
-            text-align: right;
-            font-weight: 900;
-            display: block;
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    t = df_src.copy()
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
-        if c not in t.columns:
-            t[c] = d
-
-    t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-    t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-    t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
-
-    bad = {"", "none", "nan", "null"}
-    t = t[~t["Joueur"].str.lower().isin(bad)].copy()
-    if t.empty:
-        st.info("Aucun joueur.")
-        return None
-
-    t["Pos"] = t["Pos"].apply(normalize_pos)
-    t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t["_initial"] = t["Joueur"].str.upper().str[0].fillna("?")
-
-    t = (
-        t.sort_values(
-            by=["_pos", "Salaire", "_initial", "Joueur"],
-            ascending=[True, False, True, True],
-            kind="mergesort",
-        )
-        .drop(columns=["_pos", "_initial"])
-        .reset_index(drop=True)
-    )
-
-    h = st.columns([1.2, 1.6, 3.6, 2.4])
-    h[0].markdown("**Pos**")
-    h[1].markdown("**Team**")
-    h[2].markdown("**Joueur**")
-    h[3].markdown("**Salaire**")
-
-    clicked = None
-    for i, r in t.iterrows():
-        joueur = str(r.get("Joueur", "")).strip()
-        if not joueur:
-            continue
-
-        pos = r.get("Pos", "F")
-        team = str(r.get("Equipe", "")).strip()
-        salaire = int(r.get("Salaire", 0) or 0)
-
-        c = st.columns([1.2, 1.6, 3.6, 2.4])
-        c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
-        c[1].markdown(team if team and team.lower() not in bad else "—")
-
-        if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
-            clicked = joueur
-
-        c[3].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
-
-    return clicked
+def _ensure_pending_store():
+    if "pending_moves" not in st.session_state or not isinstance(st.session_state["pending_moves"], list):
+        st.session_state["pending_moves"] = []
 
 
-# =====================================================
-# MOVE DIALOG (single version)
-# =====================================================
+def _schedule_pending_move(payload: dict):
+    _ensure_pending_store()
+    st.session_state["pending_moves"].append(payload)
+
+
+def _compute_effective_date(move_type: str, from_src: str, to_slot: str, to_statut: str) -> date:
+    """
+    move_type: "Demi-mois" | "Blessure"
+    from_src : "actifs" | "banc" | "min" | "ir" | "" (fallback)
+    """
+    t0 = _today_local()
+
+    # ✅ Demi-mois = immédiat (comme tu l'as précisé)
+    if move_type == "Demi-mois":
+        return t0
+
+    # ✅ Blessure rules
+    # Retour vers Actif = immédiat (peu importe d'où)
+    if to_statut == STATUT_GC and to_slot == SLOT_ACTIF:
+        return t0
+
+    # Actif -> Mineur : J+3
+    if from_src == "actifs" and to_statut == STATUT_CE:
+        return t0 + timedelta(days=3)
+
+    # Actif -> Banc : J+1
+    if from_src == "actifs" and to_statut == STATUT_GC and to_slot == SLOT_BANC:
+        return t0 + timedelta(days=1)
+
+    # Le reste = immédiat (ex: Banc->IR, Mineur->IR, IR->Banc, etc.)
+    return t0
+
+
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -737,6 +600,10 @@ def open_move_dialog():
     owner = str(ctx.get("owner", "")).strip()
     joueur = str(ctx.get("joueur", "")).strip()
     nonce = int(ctx.get("nonce", 0))
+
+    # Source du clic (ex: "actifs", "banc", "min", "ir")
+    # (tu la définis via set_move_ctx(proprietaire, joueur, source))
+    from_src = str(ctx.get("source", "") or st.session_state.get("move_source", "") or "").strip()
 
     df_all = st.session_state.get("data")
     if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
@@ -760,6 +627,17 @@ def open_move_dialog():
     cur_team = str(row.get("Equipe", "")).strip()
     cur_sal = int(row.get("Salaire", 0) or 0)
 
+    # Si source non fournie, infère depuis Slot/Statut
+    if not from_src:
+        if cur_slot == SLOT_IR:
+            from_src = "ir"
+        elif cur_statut == STATUT_CE:
+            from_src = "min"
+        elif cur_slot == SLOT_BANC:
+            from_src = "banc"
+        else:
+            from_src = "actifs"
+
     def _close():
         clear_move_ctx()
 
@@ -767,123 +645,133 @@ def open_move_dialog():
     <style>
       .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
       .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+      .pill{
+        display:inline-block;padding:3px 10px;border-radius:999px;
+        border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06);
+        font-weight:900;font-size:12px;margin-right:6px; margin-top:6px;
+      }
+      .pill-green{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.12)}
+      .pill-blue{border-color:rgba(59,130,246,.35); background:rgba(59,130,246,.12)}
+      .pill-amber{border-color:rgba(245,158,11,.35); background:rgba(245,158,11,.12)}
+      .pill-red{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.12)}
     </style>
     """
 
     @st.dialog(f"Déplacement — {joueur}", width="small")
     def _dlg():
         st.markdown(css, unsafe_allow_html=True)
+
         st.markdown(
             f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
-            f"<div class='dlg-sub'>{html.escape(cur_statut)}"
+            f"<div class='dlg-sub'>"
+            f"{html.escape(cur_statut)}"
             f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
-            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
+            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}"
+            f"</div>",
             unsafe_allow_html=True,
         )
+
+        st.markdown(
+            f"<div>"
+            f"<span class='pill pill-blue'>Source: {html.escape(from_src)}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
         st.divider()
 
-        source = str(st.session_state.get("move_source", "")).strip()
-        is_ir = (source == "ir") or (cur_slot == SLOT_IR)
-        is_banc = (source == "banc") or (cur_slot == SLOT_BANC)
+        # 1) Type
+        move_type = st.radio(
+            "Type de changement",
+            ["Demi-mois", "Blessure"],
+            index=0,
+            horizontal=True,
+            key=f"mv_type_{owner}_{joueur}_{nonce}",
+        )
 
-        if is_ir:
-            st.caption("Déplacement IR (3 choix)")
-            b1, b2, b3 = st.columns(3)
-            if b1.button("🟢 Actifs", use_container_width=True, key=f"ir_to_actif_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, STATUT_GC, SLOT_ACTIF, "IR → Actif")
-                if ok:
-                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            if b2.button("🟡 Banc", use_container_width=True, key=f"ir_to_banc_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, STATUT_GC, SLOT_BANC, "IR → Banc")
-                if ok:
-                    st.toast(f"🟡 {joueur} → Banc", icon="🟡")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            if b3.button("🔵 Mineur", use_container_width=True, key=f"ir_to_min_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, STATUT_CE, "", "IR → Mineur")
-                if ok:
-                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            st.divider()
-            if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_ir_{owner}_{joueur}_{nonce}"):
-                _close(); do_rerun()
-            return
-
-        if is_banc:
-            st.caption("Déplacement Banc (3 choix)")
-            b1, b2, b3 = st.columns(3)
-            if b1.button("🟢 Actifs", use_container_width=True, key=f"banc_to_actif_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, STATUT_GC, SLOT_ACTIF, "Banc → Actif")
-                if ok:
-                    st.toast(f"🟢 {joueur} → Actifs", icon="🟢")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            if b2.button("🔵 Mineur", use_container_width=True, key=f"banc_to_min_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, STATUT_CE, "", "Banc → Mineur")
-                if ok:
-                    st.toast(f"🔵 {joueur} → Mineur", icon="🔵")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            if b3.button("🩹 Blessé", use_container_width=True, key=f"banc_to_ir_{owner}_{joueur}_{nonce}"):
-                ok = apply_move_with_history(owner, joueur, cur_statut, SLOT_IR, "Banc → IR")
-                if ok:
-                    st.toast(f"🩹 {joueur} placé sur IR", icon="🩹")
-                    _close(); do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-            st.divider()
-            if st.button("✖️ Annuler", use_container_width=True, key=f"cancel_banc_{owner}_{joueur}_{nonce}"):
-                _close(); do_rerun()
-            return
-
-        st.caption("Déplacement (mode normal)")
-        destinations = [
-            ("🟢 Actifs (GC)", (STATUT_GC, SLOT_ACTIF)),
-            ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)),
-            ("🔵 Mineur (CE)", (STATUT_CE, "")),
-            ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
+        # 2) Destination (Actif / Banc / Mineur / Blessé)
+        st.caption("Destination")
+        dest_options = [
+            ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
+            ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
+            ("🔵 Mineur", (STATUT_CE, "")),
+            ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),  # garde le statut, slot IR
         ]
-        current = (cur_statut, cur_slot if cur_slot else "")
-        destinations = [d for d in destinations if d[1] != current]
 
-        labels = [d[0] for d in destinations]
-        mapping = {d[0]: d[1] for d in destinations}
+        current_key = (cur_statut, cur_slot if cur_slot else "")
+        dest_options = [d for d in dest_options if d[1] != current_key]  # enlever la destination identique
+
+        labels = [d[0] for d in dest_options]
+        mapping = {d[0]: d[1] for d in dest_options}
 
         choice = st.radio(
             "Destination",
             labels,
             index=0,
             label_visibility="collapsed",
-            key=f"dest_{owner}_{joueur}_{nonce}",
+            key=f"mv_dest_{owner}_{joueur}_{nonce}",
         )
         to_statut, to_slot = mapping[choice]
 
-        c1, c2 = st.columns(2)
-        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
-            ok = apply_move_with_history(
-                owner,
-                joueur,
-                to_statut,
-                to_slot,
-                f"{cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}",
+        # 3) Date effective
+        effective = _compute_effective_date(move_type, from_src, to_slot, to_statut)
+        today = _today_local()
+
+        if effective == today:
+            st.markdown("<span class='pill pill-green'>Effet: immédiat</span>", unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f"<span class='pill pill-amber'>Effet: {effective.strftime('%Y-%m-%d')}</span>",
+                unsafe_allow_html=True,
             )
-            if ok:
-                st.toast("✅ Déplacement enregistré", icon="✅")
-                _close(); do_rerun()
+
+        st.divider()
+
+        # 4) Apply / Schedule
+        c1, c2 = st.columns(2)
+
+        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"mv_ok_{owner}_{joueur}_{nonce}"):
+            # Texte reason (history)
+            from_txt = f"{cur_statut}/{cur_slot or '-'}"
+            to_txt = f"{to_statut}/{to_slot or '-'}"
+            reason = f"{move_type} • {from_txt} → {to_txt}"
+
+            if effective <= today:
+                ok = apply_move_with_history(owner, joueur, to_statut, to_slot, reason)
+                if ok:
+                    st.toast("✅ Déplacement appliqué", icon="✅")
+                    _close()
+                    do_rerun()
+                else:
+                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
             else:
-                st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-        if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
-            _close(); do_rerun()
+                # ✅ Planifie (pending)
+                _schedule_pending_move(
+                    {
+                        "created_at": datetime.now(ZoneInfo("America/Toronto")).isoformat(),
+                        "effective_date": effective.isoformat(),
+                        "type": move_type,
+                        "owner": owner,
+                        "joueur": joueur,
+                        "from_statut": cur_statut,
+                        "from_slot": cur_slot,
+                        "to_statut": to_statut,
+                        "to_slot": to_slot,
+                        "reason": reason,
+                    }
+                )
+                st.toast(f"⏳ Déplacement planifié pour {effective.strftime('%Y-%m-%d')}", icon="⏳")
+                _close()
+                do_rerun()
+
+        if c2.button("✖️ Annuler", use_container_width=True, key=f"mv_cancel_{owner}_{joueur}_{nonce}"):
+            _close()
+            do_rerun()
 
     _dlg()
+
+
+
 
 
 # =====================================================
