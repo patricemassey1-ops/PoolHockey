@@ -43,6 +43,17 @@ try:
 except Exception:
     _GOOGLE_OK = False
 
+# TEMP — Password hash generator (remove after use)
+import streamlit as st
+import hashlib
+
+st.markdown("### 🔐 Générateur de hash (temporaire)")
+pwd = st.text_input("Mot de passe à hasher", type="password")
+if pwd:
+    h = hashlib.sha256(pwd.encode("utf-8")).hexdigest()
+    st.code(h)
+    st.info("⬆️ Copie ce hash dans Streamlit Secrets puis supprime ce bloc.")
+
 
 # =====================================================
 # STREAMLIT CONFIG
