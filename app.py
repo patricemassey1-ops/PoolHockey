@@ -1030,9 +1030,7 @@ else:
     logo_path = team_logo_path(chosen)
     if logo_path and os.path.exists(logo_path):
         st.sidebar.image(logo_path, use_container_width=True)  # gros logo
-        # Optionnel: nom en petit en dessous (tu peux enlever si tu veux zéro texte)
-        st.sidebar.caption(f"**{chosen}**")
-
+        
 
 # =====================================================
 # LOGO POOL — TOUT EN HAUT (PLEINE LARGEUR)
@@ -1179,21 +1177,20 @@ if active_tab == "📊 Tableau":
             background: rgba(255,255,255,0.04);
           }
 
+          /* Ligne sélectionnée — highlighter très subtil */
           tr.pms-selected{
             background: linear-gradient(
               90deg,
-              rgba(74, 222, 128, 0.65),
-              rgba(74, 222, 128, 0.28)
+              rgba(255, 255, 255, 0.10),
+              rgba(255, 255, 255, 0.03)
             ) !important;
-            box-shadow:
-              inset 0 0 0 2px rgba(34,197,94,0.9),
-              0 0 10px rgba(34,197,94,0.25);
           }
 
-
+          /* Petit accent vert discret à gauche */
           tr.pms-selected td:first-child{
-            border-left: 6px solid #22c55e;
+            border-left: 4px solid rgba(34,197,94,0.85);
           }
+
 
 
           .badge-selected{
