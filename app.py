@@ -1193,30 +1193,56 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 # =====================================================
-# TOP LOGO POOL
+# LOGO POOL — FULL BLEED (100vw)
 # =====================================================
-logo_pool_b64 = _img_b64(LOGO_POOL_FILE)
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 0rem !important; }
-      header { visibility: hidden; }
-      .stApp { margin-top: 0rem; }
-      .logo-pool-top{ margin:0; padding:0; }
-      .logo-pool-top img{ display:block; height:72px; width:auto; object-fit:contain; margin:0; padding:0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-if logo_pool_b64:
+import base64
+
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+
+if os.path.exists(LOGO_POOL_FILE):
+    b64 = base64.b64encode(open(LOGO_POOL_FILE, "rb").read()).decode("utf-8")
+
+    st.markdown(
+        """
+        <style>
+          /* Réduit un peu le padding global du main */
+          .main .block-container{
+            padding-top: 1.2rem;
+          }
+
+          /* FULL BLEED WRAP */
+          .pool-bleed {
+            width: 100vw;
+            position: relative;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-top: 0.25rem;
+            margin-bottom: 0.75rem;
+          }
+
+          /* Image full width */
+          .pool-bleed img{
+            width: 100%;
+            height: 160px;          /* ajuste: 140/160/180 */
+            object-fit: cover;      /* cover = bannière (remplit). contain = pas de crop */
+            border-radius: 14px;
+            opacity: 0.98;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         f"""
-        <div class="logo-pool-top">
-          <img src="data:image/png;base64,{logo_pool_b64}" alt="Logo Pool"/>
+        <div class="pool-bleed">
+          <img src="data:image/png;base64,{b64}" alt="Logo Pool">
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 # =====================================================
