@@ -1112,7 +1112,7 @@ st.divider()
 
 if active_tab == "📊 Tableau":
     # =====================================================
-    # 📊 Tableau — Masses salariales (Cloud-proof)
+    # 📊 Tableau — Masses salariales (Cloud-proof + highlight + micro animation)
     # =====================================================
     st.subheader("📊 Tableau — Masses salariales")
 
@@ -1134,7 +1134,7 @@ if active_tab == "📊 Tableau":
         ]
         for c in cols:
             if c not in view.columns:
-                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+                view[c] = 0 if ("Total" in c or "Montant" in c) else "—"
 
         # ✅ Format $
         def _fmt_money(x):
@@ -1146,38 +1146,58 @@ if active_tab == "📊 Tableau":
         for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
             view[c] = view[c].apply(_fmt_money)
 
+        # 🔑 Token pour déclencher l’animation à chaque changement d’équipe
+        # (on l’incrémente quand la sélection change)
+        if "tbl_anim_token" not in st.session_state:
+            st.session_state["tbl_anim_token"] = 0
+        if "tbl_prev_selected" not in st.session_state:
+            st.session_state["tbl_prev_selected"] = selected
+
+        if selected != st.session_state["tbl_prev_selected"]:
+            st.session_state["tbl_anim_token"] += 1
+            st.session_state["tbl_prev_selected"] = selected
+
+        anim_id = f"pmsWrap_{st.session_state['tbl_anim_token']}"
+
         css = """
         <style>
           .pms-table-wrap{
-            margin-top: 8px;
+            margin-top: 10px;
             border: 1px solid rgba(255,255,255,0.10);
             border-radius: 14px;
             overflow: hidden;
+            background: rgba(255,255,255,0.02);
           }
+
           table.pms-table{
             width: 100%;
             border-collapse: collapse;
             font-size: 14px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
           }
+
           table.pms-table thead th{
             text-align: left;
             padding: 10px 12px;
             background: rgba(255,255,255,0.06);
             border-bottom: 1px solid rgba(255,255,255,0.10);
             font-weight: 900;
+            color: #ffffff;               /* ✅ blanc */
           }
+
           table.pms-table tbody td{
             padding: 10px 12px;
             border-bottom: 1px solid rgba(255,255,255,0.06);
             vertical-align: middle;
             font-weight: 650;
+            color: #ffffff;               /* ✅ blanc */
           }
+
           table.pms-table tbody tr:hover{
             background: rgba(255,255,255,0.04);
           }
 
-          /* Ligne sélectionnée — highlighter très subtil */
+          /* ✅ Sélection: highlighter TRÈS subtil + accent vert à gauche */
           tr.pms-selected{
             background: linear-gradient(
               90deg,
@@ -1185,29 +1205,34 @@ if active_tab == "📊 Tableau":
               rgba(255, 255, 255, 0.03)
             ) !important;
           }
-
-          /* Petit accent vert discret à gauche */
           tr.pms-selected td:first-child{
             border-left: 4px solid rgba(34,197,94,0.85);
           }
 
-
-
+          /* Badge discret */
           .badge-selected{
             display:inline-block;
-            padding: 4px 12px;
+            padding: 3px 10px;
             border-radius: 999px;
-            background: rgba(34,197,94,0.9);
-            color: #022c16;
-            font-weight: 1000;
-            font-size: 12px;
-            margin-left: 10px;
+            background: rgba(255,255,255,0.18);
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 11px;
+            margin-left: 8px;
           }
 
-
-
           .cell-right{ text-align:right; white-space:nowrap; }
-          .import-ok{ font-weight:1000; }
+          .import-ok{ font-weight:1000; opacity: 0.95; }
+
+          /* ✅ Micro-animation douce sur le container au changement de sélection */
+          @keyframes pmsEnter {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0px); }
+          }
+          .pms-anim{
+            animation: pmsEnter 260ms ease-out;
+            will-change: opacity, transform;
+          }
         </style>
         """
 
@@ -1237,31 +1262,32 @@ if active_tab == "📊 Tableau":
 
         html_doc = f"""
 {css}
-<div class="pms-table-wrap">
-  <table class="pms-table">
-    <thead>
-      <tr>
-        <th>Importé</th>
-        <th>Propriétaire</th>
-        <th style="text-align:right">Total GC</th>
-        <th style="text-align:right">Reste GC</th>
-        <th style="text-align:right">Total CE</th>
-        <th style="text-align:right">Reste CE</th>
-      </tr>
-    </thead>
-    <tbody>
-      {''.join(rows_html)}
-    </tbody>
-  </table>
+<div id="{anim_id}" class="pms-anim">
+  <div class="pms-table-wrap">
+    <table class="pms-table">
+      <thead>
+        <tr>
+          <th>Importé</th>
+          <th>Propriétaire</th>
+          <th style="text-align:right">Total GC</th>
+          <th style="text-align:right">Reste GC</th>
+          <th style="text-align:right">Total CE</th>
+          <th style="text-align:right">Reste CE</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(rows_html)}
+      </tbody>
+    </table>
+  </div>
 </div>
 """
 
         if not selected:
             st.info("Sélectionne une équipe dans la barre latérale pour la surligner ici.")
 
-        # ✅ Cloud-proof render (hauteur dynamique)
-        height = min(900, 180 + 44 * (len(rows_html) + 1))
-        components.html(html_doc, height=height, scrolling=True)
+        components.html(html_doc, height=420, scrolling=True)
+
 
 
 elif active_tab == "🧾 Alignement":
