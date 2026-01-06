@@ -713,29 +713,116 @@ def save_init_manifest(manifest: dict) -> None:
     except Exception:
         pass
 
-# --- clean_data fallback si pas défini plus haut
-if "clean_data" not in globals():
-    def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-        return df
 
 # =====================================================
 # 🔄 LOAD DATA (safe) — utilise load_current_or_bootstrap si présent
 # =====================================================
-def _safe_load_current_or_bootstrap(season_lbl: str):
-    # Si ta vraie fonction existe, on l’utilise
-    if "load_current_or_bootstrap" in globals() and callable(globals()["load_current_or_bootstrap"]):
-        return globals()["load_current_or_bootstrap"](season_lbl)
+import unicodedata
+import pandas as pd
+import re
 
-    # Sinon: fallback local seulement (évite NameError)
-    path = st.session_state["DATA_FILE"]
-    if path and os.path.exists(path):
-        try:
-            d = pd.read_csv(path)
-            if isinstance(d, pd.DataFrame) and not d.empty:
-                return clean_data(d), "local_current"
-        except Exception:
-            pass
-    return pd.DataFrame(columns=REQUIRED_COLS), "empty"
+def _strip_accents(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(ch for ch in s if not unicodedata.combining(ch))
+
+def _norm_text(s: str) -> str:
+    # normalize unicode + spaces + quotes
+    s = str(s or "")
+    s = s.replace("\u00A0", " ")  # NBSP
+    s = s.replace("’", "'").replace("`", "'")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _norm_key(s: str) -> str:
+    s = _norm_text(s).lower()
+    s = _strip_accents(s)
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _to_int_money(x) -> int:
+    s = _norm_text(x)
+    if not s or s.lower() in {"nan", "none"}:
+        return 0
+    s = s.replace("$", "").replace("€", "").replace("£", "")
+    s = s.replace(",", "").replace(" ", "")
+    s = re.sub(r"\.0+$", "", s)
+    s = re.sub(r"[^\d]", "", s)
+    return int(s) if s.isdigit() else 0
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalise le DF Fantrax pour éviter les bugs de sélection d'équipe:
+    - colonnes requises présentes
+    - Propriétaire / Joueur / Equipe: trim + unicode + mapping vers noms officiels
+    - Salaire: int
+    - Pos: F/D/G (via normalize_pos si dispo)
+    - Statut / Slot: trim + valeurs communes
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=REQUIRED_COLS)
+
+    out = df.copy()
+
+    # --- Ensure required columns exist
+    for c in REQUIRED_COLS:
+        if c not in out.columns:
+            out[c] = ""
+
+    # --- Normalize text columns
+    for c in ["Propriétaire", "Joueur", "Equipe", "Statut", "Slot", "IR Date"]:
+        if c in out.columns:
+            out[c] = out[c].apply(_norm_text)
+
+    # --- Normalize owner to your official team names (LOGOS keys) when possible
+    try:
+        owner_map = {_norm_key(k): k for k in (LOGOS.keys() if isinstance(LOGOS, dict) else [])}
+        def _map_owner(v: str) -> str:
+            k = _norm_key(v)
+            return owner_map.get(k, _norm_text(v))
+        out["Propriétaire"] = out["Propriétaire"].apply(_map_owner)
+    except Exception:
+        # if LOGOS not available here, keep cleaned text
+        out["Propriétaire"] = out["Propriétaire"].apply(_norm_text)
+
+    # --- Salary to int
+    out["Salaire"] = out["Salaire"].apply(_to_int_money)
+
+    # --- Pos normalization
+    if "Pos" in out.columns:
+        if "normalize_pos" in globals() and callable(globals()["normalize_pos"]):
+            out["Pos"] = out["Pos"].apply(globals()["normalize_pos"])
+        else:
+            out["Pos"] = out["Pos"].apply(lambda x: _norm_text(x).upper())
+
+    # --- Statut/Slot common canonicalization (light-touch)
+    def _canon_statut(s: str) -> str:
+        k = _norm_key(s)
+        if k in {"ir", "injured reserve", "reserve"}:
+            return "IR"
+        if k in {"grand club", "gc"}:
+            return "Grand Club"
+        if k in {"club ecole", "ce", "club ecole"}:
+            return "Club École"
+        return _norm_text(s)
+
+    def _canon_slot(s: str) -> str:
+        k = _norm_key(s)
+        if k in {"actif", "actifs", "active"}:
+            return "Actif"
+        if k in {"mineur", "minors", "minor"}:
+            return "Mineur"
+        if k in {"banc", "bench"}:
+            return "Banc"
+        if k in {"ir"}:
+            return "IR"
+        return _norm_text(s)
+
+    out["Statut"] = out["Statut"].apply(_canon_statut)
+    out["Slot"] = out["Slot"].apply(_canon_slot)
+
+    return out
+
 
 # =====================================================
 # 🚀 INIT LOAD (DATA + HISTORY + PLAFONDS)
