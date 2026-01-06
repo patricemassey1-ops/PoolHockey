@@ -985,8 +985,7 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     - surlignage subtil + crochet vert (fade-in)
     - rendu Cloud-proof via components.html
     """
-    st.subheader("📊 Tableau — Masses salariales")
-
+    
     selected = str(get_selected_team() or "").strip()
 
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
@@ -1194,30 +1193,33 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 # =====================================================
-# TOP LOGO POOL
+# LOGO POOL — FULL WIDTH (FORCED)
 # =====================================================
-logo_pool_b64 = _img_b64(LOGO_POOL_FILE)
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 0rem !important; }
-      header { visibility: hidden; }
-      .stApp { margin-top: 0rem; }
-      .logo-pool-top{ margin:0; padding:0; }
-      .logo-pool-top img{ display:block; height:72px; width:auto; object-fit:contain; margin:0; padding:0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-if logo_pool_b64:
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+
+if os.path.exists(LOGO_POOL_FILE):
+    st.markdown(
+        """
+        <style>
+          .pool-logo-wrap img {
+            width: 100% !important;
+            max-height: 140px;
+            object-fit: contain;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         f"""
-        <div class="logo-pool-top">
-          <img src="data:image/png;base64,{logo_pool_b64}" alt="Logo Pool"/>
+        <div class="pool-logo-wrap">
+            <img src="data:image/png;base64,{base64.b64encode(open(LOGO_POOL_FILE, "rb").read()).decode()}">
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 # =====================================================
 # LOAD DATA + HISTORY (local only here; Drive queue flush can be added later)
