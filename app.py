@@ -29,6 +29,8 @@ from urllib.parse import quote, unquote
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
+
 
 # Google Drive (optional)
 # Google Drive (optional)
@@ -1111,141 +1113,147 @@ st.divider()
 
 if active_tab == "📊 Tableau":
     # =====================================================
-    # 📊 Tableau — Masses salariales (avec surlignage sélection)
-    # =====================================================
-    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+# 📊 Tableau — Masses salariales (Cloud-proof)
+# =====================================================
+import streamlit.components.v1 as components
 
-    selected = str(get_selected_team() or "").strip()
+st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
 
-    if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
-        st.info("Aucune équipe configurée.")
-    else:
-        view = plafonds.copy()
+selected = str(get_selected_team() or "").strip()
 
-        cols = [
-            "Importé",
-            "Propriétaire",
-            "Total Grand Club",
-            "Montant Disponible GC",
-            "Total Club École",
-            "Montant Disponible CE",
-        ]
-        for c in cols:
-            if c not in view.columns:
-                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
+    st.info("Aucune équipe configurée.")
+else:
+    view = plafonds.copy()
 
-        def _fmt_money(x):
-            try:
-                return money(int(x))
-            except Exception:
-                return money(0)
+    cols = [
+        "Importé",
+        "Propriétaire",
+        "Total Grand Club",
+        "Montant Disponible GC",
+        "Total Club École",
+        "Montant Disponible CE",
+    ]
+    for c in cols:
+        if c not in view.columns:
+            view[c] = 0 if ("Total" in c or "Montant" in c) else ""
 
-        for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
-            view[c] = view[c].apply(_fmt_money)
+    def _fmt_money(x):
+        try:
+            return money(int(x))
+        except Exception:
+            return money(0)
 
-        st.markdown(
-            """
-            <style>
-              .pms-table-wrap{
-                margin-top: 8px;
-                border: 1px solid rgba(255,255,255,0.10);
-                border-radius: 14px;
-                overflow: hidden;
-              }
-              table.pms-table{
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 14px;
-              }
-              table.pms-table thead th{
-                text-align: left;
-                padding: 10px 12px;
-                background: rgba(255,255,255,0.06);
-                border-bottom: 1px solid rgba(255,255,255,0.10);
-                font-weight: 900;
-              }
-              table.pms-table tbody td{
-                padding: 10px 12px;
-                border-bottom: 1px solid rgba(255,255,255,0.06);
-                vertical-align: middle;
-                font-weight: 650;
-              }
-              table.pms-table tbody tr:hover{
-                background: rgba(255,255,255,0.04);
-              }
-              tr.pms-selected{
-                background: rgba(34,197,94,0.22) !important;
-                box-shadow: inset 0 0 0 2px rgba(34,197,94,0.55);
-              }
-              tr.pms-selected td:first-child{
-                border-left: 6px solid rgba(34,197,94,0.75);
-              }
-              .badge-selected{
-                display:inline-block;
-                padding: 3px 10px;
-                border-radius: 999px;
-                background: rgba(34,197,94,0.28);
-                border: 1px solid rgba(34,197,94,0.55);
-                font-weight: 1000;
-                font-size: 12px;
-                margin-left: 8px;
-              }
+    for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
+        view[c] = view[c].apply(_fmt_money)
 
-              .cell-right{ text-align: right; white-space: nowrap; }
-              .import-ok{ font-weight: 1000; }
-            </style>
-            """,
-            unsafe_allow_html=True
+    css = """
+    <style>
+      .pms-table-wrap{
+        margin-top: 8px;
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      table.pms-table{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      table.pms-table thead th{
+        text-align: left;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.06);
+        border-bottom: 1px solid rgba(255,255,255,0.10);
+        font-weight: 900;
+      }
+      table.pms-table tbody td{
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        vertical-align: middle;
+        font-weight: 650;
+      }
+      table.pms-table tbody tr:hover{
+        background: rgba(255,255,255,0.04);
+      }
+
+      tr.pms-selected{
+        background: rgba(34,197,94,0.22) !important;
+        box-shadow: inset 0 0 0 2px rgba(34,197,94,0.55);
+      }
+      tr.pms-selected td:first-child{
+        border-left: 6px solid rgba(34,197,94,0.75);
+      }
+
+      .badge-selected{
+        display:inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(34,197,94,0.28);
+        border: 1px solid rgba(34,197,94,0.55);
+        font-weight: 1000;
+        font-size: 12px;
+        margin-left: 8px;
+      }
+
+      .cell-right{ text-align:right; white-space:nowrap; }
+      .import-ok{ font-weight:1000; }
+    </style>
+    """
+
+    rows_html = []
+    for _, r in view[cols].iterrows():
+        owner = str(r.get("Propriétaire", "")).strip()
+        is_sel = (owner == selected) and bool(selected)
+
+        tr_class = "pms-selected" if is_sel else ""
+        badge = "<span class='badge-selected'>Sélectionnée</span>" if is_sel else ""
+
+        imp = str(r.get("Importé", "—")).strip()
+        imp_html = f"<span class='import-ok'>{html.escape(imp)}</span>"
+
+        rows_html.append(
+            f"""
+<tr class="{tr_class}">
+  <td>{imp_html}</td>
+  <td><b>{html.escape(owner)}</b>{badge}</td>
+  <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
+  <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
+  <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
+  <td class="cell-right">{html.escape(str(r.get("Montant Disponible CE","")))}</td>
+</tr>
+"""
         )
 
-        rows_html = []
-        for _, r in view[cols].iterrows():
-            owner = str(r.get("Propriétaire", "")).strip()
-            is_sel = (owner == selected) and bool(selected)
+    html_doc = f"""
+{css}
+<div class="pms-table-wrap">
+  <table class="pms-table">
+    <thead>
+      <tr>
+        <th>Importé</th>
+        <th>Propriétaire</th>
+        <th style="text-align:right">Total GC</th>
+        <th style="text-align:right">Reste GC</th>
+        <th style="text-align:right">Total CE</th>
+        <th style="text-align:right">Reste CE</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(rows_html)}
+    </tbody>
+  </table>
+</div>
+"""
 
-            badge = "<span class='badge-selected'>Sélectionnée</span>" if is_sel else ""
-            tr_class = "pms-selected" if is_sel else ""
+    if not selected:
+        st.info("Sélectionne une équipe dans la barre latérale pour la surligner ici.")
 
-            imp = str(r.get("Importé", "")).strip()
-            imp_html = f"<span class='import-ok'>{imp}</span>"
+    # ✅ Cloud-proof render
+    # height: ajuste si besoin
+    components.html(html_doc, height=420, scrolling=True)
 
-            rows_html.append(
-                f"""
-                <tr class="{tr_class}">
-                  <td>{imp_html}</td>
-                  <td><b>{html.escape(owner)}</b>{badge}</td>
-                  <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
-                  <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
-                  <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
-                  <td class="cell-right">{html.escape(str(r.get("Montant Disponible CE","")))}</td>
-                </tr>
-                """
-            )
-
-        table_html = f"""
-        <div class="pms-table-wrap">
-          <table class="pms-table">
-            <thead>
-              <tr>
-                <th>Importé</th>
-                <th>Propriétaire</th>
-                <th style="text-align:right">Total GC</th>
-                <th style="text-align:right">Reste GC</th>
-                <th style="text-align:right">Total CE</th>
-                <th style="text-align:right">Reste CE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {''.join(rows_html)}
-            </tbody>
-          </table>
-        </div>
-        """
-
-        if not selected:
-            st.info("Sélectionne une équipe dans la barre latérale pour la surligner ici.")
-
-        st.markdown(table_html, unsafe_allow_html=True)
 
 
 elif active_tab == "🧾 Alignement":
