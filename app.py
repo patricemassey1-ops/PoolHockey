@@ -1180,23 +1180,32 @@ if active_tab == "📊 Tableau":
           }
 
           tr.pms-selected{
-            background: rgba(34,197,94,0.22) !important;
-            box-shadow: inset 0 0 0 2px rgba(34,197,94,0.55);
+            background: linear-gradient(
+            90deg,
+            rgba(34,197,94,0.45),
+            rgba(34,197,94,0.18)
+            ) !important;
+            box-shadow:
+              inset 0 0 0 3px rgba(34,197,94,0.85),
+              0 0 14px rgba(34,197,94,0.35);
           }
+
           tr.pms-selected td:first-child{
-            border-left: 6px solid rgba(34,197,94,0.75);
+            border-left: 8px solid #22c55e;
           }
 
           .badge-selected{
             display:inline-block;
-            padding: 3px 10px;
+            padding: 4px 12px;
             border-radius: 999px;
-            background: rgba(34,197,94,0.28);
-            border: 1px solid rgba(34,197,94,0.55);
+            background: #22c55e;
+            color: #04140a;
             font-weight: 1000;
             font-size: 12px;
-            margin-left: 8px;
+            margin-left: 10px;
+            box-shadow: 0 0 10px rgba(34,197,94,0.6);
           }
+
 
           .cell-right{ text-align:right; white-space:nowrap; }
           .import-ok{ font-weight:1000; }
