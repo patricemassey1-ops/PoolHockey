@@ -1193,9 +1193,11 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 # =====================================================
-# LOGO POOL — SAME WIDTH AS TABLE (CLEAN)
+# LOGO POOL — SAME WIDTH AS TABLE (FULL BANNER, CLEAN)
 # =====================================================
 import base64
+import os
+import streamlit as st
 
 LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
 
@@ -1205,20 +1207,31 @@ if os.path.exists(LOGO_POOL_FILE):
     st.markdown(
         """
         <style>
-          /* Bannière alignée avec le contenu Streamlit */
-          .pool-banner {
+          /* Wrapper aligné sur le container Streamlit */
+          .pool-banner-wrap{
             width: 100%;
-            margin: 0 auto 1.2rem auto;
+            margin: 0.25rem auto 1.0rem auto;
+            border-radius: 16px;
+            overflow: hidden;
+
+            /* look clean */
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
           }
 
-          .pool-banner img {
+          /* Image plein cadre (pas de bandes vides) */
+          .pool-banner-wrap img{
             width: 100%;
-            max-height: 150px;      /* ajuste: 130–170 selon goût */
-            object-fit: contain;    /* pas de crop */
-            border-radius: 14px;
+            height: 140px;          /* ajuste 120–170 selon ton goût */
+            object-fit: cover;      /* ✅ rempli la largeur */
+            display: block;
             opacity: 0.98;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-            background: rgba(255,255,255,0.03);
+          }
+
+          /* Sur mobile */
+          @media (max-width: 900px){
+            .pool-banner-wrap img{ height: 110px; }
           }
         </style>
         """,
@@ -1227,12 +1240,13 @@ if os.path.exists(LOGO_POOL_FILE):
 
     st.markdown(
         f"""
-        <div class="pool-banner">
+        <div class="pool-banner-wrap">
           <img src="data:image/png;base64,{b64}" alt="Logo Pool">
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 
