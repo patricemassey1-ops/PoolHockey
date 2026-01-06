@@ -1193,7 +1193,7 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 # =====================================================
-# LOGO POOL — FULL BLEED (100vw)
+# LOGO POOL — SAME WIDTH AS TABLE (CLEAN)
 # =====================================================
 import base64
 
@@ -1205,29 +1205,20 @@ if os.path.exists(LOGO_POOL_FILE):
     st.markdown(
         """
         <style>
-          /* Réduit un peu le padding global du main */
-          .main .block-container{
-            padding-top: 1.2rem;
-          }
-
-          /* FULL BLEED WRAP */
-          .pool-bleed {
-            width: 100vw;
-            position: relative;
-            left: 50%;
-            transform: translateX(-50%);
-            margin-top: 0.25rem;
-            margin-bottom: 0.75rem;
-          }
-
-          /* Image full width */
-          .pool-bleed img{
+          /* Bannière alignée avec le contenu Streamlit */
+          .pool-banner {
             width: 100%;
-            height: 160px;          /* ajuste: 140/160/180 */
-            object-fit: cover;      /* cover = bannière (remplit). contain = pas de crop */
+            margin: 0 auto 1.2rem auto;
+          }
+
+          .pool-banner img {
+            width: 100%;
+            max-height: 150px;      /* ajuste: 130–170 selon goût */
+            object-fit: contain;    /* pas de crop */
             border-radius: 14px;
             opacity: 0.98;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            background: rgba(255,255,255,0.03);
           }
         </style>
         """,
@@ -1236,12 +1227,13 @@ if os.path.exists(LOGO_POOL_FILE):
 
     st.markdown(
         f"""
-        <div class="pool-bleed">
+        <div class="pool-banner">
           <img src="data:image/png;base64,{b64}" alt="Logo Pool">
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 
