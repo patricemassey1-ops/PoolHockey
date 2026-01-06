@@ -979,11 +979,22 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_tableau_ui(plafonds: pd.DataFrame):
+    """
+    📊 Tableau — masses salariales
+    - pas de boutons au milieu (le choix d'équipe se fait dans le sidebar)
+    - surlignage subtil + crochet vert (fade-in)
+    - rendu Cloud-proof via components.html
+    """
+    st.subheader("📊 Tableau — Masses salariales")
+
+    selected = str(get_selected_team() or "").strip()
+
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
         st.info("Aucune équipe configurée.")
         return
 
     view = plafonds.copy()
+
     cols = [
         "Importé",
         "Propriétaire",
@@ -994,25 +1005,133 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     ]
     for c in cols:
         if c not in view.columns:
-            view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+            view[c] = 0 if ("Total" in c or "Montant" in c) else "—"
 
-    # Pretty money formatting for display
+    def _fmt_money(x):
+        try:
+            return money(int(float(x)))
+        except Exception:
+            return money(0)
+
     for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
-        view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
+        view[c] = view[c].apply(_fmt_money)
 
-    # Clickable team list (buttons) + dataframe
-    st.caption("Clique une équipe pour ouvrir l'alignement.")
-    for _, r in plafonds.iterrows():
+    # --- HTML table (Cloud-proof)
+    css = """
+    <style>
+      .pms-wrap{
+        margin-top: 10px;
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 16px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.02);
+      }
+      table.pms{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        color: rgba(255,255,255,0.92);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      table.pms thead th{
+        text-align: left;
+        padding: 11px 12px;
+        background: rgba(255,255,255,0.06);
+        border-bottom: 1px solid rgba(255,255,255,0.10);
+        font-weight: 900;
+        letter-spacing: .2px;
+        color: rgba(255,255,255,0.88);
+      }
+      table.pms tbody td{
+        padding: 11px 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        vertical-align: middle;
+        font-weight: 650;
+      }
+      table.pms tbody tr{
+        transition: background 220ms ease, transform 220ms ease;
+      }
+      table.pms tbody tr:hover{
+        background: rgba(255,255,255,0.035);
+      }
+
+      /* sélection: très subtile + lisible */
+      tr.pms-selected{
+        background: rgba(34,197,94,0.16) !important;
+      }
+      tr.pms-selected td:first-child{
+        border-left: 5px solid rgba(34,197,94,0.85);
+      }
+
+      .cell-right{ text-align:right; white-space:nowrap; }
+      .import-ok{ font-weight:1000; opacity:0.9; }
+
+      /* crochet */
+      .pms-check{
+        display:inline-block;
+        margin-left: 10px;
+        font-weight: 1000;
+        color: rgba(34,197,94,0.95);
+        opacity: 0;
+        transform: translateY(1px);
+        animation: pmsFadeIn 280ms ease forwards;
+      }
+      @keyframes pmsFadeIn{
+        from { opacity: 0; transform: translateY(3px); }
+        to   { opacity: 1; transform: translateY(0px); }
+      }
+    </style>
+    """
+
+    rows = []
+    for _, r in view[cols].iterrows():
         owner = str(r.get("Propriétaire", "")).strip()
-        if not owner:
-            continue
-        if st.button(f"🏒 {owner}", key=f"tbl_pick_{owner}", use_container_width=True):
-            pick_team(owner)
+        is_sel = bool(selected) and (owner == selected)
+        tr_class = "pms-selected" if is_sel else ""
 
-    st.divider()
-    st.dataframe(view[cols], use_container_width=True, hide_index=True)
+        imp = str(r.get("Importé", "—")).strip()
+        imp_html = f"<span class='import-ok'>{html.escape(imp)}</span>"
 
+        check = "<span class='pms-check'>✓</span>" if is_sel else ""
 
+        rows.append(
+            f"""
+            <tr class="{tr_class}">
+              <td>{imp_html}</td>
+              <td><b>{html.escape(owner)}</b>{check}</td>
+              <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
+              <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
+              <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
+              <td class="cell-right">{html.escape(str(r.get("Montant Disponible CE","")))}</td>
+            </tr>
+            """
+        )
+
+    html_doc = f"""
+    {css}
+    <div class="pms-wrap">
+      <table class="pms">
+        <thead>
+          <tr>
+            <th>Importé</th>
+            <th>Propriétaire</th>
+            <th style="text-align:right">Total GC</th>
+            <th style="text-align:right">Reste GC</th>
+            <th style="text-align:right">Total CE</th>
+            <th style="text-align:right">Reste CE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(rows)}
+        </tbody>
+      </table>
+    </div>
+    """
+
+    if not selected:
+        st.info("Choisis une équipe dans la barre latérale pour la surligner ici.")
+
+    components.html(html_doc, height=360, scrolling=False)
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds
 # =====================================================
