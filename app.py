@@ -1111,10 +1111,14 @@ st.divider()
 # =====================================================
 
 if active_tab == "📊 Tableau":
-    # =====================================================
-    # 📊 Tableau — Masses salariales (Cloud-proof + highlight + micro animation)
-    # =====================================================
+# =====================================================
+# 📊 Tableau — Masses salariales (Cloud-proof + subtle highlight + micro animation + fade-in check)
+# =====================================================
     st.subheader("📊 Tableau — Masses salariales")
+
+    # --- imports safe (top-level idéalement, mais OK ici aussi)
+    import html
+    import streamlit.components.v1 as components
 
     selected = str(get_selected_team() or "").strip()
 
@@ -1123,7 +1127,6 @@ if active_tab == "📊 Tableau":
     else:
         view = plafonds.copy()
 
-        # ✅ Guard colonnes attendues
         cols = [
             "Importé",
             "Propriétaire",
@@ -1134,9 +1137,8 @@ if active_tab == "📊 Tableau":
         ]
         for c in cols:
             if c not in view.columns:
-                view[c] = 0 if ("Total" in c or "Montant" in c) else "—"
+                view[c] = 0 if ("Total" in c or "Montant" in c) else ""
 
-        # ✅ Format $
         def _fmt_money(x):
             try:
                 return money(int(x))
@@ -1146,103 +1148,126 @@ if active_tab == "📊 Tableau":
         for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
             view[c] = view[c].apply(_fmt_money)
 
-        # 🔑 Token pour déclencher l’animation à chaque changement d’équipe
-        # (on l’incrémente quand la sélection change)
-        if "tbl_anim_token" not in st.session_state:
-            st.session_state["tbl_anim_token"] = 0
-        if "tbl_prev_selected" not in st.session_state:
-            st.session_state["tbl_prev_selected"] = selected
-
-        if selected != st.session_state["tbl_prev_selected"]:
-            st.session_state["tbl_anim_token"] += 1
-            st.session_state["tbl_prev_selected"] = selected
-
-        anim_id = f"pmsWrap_{st.session_state['tbl_anim_token']}"
-
+        # -------------------------------------------------
+        # CSS (white text, subtle highlight, smooth micro-anim + fade-in check)
+        # -------------------------------------------------
         css = """
-        <style>
-          .pms-table-wrap{
-            margin-top: 10px;
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 14px;
-            overflow: hidden;
-            background: rgba(255,255,255,0.02);
-          }
+<style>
+  :root{
+    --pms-text: rgba(255,255,255,0.92);
+    --pms-muted: rgba(255,255,255,0.72);
+    --pms-border: rgba(255,255,255,0.10);
+    --pms-border-2: rgba(255,255,255,0.08);
+    --pms-head: rgba(255,255,255,0.06);
+    --pms-hover: rgba(255,255,255,0.035);
+    --pms-sel-bg: rgba(34,197,94,0.08);     /* super subtil */
+    --pms-sel-ring: rgba(34,197,94,0.22);   /* ring subtil */
+    --pms-sel-left: rgba(34,197,94,0.55);   /* accent gauche */
+    --pms-green: #22c55e;
+  }
 
-          table.pms-table{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-          }
+  .pms-table-wrap{
+    margin-top: 10px;
+    border: 1px solid var(--pms-border);
+    border-radius: 16px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.10);
+  }
 
-          table.pms-table thead th{
-            text-align: left;
-            padding: 10px 12px;
-            background: rgba(255,255,255,0.06);
-            border-bottom: 1px solid rgba(255,255,255,0.10);
-            font-weight: 900;
-            color: #ffffff;               /* ✅ blanc */
-          }
+  table.pms-table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--pms-text);
+  }
 
-          table.pms-table tbody td{
-            padding: 10px 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            vertical-align: middle;
-            font-weight: 650;
-            color: #ffffff;               /* ✅ blanc */
-          }
+  table.pms-table thead th{
+    text-align: left;
+    padding: 12px 12px;
+    background: var(--pms-head);
+    border-bottom: 1px solid var(--pms-border);
+    font-weight: 900;
+    letter-spacing: 0.2px;
+    color: rgba(255,255,255,0.88);
+  }
 
-          table.pms-table tbody tr:hover{
-            background: rgba(255,255,255,0.04);
-          }
+  table.pms-table tbody td{
+    padding: 12px 12px;
+    border-bottom: 1px solid var(--pms-border-2);
+    vertical-align: middle;
+    font-weight: 650;
+    color: var(--pms-text);
+  }
 
-          /* ✅ Sélection: highlighter TRÈS subtil + accent vert à gauche */
-          tr.pms-selected{
-            background: linear-gradient(
-              90deg,
-              rgba(255, 255, 255, 0.10),
-              rgba(255, 255, 255, 0.03)
-            ) !important;
-          }
-          tr.pms-selected td:first-child{
-            border-left: 4px solid rgba(34,197,94,0.85);
-          }
+  table.pms-table tbody tr{
+    transition: background 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+    will-change: background, box-shadow, transform;
+  }
 
-          /* Badge discret */
-          .badge-selected{
-            display:inline-block;
-            padding: 3px 10px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.18);
-            color: #ffffff;
-            font-weight: 800;
-            font-size: 11px;
-            margin-left: 8px;
-          }
+  table.pms-table tbody tr:hover{
+    background: var(--pms-hover);
+    transform: translateY(-1px);
+  }
 
-          .cell-right{ text-align:right; white-space:nowrap; }
-          .import-ok{ font-weight:1000; opacity: 0.95; }
+  /* Ligne sélectionnée: très subtil + ring doux */
+  tr.pms-selected{
+    background: var(--pms-sel-bg) !important;
+    box-shadow: inset 0 0 0 1px var(--pms-sel-ring);
+  }
 
-          /* ✅ Micro-animation douce sur le container au changement de sélection */
-          @keyframes pmsEnter {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0px); }
-          }
-          .pms-anim{
-            animation: pmsEnter 260ms ease-out;
-            will-change: opacity, transform;
-          }
-        </style>
+  tr.pms-selected td:first-child{
+    border-left: 4px solid var(--pms-sel-left);
+  }
+
+  .cell-right{ text-align:right; white-space:nowrap; }
+  .import-ok{ font-weight: 900; color: rgba(255,255,255,0.86); }
+
+  /* ✅ Crochet vert: fade-in + petite pop */
+  .check-selected{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 10px;
+
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+
+    background: rgba(34,197,94,0.12);
+    color: var(--pms-green);
+
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+
+    box-shadow: inset 0 0 0 1px rgba(34,197,94,0.35);
+
+    opacity: 0;
+    transform: scale(0.85);
+    animation: pmsCheckIn 260ms ease-out forwards;
+    animation-delay: 80ms;
+  }
+
+  @keyframes pmsCheckIn{
+    to{
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+</style>
         """
 
+        # -------------------------------------------------
+        # HTML rows
+        # -------------------------------------------------
         rows_html = []
         for _, r in view[cols].iterrows():
             owner = str(r.get("Propriétaire", "")).strip()
             is_sel = (owner == selected) and bool(selected)
 
             tr_class = "pms-selected" if is_sel else ""
-            badge = "<span class='badge-selected'>Sélectionnée</span>" if is_sel else ""
+            badge = "<span class='check-selected'>✔</span>" if is_sel else ""
 
             imp = str(r.get("Importé", "—")).strip()
             imp_html = f"<span class='import-ok'>{html.escape(imp)}</span>"
@@ -1262,31 +1287,31 @@ if active_tab == "📊 Tableau":
 
         html_doc = f"""
 {css}
-<div id="{anim_id}" class="pms-anim">
-  <div class="pms-table-wrap">
-    <table class="pms-table">
-      <thead>
-        <tr>
-          <th>Importé</th>
-          <th>Propriétaire</th>
-          <th style="text-align:right">Total GC</th>
-          <th style="text-align:right">Reste GC</th>
-          <th style="text-align:right">Total CE</th>
-          <th style="text-align:right">Reste CE</th>
-        </tr>
-      </thead>
-      <tbody>
-        {''.join(rows_html)}
-      </tbody>
-    </table>
-  </div>
+<div class="pms-table-wrap">
+  <table class="pms-table">
+    <thead>
+      <tr>
+        <th>Importé</th>
+        <th>Propriétaire</th>
+        <th style="text-align:right">Total GC</th>
+        <th style="text-align:right">Reste GC</th>
+        <th style="text-align:right">Total CE</th>
+        <th style="text-align:right">Reste CE</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(rows_html)}
+    </tbody>
+  </table>
 </div>
 """
 
         if not selected:
             st.info("Sélectionne une équipe dans la barre latérale pour la surligner ici.")
 
-        components.html(html_doc, height=420, scrolling=True)
+        # Cloud-proof render
+        components.html(html_doc, height=460, scrolling=True)
+
 
 
 
