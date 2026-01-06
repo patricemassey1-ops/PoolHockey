@@ -938,16 +938,15 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
         view[c] = view[c].apply(lambda x: money(int(x) if str(x).strip() != "" else 0))
 
-    # Clickable team list (buttons) + dataframe
-    st.caption("Clique une équipe pour ouvrir l'alignement.")
-    for _, r in plafonds.iterrows():
-        owner = str(r.get("Propriétaire", "")).strip()
-        if not owner:
-            continue
-        if st.button(f"🏒 {owner}", key=f"tbl_pick_{owner}", use_container_width=True):
-            pick_team(owner)
+    # ✅ Affiche l'équipe sélectionnée (sidebar) au lieu d'une liste cliquable
+    selected = str(get_selected_team() or "").strip()
+    if selected:
+        st.success(f"Équipe sélectionnée : **{selected}**")
+    else:
+        st.info("Sélectionne une équipe dans la barre latérale pour voir l'alignement.")
 
     st.divider()
+
     st.dataframe(view[cols], use_container_width=True, hide_index=True)
 
 
