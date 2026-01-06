@@ -825,30 +825,6 @@ st.divider()
 # =====================================================
 
 if active_tab == "📊 Tableau":
-    ...
-    
-elif active_tab == "🧾 Alignement":
-    ...
-    
-elif active_tab == "👤 Joueurs":
-    ...
-    
-elif active_tab == "🕘 Historique":
-    ...
-    
-elif active_tab == "⚖️ Transactions":
-    ...
-    
-elif active_tab == "🧠 Recommandations":
-    ...
-    
-else:
-    st.warning("Onglet inconnu")
-
-# ------------------------------
-# TAB 1 — Tableau
-# ------------------------------
-if active_tab == "📊 Tableau":
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
 
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
@@ -879,7 +855,41 @@ if active_tab == "📊 Tableau":
             use_container_width=True,
             hide_index=True,
         )
-        
+elif active_tab == "👤 Joueurs":
+    st.subheader("👤 Joueurs")
+    st.caption(
+        "Aucun résultat tant qu’aucun filtre n’est rempli "
+        "(Nom/Prénom, Équipe, Level/Contrat ou Cap Hit)."
+    )
+
+    # -------------------------------------------------
+    # GUARDS (local au tab)
+    # -------------------------------------------------
+    if df is None or df.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    if players_db is None or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
+        st.stop()
+
+    df_db = players_db.copy()
+    
+elif active_tab == "🕘 Historique":
+    ...
+    
+elif active_tab == "⚖️ Transactions":
+    ...
+    
+elif active_tab == "🧠 Recommandations":
+    ...
+    
+else:
+    st.warning("Onglet inconnu")
+
+
+
 
 # ------------------------------
 # TAB A — Alignement
@@ -944,29 +954,7 @@ elif active_tab == "🧾 Alignement":
         st.stop()
 
 
-# ------------------------------
-# TAB J — Joueurs
-# ------------------------------
-elif active_tab == "👤 Joueurs":
-    st.subheader("👤 Joueurs")
-    st.caption(
-        "Aucun résultat tant qu’aucun filtre n’est rempli "
-        "(Nom/Prénom, Équipe, Level/Contrat ou Cap Hit)."
-    )
-
-    # -------------------------------------------------
-    # GUARDS (local au tab)
-    # -------------------------------------------------
-    if df is None or df.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    if players_db is None or players_db.empty:
-        st.error("Impossible de charger la base joueurs.")
-        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
-        st.stop()
-
-    df_db = players_db.copy()
+   
 
     # -------------------------------------------------
     # Normalisation colonne Player
@@ -1526,10 +1514,10 @@ elif active_tab == "⚖️ Transactions":
 # TAB ADMIN — Gestion Admin (si admin)
 # ------------------------------
 elif active_tab == "🛠️ Gestion Admin":
+    # Onglet admin: seulement si présent
     if not is_admin:
-        st.error("Accès refusé.")
-    else:
-        st.subheader("🛠️ Gestion Admin")
+        st.warning("Accès admin requis.")
+        st.stop()
 
         # =====================================================
         # 📥 IMPORT (TOP) — MULTI TEAM
@@ -4072,6 +4060,7 @@ plafonds = pd.DataFrame(resume)
 
     # Pop-up toujours à la fin du tab
     open_move_dialog()
+
 
 
 
