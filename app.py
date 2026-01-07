@@ -193,13 +193,52 @@ require_password()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PREVIEW_DIR = os.path.join(BASE_DIR, "assets", "previews")
 
-def preview_image_path(team: str, is_ce: bool = False) -> str | None:
+def _slug_team(team: str) -> str:
+    """
+    Convertit le nom d'équipe en slug compatible avec tes fichiers.
+    Exemples:
+      "Red Wings" -> "Red_Wings"
+      "Montréal Canadiens" -> "montreal-canadiens"
+    """
     team = str(team or "").strip()
-    if not team:
+
+    repl = {
+        "é":"e","è":"e","ê":"e","ë":"e",
+        "à":"a","â":"a","ä":"a",
+        "î":"i","ï":"i",
+        "ô":"o","ö":"o",
+        "ù":"u","û":"u","ü":"u",
+        "ç":"c",
+        "É":"E","È":"E","Ê":"E","Ë":"E",
+        "À":"A","Â":"A","Ä":"A",
+        "Î":"I","Ï":"I",
+        "Ô":"O","Ö":"O",
+        "Ù":"U","Û":"U","Ü":"U",
+        "Ç":"C",
+    }
+    for k, v in repl.items():
+        team = team.replace(k, v)
+
+    # espaces -> underscore
+    team = team.replace(" ", "_")
+
+    return team
+
+
+def preview_image_path(team: str, is_ce: bool = False) -> str | None:
+    """
+    GC: <slug>_Logo.png
+    CE: <slug>E_Logo.png
+    """
+    slug = _slug_team(team)
+    if not slug:
         return None
-    fname = f"{team}{'E' if is_ce else ''}.png"
+
+    fname = f"{slug}{'E' if is_ce else ''}_Logo.png"
     path = os.path.join(PREVIEW_DIR, fname)
+
     return path if os.path.exists(path) else None
+
 
 def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
     d = df_team.copy()
