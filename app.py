@@ -25,40 +25,63 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# =====================================================
+# PATH — LOGO POOL (must be defined BEFORE require_password)
+# =====================================================
+LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+
+# =====================================================
+# 🔐 PASSWORD GATE — shared password (OPTION B)
+#   Secrets:
+#   [security]
+#   password_sha256 = "TON_HASH"
+#   enable_hash_tool = true|false
+# =====================================================
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
 
-    # 🔓 OPTION B: si le hash tool est activé, on ne bloque PAS l'app
+    # 🔓 OPTION B — allow hash tool without login
     if bool(cfg.get("enable_hash_tool", False)):
         return
 
     expected = str(cfg.get("password_sha256", "")).strip()
+
+    # No password configured → app remains public
     if not expected:
         return
 
+    # Already authenticated
     if st.session_state.get("authed", False):
         return
 
     # =====================================================
-    # 🏒 LOGO POOL — LOGIN SCREEN
+    # 🏒 LOGO POOL — LOGIN SCREEN (BIG + CENTERED)
     # =====================================================
     if os.path.exists(LOGO_POOL_FILE):
         st.markdown(
             """
             <style>
+              .login-logo {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin: 2rem 0 1.5rem 0;
+              }
               .login-logo img{
                 width: 100%;
-                max-height: 140px;
+                max-width: 540px;   /* ajuste 480–620 si désiré */
+                max-height: 220px;
                 object-fit: contain;
-                margin-bottom: 1rem;
+                opacity: 0.98;
               }
             </style>
             """,
             unsafe_allow_html=True,
         )
+
         st.markdown(
             f"""
             <div class="login-logo">
@@ -71,7 +94,7 @@ def require_password():
     # =====================================================
     # LOGIN UI
     # =====================================================
-    st.title("🔐 Accès sécurisé")
+    st.markdown("## 🔐 Accès sécurisé")
     st.caption("Entre le mot de passe partagé pour accéder à l’application.")
 
     pwd = st.text_input("Mot de passe", type="password")
@@ -86,13 +109,19 @@ def require_password():
                 st.error("❌ Mot de passe invalide")
 
     with col2:
-        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
+        st.info(
+            "Astuce : si tu changes le mot de passe, génère un nouveau hash "
+            "et remplace-le dans Streamlit Secrets."
+        )
 
+    # Block app until authenticated
     st.stop()
 
-
-# ✅ IMPORTANT: call the gate here, BEFORE the rest of the app runs
+# =====================================================
+# 🔐 ACTIVATE PASSWORD GATE
+# =====================================================
 require_password()
+
 
 # =====================================================
 # 🔐 TEMP — Password hash generator (SAFE / DISABLED BY DEFAULT)
