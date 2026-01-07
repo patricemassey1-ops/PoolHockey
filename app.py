@@ -1717,7 +1717,7 @@ with save_row1:
         key="btn_save_alignement",
     )
  
- with save_row2:
+with save_row2:
     if used_gc > cap_gc:
         st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
     else:
