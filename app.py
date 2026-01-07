@@ -1745,7 +1745,7 @@ st.divider()
 
 
 with st.expander("🟡 Banc", expanded=True):
-	if gc_banc.empty:
+    if gc_banc.empty:
         st.info("Aucun joueur.")
     else:
         if not popup_open:
