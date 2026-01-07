@@ -37,9 +37,6 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
-# 🔐 gate ici
-require_password()
-
 # =====================================================
 # 🔐 PASSWORD GATE — shared password (Streamlit Cloud)
 #   Secrets:
@@ -71,7 +68,6 @@ def require_password():
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
-                st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
@@ -81,6 +77,10 @@ def require_password():
 
     # Stop the app here until authenticated
     st.stop()
+
+# 🔐 gate ici (APRÈS la définition)
+require_password()
+
 
 
 
