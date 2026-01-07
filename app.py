@@ -1591,6 +1591,7 @@ st.divider()
 open_gc_preview_dialog()
 open_cap_nonconforme_dialog()
 
+
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
 # =====================================================
@@ -1694,73 +1695,53 @@ elif active_tab == "🧾 Alignement":
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
+# -----------------------------
+# Pop-up open check
+# -----------------------------
+popup_open = st.session_state.get("move_ctx") is not None
+if popup_open:
+    st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+
 # =====================================================
-# 💾 Enregistrer l’alignement (validation plafond GC au clic)
-#   ➜ Message seulement lors de l'enregistrement
+# 💾 Enregistrer l’alignement (validation plafond au clic)
+#   -> Popup seulement quand GC dépasse
 # =====================================================
-s1, s2 = st.columns([1.2, 3.8], vertical_alignment="center")
-with s1:
+save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
+
+with save_row1:
     save_click = st.button(
         "💾 Enregistrer",
-        help="Valide le plafond Grand Club (GC) puis enregistre",
+        help="Valide le plafond GC et enregistre l’alignement",
         use_container_width=True,
         disabled=popup_open,
         key="btn_save_alignement",
     )
-with s2:
-    over_gc = int(used_gc or 0) - int(cap_gc or 0)
-    if over_gc > 0:
-        st.caption(f"⚠️ GC dépasse le plafond de {money(over_gc)} — message affiché à l’enregistrement.")
+
+with save_row2:
+    if used_gc > cap_gc:
+        st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
     else:
         st.caption("✅ Prêt à enregistrer.")
 
 if save_click:
-    over_gc = int(used_gc or 0) - int(cap_gc or 0)
-    if over_gc > 0:
-        st.session_state["used_gc_last"] = int(used_gc or 0)
-        st.session_state["cap_nonconforme_open"] = True
-        st.session_state["active_tab"] = "🧾 Alignement"
-        do_rerun()
+    if used_gc > cap_gc:
+        # ✅ seulement GC, seulement au clic
+        non_conforme_dialog(int(used_gc - cap_gc))
+        st.stop()
     else:
-        # Re-persist (safe) + refresh plafonds
-        season_lbl = str(st.session_state.get("season", "")).strip()
+        # ✅ Sauvegarde data + plafonds
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         df_all = clean_data(df_all)
         st.session_state["data"] = df_all
-        try:
-            persist_data(df_all, season_lbl)
-        except Exception as e:
-            st.error(f"❌ Erreur d’enregistrement : {type(e).__name__}: {e}")
-            st.stop()
 
+        persist_data(df_all, season)
         st.session_state["plafonds"] = rebuild_plafonds(df_all)
+
         st.success("✅ Alignement enregistré.")
-        do_rerun()
+        do_rerun() if "do_rerun" in globals() else st.rerun()
 
-    st.divider()
+st.divider()
 
-    colA, colB = st.columns(2, gap="small")
-    with colA:
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs")
-            if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs"); do_rerun()
-            else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
-
-    with colB:
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur")
-            if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min"); do_rerun()
-            else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
-
-    st.divider()
 
     with st.expander("🟡 Banc", expanded=True):
         if gc_banc.empty:
