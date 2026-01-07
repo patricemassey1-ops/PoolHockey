@@ -1375,6 +1375,13 @@ if os.path.exists(LOGO_POOL_FILE):
     )
 
 
+# =====================================================
+# SEASON — assure que la variable `season` existe
+# =====================================================
+season = str(st.session_state.get("season") or "").strip()
+if not season:
+    season = saison_auto()                 # fallback
+    st.session_state["season"] = season    # sync
 
 
 
