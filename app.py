@@ -40,61 +40,53 @@ LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
+
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
 
-    # 🔓 OPTION B — allow hash tool without login
+    # 🔓 OPTION B: si le hash tool est activé, on ne bloque PAS l'app
     if bool(cfg.get("enable_hash_tool", False)):
         return
 
     expected = str(cfg.get("password_sha256", "")).strip()
-
-    # No password configured → app remains public
     if not expected:
-        return
+        return  # pas de mot de passe => app publique
 
-    # Already authenticated
     if st.session_state.get("authed", False):
-        return
+        return  # déjà connecté
 
-# =====================================================
-# 🏒 LOGIN HEADER (SVG) — PMS rouge + icônes + Logo_pool (largeur tableau)
-#   À mettre dans require_password() avant le st.title(...)
-# =====================================================
-if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
-    logo_b64 = base64.b64encode(open(LOGO_POOL_FILE, "rb").read()).decode("utf-8")
+    # -----------------------------
+    # 🏒 HEADER: PMS rouge + icônes + Logo_pool (gros, centré)
+    # -----------------------------
+    logo_path = os.path.join("data", "Logo_Pool.png")
+    logo_b64 = ""
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-    # --- SVG "bâton" (gauche) + "filet" (droite)
     stick_svg = """
     <svg class="pms-ico" viewBox="0 0 120 120" aria-hidden="true">
       <defs>
         <linearGradient id="gStick" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="rgba(255,255,255,0.95)"/>
-          <stop offset="1" stop-color="rgba(255,255,255,0.65)"/>
+          <stop offset="0" stop-color="rgba(255,255,255,0.98)"/>
+          <stop offset="1" stop-color="rgba(255,255,255,0.72)"/>
         </linearGradient>
       </defs>
-      <!-- manche -->
-      <rect x="56" y="6" width="10" height="78" rx="5" fill="url(#gStick)" />
-      <!-- palette -->
-      <path d="M45 86 L86 86 L86 98 L55 110 L45 110 Z" fill="url(#gStick)"/>
-      <!-- grip -->
-      <rect x="52" y="6" width="18" height="14" rx="7" fill="rgba(0,0,0,0.25)"/>
+      <rect x="54" y="6" width="12" height="78" rx="6" fill="url(#gStick)" />
+      <path d="M42 86 L90 86 L90 100 L58 112 L42 112 Z" fill="url(#gStick)"/>
+      <rect x="50" y="6" width="20" height="16" rx="8" fill="rgba(0,0,0,0.25)"/>
     </svg>
     """
 
     net_svg = """
     <svg class="pms-ico" viewBox="0 0 140 120" aria-hidden="true">
-      <!-- cadre -->
-      <path d="M24 26 H110 V96 H24 Z" fill="none" stroke="rgba(255,255,255,0.90)" stroke-width="8" />
-      <!-- poteaux + barre -->
+      <path d="M24 26 H110 V96 H24 Z" fill="none" stroke="rgba(255,255,255,0.95)" stroke-width="9" />
       <path d="M24 26 V96 M110 26 V96 M24 26 H110"
             fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="4" />
-      <!-- grille -->
-      <g stroke="rgba(255,255,255,0.35)" stroke-width="2">
+      <g stroke="rgba(255,255,255,0.38)" stroke-width="2">
         <path d="M24 40 H110 M24 54 H110 M24 68 H110 M24 82 H110"/>
         <path d="M38 26 V96 M52 26 V96 M66 26 V96 M80 26 V96 M94 26 V96"/>
       </g>
-      <!-- ombre intérieure légère -->
       <rect x="28" y="30" width="78" height="62" fill="rgba(0,0,0,0.08)"/>
     </svg>
     """
@@ -104,73 +96,73 @@ if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
         <style>
           .pms-login-wrap{
             width: 100%;
-            max-width: 1120px;  /* même vibe que ton tableau */
-            margin: 22px auto 14px auto;
-            padding: 0 12px;
+            max-width: 1120px;
+            margin: 18px auto 10px auto;
+            padding: 0 14px;
           }
-
           .pms-login-header{
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 34px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            gap: 38px;
           }
-
           .pms-ico{
-            width: 96px;        /* ✅ plus gros bâton/filet */
-            height: 96px;
-            filter: drop-shadow(0 14px 22px rgba(0,0,0,0.35));
+            width: 120px;   /* ✅ encore plus gros */
+            height: 120px;
+            filter: drop-shadow(0 18px 28px rgba(0,0,0,0.42));
             opacity: 0.98;
-            transform: translateY(6px);
+            transform: translateY(10px);
           }
-
-          .pms-login-center{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+          .pms-center{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
             width: 100%;
           }
-
-          .pms-login-title{
-            font-size: 66px;    /* ✅ PMS plus gros */
+          .pms-title{
+            font-size: 78px;     /* ✅ PMS plus gros */
             font-weight: 1000;
-            letter-spacing: 5px;
-            color: #dc2626;     /* 🔴 rouge */
+            letter-spacing: 6px;
+            color: #ef4444;      /* 🔴 rouge */
             line-height: 1.0;
             margin: 0 0 12px 0;
-            text-shadow: 0 12px 18px rgba(0,0,0,0.25);
+            text-shadow: 0 14px 22px rgba(0,0,0,0.28);
           }
-
-          .pms-login-logo{
-            width: 100%;
-            display: flex;
-            justify-content: center;
+          .pms-logo{
+            width:100%;
+            display:flex;
+            justify-content:center;
           }
-
-          .pms-login-logo img{
-            width: 100%;
-            max-width: 980px;   /* ✅ gros mais limité au wrap */
-            max-height: 380px;
+          .pms-logo img{
+            width:100%;
+            max-width: 1040px;   /* ✅ logo plus large */
+            max-height: 420px;
             object-fit: contain;
-            filter: drop-shadow(0 16px 28px rgba(0,0,0,0.35));
+            border-radius: 16px;
+            filter: drop-shadow(0 18px 30px rgba(0,0,0,0.45));
           }
 
-          /* Responsive */
           @media (max-width: 900px){
-            .pms-ico{ width: 78px; height: 78px; }
-            .pms-login-title{ font-size: 52px; }
+            .pms-ico{ width: 96px; height: 96px; }
+            .pms-title{ font-size: 58px; letter-spacing: 4px; }
             .pms-login-header{ gap: 22px; }
-            .pms-login-logo img{ max-width: 760px; max-height: 330px; }
+            .pms-logo img{ max-width: 860px; max-height: 360px; }
           }
           @media (max-width: 650px){
-            .pms-ico{ width: 62px; height: 62px; }
-            .pms-login-title{ font-size: 40px; letter-spacing: 3px; }
+            .pms-ico{ width: 74px; height: 74px; }
+            .pms-title{ font-size: 44px; letter-spacing: 3px; }
             .pms-login-header{ gap: 14px; }
-            .pms-login-logo img{ max-width: 560px; max-height: 260px; }
+            .pms-logo img{ max-width: 600px; max-height: 280px; }
           }
         </style>
         """,
         unsafe_allow_html=True,
+    )
+
+    logo_html = (
+        f"<img src='data:image/png;base64,{logo_b64}' alt='Logo pool'/>"
+        if logo_b64
+        else "<div style='opacity:.7;font-weight:800'>Logo_Pool.png introuvable (data/Logo_Pool.png)</div>"
     )
 
     st.markdown(
@@ -178,11 +170,9 @@ if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
         <div class="pms-login-wrap">
           <div class="pms-login-header">
             {stick_svg}
-            <div class="pms-login-center">
-              <div class="pms-login-title">PMS</div>
-              <div class="pms-login-logo">
-                <img src="data:image/png;base64,{logo_b64}" />
-              </div>
+            <div class="pms-center">
+              <div class="pms-title">PMS</div>
+              <div class="pms-logo">{logo_html}</div>
             </div>
             {net_svg}
           </div>
@@ -191,12 +181,10 @@ if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
         unsafe_allow_html=True,
     )
 
-
-
-    # =====================================================
+    # -----------------------------
     # LOGIN UI
-    # =====================================================
-    st.markdown("## 🔐 Accès sécurisé")
+    # -----------------------------
+    st.markdown("## Accès sécurisé")
     st.caption("Entre le mot de passe partagé pour accéder à l’application.")
 
     pwd = st.text_input("Mot de passe", type="password")
@@ -211,13 +199,10 @@ if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
                 st.error("❌ Mot de passe invalide")
 
     with col2:
-        st.info(
-            "Astuce : si tu changes le mot de passe, génère un nouveau hash "
-            "et remplace-le dans Streamlit Secrets."
-        )
+        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Streamlit Secrets.")
 
-    # Block app until authenticated
     st.stop()
+
 
 # =====================================================
 # 🔐 ACTIVATE PASSWORD GATE
