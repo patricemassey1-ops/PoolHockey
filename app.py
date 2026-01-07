@@ -23,6 +23,7 @@ import time
 import base64
 import socket
 import ssl
+import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, unquote
@@ -30,8 +31,15 @@ from urllib.parse import quote, unquote
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+
+# =====================================================
+# STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
+# =====================================================
+st.set_page_config(page_title="PMS", layout="wide")
+
+# =====================================================
 # Google Drive (optional)
-# Google Drive (optional)
+# =====================================================
 try:
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import Flow
@@ -43,22 +51,25 @@ try:
 except Exception:
     _GOOGLE_OK = False
 
-# TEMP — Password hash generator (remove after use)
-import streamlit as st
-import hashlib
-
-st.markdown("### 🔐 Générateur de hash (temporaire)")
-pwd = st.text_input("Mot de passe à hasher", type="password")
-if pwd:
-    h = hashlib.sha256(pwd.encode("utf-8")).hexdigest()
-    st.code(h)
-    st.info("⬆️ Copie ce hash dans Streamlit Secrets puis supprime ce bloc.")
-
 
 # =====================================================
-# STREAMLIT CONFIG
+# 🔐 TEMP — Password hash generator (SAFE / DISABLED BY DEFAULT)
+#   Enable only by adding in Streamlit Secrets:
+#   [security]
+#   enable_hash_tool = true
 # =====================================================
-st.set_page_config(page_title="PMS", layout="wide")
+if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
+    st.markdown("### 🔐 Générateur de hash (temporaire)")
+    pwd = st.text_input("Mot de passe à hasher", type="password")
+    if pwd:
+        h = hashlib.sha256(pwd.encode("utf-8")).hexdigest()
+        st.code(h)
+        st.info("⬆️ Copie ce hash dans Streamlit Secrets puis remet enable_hash_tool=false.")
+    st.divider()
+
+
+
+
 
 
 # =====================================================
