@@ -1591,6 +1591,13 @@ st.divider()
 open_gc_preview_dialog()
 open_cap_nonconforme_dialog()
 
+@st.dialog("⚠️ Alignement non conforme", width="small")
+def non_conforme_dialog(depassement: int):
+    st.error("Alignement n'est pas conforme.")
+    st.write(f"Vous dépassez le plafond salarial GC de **{money(depassement)}**.")
+    if st.button("OK", use_container_width=True, type="primary"):
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun() if "do_rerun" in globals() else st.rerun()
 
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
@@ -1743,33 +1750,34 @@ if save_click:
 
 st.divider()
 
-    # --- Banc
-    with st.expander("🟡 Banc", expanded=True):
-        if gc_banc.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_banc, proprietaire, "banc")
-                if p:
-                    set_move_ctx(proprietaire, p, "banc")
-                    do_rerun()
-            else:
-                roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    # --- IR
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        if injured_all.empty:
-            st.info("Aucun joueur blessé.")
+with st.expander("🟡 Banc", expanded=True):
+    if gc_banc.empty:
+        st.info("Aucun joueur.")
+    else:
+        if not popup_open:
+            p = roster_click_list(gc_banc, proprietaire, "banc")
+            if p:
+                set_move_ctx(proprietaire, p, "banc")
+                do_rerun()
         else:
-            if not popup_open:
-                p_ir = roster_click_list(injured_all, proprietaire, "ir")
-                if p_ir:
-                    set_move_ctx(proprietaire, p_ir, "ir")
-                    do_rerun()
-            else:
-                roster_click_list(injured_all, proprietaire, "ir_disabled")
+            roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    open_move_dialog()
+with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+    if injured_all.empty:
+        st.info("Aucun joueur blessé.")
+    else:
+        if not popup_open:
+            p_ir = roster_click_list(injured_all, proprietaire, "ir")
+            if p_ir:
+                set_move_ctx(proprietaire, p_ir, "ir")
+                do_rerun()
+        else:
+            roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+open_move_dialog()
+
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
