@@ -1450,6 +1450,7 @@ if logo_path:
         st.session_state["active_tab"] = "🧾 Alignement"
         do_rerun()
 
+st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 
 
 
@@ -1609,41 +1610,7 @@ if active_tab == "📊 Tableau":
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
-# =====================================================
-# 🧱 Colonnes de déplacement : GC Actifs / Club École
-# =====================================================
-colA, colB = st.columns(2, gap="small")
-
-with colA:
-    with st.container(border=True):
-        st.markdown("### 🟢 Actifs (Grand Club)")
-        if gc_actif.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs")
-                    do_rerun()
-            else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
-
-with colB:
-    with st.container(border=True):
-        st.markdown("### 🔵 Mineur (Club École)")
-        if ce_all.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min")
-                    do_rerun()
-            else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
-
-st.divider()
-
+    
 
     df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df = clean_data(df)
@@ -1777,6 +1744,61 @@ st.divider()
             do_rerun() if "do_rerun" in globals() else st.rerun()
 
     st.divider()
+    # =====================================================
+    # 🧱 Colonnes de déplacement : Desktop (2 colonnes) / Mobile (stack)
+    # =====================================================
+    # Détection simple mobile (basée sur largeur via query param si tu veux),
+    # sinon on choisit un seuil "safe" en se basant sur sidebar state.
+    # Option rapide: un toggle dans la sidebar
+    if "mobile_view" not in st.session_state:
+        st.session_state["mobile_view"] = False
+
+    # (Optionnel) Toggle mobile dans sidebar si tu veux forcer
+    # st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
+
+    mobile_view = bool(st.session_state.get("mobile_view", False))
+
+    def _render_gc_block():
+        with st.container(border=True):
+            st.markdown("### 🟢 Actifs (Grand Club)")
+            if gc_actif.empty:
+                st.info("Aucun joueur.")
+            else:
+                if not popup_open:
+                    p = roster_click_list(gc_actif, proprietaire, "actifs")
+                    if p:
+                        set_move_ctx(proprietaire, p, "actifs")
+                        do_rerun()
+                else:
+                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+    def _render_ce_block():
+        with st.container(border=True):
+            st.markdown("### 🔵 Mineur (Club École)")
+            if ce_all.empty:
+                st.info("Aucun joueur.")
+            else:
+                if not popup_open:
+                    p = roster_click_list(ce_all, proprietaire, "min")
+                    if p:
+                        set_move_ctx(proprietaire, p, "min")
+                        do_rerun()
+                else:
+                    roster_click_list(ce_all, proprietaire, "min_disabled")
+
+    if mobile_view:
+        _render_gc_block()
+        st.divider()
+        _render_ce_block()
+    else:
+        colA, colB = st.columns(2, gap="small")
+        with colA:
+            _render_gc_block()
+        with colB:
+            _render_ce_block()
+
+    st.divider()
+
 
     # =====================================================
     # 🟡 Banc
