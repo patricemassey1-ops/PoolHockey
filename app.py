@@ -1417,9 +1417,15 @@ if chosen and chosen != cur:
     do_rerun()
 
 logo_path = team_logo_path(get_selected_team())
-if logo_path:
-    # ✅ Logo d'équipe plus gros (sous la liste déroulante)
-    st.sidebar.image(logo_path, use_container_width=True)
+sidebar_team_logo(
+    logo_path,
+    width=190,          # plus gros
+    tol=110,            # plus agressif (enlève le “blanc/gris”)
+    feather=55,         # lisse les bords
+    sidebar_bg_hex="#1f232d",  # mets la couleur de ton sidebar
+    matte=True
+)
+
 
 # =====================================================
 # LOGO POOL — SAME WIDTH AS TABLE (FULL BANNER, CLEAN)
