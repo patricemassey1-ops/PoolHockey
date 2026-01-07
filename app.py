@@ -241,24 +241,34 @@ def preview_image_path(team: str, is_ce: bool = False) -> str | None:
 
 
 def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
+    """
+    Colonnes (dans l'ordre):
+    Pos | Nom | Salaires | Statut
+    """
     d = df_team.copy()
 
-    # Détecter la colonne équipe (Équipe vs Team)
-    team_col = "Équipe" if "Équipe" in d.columns else ("Team" if "Team" in d.columns else None)
-    if team_col and team_col != "Équipe":
-        d = d.rename(columns={team_col: "Équipe"})
+    # --- Position (normalisée si possible)
+    if "Pos" in d.columns:
+        if "normalize_pos" in globals():
+            d["Pos"] = d["Pos"].apply(normalize_pos)
+    else:
+        d["Pos"] = ""
 
+    # --- Renommage colonnes
     d = d.rename(columns={
         "Joueur": "Nom",
         "Salaire": "Salaires",
-        "Statut": "Contrat",  # Contrat = Statut (comme demandé)
+        "Statut": "Statut",
     })
 
-    for c in ["Nom", "Équipe", "Salaires", "Contrat"]:
+    # --- Garde-fous si colonnes absentes
+    for c in ["Pos", "Nom", "Salaires", "Statut"]:
         if c not in d.columns:
             d[c] = ""
 
-    return d[["Nom", "Équipe", "Salaires", "Contrat"]].copy()
+    # --- Ordre final des colonnes
+    return d[["Pos", "Nom", "Salaires", "Statut"]].copy()
+
 
 @st.dialog("👀 Prévisualisation — Alignement", width="large")
 def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap_ce: int, mobile_view: bool = False):
@@ -319,20 +329,24 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
     def render_side(title: str, img_path: str | None, df_part: pd.DataFrame, cap: int, label: str):
         # Header discret : petit logo + titre
         st.markdown('<div class="pv-head">', unsafe_allow_html=True)
+
         if img_path:
-            st.markdown('<div class="pv-logo">', unsafe_allow_html=True)
-            st.image(img_path)  # CSS force la hauteur max
-            st.markdown('</div>', unsafe_allow_html=True)
+            # ✅ tailles fixes : GC = 2x CE
+            logo_w = 60 if label == "GC" else 60
+            st.image(img_path, width=logo_w)
+
         st.markdown(
             f"""
             <div>
-              <p class="pv-sub">{html.escape(title)}</p>
-              <p class="pv-title">{html.escape(team)}</p>
+               <p class="pv-sub">{html.escape(title)}</p>
+               <p class="pv-title">{html.escape(team)}</p>
             </div>
             """,
             unsafe_allow_html=True
         )
+
         st.markdown("</div>", unsafe_allow_html=True)
+
 
         # Table
         df_show = _preview_df(df_part)
