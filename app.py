@@ -58,53 +58,115 @@ def require_password():
         return
 
 # =====================================================
-# 🏒 LOGIN HEADER — PMS + HOCKEY ICONS + LOGO
+# 🏒 LOGIN HEADER (SVG) — PMS rouge + icônes + Logo_pool (largeur tableau)
+#   À mettre dans require_password() avant le st.title(...)
 # =====================================================
-if os.path.exists(LOGO_POOL_FILE):
+if "LOGO_POOL_FILE" in globals() and os.path.exists(LOGO_POOL_FILE):
+    logo_b64 = base64.b64encode(open(LOGO_POOL_FILE, "rb").read()).decode("utf-8")
+
+    # --- SVG "bâton" (gauche) + "filet" (droite)
+    stick_svg = """
+    <svg class="pms-ico" viewBox="0 0 120 120" aria-hidden="true">
+      <defs>
+        <linearGradient id="gStick" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="rgba(255,255,255,0.95)"/>
+          <stop offset="1" stop-color="rgba(255,255,255,0.65)"/>
+        </linearGradient>
+      </defs>
+      <!-- manche -->
+      <rect x="56" y="6" width="10" height="78" rx="5" fill="url(#gStick)" />
+      <!-- palette -->
+      <path d="M45 86 L86 86 L86 98 L55 110 L45 110 Z" fill="url(#gStick)"/>
+      <!-- grip -->
+      <rect x="52" y="6" width="18" height="14" rx="7" fill="rgba(0,0,0,0.25)"/>
+    </svg>
+    """
+
+    net_svg = """
+    <svg class="pms-ico" viewBox="0 0 140 120" aria-hidden="true">
+      <!-- cadre -->
+      <path d="M24 26 H110 V96 H24 Z" fill="none" stroke="rgba(255,255,255,0.90)" stroke-width="8" />
+      <!-- poteaux + barre -->
+      <path d="M24 26 V96 M110 26 V96 M24 26 H110"
+            fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="4" />
+      <!-- grille -->
+      <g stroke="rgba(255,255,255,0.35)" stroke-width="2">
+        <path d="M24 40 H110 M24 54 H110 M24 68 H110 M24 82 H110"/>
+        <path d="M38 26 V96 M52 26 V96 M66 26 V96 M80 26 V96 M94 26 V96"/>
+      </g>
+      <!-- ombre intérieure légère -->
+      <rect x="28" y="30" width="78" height="62" fill="rgba(0,0,0,0.08)"/>
+    </svg>
+    """
+
     st.markdown(
         """
         <style>
-          .login-header {
+          .pms-login-wrap{
+            width: 100%;
+            max-width: 1120px;  /* même vibe que ton tableau */
+            margin: 22px auto 14px auto;
+            padding: 0 12px;
+          }
+
+          .pms-login-header{
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 18px;
-            margin: 2.2rem 0 1.6rem 0;
+            gap: 34px;
           }
 
-          .login-side {
-            font-size: 42px;       /* 🏒 / 🥅 size */
-            line-height: 1;
-            opacity: 0.95;
+          .pms-ico{
+            width: 96px;        /* ✅ plus gros bâton/filet */
+            height: 96px;
+            filter: drop-shadow(0 14px 22px rgba(0,0,0,0.35));
+            opacity: 0.98;
+            transform: translateY(6px);
           }
 
-          .login-center {
+          .pms-login-center{
             display: flex;
             flex-direction: column;
             align-items: center;
-          }
-
-          .login-pms {
-            font-size: 44px;
-            font-weight: 1000;
-            letter-spacing: 3px;
-            color: #dc2626;        /* 🔴 rouge PMS */
-            line-height: 1.1;
-            margin-bottom: 6px;
-          }
-
-          .login-logo img{
             width: 100%;
-            max-width: 620px;      /* 👈 logo plus gros */
-            max-height: 240px;
-            object-fit: contain;
-            opacity: 0.99;
           }
 
+          .pms-login-title{
+            font-size: 66px;    /* ✅ PMS plus gros */
+            font-weight: 1000;
+            letter-spacing: 5px;
+            color: #dc2626;     /* 🔴 rouge */
+            line-height: 1.0;
+            margin: 0 0 12px 0;
+            text-shadow: 0 12px 18px rgba(0,0,0,0.25);
+          }
+
+          .pms-login-logo{
+            width: 100%;
+            display: flex;
+            justify-content: center;
+          }
+
+          .pms-login-logo img{
+            width: 100%;
+            max-width: 980px;   /* ✅ gros mais limité au wrap */
+            max-height: 380px;
+            object-fit: contain;
+            filter: drop-shadow(0 16px 28px rgba(0,0,0,0.35));
+          }
+
+          /* Responsive */
           @media (max-width: 900px){
-            .login-pms { font-size: 36px; }
-            .login-side { font-size: 34px; }
-            .login-logo img { max-width: 520px; }
+            .pms-ico{ width: 78px; height: 78px; }
+            .pms-login-title{ font-size: 52px; }
+            .pms-login-header{ gap: 22px; }
+            .pms-login-logo img{ max-width: 760px; max-height: 330px; }
+          }
+          @media (max-width: 650px){
+            .pms-ico{ width: 62px; height: 62px; }
+            .pms-login-title{ font-size: 40px; letter-spacing: 3px; }
+            .pms-login-header{ gap: 14px; }
+            .pms-login-logo img{ max-width: 560px; max-height: 260px; }
           }
         </style>
         """,
@@ -113,21 +175,22 @@ if os.path.exists(LOGO_POOL_FILE):
 
     st.markdown(
         f"""
-        <div class="login-header">
-          <div class="login-side">🏒</div>
-
-          <div class="login-center">
-            <div class="login-pms">PMS</div>
-            <div class="login-logo">
-              <img src="data:image/png;base64,{base64.b64encode(open(LOGO_POOL_FILE,'rb').read()).decode()}">
+        <div class="pms-login-wrap">
+          <div class="pms-login-header">
+            {stick_svg}
+            <div class="pms-login-center">
+              <div class="pms-login-title">PMS</div>
+              <div class="pms-login-logo">
+                <img src="data:image/png;base64,{logo_b64}" />
+              </div>
             </div>
+            {net_svg}
           </div>
-
-          <div class="login-side">🥅</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
     # =====================================================
