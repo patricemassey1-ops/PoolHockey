@@ -345,48 +345,69 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
         """
 
     def render_side(title: str, img_path: str | None, df_part: pd.DataFrame, cap: int, label: str):
-        # Totaux pour pills
-        total = _sum_salary(df_part)
+    used = int(df_part["Salaire"].sum()) if ("Salaire" in df_part.columns and not df_part.empty) else 0
+    rest = cap - used
 
-        # ✅ tailles fixes : GC = 2x CE (appliqué au GC)
-        # Exemple: GC 100px, CE 50px
-        logo_w = 50 if label == "GC" else 50
+    # ✅ tailles fixes : GC = 2x CE
+    logo_w = 100 if label == "GC" else 50
 
-        # Header: gauche (logo+text) / droite (pills)
-        st.markdown('<div class="pv-head">', unsafe_allow_html=True)
+    # =========================
+    # HEADER (Streamlit-native)
+    # =========================
+    hL, hR = st.columns([3, 2], vertical_alignment="center")
 
-        st.markdown('<div class="pv-left">', unsafe_allow_html=True)
-        if img_path:
-            st.image(img_path, width=logo_w)
+    with hL:
+        # Logo + titres (alignés)
+        a, b = st.columns([0.35, 1], vertical_alignment="center")
+        with a:
+            if img_path:
+                st.image(img_path, width=logo_w)
+        with b:
+            st.markdown(
+                f"""
+                <div style="line-height:1.1">
+                  <div style="font-size:12px; opacity:.70; font-weight:800;">{html.escape(title)}</div>
+                  <div style="font-size:18px; font-weight:1000;">{html.escape(team)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with hR:
+        # Pills alignées à droite, même hauteur que le logo
         st.markdown(
             f"""
-            <div>
-              <p class="pv-sub">{html.escape(title)}</p>
-              <p class="pv-title">{html.escape(team)}</p>
+            <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
+                Total <b>{html.escape(money(used))}</b>
+              </div>
+              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
+                Plafond <b>{html.escape(money(cap))}</b>
+              </div>
+              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
+                Reste <b>{html.escape(money(rest))}</b>
+              </div>
             </div>
             """,
             unsafe_allow_html=True
         )
-        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown(_pills_html(total, cap, label), unsafe_allow_html=True)
+    # =========================
+    # TABLE
+    # =========================
+    df_show = _preview_df(df_part)
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    # Format salaires (robuste)
+    if "Salaires" in df_show.columns:
+        def _fmt_sal(x):
+            try:
+                return money(int(float(x)))
+            except Exception:
+                return x
+        df_show["Salaires"] = df_show["Salaires"].apply(_fmt_sal)
 
-        # Table
-        df_show = _preview_df(df_part)
-        st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
-        # Format salaire (robuste)
-        if "Salaires" in df_show.columns:
-            def _fmt_sal(x):
-                try:
-                    return money(int(float(x)))
-                except Exception:
-                    return x
-            df_show["Salaires"] = df_show["Salaires"].apply(_fmt_sal)
+    st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
 
-        # ✅ plus compact + scroll
-        st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
 
     if mobile_view:
         render_side("Grand Club", img_gc, gc, cap_gc, "GC")
