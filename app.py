@@ -1271,96 +1271,105 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     components.html(html_doc, height=360, scrolling=False)
 
 # =====================================================
-# LOGOS ÉQUIPES — SVG (SIDEBAR)
+# LOGOS ÉQUIPES — SVG (priorité) + fallback PNG (SIDEBAR)
 #   Attend: data/<NomExact>.svg (ex: data/Cracheurs.svg)
+#   Fallback: LOGOS dict (team_logo_path) ou data/<NomExact>.png
 # =====================================================
 
+import os
+import re
+import base64
+
 @st.cache_data(show_spinner=False)
-def _read_svg_as_data_uri(svg_path: str) -> str | None:
-    """Retourne un data URI base64 pour un SVG, ou None si introuvable."""
+def _read_file_text(path: str) -> str:
+    try:
+        return open(path, "r", encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return ""
+
+def _svg_extract(svg_text: str) -> str | None:
+    if not svg_text:
+        return None
+    m = re.search(r"(<svg[\s\S]*?</svg>)", svg_text, flags=re.IGNORECASE)
+    return m.group(1) if m else None
+
+def _svg_data_uri(svg_path: str) -> str | None:
     if not svg_path or not os.path.exists(svg_path):
         return None
-    with open(svg_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
-    return f"data:image/svg+xml;base64,{b64}"
+    try:
+        b64 = base64.b64encode(open(svg_path, "rb").read()).decode("utf-8")
+        return f"data:image/svg+xml;base64,{b64}"
+    except Exception:
+        return None
 
-def sidebar_team_logo_svg(team: str, width: int = 190):
-    """Affiche un logo d'équipe (SVG) centré dans le sidebar."""
+def sidebar_team_logo(team: str, width: int = 220):
+    """Affiche le logo dans le sidebar: SVG inline si possible, sinon PNG."""
     team = str(team or "").strip()
     if not team:
         return
 
-    svg_path = os.path.join(DATA_DIR, f"{team}.svg")
-    uri = _read_svg_as_data_uri(svg_path)
-    if not uri:
-        # Rien d'invasif: si le SVG manque, on n'affiche rien.
-        # (Tu peux remplacer par st.sidebar.caption(...) si tu veux le voir.)
-        return
+    # 1) SVG exact dans /data (case sensitive sur Streamlit Cloud)
+    svg_path = os.path.join("data", f"{team}.svg")
 
-    st.sidebar.markdown(
-        f"""
-        <div style="display:flex;justify-content:center;align-items:center;margin:10px 0 6px 0;">
-          <img src="{uri}"
-               style="width:{width}px;max-width:100%;height:auto;display:block;" />
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if os.path.exists(svg_path):
+        # a) Essai inline (<svg>...</svg>)
+        txt = _read_file_text(svg_path)
+        svg = _svg_extract(txt)
 
-def _rerun_safe():
-    """Rerun compatible avec ton app (si do_rerun existe déjà)."""
-    if "do_rerun" in globals():
-        try:
-            do_rerun()
+        if svg:
+            st.sidebar.markdown(
+                f"""
+                <style>
+                  .team-logo-wrap {{
+                    display:flex; justify-content:center; align-items:center;
+                    margin: 10px 0 6px 0;
+                  }}
+                  .team-logo-wrap svg {{
+                    width: {width}px;
+                    max-width: 100%;
+                    height: auto;
+                    display:block;
+                  }}
+                </style>
+                <div class="team-logo-wrap">{svg}</div>
+                """,
+                unsafe_allow_html=True,
+            )
             return
+
+        # b) Sinon: data URI dans un <img> (marche même si regex échoue)
+        uri = _svg_data_uri(svg_path)
+        if uri:
+            st.sidebar.markdown(
+                f"""
+                <div style="display:flex;justify-content:center;align-items:center;margin:10px 0 6px 0;">
+                  <img src="{uri}" style="width:{width}px;max-width:100%;height:auto;display:block;" />
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            return
+
+    # 2) Fallback PNG/JPG via ton dict LOGOS (ou data/<team>.png)
+    png_path = ""
+    if "team_logo_path" in globals() and callable(globals()["team_logo_path"]):
+        try:
+            png_path = team_logo_path(team) or ""
         except Exception:
-            pass
-    st.rerun()
+            png_path = ""
+
+    if not png_path:
+        cand = os.path.join("data", f"{team}.png")
+        png_path = cand if os.path.exists(cand) else ""
+
+    if png_path:
+        st.sidebar.image(png_path, use_container_width=True)
 
 
 # =====================================================
-# SIDEBAR — Saison + Plafonds + Équipe (SVG)
+# SIDEBAR — Équipe (selectbox) + logo (UNE SEULE FOIS)
+#   IMPORTANT: garde une seule section "Équipes" dans ton app.
 # =====================================================
-st.sidebar.header("📅 Saison")
-saisons = ["2024-2025", "2025-2026", "2026-2027"]
-auto = saison_auto()
-if auto not in saisons:
-    saisons.append(auto)
-    saisons.sort()
-
-season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
-st.session_state["season"] = season
-st.session_state["LOCKED"] = saison_verrouillee(season)
-
-# Default caps
-if "PLAFOND_GC" not in st.session_state:
-    st.session_state["PLAFOND_GC"] = 95_500_000
-if "PLAFOND_CE" not in st.session_state:
-    st.session_state["PLAFOND_CE"] = 47_750_000
-
-st.sidebar.divider()
-st.sidebar.header("💰 Plafonds")
-if st.sidebar.button("✏️ Modifier les plafonds"):
-    st.session_state["edit_plafond"] = True
-
-if st.session_state.get("edit_plafond"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club",
-        value=int(st.session_state["PLAFOND_GC"]),
-        step=500_000,
-    )
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École",
-        value=int(st.session_state["PLAFOND_CE"]),
-        step=250_000,
-    )
-
-st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
-
-# -----------------------------------------------------
-# Équipe — selectbox + logo SVG (UNE SEULE FOIS)
-# -----------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
 
@@ -1383,10 +1392,12 @@ chosen = st.sidebar.selectbox(
 if chosen and chosen != cur:
     st.session_state["selected_team"] = chosen
     st.session_state["align_owner"] = chosen
-    _rerun_safe()
+    do_rerun()  # ou st.rerun() si tu préfères
 
-# ✅ Logo SVG plus propre (sans nom sous le logo)
-sidebar_team_logo_svg(str(st.session_state.get("selected_team", "")).strip(), width=190)
+# ✅ Affiche logo (SVG si dispo, sinon PNG)
+sidebar_team_logo(str(st.session_state.get("selected_team", "")).strip(), width=220)
+
+
 
 
 
