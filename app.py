@@ -1453,6 +1453,51 @@ if logo_path:
 st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 
 
+    # =====================================================
+    # 🧱 Déplacements GC / CE — Desktop vs Mobile
+    # =====================================================
+    mobile_view = bool(st.session_state.get("mobile_view", False))
+
+    def _render_gc_block():
+        with st.container(border=True):
+            st.markdown("### 🟢 Actifs (Grand Club)")
+            if gc_actif.empty:
+                st.info("Aucun joueur.")
+            else:
+                if not popup_open:
+                    p = roster_click_list(gc_actif, proprietaire, "actifs")
+                    if p:
+                        set_move_ctx(proprietaire, p, "actifs")
+                        do_rerun()
+                else:
+                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+
+    def _render_ce_block():
+        with st.container(border=True):
+            st.markdown("### 🔵 Mineur (Club École)")
+            if ce_all.empty:
+                st.info("Aucun joueur.")
+            else:
+                if not popup_open:
+                    p = roster_click_list(ce_all, proprietaire, "min")
+                    if p:
+                        set_move_ctx(proprietaire, p, "min")
+                        do_rerun()
+                else:
+                    roster_click_list(ce_all, proprietaire, "min_disabled")
+
+    if mobile_view:
+        _render_gc_block()
+        st.divider()
+        _render_ce_block()
+    else:
+        colA, colB = st.columns(2, gap="small")
+        with colA:
+            _render_gc_block()
+        with colB:
+            _render_ce_block()
+
+    st.divider()
 
 
 
