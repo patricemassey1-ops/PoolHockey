@@ -156,6 +156,101 @@ def require_password():
 # ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
 
+# =====================================================
+# ✅ LOGOS — Remove white background (Cloud-friendly)
+#   - Flood-fill from edges to ONLY remove the background connected to borders
+#   - Returns RGBA image that blends perfectly with Streamlit sidebar/theme
+# =====================================================
+from PIL import Image
+import numpy as np
+import streamlit as st
+from collections import deque
+
+
+@st.cache_data(show_spinner=False)
+def logo_make_bg_transparent(path: str, tol: int = 18) -> Image.Image:
+    """
+    Remove the "white box" background from a PNG by flood-filling from the edges.
+    This keeps white details INSIDE the logo intact (only the outer background is removed).
+
+    Args:
+        path: path to PNG file
+        tol: white tolerance (higher = more aggressive). Typical: 14-24
+
+    Returns:
+        PIL Image in RGBA with transparent background.
+    """
+    im = Image.open(path).convert("RGBA")
+    arr = np.array(im)
+    h, w = arr.shape[:2]
+
+    # Identify pixels near white
+    white = (
+        (arr[..., 0] >= 255 - tol) &
+        (arr[..., 1] >= 255 - tol) &
+        (arr[..., 2] >= 255 - tol)
+    )
+
+    # Flood-fill ONLY from borders to capture background region
+    bg = np.zeros((h, w), dtype=bool)
+    q = deque()
+
+    # Seed queue with near-white pixels on the borders
+    for x in range(w):
+        if white[0, x]:
+            q.append((0, x))
+        if white[h - 1, x]:
+            q.append((h - 1, x))
+    for y in range(h):
+        if white[y, 0]:
+            q.append((y, 0))
+        if white[y, w - 1]:
+            q.append((y, w - 1))
+
+    # BFS 4-connected
+    while q:
+        y, x = q.popleft()
+        if bg[y, x]:
+            continue
+        if not white[y, x]:
+            continue
+        bg[y, x] = True
+
+        if y > 0:
+            q.append((y - 1, x))
+        if y < h - 1:
+            q.append((y + 1, x))
+        if x > 0:
+            q.append((y, x - 1))
+        if x < w - 1:
+            q.append((y, x + 1))
+
+    # Make that detected background transparent
+    arr[bg, 3] = 0
+    return Image.fromarray(arr, mode="RGBA")
+
+
+def sidebar_team_logo(logo_path: str, width: int = 140, tol: int = 18):
+    """
+    Helper to display a team logo in the sidebar without the white background.
+    Safe on Streamlit Cloud.
+    """
+    if not logo_path:
+        return
+    if not os.path.exists(logo_path):
+        return
+    try:
+        st.sidebar.image(logo_make_bg_transparent(logo_path, tol=tol), width=width)
+    except Exception:
+        # Fallback: show original image if Pillow/numpy fail for any reason
+        st.sidebar.image(logo_path, width=width)
+
+
+# =====================================================
+# ✅ USAGE (in your sidebar code)
+# =====================================================
+# logo_path = team_logo_path(get_selected_team())
+# sidebar_team_logo(logo_path, width=140, tol=18)
 
 
 # =====================================================
