@@ -1768,7 +1768,12 @@ with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
         if not popup_open:
             p_ir = roster_click_list(injured_all, proprietaire, "ir")
             if p_ir:
-                set_move_ctx(pr
+                set_move_ctx(proprietaire, p_ir, "ir")
+                do_rerun()
+        else:
+            roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+open_move_dialog()
 
 
 
