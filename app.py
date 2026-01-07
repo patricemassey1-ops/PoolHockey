@@ -1269,8 +1269,57 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         st.info("Choisis une équipe dans la barre latérale pour la surligner ici.")
 
     components.html(html_doc, height=360, scrolling=False)
+
 # =====================================================
-# SIDEBAR — Saison + Équipe + Plafonds
+# LOGOS ÉQUIPES — SVG (SIDEBAR)
+#   Attend: data/<NomExact>.svg (ex: data/Cracheurs.svg)
+# =====================================================
+
+@st.cache_data(show_spinner=False)
+def _read_svg_as_data_uri(svg_path: str) -> str | None:
+    """Retourne un data URI base64 pour un SVG, ou None si introuvable."""
+    if not svg_path or not os.path.exists(svg_path):
+        return None
+    with open(svg_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/svg+xml;base64,{b64}"
+
+def sidebar_team_logo_svg(team: str, width: int = 190):
+    """Affiche un logo d'équipe (SVG) centré dans le sidebar."""
+    team = str(team or "").strip()
+    if not team:
+        return
+
+    svg_path = os.path.join(DATA_DIR, f"{team}.svg")
+    uri = _read_svg_as_data_uri(svg_path)
+    if not uri:
+        # Rien d'invasif: si le SVG manque, on n'affiche rien.
+        # (Tu peux remplacer par st.sidebar.caption(...) si tu veux le voir.)
+        return
+
+    st.sidebar.markdown(
+        f"""
+        <div style="display:flex;justify-content:center;align-items:center;margin:10px 0 6px 0;">
+          <img src="{uri}"
+               style="width:{width}px;max-width:100%;height:auto;display:block;" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def _rerun_safe():
+    """Rerun compatible avec ton app (si do_rerun existe déjà)."""
+    if "do_rerun" in globals():
+        try:
+            do_rerun()
+            return
+        except Exception:
+            pass
+    st.rerun()
+
+
+# =====================================================
+# SIDEBAR — Saison + Plafonds + Équipe (SVG)
 # =====================================================
 st.sidebar.header("📅 Saison")
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
@@ -1309,31 +1358,43 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
-# Team picker
+# -----------------------------------------------------
+# Équipe — selectbox + logo SVG (UNE SEULE FOIS)
+# -----------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
-teams = list(LOGOS.keys())
+
+teams = list(LOGOS.keys()) if "LOGOS" in globals() else []
+teams = [str(t).strip() for t in teams if str(t).strip()]
+
 cur = str(st.session_state.get("selected_team", "")).strip()
-if cur not in teams and teams:
+if teams and cur not in teams:
     cur = teams[0]
     st.session_state["selected_team"] = cur
     st.session_state["align_owner"] = cur
 
-chosen = st.sidebar.selectbox("Choisir une équipe", teams if teams else [""], index=(teams.index(cur) if cur in teams else 0), key="sb_team_select")
+chosen = st.sidebar.selectbox(
+    "Choisir une équipe",
+    teams if teams else [""],
+    index=(teams.index(cur) if cur in teams else 0),
+    key="sb_team_select",
+)
+
 if chosen and chosen != cur:
     st.session_state["selected_team"] = chosen
     st.session_state["align_owner"] = chosen
-    do_rerun()
+    _rerun_safe()
 
-logo_path = team_logo_path(get_selected_team())
-if logo_path:
-    # ✅ Logo d'équipe plus gros (sous la liste déroulante)
-    st.sidebar.image(logo_path, use_container_width=True)
+# ✅ Logo SVG plus propre (sans nom sous le logo)
+sidebar_team_logo_svg(str(st.session_state.get("selected_team", "")).strip(), width=190)
+
+
+
+
 
 # =====================================================
 # LOGO POOL — SAME WIDTH AS TABLE (FULL BANNER, CLEAN)
 # =====================================================
-import base64
 import os
 import streamlit as st
 
