@@ -1708,6 +1708,9 @@ if popup_open:
 # =====================================================
 save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
 
+elif active_tab == "🧾 Alignement":
+    st.subheader("🧾 Alignement")
+
 with save_row1:
     save_click = st.button(
         "💾 Enregistrer",
@@ -1740,31 +1743,33 @@ if save_click:
 
 st.divider()
 
-with st.expander("🟡 Banc", expanded=True):
-    if gc_banc.empty:
-        st.info("Aucun joueur.")
-    else:
-        if not popup_open:
-            p = roster_click_list(gc_banc, proprietaire, "banc")
-            if p:
-                set_move_ctx(proprietaire, p, "banc")
-                do_rerun()
+    # --- Banc
+    with st.expander("🟡 Banc", expanded=True):
+        if gc_banc.empty:
+            st.info("Aucun joueur.")
         else:
-            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+            if not popup_open:
+                p = roster_click_list(gc_banc, proprietaire, "banc")
+                if p:
+                    set_move_ctx(proprietaire, p, "banc")
+                    do_rerun()
+            else:
+                roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-    if injured_all.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        if not popup_open:
-            p_ir = roster_click_list(injured_all, proprietaire, "ir")
-            if p_ir:
-                set_move_ctx(proprietaire, p_ir, "ir")
-                do_rerun()
+    # --- IR
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+        if injured_all.empty:
+            st.info("Aucun joueur blessé.")
         else:
-            roster_click_list(injured_all, proprietaire, "ir_disabled")
+            if not popup_open:
+                p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                if p_ir:
+                    set_move_ctx(proprietaire, p_ir, "ir")
+                    do_rerun()
+            else:
+                roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-open_move_dialog()
+    open_move_dialog()
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
