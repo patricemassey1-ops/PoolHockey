@@ -1716,12 +1716,12 @@ with save_row1:
         disabled=popup_open,
         key="btn_save_alignement",
     )
-
-    with save_row2:
-        if used_gc > cap_gc:
-            st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
-        else:
-            st.caption("✅ Prêt à enregistrer.")
+ 
+ with save_row2:
+    if used_gc > cap_gc:
+        st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
+    else:
+        st.caption("✅ Prêt à enregistrer.")
 
 if save_click:
     if used_gc > cap_gc:
