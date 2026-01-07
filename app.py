@@ -1702,14 +1702,14 @@ popup_open = st.session_state.get("move_ctx") is not None
 if popup_open:
     st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
+elif active_tab == "🧾 Alignement":
+    st.subheader("🧾 Alignement")
+
 # =====================================================
 # 💾 Enregistrer l’alignement (validation plafond au clic)
 #   -> Popup seulement quand GC dépasse
 # =====================================================
 save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
-
-elif active_tab == "🧾 Alignement":
-    st.subheader("🧾 Alignement")
 
 with save_row1:
     save_click = st.button(
