@@ -349,7 +349,7 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
         rest = cap - used
 
     # ✅ tailles fixes : GC = 2x CE
-    logo_w = 100 if label == "GC" else 50
+        logo_w = 100 if label == "GC" else 50
 
     # =========================
     # HEADER (Streamlit-native)
