@@ -1725,11 +1725,9 @@ with save_row2:
 
 if save_click:
     if used_gc > cap_gc:
-        # ✅ seulement GC, seulement au clic
         non_conforme_dialog(int(used_gc - cap_gc))
         st.stop()
     else:
-        # ✅ Sauvegarde data + plafonds
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         df_all = clean_data(df_all)
         st.session_state["data"] = df_all
@@ -1740,12 +1738,8 @@ if save_click:
         st.success("✅ Alignement enregistré.")
         do_rerun() if "do_rerun" in globals() else st.rerun()
 
-# ⬇️ IMPORTANT : le divider est HORS du if
 st.divider()
 
-# =====================================================
-# 🟡 Banc
-# =====================================================
 with st.expander("🟡 Banc", expanded=True):
     if gc_banc.empty:
         st.info("Aucun joueur.")
@@ -1758,9 +1752,6 @@ with st.expander("🟡 Banc", expanded=True):
         else:
             roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-# =====================================================
-# 🩹 Joueurs Blessés (IR)
-# =====================================================
 with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
     if injured_all.empty:
         st.info("Aucun joueur blessé.")
@@ -1774,8 +1765,6 @@ with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
 open_move_dialog()
-
-
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
