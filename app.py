@@ -31,183 +31,131 @@ st.set_page_config(page_title="PMS", layout="wide")
 LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
 
 # =====================================================
-# 🔐 PASSWORD GATE — shared password (OPTION B)
-#   Secrets:
+# 🔐 PASSWORD GATE + HEADER (logo_pool + 🏒 PMS rouge + 🥅)
+#   Secrets (Streamlit Cloud):
 #   [security]
-#   password_sha256 = "TON_HASH"
-#   enable_hash_tool = true|false
+#   enable_hash_tool = false
+#   password_sha256 = "VOTRE_HASH_SHA256"
 # =====================================================
+
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
-
-def require_password():
-    cfg = st.secrets.get("security", {}) or {}
-
-    # 🔓 OPTION B: si le hash tool est activé, on ne bloque PAS l'app
-    if bool(cfg.get("enable_hash_tool", False)):
-        return
-
-    expected = str(cfg.get("password_sha256", "")).strip()
-    if not expected:
-        return  # pas de mot de passe => app publique
-
-    if st.session_state.get("authed", False):
-        return  # déjà connecté
-
-    # -----------------------------
-    # 🏒 HEADER: PMS rouge + icônes + Logo_pool (gros, centré)
-    # -----------------------------
-    logo_path = os.path.join("data", "Logo_Pool.png")
-    logo_b64 = ""
-    if os.path.exists(logo_path):
-        with open(logo_path, "rb") as f:
-            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    stick_svg = """
-    <svg class="pms-ico" viewBox="0 0 120 120" aria-hidden="true">
-      <defs>
-        <linearGradient id="gStick" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="rgba(255,255,255,0.98)"/>
-          <stop offset="1" stop-color="rgba(255,255,255,0.72)"/>
-        </linearGradient>
-      </defs>
-      <rect x="54" y="6" width="12" height="78" rx="6" fill="url(#gStick)" />
-      <path d="M42 86 L90 86 L90 100 L58 112 L42 112 Z" fill="url(#gStick)"/>
-      <rect x="50" y="6" width="20" height="16" rx="8" fill="rgba(0,0,0,0.25)"/>
-    </svg>
-    """
-
-    net_svg = """
-    <svg class="pms-ico" viewBox="0 0 140 120" aria-hidden="true">
-      <path d="M24 26 H110 V96 H24 Z" fill="none" stroke="rgba(255,255,255,0.95)" stroke-width="9" />
-      <path d="M24 26 V96 M110 26 V96 M24 26 H110"
-            fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="4" />
-      <g stroke="rgba(255,255,255,0.38)" stroke-width="2">
-        <path d="M24 40 H110 M24 54 H110 M24 68 H110 M24 82 H110"/>
-        <path d="M38 26 V96 M52 26 V96 M66 26 V96 M80 26 V96 M94 26 V96"/>
-      </g>
-      <rect x="28" y="30" width="78" height="62" fill="rgba(0,0,0,0.08)"/>
-    </svg>
-    """
+def _login_header():
+    # ⚠️ Ne dépend d'AUCUNE constante globale (évite NameError)
+    logo_file = os.path.join("data", "Logo_Pool.png")
 
     st.markdown(
         """
         <style>
-          .pms-login-wrap{
-            width: 100%;
-            max-width: 1120px;
-            margin: 18px auto 10px auto;
-            padding: 0 14px;
+          /* réduit le gros padding en haut sur certaines configs */
+          .block-container { padding-top: 1.2rem !important; }
+
+          .pms-header-wrap{
+            max-width: 1120px;     /* même largeur “feel” que ton tableau */
+            margin: 0 auto 10px auto;
           }
-          .pms-login-header{
+          .pms-emoji{
+            font-size: 64px;
+            line-height: 1;
             display:flex;
             align-items:center;
             justify-content:center;
-            gap: 38px;
+            opacity: .95;
+            filter: drop-shadow(0 6px 14px rgba(0,0,0,.35));
           }
-          .pms-ico{
-            width: 120px;   /* ✅ encore plus gros */
-            height: 120px;
-            filter: drop-shadow(0 18px 28px rgba(0,0,0,0.42));
-            opacity: 0.98;
-            transform: translateY(10px);
-          }
-          .pms-center{
-            display:flex;
-            flex-direction:column;
-            align-items:center;
-            width: 100%;
-          }
-          .pms-title{
-            font-size: 78px;     /* ✅ PMS plus gros */
+          .pms-text{
             font-weight: 1000;
-            letter-spacing: 6px;
-            color: #ef4444;      /* 🔴 rouge */
-            line-height: 1.0;
-            margin: 0 0 12px 0;
-            text-shadow: 0 14px 22px rgba(0,0,0,0.28);
+            letter-spacing: .06em;
+            color: #ff3b30;        /* rouge iOS-ish */
+            font-size: 54px;
+            line-height: 1;
+            margin-left: 10px;
+            text-shadow: 0 10px 20px rgba(0,0,0,.35);
+            display:inline-block;
+            transform: translateY(-2px);
           }
           .pms-logo{
-            width:100%;
+            width: 100%;
             display:flex;
             justify-content:center;
-          }
-          .pms-logo img{
-            width:100%;
-            max-width: 1040px;   /* ✅ logo plus large */
-            max-height: 420px;
-            object-fit: contain;
-            border-radius: 16px;
-            filter: drop-shadow(0 18px 30px rgba(0,0,0,0.45));
-          }
-
-          @media (max-width: 900px){
-            .pms-ico{ width: 96px; height: 96px; }
-            .pms-title{ font-size: 58px; letter-spacing: 4px; }
-            .pms-login-header{ gap: 22px; }
-            .pms-logo img{ max-width: 860px; max-height: 360px; }
-          }
-          @media (max-width: 650px){
-            .pms-ico{ width: 74px; height: 74px; }
-            .pms-title{ font-size: 44px; letter-spacing: 3px; }
-            .pms-login-header{ gap: 14px; }
-            .pms-logo img{ max-width: 600px; max-height: 280px; }
+            align-items:center;
           }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    logo_html = (
-        f"<img src='data:image/png;base64,{logo_b64}' alt='Logo pool'/>"
-        if logo_b64
-        else "<div style='opacity:.7;font-weight:800'>Logo_Pool.png introuvable (data/Logo_Pool.png)</div>"
-    )
+    with st.container():
+        st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
 
-    st.markdown(
-        f"""
-        <div class="pms-login-wrap">
-          <div class="pms-login-header">
-            {stick_svg}
-            <div class="pms-center">
-              <div class="pms-title">PMS</div>
-              <div class="pms-logo">{logo_html}</div>
-            </div>
-            {net_svg}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        c1, c2, c3 = st.columns([2, 8, 2], vertical_alignment="center")
 
-    # -----------------------------
-    # LOGIN UI
-    # -----------------------------
-    st.markdown("## Accès sécurisé")
+        with c1:
+            st.markdown(
+                '<div class="pms-emoji">🏒<span class="pms-text">PMS</span></div>',
+                unsafe_allow_html=True,
+            )
+
+        with c2:
+            # Logo plus gros + centré
+            if os.path.exists(logo_file):
+                st.image(logo_file, use_container_width=True)
+            else:
+                st.markdown(
+                    '<div class="pms-logo"><span class="pms-text">PMS</span></div>',
+                    unsafe_allow_html=True,
+                )
+
+        with c3:
+            st.markdown('<div class="pms-emoji">🥅</div>', unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+def require_password():
+    cfg = st.secrets.get("security", {}) or {}
+
+    # 🔓 Option: si enable_hash_tool=true, on ne bloque pas l'app (utile si lock-out)
+    if bool(cfg.get("enable_hash_tool", False)):
+        return
+
+    expected = str(cfg.get("password_sha256", "")).strip()
+
+    # Pas de hash -> app publique
+    if not expected:
+        return
+
+    # Déjà authentifié
+    if st.session_state.get("authed", False):
+        return
+
+    _login_header()
+
+    st.title("🔐 Accès sécurisé")
     st.caption("Entre le mot de passe partagé pour accéder à l’application.")
 
     pwd = st.text_input("Mot de passe", type="password")
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([1, 2], vertical_alignment="center")
 
     with col1:
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
+                st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
 
     with col2:
-        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Streamlit Secrets.")
+        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
 
     st.stop()
 
-
-# =====================================================
-# 🔐 ACTIVATE PASSWORD GATE
-# =====================================================
+# ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
+
 
 
 # =====================================================
