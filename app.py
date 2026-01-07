@@ -1766,7 +1766,7 @@ with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
         else:
             roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    open_move_dialog()
+open_move_dialog()
 
 
 elif active_tab == "👤 Joueurs":
