@@ -20,6 +20,19 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
+
+
+# =====================================================
+# DATE FORMAT — Français (cloud-proof, no locale)
+# =====================================================
+MOIS_FR = [
+    "", "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre"
+]
+
+def format_date_fr(dt: datetime) -> str:
+    return f"{dt.day} {MOIS_FR[dt.month]} {dt.year} {dt:%H:%M:%S}"
+
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
@@ -348,16 +361,6 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out = out[~out["Joueur"].str.lower().isin(bad)].copy()
 
     return out.reset_index(drop=True)
-
-from datetime import datetime
-
-MOIS_FR = [
-    "", "janvier", "février", "mars", "avril", "mai", "juin",
-    "juillet", "août", "septembre", "octobre", "novembre", "décembre"
-]
-
-def _format_date_fr(dt: datetime) -> str:
-    return f"{dt.day} {MOIS_FR[dt.month]} {dt.year} {dt:%H:%M:%S}"
 
 
 # =====================================================
@@ -1093,6 +1096,88 @@ def open_move_dialog():
 
     _dlg()
 
+
+# =====================================================
+# DIALOG — Preview Alignement Grand Club (GC)
+# =====================================================
+def open_gc_preview_dialog():
+    if not st.session_state.get("gc_preview_open"):
+        return
+
+    owner = str(get_selected_team() or "").strip()
+
+    df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
+
+    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
+    if not dprop.empty and "Slot" in dprop.columns:
+        dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+
+    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
+
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
+    remain_gc = cap_gc - used_gc
+
+    @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
+    def _dlg():
+        st.caption("Prévisualisation rapide du Grand Club (GC).")
+
+        c1, c2, c3 = st.columns(3)
+        with c1: st.metric("Total GC", money(used_gc))
+        with c2: st.metric("Plafond GC", money(cap_gc))
+        with c3:
+            if used_gc > cap_gc:
+                st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
+            else:
+                st.success(f"Conforme — reste: {money(remain_gc)}")
+
+        if gc_all.empty:
+            st.info("Aucun joueur GC pour cette équipe.")
+        else:
+            show_cols = [c for c in ["Joueur", "Pos", "Équipe", "Slot", "Salaire"] if c in gc_all.columns]
+            df_show = gc_all[show_cols].copy()
+
+            if "Salaire" in df_show.columns:
+                df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        if st.button("OK", use_container_width=True, key="gc_preview_ok"):
+            st.session_state["gc_preview_open"] = False
+            do_rerun()
+
+    _dlg()
+
+
+
+# =====================================================
+# DIALOG — Alignement GC non conforme (dépasse plafond)
+# =====================================================
+def open_cap_nonconforme_dialog():
+    if not st.session_state.get("cap_nonconforme_open"):
+        return
+
+    owner = str(get_selected_team() or "").strip()
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    used_gc = int(st.session_state.get("used_gc_last", 0) or 0)
+    over = max(0, used_gc - cap_gc)
+
+    @st.dialog("🚨 Alignement non conforme", width="small")
+    def _dlg():
+        st.error("Alignement n'est pas conforme.")
+        st.markdown(f"Vous dépassez le plafond salarial du Grand Club de **{money(over)}**.")
+        st.markdown("---")
+        if st.button("OK", use_container_width=True, key="cap_nonconforme_ok"):
+            st.session_state["cap_nonconforme_open"] = False
+            st.session_state["active_tab"] = "🧾 Alignement"
+            do_rerun()
+
+    _dlg()
+
+
 # =====================================================
 # PLAFONDS builder + Tableau UI
 # =====================================================
@@ -1143,7 +1228,6 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     view = plafonds.copy()
 
     cols = [
-        "Importé",
         "Propriétaire",
         "Total Grand Club",
         "Montant Disponible GC",
@@ -1341,6 +1425,14 @@ if logo_path:
     # ✅ Logo d'équipe plus gros (sous la liste déroulante)
     st.sidebar.image(logo_path, use_container_width=True)
 
+    # 👀 Prévisualiser l'alignement du Grand Club (GC)
+    if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+        st.session_state["gc_preview_open"] = True
+        # Optionnel: basculer sur Alignement pour corriger rapidement si besoin
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
+
+
 
 
 
@@ -1476,6 +1568,11 @@ if st.session_state["active_tab"] not in NAV_TABS:
 active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
 st.divider()
 
+
+# --- Popups globaux (sidebar preview / non conformité)
+open_gc_preview_dialog()
+open_cap_nonconforme_dialog()
+
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
 # =====================================================
@@ -1541,6 +1638,17 @@ elif active_tab == "🧾 Alignement":
     used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
     remain_gc = cap_gc - used_gc
     remain_ce = cap_ce - used_ce
+
+    # ✅ Popup si dépassement plafond GC (une seule fois par montant de dépassement)
+    st.session_state["used_gc_last"] = int(used_gc or 0)
+    over_gc = int(used_gc or 0) - int(cap_gc or 0)
+    if over_gc > 0:
+        if st.session_state.get("cap_alert_seen_over") != over_gc:
+            st.session_state["cap_alert_seen_over"] = over_gc
+            st.session_state["cap_nonconforme_open"] = True
+    else:
+        st.session_state["cap_alert_seen_over"] = 0
+
 
     j1, j2 = st.columns(2)
     with j1:
@@ -1975,57 +2083,20 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
     st.markdown("### 📌 Derniers imports par équipe")
-
     by_team = manifest.get("fantrax_by_team", {}) or {}
     if not by_team:
         st.caption("— Aucun import enregistré —")
     else:
-        # ✅ Etat tri (persistant)
-        if "admin_imports_desc" not in st.session_state:
-            st.session_state["admin_imports_desc"] = True  # ⬇️ par défaut (plus récent en premier)
-
-        c1, c2, c3 = st.columns([0.12, 1, 3], vertical_alignment="center")
-        with c1:
-            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
-            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
-                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
-                do_rerun()  # ou st.rerun()
-
-        with c2:
-            st.caption("Tri par date")
-
-        # Construire les lignes
         rows = []
         for team, info in by_team.items():
             rows.append(
                 {
-                    "Équipe": str(team).strip(),
-                    "Fichier": str(info.get("uploaded_name", "") or "").strip(),
-                    "Date": str(info.get("saved_at", "") or "").strip(),  # ISO string
+                    "Équipe": team,
+                    "Fichier": info.get("uploaded_name", ""),
+                    "Date": info.get("saved_at", ""),
                 }
             )
-
-        df_imports = pd.DataFrame(rows)
-
-        # Parse ISO → datetime (tri fiable)
-        df_imports["_dt"] = pd.to_datetime(df_imports["Date"], errors="coerce", utc=False)
-
-        # Tri: desc=True -> plus récent en premier
-        df_imports = df_imports.sort_values(
-            by="_dt",
-            ascending=(not st.session_state["admin_imports_desc"]),
-            na_position="last",
-        )
-
-        # Affichage FR
-        df_imports["Date"] = df_imports["_dt"].apply(lambda d: _format_date_fr(d) if pd.notna(d) else "")
-
-        # Nettoyage
-        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
-
-        st.dataframe(df_imports, use_container_width=True, hide_index=True)
-
-
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
