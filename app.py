@@ -156,97 +156,6 @@ def require_password():
 # ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
 
-# =====================================================
-# LOGOS — blend white background into sidebar color (PIL)
-#   - Removes near-white background (even off-white)
-#   - Feather for anti-aliased edges
-#   - Optionally "matte" on sidebar bg so it blends perfectly
-# =====================================================
-from PIL import Image
-
-def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    h = (hex_color or "").strip().lstrip("#")
-    if len(h) == 3:
-        h = "".join([c * 2 for c in h])
-    if len(h) != 6:
-        return (18, 20, 26)  # fallback dark
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-def _remove_white_bg(img: Image.Image, tol: int = 80, feather: int = 35) -> Image.Image:
-    """
-    Return RGBA image where near-white pixels become transparent.
-    tol: higher removes more (try 60-120)
-    feather: smooth edge transition (try 20-60)
-    """
-    im = img.convert("RGBA")
-    px = im.load()
-    w, h = im.size
-
-    # We'll compute "whiteness distance" and map to alpha with a feather ramp
-    # dist = max channel distance to 255
-    # if dist <= tol => background => alpha 0
-    # if dist >= tol+feather => keep => alpha 255
-    # in between => ramp
-    t0 = max(1, int(tol))
-    t1 = max(t0 + 1, int(tol + feather))
-
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            # distance-from-white (0 means pure white)
-            dist = max(255 - r, 255 - g, 255 - b)
-
-            if dist <= t0:
-                px[x, y] = (r, g, b, 0)
-            elif dist >= t1:
-                # keep as-is
-                continue
-            else:
-                # feather ramp
-                alpha = int(255 * (dist - t0) / (t1 - t0))
-                px[x, y] = (r, g, b, min(a, alpha))
-
-    return im
-
-def sidebar_team_logo(
-    logo_path: str,
-    width: int = 170,
-    tol: int = 90,
-    feather: int = 45,
-    sidebar_bg_hex: str = "#1f232d",  # ajuste si ton sidebar est plus clair/foncé
-    matte: bool = True,
-):
-    """
-    Affiche le logo dans le sidebar en "fondant" le fond blanc.
-    matte=True: composite sur la couleur du sidebar (blend parfait).
-    matte=False: fond transparent (ok si ton PNG est propre).
-    """
-    if not logo_path or not os.path.exists(logo_path):
-        return
-
-    try:
-        img = Image.open(logo_path)
-        img_rgba = _remove_white_bg(img, tol=tol, feather=feather)
-
-        if matte:
-            bg = Image.new("RGBA", img_rgba.size, _hex_to_rgb(sidebar_bg_hex) + (255,))
-            img_out = Image.alpha_composite(bg, img_rgba).convert("RGB")
-        else:
-            img_out = img_rgba
-
-        st.sidebar.image(img_out, width=width)
-
-    except Exception:
-        # fallback safe
-        st.sidebar.image(logo_path, width=width)
-
-
-
-# =====================================================
-# ✅ USAGE (in your sidebar code)
-# =====================================================
-# logo_path = team_logo_path(get_selected_team())
-# sidebar_team_logo(logo_path, width=140, tol=18)
 
 
 # =====================================================
@@ -1417,15 +1326,9 @@ if chosen and chosen != cur:
     do_rerun()
 
 logo_path = team_logo_path(get_selected_team())
-sidebar_team_logo(
-    logo_path,
-    width=190,          # plus gros
-    tol=110,            # plus agressif (enlève le “blanc/gris”)
-    feather=55,         # lisse les bords
-    sidebar_bg_hex="#1f232d",  # mets la couleur de ton sidebar
-    matte=True
-)
-
+if logo_path:
+    # ✅ Logo d'équipe plus gros (sous la liste déroulante)
+    st.sidebar.image(logo_path, use_container_width=True)
 
 # =====================================================
 # LOGO POOL — SAME WIDTH AS TABLE (FULL BANNER, CLEAN)
