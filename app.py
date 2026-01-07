@@ -1,53 +1,19 @@
-# app.py — Fantrax Pool Hockey (NORMALIZED / CLEAN)
-# - Single source of truth for team selection
-# - Single routing if/elif chain (no syntax errors)
-# - Drive OAuth helpers (safe, optional)
-# - Multi-team import (admin)
-# - Alignement: Actifs + Mineur boxed, Banc + IR expanders, move dialog + history
-# - Players DB: filters + cap hit slider
-#
-# NOTE: This file is intentionally "normalized":
-#   - No duplicate definitions of do_rerun / get_selected_team / drive helpers
-#   - All helpers defined BEFORE they are used
-#   - All tabs handled in ONE routing block
-
-# =====================================================
-# IMPORTS
-# =====================================================
-import os
-import io
-import re
-import json
-import html
-import time
-import base64
-import socket
-import ssl
-import hashlib
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-from urllib.parse import quote, unquote
-
-import pandas as pd
-import streamlit as st
-import streamlit.components.v1 as components
-
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
-# =====================================================
-# 🔐 PASSWORD GATE — shared password (Streamlit Cloud)
-#   Secrets:
-#   [security]
-#   password_sha256 = "...."
-# =====================================================
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
+
+    # 🔓 OPTION B: si le hash tool est activé, on ne bloque PAS l'app
+    # (ça te permet de générer/mettre à jour un hash même si tu es lock-out)
+    if bool(cfg.get("enable_hash_tool", False)):
+        return
+
     expected = str(cfg.get("password_sha256", "")).strip()
 
     # If no password configured, do nothing (app remains public)
@@ -68,6 +34,7 @@ def require_password():
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
+                st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
@@ -75,13 +42,10 @@ def require_password():
     with col2:
         st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
 
-    # Stop the app here until authenticated
     st.stop()
 
-# 🔐 gate ici (APRÈS la définition)
+# ✅ IMPORTANT: call the gate here, BEFORE the rest of the app runs
 require_password()
-
-
 
 
 # =====================================================
@@ -97,6 +61,7 @@ try:
     _GOOGLE_OK = True
 except Exception:
     _GOOGLE_OK = False
+
 
 
 # =====================================================
