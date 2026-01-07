@@ -32,20 +32,45 @@ def require_password():
     cfg = st.secrets.get("security", {}) or {}
 
     # 🔓 OPTION B: si le hash tool est activé, on ne bloque PAS l'app
-    # (ça te permet de générer/mettre à jour un hash même si tu es lock-out)
     if bool(cfg.get("enable_hash_tool", False)):
         return
 
     expected = str(cfg.get("password_sha256", "")).strip()
-
-    # If no password configured, do nothing (app remains public)
     if not expected:
         return
 
-    # Already authed
     if st.session_state.get("authed", False):
         return
 
+    # =====================================================
+    # 🏒 LOGO POOL — LOGIN SCREEN
+    # =====================================================
+    if os.path.exists(LOGO_POOL_FILE):
+        st.markdown(
+            """
+            <style>
+              .login-logo img{
+                width: 100%;
+                max-height: 140px;
+                object-fit: contain;
+                margin-bottom: 1rem;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""
+            <div class="login-logo">
+              <img src="data:image/png;base64,{base64.b64encode(open(LOGO_POOL_FILE,'rb').read()).decode()}">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # =====================================================
+    # LOGIN UI
+    # =====================================================
     st.title("🔐 Accès sécurisé")
     st.caption("Entre le mot de passe partagé pour accéder à l’application.")
 
@@ -56,7 +81,6 @@ def require_password():
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
-                st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
@@ -65,6 +89,7 @@ def require_password():
         st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
 
     st.stop()
+
 
 # ✅ IMPORTANT: call the gate here, BEFORE the rest of the app runs
 require_password()
