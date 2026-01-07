@@ -185,6 +185,86 @@ def require_password():
 # ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
 
+# =====================================================
+# PREVIEW — Assets headers (GC/CE) + dialog
+#   assets/previews/<Team>.png   (Grand Club)
+#   assets/previews/<Team>E.png  (Club École)
+# =====================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PREVIEW_DIR = os.path.join(BASE_DIR, "assets", "previews")
+
+def preview_image_path(team: str, is_ce: bool = False) -> str | None:
+    team = str(team or "").strip()
+    if not team:
+        return None
+    fname = f"{team}{'E' if is_ce else ''}.png"
+    path = os.path.join(PREVIEW_DIR, fname)
+    return path if os.path.exists(path) else None
+
+def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
+    d = df_team.copy()
+
+    # Détecter la colonne équipe (Équipe vs Team)
+    team_col = "Équipe" if "Équipe" in d.columns else ("Team" if "Team" in d.columns else None)
+    if team_col and team_col != "Équipe":
+        d = d.rename(columns={team_col: "Équipe"})
+
+    d = d.rename(columns={
+        "Joueur": "Nom",
+        "Salaire": "Salaires",
+        "Statut": "Contrat",  # Contrat = Statut (comme demandé)
+    })
+
+    for c in ["Nom", "Équipe", "Salaires", "Contrat"]:
+        if c not in d.columns:
+            d[c] = ""
+
+    return d[["Nom", "Équipe", "Salaires", "Contrat"]].copy()
+
+@st.dialog("👀 Prévisualisation — Alignement", width="large")
+def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap_ce: int):
+    team = str(team or "").strip()
+    df_team = df_team.copy() if isinstance(df_team, pd.DataFrame) else pd.DataFrame()
+
+    # Split GC / CE (utilise tes constantes existantes)
+    gc = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_GC)].copy() if not df_team.empty else df_team
+    ce = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_CE)].copy() if not df_team.empty else df_team
+
+    img_gc = preview_image_path(team, is_ce=False)
+    img_ce = preview_image_path(team, is_ce=True)
+
+    left, right = st.columns([3, 2], gap="large")
+
+    with left:
+        if img_gc:
+            st.image(img_gc, use_container_width=True)
+        else:
+            st.markdown(f"### {team} — Grand Club")
+
+        df_gc = _preview_df(gc)
+        st.dataframe(df_gc, use_container_width=True, hide_index=True)
+
+        used_gc = int(gc["Salaire"].sum()) if ("Salaire" in gc.columns and not gc.empty) else 0
+        st.metric("Total GC", money(used_gc))
+        st.metric("Plafond GC", money(cap_gc))
+        st.metric("Reste GC", money(cap_gc - used_gc))
+
+    with right:
+        if img_ce:
+            st.image(img_ce, use_container_width=True)
+        else:
+            st.markdown(f"### {team} — Club École")
+
+        df_ce = _preview_df(ce)
+        st.dataframe(df_ce, use_container_width=True, hide_index=True)
+
+        used_ce = int(ce["Salaire"].sum()) if ("Salaire" in ce.columns and not ce.empty) else 0
+        st.metric("Total CE", money(used_ce))
+        st.metric("Plafond CE", money(cap_ce))
+        st.metric("Reste CE", money(cap_ce - used_ce))
+
+    st.divider()
+    st.button("OK", use_container_width=True)
 
 
 # =====================================================
@@ -1435,17 +1515,25 @@ if logo_path:
     # ✅ Logo d'équipe plus gros (sous la liste déroulante)
     st.sidebar.image(logo_path, use_container_width=True)
 
-    # 👀 Prévisualiser l'alignement du Grand Club (GC)
-    if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
-        st.session_state["gc_preview_open"] = True
-        # Optionnel: basculer sur Alignement pour corriger rapidement si besoin
-        st.session_state["active_tab"] = "🧾 Alignement"
-        do_rerun()
+# 👀 Prévisualiser (même si logo manquant)
+if st.sidebar.button("👀 Prévisualiser", help="GC à gauche / CE à droite", use_container_width=True):
+    team = str(get_selected_team() or "").strip()
+    if not team:
+        st.sidebar.warning("Sélectionne une équipe.")
+    else:
+        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+        df_all = clean_data(df_all)
 
+        # Sécurité si colonne Propriétaire absente
+        if "Propriétaire" not in df_all.columns:
+            st.sidebar.error("Colonne 'Propriétaire' manquante dans les données.")
+        else:
+            df_team = df_all[df_all["Propriétaire"].astype(str).str.strip().eq(team)].copy()
 
+            cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+            cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
-
-
+            preview_alignement_dialog(team, df_team, cap_gc, cap_ce)
 
 
 
@@ -1592,6 +1680,7 @@ if active_tab == "📊 Tableau":
 
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
+
 
     df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df = clean_data(df)
