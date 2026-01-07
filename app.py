@@ -1609,6 +1609,8 @@ if active_tab == "📊 Tableau":
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
+    
+
     df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df = clean_data(df)
     st.session_state["data"] = df
@@ -1702,82 +1704,77 @@ elif active_tab == "🧾 Alignement":
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
-# -----------------------------
-# Pop-up open check
-# -----------------------------
-popup_open = st.session_state.get("move_ctx") is not None
-if popup_open:
-    st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+    # =====================================================
+    # 💾 Enregistrer l’alignement (validation plafond au clic)
+    #   -> Popup seulement quand GC dépasse
+    # =====================================================
+    save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
 
-elif active_tab == "🧾 Alignement":
-    st.subheader("🧾 Alignement")
+    with save_row1:
+        save_click = st.button(
+            "💾 Enregistrer",
+            help="Valide le plafond GC et enregistre l’alignement",
+            use_container_width=True,
+            disabled=popup_open,
+            key="btn_save_alignement",
+        )
 
-# =====================================================
-# 💾 Enregistrer l’alignement (validation plafond au clic)
-#   -> Popup seulement quand GC dépasse
-# =====================================================
-save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
-
-with save_row1:
-    save_click = st.button(
-        "💾 Enregistrer",
-        help="Valide le plafond GC et enregistre l’alignement",
-        use_container_width=True,
-        disabled=popup_open,
-        key="btn_save_alignement",
-    )
-
-with save_row2:
-    if used_gc > cap_gc:
-        st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
-    else:
-        st.caption("✅ Prêt à enregistrer.")
-
-if save_click:
-    if used_gc > cap_gc:
-        non_conforme_dialog(int(used_gc - cap_gc))
-        st.stop()
-    else:
-        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-        df_all = clean_data(df_all)
-        st.session_state["data"] = df_all
-
-        persist_data(df_all, season)
-        st.session_state["plafonds"] = rebuild_plafonds(df_all)
-
-        st.success("✅ Alignement enregistré.")
-        do_rerun() if "do_rerun" in globals() else st.rerun()
-
-st.divider()
-
-
-with st.expander("🟡 Banc", expanded=True):
-    if gc_banc.empty:
-        st.info("Aucun joueur.")
-    else:
-        if not popup_open:
-            p = roster_click_list(gc_banc, proprietaire, "banc")
-            if p:
-                set_move_ctx(proprietaire, p, "banc")
-                do_rerun()
+    with save_row2:
+        if used_gc > cap_gc:
+            st.caption(
+                f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement)."
+            )
         else:
-            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+            st.caption("✅ Prêt à enregistrer.")
 
-with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-    if injured_all.empty:
-        st.info("Aucun joueur blessé.")
-    else:
-        if not popup_open:
-            p_ir = roster_click_list(injured_all, proprietaire, "ir")
-            if p_ir:
-                set_move_ctx(proprietaire, p_ir, "ir")
-                do_rerun()
+    if save_click:
+        if used_gc > cap_gc:
+            non_conforme_dialog(int(used_gc - cap_gc))
+            st.stop()
         else:
-            roster_click_list(injured_all, proprietaire, "ir_disabled")
+            df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+            df_all = clean_data(df_all)
+            st.session_state["data"] = df_all
 
-open_move_dialog()
+            persist_data(df_all, season)
+            st.session_state["plafonds"] = rebuild_plafonds(df_all)
 
+            st.success("✅ Alignement enregistré.")
+            do_rerun() if "do_rerun" in globals() else st.rerun()
 
+    st.divider()
+
+    # =====================================================
+    # 🟡 Banc
+    # =====================================================
+    with st.expander("🟡 Banc", expanded=True):
+        if gc_banc.empty:
+            st.info("Aucun joueur.")
+        else:
+            if not popup_open:
+                p = roster_click_list(gc_banc, proprietaire, "banc")
+                if p:
+                    set_move_ctx(proprietaire, p, "banc")
+                    do_rerun()
+            else:
+                roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+    # =====================================================
+    # 🩹 Joueurs Blessés (IR)
+    # =====================================================
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+        if injured_all.empty:
+            st.info("Aucun joueur blessé.")
+        else:
+            if not popup_open:
+                p_ir = roster_click_list(injured_all, proprietaire, "ir")
+                if p_ir:
+                    set_move_ctx(proprietaire, p_ir, "ir")
+                    do_rerun()
+            else:
+                roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+    open_move_dialog()
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
