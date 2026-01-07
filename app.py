@@ -1396,6 +1396,14 @@ season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key=
 st.session_state["season"] = season
 st.session_state["LOCKED"] = saison_verrouillee(season)
 
+#Mobile View - Sidebar
+st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
+if st.session_state.get("mobile_view", False):
+    st.markdown(
+        "<style>.block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}</style>",
+        unsafe_allow_html=True
+    )
+
 # Default caps
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -1450,54 +1458,93 @@ if logo_path:
         st.session_state["active_tab"] = "🧾 Alignement"
         do_rerun()
 
-st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 
+# =====================================================
+# 📱 Alignement — Desktop vs Mobile (tabs)
+# =====================================================
+mobile_view = bool(st.session_state.get("mobile_view", False))
 
-    # =====================================================
-    # 🧱 Déplacements GC / CE — Desktop vs Mobile
-    # =====================================================
-    mobile_view = bool(st.session_state.get("mobile_view", False))
-
-    def _render_gc_block():
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs (Grand Club)")
-            if gc_actif.empty:
-                st.info("Aucun joueur.")
+def _render_gc_block():
+    with st.container(border=True):
+        st.markdown("### 🟢 GC — Actifs")
+        if gc_actif.empty:
+            st.info("Aucun joueur.")
+        else:
+            if not popup_open:
+                p = roster_click_list(gc_actif, proprietaire, "actifs")
+                if p:
+                    set_move_ctx(proprietaire, p, "actifs")
+                    do_rerun()
             else:
-                if not popup_open:
-                    p = roster_click_list(gc_actif, proprietaire, "actifs")
-                    if p:
-                        set_move_ctx(proprietaire, p, "actifs")
-                        do_rerun()
-                else:
-                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
-    def _render_ce_block():
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur (Club École)")
-            if ce_all.empty:
-                st.info("Aucun joueur.")
+def _render_ce_block():
+    with st.container(border=True):
+        st.markdown("### 🔵 CE — Mineur")
+        if ce_all.empty:
+            st.info("Aucun joueur.")
+        else:
+            if not popup_open:
+                p = roster_click_list(ce_all, proprietaire, "min")
+                if p:
+                    set_move_ctx(proprietaire, p, "min")
+                    do_rerun()
             else:
-                if not popup_open:
-                    p = roster_click_list(ce_all, proprietaire, "min")
-                    if p:
-                        set_move_ctx(proprietaire, p, "min")
-                        do_rerun()
-                else:
-                    roster_click_list(ce_all, proprietaire, "min_disabled")
+                roster_click_list(ce_all, proprietaire, "min_disabled")
 
-    if mobile_view:
-        _render_gc_block()
-        st.divider()
-        _render_ce_block()
+def _render_banc_block():
+    if gc_banc.empty:
+        st.info("Aucun joueur.")
+        return
+    if not popup_open:
+        p = roster_click_list(gc_banc, proprietaire, "banc")
+        if p:
+            set_move_ctx(proprietaire, p, "banc")
+            do_rerun()
     else:
-        colA, colB = st.columns(2, gap="small")
-        with colA:
-            _render_gc_block()
-        with colB:
-            _render_ce_block()
+        roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+def _render_ir_block():
+    if injured_all.empty:
+        st.info("Aucun joueur blessé.")
+        return
+    if not popup_open:
+        p_ir = roster_click_list(injured_all, proprietaire, "ir")
+        if p_ir:
+            set_move_ctx(proprietaire, p_ir, "ir")
+            do_rerun()
+    else:
+        roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+if mobile_view:
+    # ✅ Mobile: tabs (beaucoup plus lisible)
+    t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
+    with t1:
+        _render_gc_block()
+    with t2:
+        _render_ce_block()
+    with t3:
+        _render_banc_block()
+    with t4:
+        _render_ir_block()
+else:
+    # ✅ Desktop: 2 colonnes + expanders
+    colA, colB = st.columns(2, gap="small")
+    with colA:
+        _render_gc_block()
+    with colB:
+        _render_ce_block()
 
     st.divider()
+
+    with st.expander("🟡 Banc", expanded=True):
+        _render_banc_block()
+
+    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+        _render_ir_block()
+
+open_move_dialog()
+
 
 
 
