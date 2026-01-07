@@ -1271,47 +1271,65 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     components.html(html_doc, height=360, scrolling=False)
 
 # =====================================================
-# SIDEBAR — Équipes (selectbox) + logo PNG (largeur fixe)
+# SIDEBAR — Saison + Équipe + Plafonds
 # =====================================================
+st.sidebar.header("📅 Saison")
+saisons = ["2024-2025", "2025-2026", "2026-2027"]
+auto = saison_auto()
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
+
+season = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
+st.session_state["season"] = season
+st.session_state["LOCKED"] = saison_verrouillee(season)
+
+# Default caps
+if "PLAFOND_GC" not in st.session_state:
+    st.session_state["PLAFOND_GC"] = 95_500_000
+if "PLAFOND_CE" not in st.session_state:
+    st.session_state["PLAFOND_CE"] = 47_750_000
+
+st.sidebar.divider()
+st.sidebar.header("💰 Plafonds")
+if st.sidebar.button("✏️ Modifier les plafonds"):
+    st.session_state["edit_plafond"] = True
+
+if st.session_state.get("edit_plafond"):
+    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
+        "Plafond Grand Club",
+        value=int(st.session_state["PLAFOND_GC"]),
+        step=500_000,
+    )
+    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
+        "Plafond Club École",
+        value=int(st.session_state["PLAFOND_CE"]),
+        step=250_000,
+    )
+
+st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
+st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+
+# Team picker
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipes")
-
-teams = list(LOGOS.keys()) if "LOGOS" in globals() else []
-teams = [str(t).strip() for t in teams if str(t).strip()]
-
+teams = list(LOGOS.keys())
 cur = str(st.session_state.get("selected_team", "")).strip()
-
-# fallback si rien de sélectionné / invalide
-if teams and cur not in teams:
+if cur not in teams and teams:
     cur = teams[0]
     st.session_state["selected_team"] = cur
     st.session_state["align_owner"] = cur
 
-chosen = st.sidebar.selectbox(
-    "Choisir une équipe",
-    teams if teams else [""],
-    index=(teams.index(cur) if cur in teams else 0),
-    key="sb_team_select",
-)
-
+chosen = st.sidebar.selectbox("Choisir une équipe", teams if teams else [""], index=(teams.index(cur) if cur in teams else 0), key="sb_team_select")
 if chosen and chosen != cur:
     st.session_state["selected_team"] = chosen
     st.session_state["align_owner"] = chosen
-    do_rerun()  # ou st.rerun()
+    do_rerun()
 
-# Logo PNG (fixe + centré)
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
-    st.sidebar.markdown(
-        """
-        <div style="display:flex;justify-content:center;margin:10px 0 6px 0;">
-        """,
-        unsafe_allow_html=True,
-    )
-    st.sidebar.image(logo_path, width=190)  # 👈 ajuste 160–240 au besoin
-    st.sidebar.markdown("</div>", unsafe_allow_html=True)
-
-# ✅ PAS de nom sous le logo
+    # ✅ Logo d'équipe plus gros (sous la liste déroulante)
+    st.sidebar.image(logo_path, use_container_width=True)
 
 
 
