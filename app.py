@@ -1459,91 +1459,90 @@ if logo_path:
         do_rerun()
 
 
-# =====================================================
-# 📱 Alignement — Desktop vs Mobile (tabs)
-# =====================================================
-mobile_view = bool(st.session_state.get("mobile_view", False))
+    # =====================================================
+    # 📱 Alignement — Desktop vs Mobile (tabs)
+    # =====================================================
+    mobile_view = bool(st.session_state.get("mobile_view", False))
 
-def _render_gc_block():
-    with st.container(border=True):
-        st.markdown("### 🟢 GC — Actifs")
-        if gc_actif.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs")
-                    do_rerun()
+    def _render_gc_block():
+        with st.container(border=True):
+            st.markdown("### 🟢 GC — Actifs")
+            if gc_actif.empty:
+                st.info("Aucun joueur.")
             else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+                if not popup_open:
+                    p = roster_click_list(gc_actif, proprietaire, "actifs")
+                    if p:
+                        set_move_ctx(proprietaire, p, "actifs")
+                        do_rerun()
+                else:
+                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
-def _render_ce_block():
-    with st.container(border=True):
-        st.markdown("### 🔵 CE — Mineur")
-        if ce_all.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min")
-                    do_rerun()
+    def _render_ce_block():
+        with st.container(border=True):
+            st.markdown("### 🔵 CE — Mineur")
+            if ce_all.empty:
+                st.info("Aucun joueur.")
             else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
+                if not popup_open:
+                    p = roster_click_list(ce_all, proprietaire, "min")
+                    if p:
+                        set_move_ctx(proprietaire, p, "min")
+                        do_rerun()
+                else:
+                    roster_click_list(ce_all, proprietaire, "min_disabled")
 
-def _render_banc_block():
-    if gc_banc.empty:
-        st.info("Aucun joueur.")
-        return
-    if not popup_open:
-        p = roster_click_list(gc_banc, proprietaire, "banc")
-        if p:
-            set_move_ctx(proprietaire, p, "banc")
-            do_rerun()
+    def _render_banc_block():
+        if gc_banc.empty:
+            st.info("Aucun joueur.")
+            return
+        if not popup_open:
+            p = roster_click_list(gc_banc, proprietaire, "banc")
+            if p:
+                set_move_ctx(proprietaire, p, "banc")
+                do_rerun()
+        else:
+            roster_click_list(gc_banc, proprietaire, "banc_disabled")
+
+    def _render_ir_block():
+        if injured_all.empty:
+            st.info("Aucun joueur blessé.")
+            return
+        if not popup_open:
+            p_ir = roster_click_list(injured_all, proprietaire, "ir")
+            if p_ir:
+                set_move_ctx(proprietaire, p_ir, "ir")
+                do_rerun()
+        else:
+            roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+    if mobile_view:
+        t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
+        with t1:
+            _render_gc_block()
+        with t2:
+            _render_ce_block()
+        with t3:
+            _render_banc_block()
+        with t4:
+            _render_ir_block()
     else:
-        roster_click_list(gc_banc, proprietaire, "banc_disabled")
+        colA, colB = st.columns(2, gap="small")
+        with colA:
+            _render_gc_block()
+        with colB:
+            _render_ce_block()
 
-def _render_ir_block():
-    if injured_all.empty:
-        st.info("Aucun joueur blessé.")
-        return
-    if not popup_open:
-        p_ir = roster_click_list(injured_all, proprietaire, "ir")
-        if p_ir:
-            set_move_ctx(proprietaire, p_ir, "ir")
-            do_rerun()
-    else:
-        roster_click_list(injured_all, proprietaire, "ir_disabled")
+        st.divider()
 
-if mobile_view:
-    # ✅ Mobile: tabs (beaucoup plus lisible)
-    t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
-    with t1:
-        _render_gc_block()
-    with t2:
-        _render_ce_block()
-    with t3:
-        _render_banc_block()
-    with t4:
-        _render_ir_block()
-else:
-    # ✅ Desktop: 2 colonnes + expanders
-    colA, colB = st.columns(2, gap="small")
-    with colA:
-        _render_gc_block()
-    with colB:
-        _render_ce_block()
+        with st.expander("🟡 Banc", expanded=True):
+            _render_banc_block()
 
-    st.divider()
+        with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
+            _render_ir_block()
 
-    with st.expander("🟡 Banc", expanded=True):
-        _render_banc_block()
+    open_move_dialog()
 
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        _render_ir_block()
-
-open_move_dialog()
 
 
 
@@ -1849,6 +1848,47 @@ elif active_tab == "🧾 Alignement":
     # st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 
     mobile_view = bool(st.session_state.get("mobile_view", False))
+
+# =====================================================
+# 📎 Copier le lien mobile (?mobile=1)
+# =====================================================
+def copy_mobile_link_button(label="📎 Copier le lien mobile"):
+    js = f"""
+    <script>
+    function copyMobileLink() {{
+        const url = new URL(window.location.href);
+        url.searchParams.set("mobile", "1");
+        navigator.clipboard.writeText(url.toString()).then(() => {{
+            const btn = document.getElementById("copy-mobile-link-btn");
+            if (btn) {{
+                btn.innerText = "✅ Lien copié";
+                setTimeout(() => btn.innerText = "{label}", 1600);
+            }}
+        }});
+    }}
+    </script>
+
+    <button id="copy-mobile-link-btn"
+            onclick="copyMobileLink()"
+            style="
+                width:100%;
+                padding:6px 10px;
+                margin-top:6px;
+                border-radius:8px;
+                border:1px solid rgba(255,255,255,.25);
+                background:transparent;
+                cursor:pointer;
+                font-size:13px;">
+        {label}
+    </button>
+    """
+    st.components.v1.html(js, height=48)
+
+# Bouton dans la sidebar
+with st.sidebar:
+    copy_mobile_link_button()
+
+
 
     def _render_gc_block():
         with st.container(border=True):
