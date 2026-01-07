@@ -345,8 +345,8 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
         """
 
     def render_side(title: str, img_path: str | None, df_part: pd.DataFrame, cap: int, label: str):
-    used = int(df_part["Salaire"].sum()) if ("Salaire" in df_part.columns and not df_part.empty) else 0
-    rest = cap - used
+        used = int(df_part["Salaire"].sum()) if ("Salaire" in df_part.columns and not df_part.empty) else 0
+        rest = cap - used
 
     # ✅ tailles fixes : GC = 2x CE
     logo_w = 100 if label == "GC" else 50
