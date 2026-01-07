@@ -47,23 +47,6 @@ def require_password():
 # ✅ IMPORTANT: call the gate here, BEFORE the rest of the app runs
 require_password()
 
-
-# =====================================================
-# Google Drive (optional)
-# =====================================================
-try:
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import Flow
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-    from googleapiclient.errors import HttpError
-    _GOOGLE_OK = True
-except Exception:
-    _GOOGLE_OK = False
-
-
-
 # =====================================================
 # 🔐 TEMP — Password hash generator (SAFE / DISABLED BY DEFAULT)
 #   Enable only by adding in Streamlit Secrets:
@@ -79,10 +62,19 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
         st.info("⬆️ Copie ce hash dans Streamlit Secrets puis remet enable_hash_tool=false.")
     st.divider()
 
-
-
-
-
+# =====================================================
+# Google Drive (optional)
+# =====================================================
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import Flow
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+    from googleapiclient.errors import HttpError
+    _GOOGLE_OK = True
+except Exception:
+    _GOOGLE_OK = False
 
 
 # =====================================================
