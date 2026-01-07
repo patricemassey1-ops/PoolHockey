@@ -349,6 +349,16 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     return out.reset_index(drop=True)
 
+from datetime import datetime
+
+MOIS_FR = [
+    "", "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre"
+]
+
+def _format_date_fr(dt: datetime) -> str:
+    return f"{dt.day} {MOIS_FR[dt.month]} {dt.year} {dt:%H:%M:%S}"
+
 
 # =====================================================
 # LOGOS
@@ -1965,20 +1975,57 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
     st.markdown("### 📌 Derniers imports par équipe")
+
     by_team = manifest.get("fantrax_by_team", {}) or {}
     if not by_team:
         st.caption("— Aucun import enregistré —")
     else:
+        # ✅ Etat tri (persistant)
+        if "admin_imports_desc" not in st.session_state:
+            st.session_state["admin_imports_desc"] = True  # ⬇️ par défaut (plus récent en premier)
+
+        c1, c2, c3 = st.columns([0.12, 1, 3], vertical_alignment="center")
+        with c1:
+            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
+            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
+                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
+                do_rerun()  # ou st.rerun()
+
+        with c2:
+            st.caption("Tri par date")
+
+        # Construire les lignes
         rows = []
         for team, info in by_team.items():
             rows.append(
                 {
-                    "Équipe": team,
-                    "Fichier": info.get("uploaded_name", ""),
-                    "Date": info.get("saved_at", ""),
+                    "Équipe": str(team).strip(),
+                    "Fichier": str(info.get("uploaded_name", "") or "").strip(),
+                    "Date": str(info.get("saved_at", "") or "").strip(),  # ISO string
                 }
             )
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        df_imports = pd.DataFrame(rows)
+
+        # Parse ISO → datetime (tri fiable)
+        df_imports["_dt"] = pd.to_datetime(df_imports["Date"], errors="coerce", utc=False)
+
+        # Tri: desc=True -> plus récent en premier
+        df_imports = df_imports.sort_values(
+            by="_dt",
+            ascending=(not st.session_state["admin_imports_desc"]),
+            na_position="last",
+        )
+
+        # Affichage FR
+        df_imports["Date"] = df_imports["_dt"].apply(lambda d: _format_date_fr(d) if pd.notna(d) else "")
+
+        # Nettoyage
+        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
+
+        st.dataframe(df_imports, use_container_width=True, hide_index=True)
+
+
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
