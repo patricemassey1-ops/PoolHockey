@@ -37,6 +37,53 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# 🔐 gate ici
+require_password()
+
+# =====================================================
+# 🔐 PASSWORD GATE — shared password (Streamlit Cloud)
+#   Secrets:
+#   [security]
+#   password_sha256 = "...."
+# =====================================================
+def _sha256(s: str) -> str:
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
+def require_password():
+    cfg = st.secrets.get("security", {}) or {}
+    expected = str(cfg.get("password_sha256", "")).strip()
+
+    # If no password configured, do nothing (app remains public)
+    if not expected:
+        return
+
+    # Already authed
+    if st.session_state.get("authed", False):
+        return
+
+    st.title("🔐 Accès sécurisé")
+    st.caption("Entre le mot de passe partagé pour accéder à l’application.")
+
+    pwd = st.text_input("Mot de passe", type="password")
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        if st.button("Se connecter", type="primary", use_container_width=True):
+            if _sha256(pwd) == expected:
+                st.session_state["authed"] = True
+                st.success("✅ Accès autorisé")
+                st.rerun()
+            else:
+                st.error("❌ Mot de passe invalide")
+
+    with col2:
+        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
+
+    # Stop the app here until authenticated
+    st.stop()
+
+
+
 # =====================================================
 # Google Drive (optional)
 # =====================================================
