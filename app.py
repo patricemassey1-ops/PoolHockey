@@ -57,39 +57,78 @@ def require_password():
     if st.session_state.get("authed", False):
         return
 
-    # =====================================================
-    # 🏒 LOGO POOL — LOGIN SCREEN (BIG + CENTERED)
-    # =====================================================
-    if os.path.exists(LOGO_POOL_FILE):
-        st.markdown(
-            """
-            <style>
-              .login-logo {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                margin: 2rem 0 1.5rem 0;
-              }
-              .login-logo img{
-                width: 100%;
-                max-width: 540px;   /* ajuste 480–620 si désiré */
-                max-height: 220px;
-                object-fit: contain;
-                opacity: 0.98;
-              }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+# =====================================================
+# 🏒 LOGIN HEADER — PMS + HOCKEY ICONS + LOGO
+# =====================================================
+if os.path.exists(LOGO_POOL_FILE):
+    st.markdown(
+        """
+        <style>
+          .login-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            margin: 2.2rem 0 1.6rem 0;
+          }
 
-        st.markdown(
-            f"""
+          .login-side {
+            font-size: 42px;       /* 🏒 / 🥅 size */
+            line-height: 1;
+            opacity: 0.95;
+          }
+
+          .login-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+
+          .login-pms {
+            font-size: 44px;
+            font-weight: 1000;
+            letter-spacing: 3px;
+            color: #dc2626;        /* 🔴 rouge PMS */
+            line-height: 1.1;
+            margin-bottom: 6px;
+          }
+
+          .login-logo img{
+            width: 100%;
+            max-width: 620px;      /* 👈 logo plus gros */
+            max-height: 240px;
+            object-fit: contain;
+            opacity: 0.99;
+          }
+
+          @media (max-width: 900px){
+            .login-pms { font-size: 36px; }
+            .login-side { font-size: 34px; }
+            .login-logo img { max-width: 520px; }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="login-header">
+          <div class="login-side">🏒</div>
+
+          <div class="login-center">
+            <div class="login-pms">PMS</div>
             <div class="login-logo">
               <img src="data:image/png;base64,{base64.b64encode(open(LOGO_POOL_FILE,'rb').read()).decode()}">
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+          </div>
+
+          <div class="login-side">🥅</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
     # =====================================================
     # LOGIN UI
