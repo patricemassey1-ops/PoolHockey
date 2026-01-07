@@ -157,93 +157,89 @@ def require_password():
 require_password()
 
 # =====================================================
-# ✅ LOGOS — Remove white background (Cloud-friendly)
-#   - Flood-fill from edges to ONLY remove the background connected to borders
-#   - Returns RGBA image that blends perfectly with Streamlit sidebar/theme
+# LOGOS — blend white background into sidebar color (PIL)
+#   - Removes near-white background (even off-white)
+#   - Feather for anti-aliased edges
+#   - Optionally "matte" on sidebar bg so it blends perfectly
 # =====================================================
 from PIL import Image
-import numpy as np
-import streamlit as st
-from collections import deque
 
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = (hex_color or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join([c * 2 for c in h])
+    if len(h) != 6:
+        return (18, 20, 26)  # fallback dark
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
-@st.cache_data(show_spinner=False)
-def logo_make_bg_transparent(path: str, tol: int = 18) -> Image.Image:
+def _remove_white_bg(img: Image.Image, tol: int = 80, feather: int = 35) -> Image.Image:
     """
-    Remove the "white box" background from a PNG by flood-filling from the edges.
-    This keeps white details INSIDE the logo intact (only the outer background is removed).
-
-    Args:
-        path: path to PNG file
-        tol: white tolerance (higher = more aggressive). Typical: 14-24
-
-    Returns:
-        PIL Image in RGBA with transparent background.
+    Return RGBA image where near-white pixels become transparent.
+    tol: higher removes more (try 60-120)
+    feather: smooth edge transition (try 20-60)
     """
-    im = Image.open(path).convert("RGBA")
-    arr = np.array(im)
-    h, w = arr.shape[:2]
+    im = img.convert("RGBA")
+    px = im.load()
+    w, h = im.size
 
-    # Identify pixels near white
-    white = (
-        (arr[..., 0] >= 255 - tol) &
-        (arr[..., 1] >= 255 - tol) &
-        (arr[..., 2] >= 255 - tol)
-    )
+    # We'll compute "whiteness distance" and map to alpha with a feather ramp
+    # dist = max channel distance to 255
+    # if dist <= tol => background => alpha 0
+    # if dist >= tol+feather => keep => alpha 255
+    # in between => ramp
+    t0 = max(1, int(tol))
+    t1 = max(t0 + 1, int(tol + feather))
 
-    # Flood-fill ONLY from borders to capture background region
-    bg = np.zeros((h, w), dtype=bool)
-    q = deque()
-
-    # Seed queue with near-white pixels on the borders
-    for x in range(w):
-        if white[0, x]:
-            q.append((0, x))
-        if white[h - 1, x]:
-            q.append((h - 1, x))
     for y in range(h):
-        if white[y, 0]:
-            q.append((y, 0))
-        if white[y, w - 1]:
-            q.append((y, w - 1))
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            # distance-from-white (0 means pure white)
+            dist = max(255 - r, 255 - g, 255 - b)
 
-    # BFS 4-connected
-    while q:
-        y, x = q.popleft()
-        if bg[y, x]:
-            continue
-        if not white[y, x]:
-            continue
-        bg[y, x] = True
+            if dist <= t0:
+                px[x, y] = (r, g, b, 0)
+            elif dist >= t1:
+                # keep as-is
+                continue
+            else:
+                # feather ramp
+                alpha = int(255 * (dist - t0) / (t1 - t0))
+                px[x, y] = (r, g, b, min(a, alpha))
 
-        if y > 0:
-            q.append((y - 1, x))
-        if y < h - 1:
-            q.append((y + 1, x))
-        if x > 0:
-            q.append((y, x - 1))
-        if x < w - 1:
-            q.append((y, x + 1))
+    return im
 
-    # Make that detected background transparent
-    arr[bg, 3] = 0
-    return Image.fromarray(arr, mode="RGBA")
-
-
-def sidebar_team_logo(logo_path: str, width: int = 140, tol: int = 18):
+def sidebar_team_logo(
+    logo_path: str,
+    width: int = 170,
+    tol: int = 90,
+    feather: int = 45,
+    sidebar_bg_hex: str = "#1f232d",  # ajuste si ton sidebar est plus clair/foncé
+    matte: bool = True,
+):
     """
-    Helper to display a team logo in the sidebar without the white background.
-    Safe on Streamlit Cloud.
+    Affiche le logo dans le sidebar en "fondant" le fond blanc.
+    matte=True: composite sur la couleur du sidebar (blend parfait).
+    matte=False: fond transparent (ok si ton PNG est propre).
     """
-    if not logo_path:
+    if not logo_path or not os.path.exists(logo_path):
         return
-    if not os.path.exists(logo_path):
-        return
+
     try:
-        st.sidebar.image(logo_make_bg_transparent(logo_path, tol=tol), width=width)
+        img = Image.open(logo_path)
+        img_rgba = _remove_white_bg(img, tol=tol, feather=feather)
+
+        if matte:
+            bg = Image.new("RGBA", img_rgba.size, _hex_to_rgb(sidebar_bg_hex) + (255,))
+            img_out = Image.alpha_composite(bg, img_rgba).convert("RGB")
+        else:
+            img_out = img_rgba
+
+        st.sidebar.image(img_out, width=width)
+
     except Exception:
-        # Fallback: show original image if Pillow/numpy fail for any reason
+        # fallback safe
         st.sidebar.image(logo_path, width=width)
+
 
 
 # =====================================================
