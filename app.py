@@ -185,244 +185,6 @@ def require_password():
 # ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
 
-# =====================================================
-# PREVIEW — Assets headers (GC/CE) + dialog
-#   assets/previews/<Team>.png   (Grand Club)
-#   assets/previews/<Team>E.png  (Club École)
-# =====================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PREVIEW_DIR = os.path.join(BASE_DIR, "assets", "previews")
-
-def _slug_team(team: str) -> str:
-    """
-    Convertit le nom d'équipe en slug compatible avec tes fichiers.
-    Exemples:
-      "Red Wings" -> "Red_Wings"
-      "Montréal Canadiens" -> "montreal-canadiens"
-    """
-    team = str(team or "").strip()
-
-    repl = {
-        "é":"e","è":"e","ê":"e","ë":"e",
-        "à":"a","â":"a","ä":"a",
-        "î":"i","ï":"i",
-        "ô":"o","ö":"o",
-        "ù":"u","û":"u","ü":"u",
-        "ç":"c",
-        "É":"E","È":"E","Ê":"E","Ë":"E",
-        "À":"A","Â":"A","Ä":"A",
-        "Î":"I","Ï":"I",
-        "Ô":"O","Ö":"O",
-        "Ù":"U","Û":"U","Ü":"U",
-        "Ç":"C",
-    }
-    for k, v in repl.items():
-        team = team.replace(k, v)
-
-    # espaces -> underscore
-    team = team.replace(" ", "_")
-
-    return team
-
-
-def preview_image_path(team: str, is_ce: bool = False) -> str | None:
-    """
-    GC: <slug>_Logo.png
-    CE: <slug>E_Logo.png
-    """
-    slug = _slug_team(team)
-    if not slug:
-        return None
-
-    fname = f"{slug}{'E' if is_ce else ''}_Logo.png"
-    path = os.path.join(PREVIEW_DIR, fname)
-
-    return path if os.path.exists(path) else None
-
-
-def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
-    """
-    Colonnes (ordre):
-    Pos | Nom | Salaires | Level
-    """
-    d = df_team.copy()
-
-    # Position (normalisée si possible)
-    if "Pos" in d.columns:
-        if "normalize_pos" in globals():
-            d["Pos"] = d["Pos"].apply(normalize_pos)
-    else:
-        d["Pos"] = ""
-
-    # Renommage colonnes
-    d = d.rename(columns={
-        "Joueur": "Nom",
-        "Salaire": "Salaires",
-        "Level": "Level",
-    })
-
-    # Gardes si colonnes absentes
-    for c in ["Pos", "Nom", "Salaires", "Level"]:
-        if c not in d.columns:
-            d[c] = ""
-
-    return d[["Pos", "Nom", "Salaires", "Level"]].copy()
-
-
-
-
-@st.dialog("👀 Prévisualisation — Alignement", width="large")
-def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap_ce: int, mobile_view: bool = False):
-    team = str(team or "").strip()
-    df_team = df_team.copy() if isinstance(df_team, pd.DataFrame) else pd.DataFrame()
-
-    gc = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_GC)].copy() if not df_team.empty else df_team
-    ce = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_CE)].copy() if not df_team.empty else df_team
-
-    img_gc = preview_image_path(team, is_ce=False)
-    img_ce = preview_image_path(team, is_ce=True)
-
-    # ✅ CSS compact (header + pills + tables)
-    st.markdown("""
-    <style>
-      .pv-head{
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:12px;
-        margin: 6px 0 10px 0;
-      }
-      .pv-left{
-        display:flex;
-        align-items:center;
-        gap:10px;
-        min-width: 200px;
-      }
-      .pv-title{ font-weight:900; font-size:14px; opacity:.9; margin:0; }
-      .pv-sub{ font-weight:700; font-size:11px; opacity:.65; margin:0; }
-
-      .pv-pills{
-        display:flex;
-        gap:8px;
-        flex-wrap:wrap;
-        justify-content:flex-end;
-        align-items:center;
-      }
-      .pv-pill{
-        display:inline-flex;
-        align-items:center;
-        gap:6px;
-        padding:4px 8px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.03);
-        font-size:12px;
-        white-space:nowrap;
-      }
-      .pv-pill b{ font-weight:900; }
-
-      /* Compact table */
-      .stDataFrame { font-size: 12px; }
-      @media (max-width: 768px){
-        .stDataFrame { font-size: 11px; }
-        .pv-left{ min-width: 150px; }
-        .pv-pill{ font-size:11px; padding:3px 7px; }
-      }
-    </style>
-    """, unsafe_allow_html=True)
-
-    def _sum_salary(d: pd.DataFrame) -> int:
-        return int(d["Salaire"].sum()) if (isinstance(d, pd.DataFrame) and (not d.empty) and ("Salaire" in d.columns)) else 0
-
-    def _pills_html(total: int, cap: int, label: str) -> str:
-        rest = cap - total
-        return f"""
-        <div class="pv-pills">
-          <div class="pv-pill"><span>Total</span><b>{html.escape(money(total))}</b></div>
-          <div class="pv-pill"><span>Plafond</span><b>{html.escape(money(cap))}</b></div>
-          <div class="pv-pill"><span>Reste</span><b>{html.escape(money(rest))}</b></div>
-        </div>
-        """
-
-    def render_side(title: str, img_path: str | None, df_part: pd.DataFrame, cap: int, label: str):
-        used = int(df_part["Salaire"].sum()) if ("Salaire" in df_part.columns and not df_part.empty) else 0
-        rest = cap - used
-
-    # ✅ tailles fixes : GC = 2x CE
-        logo_w = 100 if label == "GC" else 50
-
-    # =========================
-    # HEADER (Streamlit-native)
-    # =========================
-    hL, hR = st.columns([3, 2], vertical_alignment="center")
-
-    with hL:
-        # Logo + titres (alignés)
-        a, b = st.columns([0.35, 1], vertical_alignment="center")
-        with a:
-            if img_path:
-                st.image(img_path, width=logo_w)
-        with b:
-            st.markdown(
-                f"""
-                <div style="line-height:1.1">
-                  <div style="font-size:12px; opacity:.70; font-weight:800;">{html.escape(title)}</div>
-                  <div style="font-size:18px; font-weight:1000;">{html.escape(team)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    with hR:
-        # Pills alignées à droite, même hauteur que le logo
-        st.markdown(
-            f"""
-            <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
-              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
-                Total <b>{html.escape(money(used))}</b>
-              </div>
-              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
-                Plafond <b>{html.escape(money(cap))}</b>
-              </div>
-              <div style="padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); font-size:12px;">
-                Reste <b>{html.escape(money(rest))}</b>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    # =========================
-    # TABLE
-    # =========================
-    df_show = _preview_df(df_part)
-
-    # Format salaires (robuste)
-    if "Salaires" in df_show.columns:
-        def _fmt_sal(x):
-            try:
-                return money(int(float(x)))
-            except Exception:
-                return x
-        df_show["Salaires"] = df_show["Salaires"].apply(_fmt_sal)
-
-    st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
-
-
-    if mobile_view:
-        render_side("Grand Club", img_gc, gc, cap_gc, "GC")
-        st.divider()
-        render_side("Club École", img_ce, ce, cap_ce, "CE")
-    else:
-        left, right = st.columns([3, 2], gap="large")
-        with left:
-            render_side("Grand Club", img_gc, gc, cap_gc, "GC")
-        with right:
-            render_side("Club École", img_ce, ce, cap_ce, "CE")
-
-    st.button("OK", use_container_width=True)
-
-
 
 
 # =====================================================
@@ -1061,18 +823,24 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             font-weight: 900;
             display: block;
           }
+          .levelCell{
+            white-space: nowrap;
+            opacity: .85;
+            font-weight: 800;
+          }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
     t = df_src.copy()
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0}.items():
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": ""}.items():
         if c not in t.columns:
             t[c] = d
 
     t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Level"] = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
 
     bad = {"", "none", "nan", "null"}
@@ -1095,11 +863,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         .reset_index(drop=True)
     )
 
-    h = st.columns([1.2, 1.6, 3.6, 2.4])
+    # ✅ Colonnes (Alignement): Pos | Équipe | Joueur | Level | Salaire
+    h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
     h[0].markdown("**Pos**")
-    h[1].markdown("**Team**")
+    h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
-    h[3].markdown("**Salaire**")
+    h[3].markdown("**Level**")
+    h[4].markdown("**Salaire**")
 
     clicked = None
     for i, r in t.iterrows():
@@ -1109,16 +879,16 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
         pos = r.get("Pos", "F")
         team = str(r.get("Equipe", "")).strip()
+        lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
 
-        c = st.columns([1.2, 1.6, 3.6, 2.4])
+        c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
-
         if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
             clicked = joueur
-
-        c[3].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[3].markdown(f"<span class='levelCell'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>", unsafe_allow_html=True)
+        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -1673,25 +1443,17 @@ if logo_path:
     # ✅ Logo d'équipe plus gros (sous la liste déroulante)
     st.sidebar.image(logo_path, use_container_width=True)
 
-# 👀 Prévisualiser (même si logo manquant)
-if st.sidebar.button("👀 Prévisualiser", help="GC à gauche / CE à droite", use_container_width=True):
-    team = str(get_selected_team() or "").strip()
-    if not team:
-        st.sidebar.warning("Sélectionne une équipe.")
-    else:
-        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-        df_all = clean_data(df_all)
+    # 👀 Prévisualiser l'alignement du Grand Club (GC)
+    if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+        st.session_state["gc_preview_open"] = True
+        # Optionnel: basculer sur Alignement pour corriger rapidement si besoin
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
 
-        # Sécurité si colonne Propriétaire absente
-        if "Propriétaire" not in df_all.columns:
-            st.sidebar.error("Colonne 'Propriétaire' manquante dans les données.")
-        else:
-            df_team = df_all[df_all["Propriétaire"].astype(str).str.strip().eq(team)].copy()
 
-            cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-            cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
-            preview_alignement_dialog(team, df_team, cap_gc, cap_ce)
+
+
 
 
 
@@ -1839,7 +1601,6 @@ if active_tab == "📊 Tableau":
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
-
     df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df = clean_data(df)
     st.session_state["data"] = df
@@ -1896,16 +1657,6 @@ elif active_tab == "🧾 Alignement":
     remain_gc = cap_gc - used_gc
     remain_ce = cap_ce - used_ce
 
-    # ✅ Popup si dépassement plafond GC (une seule fois par montant de dépassement)
-    st.session_state["used_gc_last"] = int(used_gc or 0)
-    over_gc = int(used_gc or 0) - int(cap_gc or 0)
-    if over_gc > 0:
-        if st.session_state.get("cap_alert_seen_over") != over_gc:
-            st.session_state["cap_alert_seen_over"] = over_gc
-            st.session_state["cap_nonconforme_open"] = True
-    else:
-        st.session_state["cap_alert_seen_over"] = 0
-
 
     j1, j2 = st.columns(2)
     with j1:
@@ -1942,6 +1693,51 @@ elif active_tab == "🧾 Alignement":
     popup_open = st.session_state.get("move_ctx") is not None
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+
+# =====================================================
+# 💾 Enregistrer l’alignement (validation plafond GC au clic)
+#   ➜ Message seulement lors de l'enregistrement
+# =====================================================
+s1, s2 = st.columns([1.2, 3.8], vertical_alignment="center")
+with s1:
+    save_click = st.button(
+        "💾 Enregistrer",
+        help="Valide le plafond Grand Club (GC) puis enregistre",
+        use_container_width=True,
+        disabled=popup_open,
+        key="btn_save_alignement",
+    )
+with s2:
+    over_gc = int(used_gc or 0) - int(cap_gc or 0)
+    if over_gc > 0:
+        st.caption(f"⚠️ GC dépasse le plafond de {money(over_gc)} — message affiché à l’enregistrement.")
+    else:
+        st.caption("✅ Prêt à enregistrer.")
+
+if save_click:
+    over_gc = int(used_gc or 0) - int(cap_gc or 0)
+    if over_gc > 0:
+        st.session_state["used_gc_last"] = int(used_gc or 0)
+        st.session_state["cap_nonconforme_open"] = True
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
+    else:
+        # Re-persist (safe) + refresh plafonds
+        season_lbl = str(st.session_state.get("season", "")).strip()
+        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+        df_all = clean_data(df_all)
+        st.session_state["data"] = df_all
+        try:
+            persist_data(df_all, season_lbl)
+        except Exception as e:
+            st.error(f"❌ Erreur d’enregistrement : {type(e).__name__}: {e}")
+            st.stop()
+
+        st.session_state["plafonds"] = rebuild_plafonds(df_all)
+        st.success("✅ Alignement enregistré.")
+        do_rerun()
+
+    st.divider()
 
     colA, colB = st.columns(2, gap="small")
     with colA:
