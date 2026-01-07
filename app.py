@@ -1716,7 +1716,7 @@ with save_row1:
         disabled=popup_open,
         key="btn_save_alignement",
     )
- 
+
 with save_row2:
     if used_gc > cap_gc:
         st.caption(f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement).")
@@ -1740,7 +1740,9 @@ if save_click:
         st.success("✅ Alignement enregistré.")
         do_rerun() if "do_rerun" in globals() else st.rerun()
 
-    st.divider()
+# ⬇️ IMPORTANT : le divider est HORS du if
+st.divider()
+
 
     with st.expander("🟡 Banc", expanded=True):
         if gc_banc.empty:
