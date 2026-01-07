@@ -58,7 +58,7 @@ except Exception:
 #   [security]
 #   enable_hash_tool = true
 # =====================================================
-if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
+if bool(st.secrets.get("security", {}).get("enable_hash_tool", true)):
     st.markdown("### 🔐 Générateur de hash (temporaire)")
     pwd = st.text_input("Mot de passe à hasher", type="password")
     if pwd:
