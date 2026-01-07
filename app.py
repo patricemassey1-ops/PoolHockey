@@ -261,49 +261,105 @@ def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
     return d[["Nom", "Équipe", "Salaires", "Contrat"]].copy()
 
 @st.dialog("👀 Prévisualisation — Alignement", width="large")
-def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap_ce: int):
+def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap_ce: int, mobile_view: bool = False):
     team = str(team or "").strip()
     df_team = df_team.copy() if isinstance(df_team, pd.DataFrame) else pd.DataFrame()
 
-    # Split GC / CE (utilise tes constantes existantes)
     gc = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_GC)].copy() if not df_team.empty else df_team
     ce = df_team[df_team.get("Statut", "").astype(str).eq(STATUT_CE)].copy() if not df_team.empty else df_team
 
     img_gc = preview_image_path(team, is_ce=False)
     img_ce = preview_image_path(team, is_ce=True)
 
-    left, right = st.columns([3, 2], gap="large")
+    # ✅ CSS compact (logos + stats + tables)
+    st.markdown("""
+    <style>
+      .pv-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+      .pv-title { font-weight:900; font-size:14px; opacity:.9; margin:0; }
+      .pv-sub { font-weight:700; font-size:11px; opacity:.65; margin:0; }
+      .pv-logo img { max-height:54px !important; width:auto !important; object-fit:contain; }
+      @media (max-width: 768px){
+        .pv-logo img { max-height:44px !important; }
+      }
 
-    with left:
-        if img_gc:
-            st.image(img_gc, use_container_width=True)
-        else:
-            st.markdown(f"### {team} — Grand Club")
+      .pv-pills { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 10px 0; }
+      .pv-pill {
+        display:inline-flex; align-items:center; gap:6px;
+        padding:4px 8px; border-radius:999px;
+        border:1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.03);
+        font-size:12px;
+      }
+      .pv-pill b { font-weight:900; }
 
-        df_gc = _preview_df(gc)
-        st.dataframe(df_gc, use_container_width=True, hide_index=True)
+      /* rendre les dataframes plus compacts */
+      .stDataFrame { font-size: 12px; }
+      @media (max-width: 768px){
+        .stDataFrame { font-size: 11px; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
 
-        used_gc = int(gc["Salaire"].sum()) if ("Salaire" in gc.columns and not gc.empty) else 0
-        st.metric("Total GC", money(used_gc))
-        st.metric("Plafond GC", money(cap_gc))
-        st.metric("Reste GC", money(cap_gc - used_gc))
+    def _sum_salary(d: pd.DataFrame) -> int:
+        return int(d["Salaire"].sum()) if (isinstance(d, pd.DataFrame) and (not d.empty) and ("Salaire" in d.columns)) else 0
 
-    with right:
-        if img_ce:
-            st.image(img_ce, use_container_width=True)
-        else:
-            st.markdown(f"### {team} — Club École")
+    def pills(total: int, cap: int, label: str):
+        rest = cap - total
+        st.markdown(
+            f"""
+            <div class="pv-pills">
+              <div class="pv-pill"><span>Total {html.escape(label)}</span><b>{html.escape(money(total))}</b></div>
+              <div class="pv-pill"><span>Plafond {html.escape(label)}</span><b>{html.escape(money(cap))}</b></div>
+              <div class="pv-pill"><span>Reste {html.escape(label)}</span><b>{html.escape(money(rest))}</b></div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-        df_ce = _preview_df(ce)
-        st.dataframe(df_ce, use_container_width=True, hide_index=True)
+    def render_side(title: str, img_path: str | None, df_part: pd.DataFrame, cap: int, label: str):
+        # Header discret : petit logo + titre
+        st.markdown('<div class="pv-head">', unsafe_allow_html=True)
+        if img_path:
+            st.markdown('<div class="pv-logo">', unsafe_allow_html=True)
+            st.image(img_path)  # CSS force la hauteur max
+            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div>
+              <p class="pv-sub">{html.escape(title)}</p>
+              <p class="pv-title">{html.escape(team)}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        used_ce = int(ce["Salaire"].sum()) if ("Salaire" in ce.columns and not ce.empty) else 0
-        st.metric("Total CE", money(used_ce))
-        st.metric("Plafond CE", money(cap_ce))
-        st.metric("Reste CE", money(cap_ce - used_ce))
+        # Table
+        df_show = _preview_df(df_part)
 
-    st.divider()
+        # (Optionnel) format salaire plus lisible
+        if "Salaires" in df_show.columns:
+            df_show["Salaires"] = df_show["Salaires"].apply(lambda x: money(int(x)) if str(x).strip().isdigit() else x)
+
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        # Pills compactes au lieu de st.metric (trop gros)
+        total = _sum_salary(df_part)
+        pills(total, cap, label)
+
+    if mobile_view:
+        render_side("Grand Club", img_gc, gc, cap_gc, "GC")
+        st.divider()
+        render_side("Club École", img_ce, ce, cap_ce, "CE")
+    else:
+        left, right = st.columns([3, 2], gap="large")
+        with left:
+            render_side("Grand Club", img_gc, gc, cap_gc, "GC")
+        with right:
+            render_side("Club École", img_ce, ce, cap_ce, "CE")
+
     st.button("OK", use_container_width=True)
+
 
 
 # =====================================================
