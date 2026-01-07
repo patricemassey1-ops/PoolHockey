@@ -56,7 +56,7 @@ except Exception:
 # 🔐 TEMP — Password hash generator (SAFE / DISABLED BY DEFAULT)
 #   Enable only by adding in Streamlit Secrets:
 #   [security]
- enable_hash_tool = true
+#   enable_hash_tool = true
 # =====================================================
 if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
     st.markdown("### 🔐 Générateur de hash (temporaire)")
