@@ -30,8 +30,24 @@ MOIS_FR = [
     "juillet", "août", "septembre", "octobre", "novembre", "décembre"
 ]
 
-def format_date_fr(dt: datetime) -> str:
-    return f"{dt.day} {MOIS_FR[dt.month]} {dt.year} {dt:%H:%M:%S}"
+def to_dt_local(x):
+    """Return pandas Timestamp (naive) converted to America/Montreal time when tz-aware."""
+    if x is None:
+        return pd.NaT
+    dt = pd.to_datetime(x, errors="coerce", utc=False)
+    if pd.isna(dt):
+        return pd.NaT
+    # tz-aware -> convert to local then strip tz for display/sorting
+    if getattr(dt, "tzinfo", None) is not None:
+        dt = dt.tz_convert(TZ_TOR).tz_localize(None)
+    return dt
+
+def format_date_fr(x) -> str:
+    """Format any datetime-ish value as '26 janvier 2026 11:00:00'."""
+    dt = to_dt_local(x)
+    if pd.isna(dt):
+        return ""
+    return f"{dt.day} {MOIS_FR[int(dt.month)]} {dt.year} {dt:%H:%M:%S}"
 
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
@@ -228,7 +244,7 @@ SLOT_IR = "Blessé"
 STATUT_GC = "Grand Club"
 STATUT_CE = "Club École"
 
-TZ_TOR = ZoneInfo("America/Toronto")
+TZ_TOR = ZoneInfo("America/Montreal")
 
 
 # =====================================================
@@ -1199,8 +1215,7 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
 
         resume.append(
             {
-                "Importé": "✅" if (not d.empty) else "—",
-                "Propriétaire": team,
+"Propriétaire": team,
                 "Logo": team_logo_path(team),
                 "Total Grand Club": int(total_gc),
                 "Montant Disponible GC": int(cap_gc - int(total_gc)),
@@ -1320,16 +1335,12 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         is_sel = bool(selected) and (owner == selected)
         tr_class = "pms-selected" if is_sel else ""
 
-        imp = str(r.get("Importé", "—")).strip()
-        imp_html = f"<span class='import-ok'>{html.escape(imp)}</span>"
-
         check = "<span class='pms-check'>✓</span>" if is_sel else ""
 
         rows.append(
             f"""
             <tr class="{tr_class}">
-              <td>{imp_html}</td>
-              <td><b>{html.escape(owner)}</b>{check}</td>
+<td><b>{html.escape(owner)}</b>{check}</td>
               <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
               <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
               <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
@@ -1344,8 +1355,7 @@ def build_tableau_ui(plafonds: pd.DataFrame):
       <table class="pms">
         <thead>
           <tr>
-            <th>Importé</th>
-            <th>Propriétaire</th>
+<th>Propriétaire</th>
             <th style="text-align:right">Total GC</th>
             <th style="text-align:right">Reste GC</th>
             <th style="text-align:right">Total CE</th>
@@ -1890,8 +1900,8 @@ elif active_tab == "🕘 Historique":
         st.stop()
 
     # Parse timestamp
-    h["timestamp_dt"] = pd.to_datetime(h["timestamp"], errors="coerce")
-    h = h.sort_values("timestamp_dt", ascending=False)
+    h["timestamp_dt"] = h["timestamp"].apply(to_dt_local)
+    h = h.sort_values("timestamp_dt", ascending=False, na_position="last")
 
     owners = ["Tous"] + sorted(h["proprietaire"].dropna().astype(str).str.strip().unique().tolist())
     owner_filter = st.selectbox("Filtrer par propriétaire", owners, key="hist_owner_filter")
@@ -1903,7 +1913,13 @@ elif active_tab == "🕘 Historique":
         st.stop()
 
     st.caption("Affichage simple (tu peux me redonner ton UI bulk/undo si tu veux le remettre ici).")
-    st.dataframe(h.head(500), use_container_width=True, hide_index=True)
+    h_show = h.copy()
+    if "timestamp_dt" in h_show.columns:
+        h_show["timestamp"] = h_show["timestamp_dt"].apply(format_date_fr)
+        # optionnel: cacher la colonne technique
+        h_show = h_show.drop(columns=["timestamp_dt"])
+
+    st.dataframe(h_show.head(500), use_container_width=True, hide_index=True)
 
 elif active_tab == "⚖️ Transactions":
     st.subheader("⚖️ Transactions")
@@ -2087,16 +2103,43 @@ elif active_tab == "🛠️ Gestion Admin":
     if not by_team:
         st.caption("— Aucun import enregistré —")
     else:
+        # ✅ Tri ultra-compact (⬇️ / ⬆️) + dates FR
+        if "admin_imports_desc" not in st.session_state:
+            st.session_state["admin_imports_desc"] = True  # ⬇️ plus récent en premier
+
+        c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
+        with c1:
+            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
+            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
+                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
+                do_rerun()  # ou st.rerun()
+
+        with c2:
+            st.caption("Tri par date")
+
         rows = []
         for team, info in by_team.items():
             rows.append(
                 {
-                    "Équipe": team,
-                    "Fichier": info.get("uploaded_name", ""),
-                    "Date": info.get("saved_at", ""),
+                    "Équipe": str(team).strip(),
+                    "Fichier": str(info.get("uploaded_name", "") or "").strip(),
+                    "Date": str(info.get("saved_at", "") or "").strip(),
                 }
             )
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        df_imports = pd.DataFrame(rows)
+        df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
+
+        df_imports = df_imports.sort_values(
+            by="_dt",
+            ascending=(not st.session_state["admin_imports_desc"]),
+            na_position="last",
+        )
+
+        df_imports["Date"] = df_imports["_dt"].apply(format_date_fr)
+        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
+
+        st.dataframe(df_imports, use_container_width=True, hide_index=True)
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
