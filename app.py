@@ -261,14 +261,13 @@ def _preview_df(df_team: pd.DataFrame) -> pd.DataFrame:
         "Level": "Level",
     })
 
-    # Gardes
+    # Gardes si colonnes absentes
     for c in ["Pos", "Nom", "Salaires", "Level"]:
         if c not in d.columns:
             d[c] = ""
-st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
-
 
     return d[["Pos", "Nom", "Salaires", "Level"]].copy()
+
 
 
 
@@ -351,7 +350,7 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
 
         # ✅ tailles fixes : GC = 2x CE (appliqué au GC)
         # Exemple: GC 100px, CE 50px
-        logo_w = 100 if label == "GC" else 50
+        logo_w = 50 if label == "GC" else 50
 
         # Header: gauche (logo+text) / droite (pills)
         st.markdown('<div class="pv-head">', unsafe_allow_html=True)
@@ -376,7 +375,7 @@ def preview_alignement_dialog(team: str, df_team: pd.DataFrame, cap_gc: int, cap
 
         # Table
         df_show = _preview_df(df_part)
-
+        st.dataframe(df_show, use_container_width=True, hide_index=True, height=360)
         # Format salaire (robuste)
         if "Salaires" in df_show.columns:
             def _fmt_sal(x):
