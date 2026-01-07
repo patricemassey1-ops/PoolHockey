@@ -1740,8 +1740,7 @@ if save_click:
         st.success("✅ Alignement enregistré.")
         do_rerun() if "do_rerun" in globals() else st.rerun()
 
-st.divider()
-
+    st.divider()
 
     with st.expander("🟡 Banc", expanded=True):
         if gc_banc.empty:
@@ -1766,6 +1765,7 @@ st.divider()
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     open_move_dialog()
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
