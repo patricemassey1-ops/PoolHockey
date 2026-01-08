@@ -1403,90 +1403,95 @@ def build_tableau_ui(plafonds: pd.DataFrame):
 
     components.html(html_doc, height=360, scrolling=False)
 
-## =====================================================
+# =====================================================
 # 📱 Alignement — Desktop vs Mobile (tabs)
 # =====================================================
 mobile_view = bool(st.session_state.get("mobile_view", False))
 
-def _render_gc_block():
+def _render_gc_block(gc_actif_df: pd.DataFrame, proprietaire: str, popup_open: bool):
     with st.container(border=True):
         st.markdown("### 🟢 GC — Actifs")
-        if gc_actif is None or gc_actif.empty:
+        if gc_actif_df is None or gc_actif_df.empty:
             st.info("Aucun joueur.")
         else:
             if not popup_open:
-                p = roster_click_list(gc_actif, proprietaire, "actifs")
+                p = roster_click_list(gc_actif_df, proprietaire, "actifs")
                 if p:
                     set_move_ctx(proprietaire, p, "actifs")
                     do_rerun()
             else:
-                roster_click_list(gc_actif, proprietaire, "actifs_disabled")
+                roster_click_list(gc_actif_df, proprietaire, "actifs_disabled")
 
-def _render_ce_block():
+def _render_ce_block(ce_all_df: pd.DataFrame, proprietaire: str, popup_open: bool):
     with st.container(border=True):
         st.markdown("### 🔵 CE — Mineur")
-        if ce_all is None or ce_all.empty:
+        if ce_all_df is None or ce_all_df.empty:
             st.info("Aucun joueur.")
         else:
             if not popup_open:
-                p = roster_click_list(ce_all, proprietaire, "min")
+                p = roster_click_list(ce_all_df, proprietaire, "min")
                 if p:
                     set_move_ctx(proprietaire, p, "min")
                     do_rerun()
             else:
-                roster_click_list(ce_all, proprietaire, "min_disabled")
+                roster_click_list(ce_all_df, proprietaire, "min_disabled")
 
-def _render_banc_block():
-    if gc_banc is None or gc_banc.empty:
+def _render_banc_block(gc_banc_df: pd.DataFrame, proprietaire: str, popup_open: bool):
+    if gc_banc_df is None or gc_banc_df.empty:
         st.info("Aucun joueur.")
         return
     if not popup_open:
-        p = roster_click_list(gc_banc, proprietaire, "banc")
+        p = roster_click_list(gc_banc_df, proprietaire, "banc")
         if p:
             set_move_ctx(proprietaire, p, "banc")
             do_rerun()
     else:
-        roster_click_list(gc_banc, proprietaire, "banc_disabled")
+        roster_click_list(gc_banc_df, proprietaire, "banc_disabled")
 
-def _render_ir_block():
-    if injured_all is None or injured_all.empty:
+def _render_ir_block(injured_df: pd.DataFrame, proprietaire: str, popup_open: bool):
+    if injured_df is None or injured_df.empty:
         st.info("Aucun joueur blessé.")
         return
     if not popup_open:
-        p_ir = roster_click_list(injured_all, proprietaire, "ir")
+        p_ir = roster_click_list(injured_df, proprietaire, "ir")
         if p_ir:
             set_move_ctx(proprietaire, p_ir, "ir")
             do_rerun()
     else:
-        roster_click_list(injured_all, proprietaire, "ir_disabled")
+        roster_click_list(injured_df, proprietaire, "ir_disabled")
+
+# -----------------------------------------------------
+# IMPORTANT: tu dois avoir construit ces DF AVANT ce point:
+#   gc_actif, ce_all, gc_banc, injured_all, proprietaire, popup_open
+# -----------------------------------------------------
 
 if mobile_view:
     t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
     with t1:
-        _render_gc_block()
+        _render_gc_block(gc_actif, proprietaire, popup_open)
     with t2:
-        _render_ce_block()
+        _render_ce_block(ce_all, proprietaire, popup_open)
     with t3:
-        _render_banc_block()
+        _render_banc_block(gc_banc, proprietaire, popup_open)
     with t4:
-        _render_ir_block()
+        _render_ir_block(injured_all, proprietaire, popup_open)
 else:
     colA, colB = st.columns(2, gap="small")
     with colA:
-        _render_gc_block()
+        _render_gc_block(gc_actif, proprietaire, popup_open)
     with colB:
-        _render_ce_block()
+        _render_ce_block(ce_all, proprietaire, popup_open)
 
     st.divider()
 
     with st.expander("🟡 Banc", expanded=True):
-        _render_banc_block()
+        _render_banc_block(gc_banc, proprietaire, popup_open)
 
     with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        _render_ir_block()
+        _render_ir_block(injured_all, proprietaire, popup_open)
 
-# ✅ Toujours à la fin du rendu Alignement
 open_move_dialog()
+
 
 
 
