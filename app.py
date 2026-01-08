@@ -566,265 +566,8 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
 
 
 # =====================================================
-# MOVE CONTEXT + APPLY MOVE
+# MOVE DIALOG — auto-remplacement IR + étiquette exacte
 # =====================================================
-def set_move_ctx(owner: str, joueur: str, source_key: str):
-    st.session_state["move_nonce"] = int(st.session_state.get("move_nonce", 0)) + 1
-    st.session_state["move_source"] = str(source_key or "").strip()
-    st.session_state["move_ctx"] = {
-        "owner": str(owner).strip(),
-        "joueur": str(joueur).strip(),
-        "nonce": st.session_state["move_nonce"],
-    }
-
-def clear_move_ctx():
-    st.session_state["move_ctx"] = None
-    st.session_state["move_source"] = ""
-
-def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
-    st.session_state["last_move_error"] = ""
-
-    if st.session_state.get("LOCKED"):
-        st.session_state["last_move_error"] = "🔒 Saison verrouillée : modification impossible."
-        return False
-
-    df0 = st.session_state.get("data")
-    if df0 is None or not isinstance(df0, pd.DataFrame) or df0.empty:
-        st.session_state["last_move_error"] = "Aucune donnée en mémoire."
-        return False
-
-    df0 = df0.copy()
-    if "IR Date" not in df0.columns:
-        df0["IR Date"] = ""
-
-    proprietaire = str(proprietaire or "").strip()
-    joueur = str(joueur or "").strip()
-    to_statut = str(to_statut or "").strip()
-    to_slot = str(to_slot or "").strip()
-
-    mask = (
-        df0["Propriétaire"].astype(str).str.strip().eq(proprietaire)
-        & df0["Joueur"].astype(str).str.strip().eq(joueur)
-    )
-    if df0.loc[mask].empty:
-        st.session_state["last_move_error"] = "Joueur introuvable."
-        return False
-
-    before = df0.loc[mask].iloc[0]
-    from_statut = str(before.get("Statut", "")).strip()
-    from_slot = str(before.get("Slot", "")).strip()
-    pos0 = str(before.get("Pos", "F")).strip()
-    equipe0 = str(before.get("Equipe", "")).strip()
-
-    if to_slot == SLOT_IR:
-        to_statut = from_statut
-
-    allowed_slots_gc = {SLOT_ACTIF, SLOT_BANC, SLOT_IR}
-    allowed_slots_ce = {"", SLOT_IR}
-
-    if to_statut == STATUT_GC and to_slot not in allowed_slots_gc:
-        st.session_state["last_move_error"] = f"Slot invalide GC : {to_slot}"
-        return False
-    if to_statut == STATUT_CE and to_slot not in allowed_slots_ce:
-        st.session_state["last_move_error"] = f"Slot invalide CE : {to_slot}"
-        return False
-
-    df0.loc[mask, "Statut"] = to_statut
-    df0.loc[mask, "Slot"] = to_slot if to_slot else ""
-
-    entering_ir = (to_slot == SLOT_IR) and (from_slot != SLOT_IR)
-    leaving_ir = (from_slot == SLOT_IR) and (to_slot != SLOT_IR)
-
-    if entering_ir:
-        df0.loc[mask, "IR Date"] = datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M")
-    elif leaving_ir:
-        df0.loc[mask, "IR Date"] = ""
-
-    df0 = clean_data(df0)
-    st.session_state["data"] = df0
-
-    try:
-        log_history_row(
-            proprietaire=proprietaire,
-            joueur=joueur,
-            pos=pos0,
-            equipe=equipe0,
-            from_statut=from_statut,
-            from_slot=from_slot,
-            to_statut=to_statut,
-            to_slot=to_slot,
-            action=action_label,
-        )
-    except Exception:
-        pass
-
-    season_lbl = str(st.session_state.get("season", "")).strip()
-    try:
-        persist_data(df0, season_lbl)
-    except Exception as e:
-        st.session_state["last_move_error"] = f"Erreur persistance: {type(e).__name__}: {e}"
-        return False
-
-    return True
-
-
-# =====================================================
-# UI — roster click list
-# =====================================================
-def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
-    if df_src is None or not isinstance(df_src, pd.DataFrame) or df_src.empty:
-        st.info("Aucun joueur.")
-        return None
-
-    if not st.session_state.get("_roster_css_injected", False):
-        st.markdown(
-            """
-            <style>
-              div[data-testid="stButton"] > button{
-                padding: 0.18rem 0.45rem;
-                font-weight: 900;
-                text-align: left;
-                justify-content: flex-start;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-              }
-              .salaryCell{ white-space: nowrap; text-align: right; font-weight: 900; display: block; }
-              .levelCell{ white-space: nowrap; opacity: .85; font-weight: 800; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.session_state["_roster_css_injected"] = True
-
-    t = df_src.copy()
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": ""}.items():
-        if c not in t.columns:
-            t[c] = d
-
-    t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-    t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-    t["Level"] = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-    t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
-
-    bad = {"", "none", "nan", "null"}
-    t = t[~t["Joueur"].str.lower().isin(bad)].copy()
-    if t.empty:
-        st.info("Aucun joueur.")
-        return None
-
-    t["Pos"] = t["Pos"].apply(normalize_pos)
-    t["_pos"] = t["Pos"].apply(pos_sort_key)
-    t["_initial"] = t["Joueur"].str.upper().str[0].fillna("?")
-
-    t = (
-        t.sort_values(by=["_pos", "Salaire", "_initial", "Joueur"],
-                      ascending=[True, False, True, True],
-                      kind="mergesort")
-        .drop(columns=["_pos", "_initial"])
-        .reset_index(drop=True)
-    )
-
-    disabled = str(source_key or "").endswith("_disabled")
-
-    h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
-    h[0].markdown("**Pos**")
-    h[1].markdown("**Équipe**")
-    h[2].markdown("**Joueur**")
-    h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
-
-    clicked = None
-    for _, r in t.iterrows():
-        joueur = str(r.get("Joueur", "")).strip()
-        if not joueur:
-            continue
-
-        pos = r.get("Pos", "F")
-        team = str(r.get("Equipe", "")).strip()
-        lvl = str(r.get("Level", "")).strip()
-        salaire = int(r.get("Salaire", 0) or 0)
-
-        row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
-        row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
-
-        c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
-        c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
-        c[1].markdown(team if team and team.lower() not in bad else "—")
-
-        if c[2].button(joueur, key=f"{source_key}_{owner}_{row_key}",
-                       use_container_width=True, disabled=disabled):
-            clicked = joueur
-
-        c[3].markdown(
-            f"<span class='levelCell'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
-            unsafe_allow_html=True,
-        )
-        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
-
-    return clicked
-
-
-# =====================================================
-# MOVE DIALOG (motif + destination + délai)
-# =====================================================
-def _init_pending_moves():
-    if "pending_moves" not in st.session_state or not isinstance(st.session_state.get("pending_moves"), list):
-        st.session_state["pending_moves"] = []
-
-def _effective_date(reason: str, from_slot: str, to_slot: str, to_statut: str) -> datetime:
-    now = datetime.now(TZ_TOR)
-    if str(reason).lower().startswith("demi"):
-        return now
-    if to_slot == SLOT_ACTIF:
-        return now
-    if from_slot == SLOT_ACTIF and to_statut == STATUT_CE:
-        return now + timedelta(days=3)
-    if from_slot == SLOT_ACTIF and to_slot == SLOT_BANC:
-        return now + timedelta(days=1)
-    return now
-
-def process_pending_moves():
-    _init_pending_moves()
-    pending = st.session_state.get("pending_moves", [])
-    if not pending:
-        return
-
-    df_all = st.session_state.get("data")
-    if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
-        return
-
-    now = datetime.now(TZ_TOR)
-    remaining = []
-    changed = False
-
-    for pm in pending:
-        try:
-            eff = pd.to_datetime(pm.get("effective_at"), errors="coerce")
-            if eff is pd.NaT:
-                remaining.append(pm); continue
-            eff_dt = eff.to_pydatetime()
-        except Exception:
-            remaining.append(pm); continue
-
-        if eff_dt > now:
-            remaining.append(pm)
-            continue
-
-        owner = str(pm.get("owner", "")).strip()
-        joueur = str(pm.get("joueur", "")).strip()
-        to_statut = str(pm.get("to_statut", "")).strip()
-        to_slot = str(pm.get("to_slot", "")).strip()
-        note = str(pm.get("note", "")).strip()
-
-        ok = apply_move_with_history(owner, joueur, to_statut, to_slot, f"EFFECTIF — {note or 'Déplacement programmé'}")
-        if ok:
-            changed = True
-
-    st.session_state["pending_moves"] = remaining
-    if changed:
-        st.session_state["data"] = clean_data(st.session_state["data"])
-
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -845,6 +588,8 @@ def open_move_dialog():
         clear_move_ctx()
         return
 
+    df_all = clean_data(df_all)
+
     mask = (
         df_all["Propriétaire"].astype(str).str.strip().eq(owner)
         & df_all["Joueur"].astype(str).str.strip().eq(joueur)
@@ -864,12 +609,128 @@ def open_move_dialog():
     def _close():
         clear_move_ctx()
 
+    # -------------------------------------------------
+    # RÈGLES D’EFFET (TES RÈGLES)
+    # -------------------------------------------------
+    def _effective_date(reason: str, from_statut: str, from_slot: str,
+                        to_statut: str, to_slot: str) -> datetime:
+        """
+        Règles finales:
+        - Changement demi-mois → IMMÉDIAT (toujours)
+        - Blessure :
+            - GC → CE (mineur) → IMMÉDIAT
+            - CE → Actif (GC Actif) → +3 jours
+            - autres → IMMÉDIAT
+        """
+        now = datetime.now(TZ_TOR)
+
+        reason_low = str(reason or "").lower().strip()
+        from_statut = str(from_statut or "").strip()
+        from_slot = str(from_slot or "").strip()
+        to_statut = str(to_statut or "").strip()
+        to_slot = str(to_slot or "").strip()
+
+        # Demi-mois = immédiat
+        if reason_low.startswith("changement"):
+            return now
+
+        # Blessure
+        if reason_low.startswith("bless"):
+            # GC -> CE immédiat
+            if from_statut == STATUT_GC and to_statut == STATUT_CE:
+                return now
+            # CE -> Actif (+3 jours)
+            if from_statut == STATUT_CE and to_statut == STATUT_GC and to_slot == SLOT_ACTIF:
+                return now + timedelta(days=3)
+            return now
+
+        return now
+
+    # -------------------------------------------------
+    # AUTO-REMPLACEMENT (GC Actif -> IR)
+    # -------------------------------------------------
+    def _auto_replace_injured(owner_: str, injured_pos_: str) -> bool:
+        dfx = st.session_state.get("data")
+        if dfx is None or not isinstance(dfx, pd.DataFrame) or dfx.empty:
+            return False
+
+        dfx = clean_data(dfx)
+        owner_ = str(owner_ or "").strip()
+        injured_pos_ = normalize_pos(injured_pos_)
+
+        dprop = dfx[dfx["Propriétaire"].astype(str).str.strip().eq(owner_)].copy()
+        if dprop.empty:
+            return False
+
+        # Exclure IR
+        dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+
+        # Banc GC
+        banc = dprop_ok[
+            (dprop_ok["Statut"] == STATUT_GC)
+            & (dprop_ok.get("Slot", "").astype(str).str.strip() == SLOT_BANC)
+        ].copy()
+
+        # CE
+        ce = dprop_ok[
+            (dprop_ok["Statut"] == STATUT_CE)
+        ].copy()
+
+        def _pick(df_cand: pd.DataFrame) -> str | None:
+            if df_cand is None or df_cand.empty:
+                return None
+
+            tmp = df_cand.copy()
+            tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
+            tmp["Salaire"] = pd.to_numeric(tmp.get("Salaire", 0), errors="coerce").fillna(0).astype(int)
+
+            same = tmp[tmp["Pos"] == injured_pos_].copy()
+            pool = same if not same.empty else tmp
+
+            pool["_posk"] = pool["Pos"].apply(pos_sort_key)
+            pool = pool.sort_values(
+                by=["_posk", "Salaire", "Joueur"],
+                ascending=[True, False, True],
+                kind="mergesort",
+            )
+
+            j = str(pool.iloc[0].get("Joueur", "")).strip()
+            return j if j else None
+
+        # 1) Banc -> Actif (immédiat)
+        pick = _pick(banc)
+        if pick:
+            ok = apply_move_with_history(
+                owner_,
+                pick,
+                STATUT_GC,
+                SLOT_ACTIF,
+                "AUTO REMPLACEMENT — Banc → Actif (blessure)",
+            )
+            return bool(ok)
+
+        # 2) CE -> Actif (immédiat dans le remplacement auto)
+        pick = _pick(ce)
+        if pick:
+            ok = apply_move_with_history(
+                owner_,
+                pick,
+                STATUT_GC,
+                SLOT_ACTIF,
+                "AUTO REMPLACEMENT — CE → Actif (blessure)",
+            )
+            return bool(ok)
+
+        return False
+
     css = """
     <style>
       .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
       .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.08);
-            border:1px solid rgba(255,255,255,.12);font-weight:900;font-size:12px}
+      .pill{display:inline-block;padding:2px 10px;border-radius:999px;
+            background:rgba(255,255,255,.08);
+            border:1px solid rgba(255,255,255,.12);
+            font-weight:900;font-size:12px}
     </style>
     """
 
@@ -885,85 +746,110 @@ def open_move_dialog():
         )
         st.divider()
 
+        # 1) Type
         reason = st.radio(
             "Type de changement",
             ["Changement demi-mois", "Blessure"],
-            index=0,
             horizontal=True,
             key=f"mv_reason_{owner}_{joueur}_{nonce}",
         )
 
         st.divider()
 
+        # 2) Destination (mapping AVEC TES constantes)
         destinations = [
             ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
             ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
             ("🔵 Mineur", (STATUT_CE, "")),
             ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
         ]
-        current = (cur_statut, cur_slot if cur_slot else "")
+
+        current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
+
         labels = [d[0] for d in destinations]
         mapping = {d[0]: d[1] for d in destinations}
 
         choice = st.radio(
             "Destination",
             labels,
-            index=0,
             label_visibility="collapsed",
             key=f"dest_{owner}_{joueur}_{nonce}",
         )
         to_statut, to_slot = mapping[choice]
 
-        eff_dt = _effective_date(reason, cur_slot, to_slot, to_statut)
+        # 3) Effet exact (DATE + HEURE locale)
         now = datetime.now(TZ_TOR)
+        eff_dt = _effective_date(reason, cur_statut, cur_slot, to_statut, to_slot)
 
-        hint = "immédiat"
-        if eff_dt.date() > now.date():
-            hint = eff_dt.strftime("effectif le %Y-%m-%d")
-        st.markdown(f"<span class='pill'>⏱️ {html.escape(hint)}</span>", unsafe_allow_html=True)
+        # Sécurité : si à quelques ms près ça doit être immédiat, on le traite immédiat
+        immediate = (eff_dt <= (now + timedelta(seconds=1)))
 
+        if immediate:
+            hint = "immédiat"
+        else:
+            hint = eff_dt.strftime("effectif le %Y-%m-%d %H:%M")
+
+        st.markdown(f"<span class='pill'>⏱️ {hint}</span>", unsafe_allow_html=True)
         st.divider()
 
         def _schedule_move(note: str):
             _init_pending_moves()
-            st.session_state["pending_moves"].append(
-                {
-                    "owner": owner,
-                    "joueur": joueur,
-                    "to_statut": to_statut,
-                    "to_slot": to_slot,
-                    "reason": reason,
-                    "note": note,
-                    "effective_at": eff_dt.isoformat(timespec="seconds"),
-                    "created_at": now.isoformat(timespec="seconds"),
-                }
-            )
+            st.session_state["pending_moves"].append({
+                "owner": owner,
+                "joueur": joueur,
+                "to_statut": to_statut,
+                "to_slot": to_slot,
+                "reason": reason,
+                "note": note,
+                "effective_at": eff_dt.isoformat(timespec="seconds"),
+                "created_at": now.isoformat(timespec="seconds"),
+            })
 
         c1, c2 = st.columns(2)
+
         if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
+
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
-            if eff_dt <= now:
+            # IMMÉDIAT
+            if immediate:
                 ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
                 if ok:
-                    st.toast("✅ Déplacement enregistré (immédiat)", icon="✅")
-                    _close(); do_rerun()
+                    # ✅ Auto-remplacement si GC ACTIF -> IR
+                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
+                        rep_ok = _auto_replace_injured(owner, cur_pos)
+                        if rep_ok:
+                            st.toast("🩹 Remplacement automatique effectué", icon="🩹")
+                        else:
+                            st.toast("⚠️ Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
+
+                    st.toast("✅ Déplacement effectué", icon="✅")
+                    _close()
+                    do_rerun()
                 else:
                     st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+
+            # PROGRAMMÉ
             else:
                 _schedule_move(note)
                 st.toast(f"🕒 Déplacement programmé ({hint})", icon="🕒")
-                _close(); do_rerun()
+                _close()
+                do_rerun()
 
         if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
-            _close(); do_rerun()
+            _close()
+            do_rerun()
 
     _dlg()
 
 
+
+
+
+
 # =====================================================
-# DIALOG — Preview Alignement GC
+# DIALOG — Preview Alignement Grand Club (GC)
 # =====================================================
 def open_gc_preview_dialog():
     if not st.session_state.get("gc_preview_open"):
@@ -975,8 +861,11 @@ def open_gc_preview_dialog():
     df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 
     dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
+
+    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
     if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+
     gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
 
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
@@ -986,9 +875,12 @@ def open_gc_preview_dialog():
     @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
     def _dlg():
         st.caption("Prévisualisation rapide du Grand Club (GC).")
+
         c1, c2, c3 = st.columns(3)
-        with c1: st.metric("Total GC", money(used_gc))
-        with c2: st.metric("Plafond GC", money(cap_gc))
+        with c1:
+            st.metric("Total GC", money(used_gc))
+        with c2:
+            st.metric("Plafond GC", money(cap_gc))
         with c3:
             if used_gc > cap_gc:
                 st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
@@ -998,10 +890,13 @@ def open_gc_preview_dialog():
         if gc_all.empty:
             st.info("Aucun joueur GC pour cette équipe.")
         else:
-            show_cols = [c for c in ["Joueur", "Pos", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
+            # ✅ Pos complètement à gauche
+            show_cols = [c for c in ["Pos", "Joueur", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
             df_show = gc_all[show_cols].copy()
+
             if "Salaire" in df_show.columns:
                 df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
+
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
         if st.button("OK", use_container_width=True, key="gc_preview_ok"):
@@ -1009,6 +904,7 @@ def open_gc_preview_dialog():
             do_rerun()
 
     _dlg()
+
 
 
 # =====================================================
@@ -1130,19 +1026,27 @@ def build_tableau_ui(plafonds: pd.DataFrame):
 
 
 # =====================================================
-# LOAD SEASON + LOAD DATA/HISTORY + PLAYERS DB + PLAFONDS
+# LOAD DATA + HISTORY + PENDING MOVES (ORDER IS CRITICAL)
 # =====================================================
+
+# --- Saison (fallback sécurisé)
 season = str(st.session_state.get("season") or "").strip()
 if not season:
     season = saison_auto()
     st.session_state["season"] = season
 
+# --- Paths
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
+
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 
+# -----------------------------------------------------
+# 1) LOAD ALIGNEMENT DATA (CSV → session_state)
+# -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
+
     if os.path.exists(DATA_FILE):
         try:
             df_loaded = pd.read_csv(DATA_FILE)
@@ -1154,18 +1058,41 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
             pass
-    st.session_state["data"] = clean_data(df_loaded)
+
+    df_loaded = clean_data(df_loaded)
+    st.session_state["data"] = df_loaded
     st.session_state["data_season"] = season
 
+# -----------------------------------------------------
+# 2) LOAD HISTORY (CSV → session_state)
+# -----------------------------------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
     st.session_state["history"] = load_history_file(HISTORY_FILE)
     st.session_state["history_season"] = season
 
-st.session_state["players_db"] = load_players_db(PLAYERS_DB_FILE)
+# -----------------------------------------------------
+# 3) PROCESS PENDING MOVES  ⬅️ IMPORTANT
+#    (CE → Actif +3 jours, Actif → Banc +1 jour, etc.)
+# -----------------------------------------------------
+# ⚠️ DOIT être appelé APRÈS data + history chargés
+process_pending_moves()
 
-df0 = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-st.session_state["data"] = df0
-st.session_state["plafonds"] = rebuild_plafonds(df0)
+# -----------------------------------------------------
+# 4) PLAYERS DATABASE (read-only)
+# -----------------------------------------------------
+players_db = load_players_db(PLAYERS_DB_FILE)
+st.session_state["players_db"] = players_db
+
+# -----------------------------------------------------
+# 5) REBUILD PLAFONDS (toujours à partir des data finales)
+# -----------------------------------------------------
+df_final = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+df_final = clean_data(df_final)
+st.session_state["data"] = df_final
+
+plafonds = rebuild_plafonds(df_final)
+st.session_state["plafonds"] = plafonds
+
 
 
 # =====================================================
