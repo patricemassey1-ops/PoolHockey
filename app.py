@@ -1404,6 +1404,44 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     components.html(html_doc, height=360, scrolling=False)
 
 # =====================================================
+# 🧾 ALIGNEMENT — Build lists + UI (Desktop/Mobile)
+# =====================================================
+
+# --- Data de base
+df = st.session_state.get("data", pd.DataFrame())
+df = clean_data(df)
+st.session_state["data"] = df
+
+proprietaire = str(get_selected_team() or "").strip()
+if not proprietaire:
+    st.info("Sélectionne une équipe dans le menu à gauche.")
+    st.stop()
+
+# --- Filtre par propriétaire
+dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
+if dprop.empty:
+    st.warning(f"Aucun alignement importé pour **{proprietaire}**.")
+    st.stop()
+
+# --- État popup (dialog move)
+popup_open = bool(st.session_state.get("move_ctx"))
+
+# --- Colonnes requises pour filtrer
+if "Statut" not in dprop.columns:
+    st.error("Colonne **Statut** manquante dans les données (impossible de bâtir GC/CE/Banc/IR).")
+    st.stop()
+
+stat = dprop["Statut"].astype(str)
+
+# =====================================================
+# BUILD DFS (⚠️ ajuste les contains selon TES valeurs de Statut)
+# =====================================================
+gc_actif = dprop[stat.str.contains("Actif", case=False, na=False)].copy()
+ce_all = dprop[stat.str.contains("Mineur|CE|Club École|Club Ecole", case=False, na=False, regex=True)].copy()
+gc_banc = dprop[stat.str.contains("Banc", case=False, na=False)].copy()
+injured_all = dprop[stat.str.contains(r"\bIR\b|Bless", case=False, na=False, regex=True)].copy()
+
+# =====================================================
 # 📱 Alignement — Desktop vs Mobile (tabs)
 # =====================================================
 mobile_view = bool(st.session_state.get("mobile_view", False))
@@ -1460,11 +1498,7 @@ def _render_ir_block(injured_df: pd.DataFrame, proprietaire: str, popup_open: bo
     else:
         roster_click_list(injured_df, proprietaire, "ir_disabled")
 
-# -----------------------------------------------------
-# IMPORTANT: tu dois avoir construit ces DF AVANT ce point:
-#   gc_actif, ce_all, gc_banc, injured_all, proprietaire, popup_open
-# -----------------------------------------------------
-
+# --- UI
 if mobile_view:
     t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
     with t1:
