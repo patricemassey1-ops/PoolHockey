@@ -1243,12 +1243,6 @@ st.divider()
 
 
 # =====================================================
-# Global scheduled moves + dialogs
-# =====================================================
-process_pending_moves()
-open_gc_preview_dialog()
-
-# =====================================================
 # MOVE CONTEXT (safe)
 #   - set_move_ctx() : ouvre le dialog
 #   - clear_move_ctx(): ferme le dialog
@@ -1272,22 +1266,27 @@ def clear_move_ctx():
 
 
 # =====================================================
-# Global scheduled moves + dialogs (APPELS)
-#   ✅ DOIT être appelé APRÈS:
-#      - load data (st.session_state["data"])
-#      - load history (st.session_state["history"])
-#      - season défini
+# Global scheduled moves + dialogs (APPELS SAFE)
+#   ✅ 1 seule fois
+#   ✅ seulement si data/history existent
+#   ✅ jamais de NameError
 # =====================================================
-if "data" in st.session_state and isinstance(st.session_state.get("data"), pd.DataFrame):
-    try:
-        process_pending_moves()
-    except Exception as e:
-        st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
+_has_data = isinstance(st.session_state.get("data"), pd.DataFrame)
+_has_hist = isinstance(st.session_state.get("history"), pd.DataFrame)
 
-try:
-    open_gc_preview_dialog()
-except Exception:
-    pass
+if _has_data and _has_hist:
+    if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
+        try:
+            process_pending_moves()
+        except Exception as e:
+            st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
+
+    if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
+        try:
+            open_gc_preview_dialog()
+        except Exception as e:
+            st.warning(f"⚠️ open_gc_preview_dialog() a échoué: {type(e).__name__}: {e}")
+
 
 
 # =====================================================
