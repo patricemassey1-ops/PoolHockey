@@ -1278,6 +1278,38 @@ st.divider()
 process_pending_moves()
 open_gc_preview_dialog()
 
+# =====================================================
+# MOVE CONTEXT (safe)
+#   - set_move_ctx() : ouvre le dialog
+#   - clear_move_ctx(): ferme le dialog
+# =====================================================
+def set_move_ctx(owner: str, joueur: str, source_key: str):
+    owner = str(owner or "").strip()
+    joueur = str(joueur or "").strip()
+    source_key = str(source_key or "").strip()
+
+    st.session_state["move_nonce"] = int(st.session_state.get("move_nonce", 0)) + 1
+    st.session_state["move_source"] = source_key
+    st.session_state["move_ctx"] = {
+        "owner": owner,
+        "joueur": joueur,
+        "nonce": st.session_state["move_nonce"],
+    }
+
+def clear_move_ctx():
+    st.session_state["move_ctx"] = None
+    st.session_state["move_source"] = ""
+
+
+# =====================================================
+# Global scheduled moves + dialogs (APPELS)
+#   ⚠️ ces fonctions doivent déjà être définies plus haut dans le fichier:
+#     - process_pending_moves
+#     - open_gc_preview_dialog
+# =====================================================
+process_pending_moves()
+open_gc_preview_dialog()
+
 
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
@@ -1305,10 +1337,15 @@ elif active_tab == "🧾 Alignement":
     if dprop.empty:
         st.warning(f"Aucun alignement importé pour **{proprietaire}** (Admin → Import).")
         j1, j2 = st.columns(2)
-        with j1: st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-        with j2: st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
+        with j1:
+            st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
+        with j2:
+            st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
         clear_move_ctx()
         st.stop()
+
+    # ... (ton reste de bloc Alignement inchangé)
+
 
     injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
