@@ -1,4 +1,11 @@
 # =====================================================
+# app.py — PMS Pool (version propre + corrections + Admin complet)
+#   ✅ 1 seule section Alignement (dans le routing)
+#   ✅ sidebar = source de vérité (sync selected_team / align_owner)
+#   ✅ Admin Import (preview + confirmer + tri imports)
+# =====================================================
+
+# =====================================================
 # IMPORTS
 # =====================================================
 import os
@@ -6,20 +13,20 @@ import io
 import re
 import json
 import html
-import time
 import base64
-import socket
-import ssl
 import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from urllib.parse import quote, unquote
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
 
+# =====================================================
+# STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
+# =====================================================
+st.set_page_config(page_title="PMS", layout="wide")
 
 
 # =====================================================
@@ -30,86 +37,69 @@ MOIS_FR = [
     "juillet", "août", "septembre", "octobre", "novembre", "décembre"
 ]
 
+TZ_TOR = ZoneInfo("America/Montreal")
+
 def to_dt_local(x):
-    """Return pandas Timestamp (naive) converted to America/Montreal time when tz-aware."""
     if x is None:
         return pd.NaT
     dt = pd.to_datetime(x, errors="coerce", utc=False)
     if pd.isna(dt):
         return pd.NaT
-    # tz-aware -> convert to local then strip tz for display/sorting
     if getattr(dt, "tzinfo", None) is not None:
         dt = dt.tz_convert(TZ_TOR).tz_localize(None)
     return dt
 
 def format_date_fr(x) -> str:
-    """Format any datetime-ish value as '26 janvier 2026 11:00:00'."""
     dt = to_dt_local(x)
     if pd.isna(dt):
         return ""
     return f"{dt.day} {MOIS_FR[int(dt.month)]} {dt.year} {dt:%H:%M:%S}"
 
-# =====================================================
-# STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
-# =====================================================
-st.set_page_config(page_title="PMS", layout="wide")
 
 # =====================================================
-# PATH — LOGO POOL (must be defined BEFORE require_password)
+# PATHS / CONSTANTS
 # =====================================================
-LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
+LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
+INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
+
+REQUIRED_COLS = [
+    "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire",
+    "Statut", "Slot", "IR Date"
+]
+
+# Slots
+SLOT_ACTIF = "Actif"
+SLOT_BANC = "Banc"
+SLOT_IR = "Blessé"
+
+STATUT_GC = "Grand Club"
+STATUT_CE = "Club École"
+
 
 # =====================================================
-# 🔐 PASSWORD GATE + HEADER (logo_pool + 🏒 PMS rouge + 🥅)
-#   Secrets (Streamlit Cloud):
-#   [security]
-#   enable_hash_tool = false
-#   password_sha256 = "VOTRE_HASH_SHA256"
+# 🔐 PASSWORD GATE + HEADER
 # =====================================================
-
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def _login_header():
-    # ⚠️ Ne dépend d'AUCUNE constante globale (évite NameError)
     logo_file = os.path.join("data", "Logo_Pool.png")
 
     st.markdown(
         """
         <style>
-          /* réduit le gros padding en haut sur certaines configs */
           .block-container { padding-top: 1.2rem !important; }
-
-          .pms-header-wrap{
-            max-width: 1120px;     /* même largeur “feel” que ton tableau */
-            margin: 0 auto 10px auto;
-          }
-          .pms-emoji{
-            font-size: 64px;
-            line-height: 1;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            opacity: .95;
-            filter: drop-shadow(0 6px 14px rgba(0,0,0,.35));
-          }
-          .pms-text{
-            font-weight: 1000;
-            letter-spacing: .06em;
-            color: #ff3b30;        /* rouge iOS-ish */
-            font-size: 54px;
-            line-height: 1;
-            margin-left: 10px;
-            text-shadow: 0 10px 20px rgba(0,0,0,.35);
-            display:inline-block;
-            transform: translateY(-2px);
-          }
-          .pms-logo{
-            width: 100%;
-            display:flex;
-            justify-content:center;
-            align-items:center;
-          }
+          .pms-header-wrap{ max-width: 1120px; margin: 0 auto 10px auto; }
+          .pms-emoji{ font-size: 64px; line-height: 1; display:flex; align-items:center; justify-content:center;
+                     opacity: .95; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
+          .pms-text{ font-weight: 1000; letter-spacing: .06em; color: #ff3b30; font-size: 54px; line-height: 1;
+                     margin-left: 10px; text-shadow: 0 10px 20px rgba(0,0,0,.35); display:inline-block;
+                     transform: translateY(-2px); }
+          .pms-logo{ width: 100%; display:flex; justify-content:center; align-items:center; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -117,7 +107,6 @@ def _login_header():
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
-
         c1, c2, c3 = st.columns([2, 8, 2], vertical_alignment="center")
 
         with c1:
@@ -127,14 +116,10 @@ def _login_header():
             )
 
         with c2:
-            # Logo plus gros + centré
             if os.path.exists(logo_file):
                 st.image(logo_file, use_container_width=True)
             else:
-                st.markdown(
-                    '<div class="pms-logo"><span class="pms-text">PMS</span></div>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown('<div class="pms-logo"><span class="pms-text">PMS</span></div>', unsafe_allow_html=True)
 
         with c3:
             st.markdown('<div class="pms-emoji">🥅</div>', unsafe_allow_html=True)
@@ -146,22 +131,17 @@ def _login_header():
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
 
-    # 🔓 Option: si enable_hash_tool=true, on ne bloque pas l'app (utile si lock-out)
     if bool(cfg.get("enable_hash_tool", False)):
         return
 
     expected = str(cfg.get("password_sha256", "")).strip()
-
-    # Pas de hash -> app publique
     if not expected:
         return
 
-    # Déjà authentifié
     if st.session_state.get("authed", False):
         return
 
     _login_header()
-
     st.title("🔐 Accès sécurisé")
     st.caption("Entre le mot de passe partagé pour accéder à l’application.")
 
@@ -182,17 +162,8 @@ def require_password():
 
     st.stop()
 
-# ✅ Appelle le gate IMMÉDIATEMENT (après set_page_config)
 require_password()
 
-
-
-# =====================================================
-# 🔐 TEMP — Password hash generator (SAFE / DISABLED BY DEFAULT)
-#   Enable only by adding in Streamlit Secrets:
-#   [security]
-#   enable_hash_tool = true
-# =====================================================
 if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
     st.markdown("### 🔐 Générateur de hash (temporaire)")
     pwd = st.text_input("Mot de passe à hasher", type="password")
@@ -202,66 +173,11 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
         st.info("⬆️ Copie ce hash dans Streamlit Secrets puis remet enable_hash_tool=false.")
     st.divider()
 
-# =====================================================
-# Google Drive (optional)
-# =====================================================
-try:
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import Flow
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-    from googleapiclient.errors import HttpError
-    _GOOGLE_OK = True
-except Exception:
-    _GOOGLE_OK = False
-
-
-# =====================================================
-# PATHS / CONSTANTS
-# =====================================================
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
-LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
-INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
-
-# Google Drive folder id (optional)
-GDRIVE_FOLDER_ID = str(st.secrets.get("gdrive_oauth", {}).get("folder_id", "")).strip()
-
-# Required columns for your roster data
-REQUIRED_COLS = [
-    "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire",
-    "Statut", "Slot", "IR Date"
-]
-
-# Slots
-SLOT_ACTIF = "Actif"
-SLOT_BANC = "Banc"
-SLOT_IR = "Blessé"
-
-STATUT_GC = "Grand Club"
-STATUT_CE = "Club École"
-
-TZ_TOR = ZoneInfo("America/Montreal")
-
 
 # =====================================================
 # BASIC HELPERS
 # =====================================================
-def _img_b64(path: str) -> str:
-    if not path or not os.path.exists(path):
-        return ""
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-    except Exception:
-        return ""
-
-
 def do_rerun():
-    """Streamlit rerun compatible."""
     try:
         st.rerun()
     except Exception:
@@ -270,13 +186,11 @@ def do_rerun():
         except Exception:
             pass
 
-
 def money(v) -> str:
     try:
         return f"{int(v):,}".replace(",", " ") + " $"
     except Exception:
         return "0 $"
-
 
 def normalize_pos(pos: str) -> str:
     p = str(pos or "").upper()
@@ -286,22 +200,18 @@ def normalize_pos(pos: str) -> str:
         return "D"
     return "F"
 
-
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
-
 
 def saison_auto() -> str:
     now = datetime.now(TZ_TOR)
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
-
 
 def saison_verrouillee(season: str) -> bool:
     try:
         return int(str(season)[:4]) < int(saison_auto()[:4])
     except Exception:
         return False
-
 
 def render_badge(text: str, bg: str, fg: str = "white") -> str:
     t = html.escape(str(text or ""))
@@ -311,7 +221,6 @@ def render_badge(text: str, bg: str, fg: str = "white") -> str:
         f"{t}</span>"
     )
 
-
 def pos_badge_html(pos: str) -> str:
     p = normalize_pos(pos)
     if p == "F":
@@ -320,12 +229,10 @@ def pos_badge_html(pos: str) -> str:
         return render_badge("D", "#2563eb")
     return render_badge("G", "#7c3aed")
 
-
 def _count_badge(n: int, limit: int) -> str:
     if n > limit:
         return f"<span style='color:#ef4444;font-weight:1000'>{n}</span>/{limit} ⚠️"
     return f"<span style='color:#22c55e;font-weight:1000'>{n}</span>/{limit}"
-
 
 def cap_bar_html(used: int, cap: int, label: str) -> str:
     cap = int(cap or 0)
@@ -348,15 +255,12 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     </div>
     """
 
-
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Light normalization to keep your app stable."""
     if df is None or not isinstance(df, pd.DataFrame):
         return pd.DataFrame(columns=REQUIRED_COLS)
 
     out = df.copy()
 
-    # Ensure required columns
     for c in REQUIRED_COLS:
         if c not in out.columns:
             out[c] = "" if c in {"Propriétaire", "Joueur", "Pos", "Equipe", "Statut", "Slot", "IR Date"} else 0
@@ -372,10 +276,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out["Slot"] = out["Slot"].astype(str).str.strip()
     out["IR Date"] = out["IR Date"].astype(str).str.strip()
 
-    # Drop empty player rows
     bad = {"", "none", "nan", "null"}
     out = out[~out["Joueur"].str.lower().isin(bad)].copy()
-
     return out.reset_index(drop=True)
 
 
@@ -391,7 +293,6 @@ LOGOS = {
     "Canadiens": os.path.join(DATA_DIR, "montreal-canadiens-logo.png"),
 }
 
-
 def team_logo_path(team: str) -> str:
     path = str(LOGOS.get(str(team or "").strip(), "")).strip()
     return path if path and os.path.exists(path) else ""
@@ -406,14 +307,12 @@ def pick_team(team: str):
     st.session_state["align_owner"] = team
     do_rerun()
 
-
 def get_selected_team() -> str:
     v = str(st.session_state.get("selected_team") or "").strip()
     if v:
         return v
     v = str(st.session_state.get("align_owner") or "").strip()
     return v
-
 
 def _is_admin_whalers() -> bool:
     if bool(st.session_state.get("IS_ADMIN", False)):
@@ -422,7 +321,7 @@ def _is_admin_whalers() -> bool:
 
 
 # =====================================================
-# PERSISTENCE (local + optional Drive batching hooks)
+# INIT MANIFEST
 # =====================================================
 def load_init_manifest() -> dict:
     try:
@@ -433,7 +332,6 @@ def load_init_manifest() -> dict:
         pass
     return {}
 
-
 def save_init_manifest(manifest: dict) -> None:
     try:
         with open(INIT_MANIFEST_FILE, "w", encoding="utf-8") as f:
@@ -442,6 +340,9 @@ def save_init_manifest(manifest: dict) -> None:
         pass
 
 
+# =====================================================
+# PERSISTENCE
+# =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
     path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
@@ -451,14 +352,6 @@ def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     except Exception:
         pass
 
-    # Optional drive queue (if user enabled)
-    if "queue_drive_save_df" in globals() and callable(globals()["queue_drive_save_df"]):
-        try:
-            globals()["queue_drive_save_df"](df, f"fantrax_{season_lbl}.csv")
-        except Exception:
-            pass
-
-
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
     path = os.path.join(DATA_DIR, f"history_{season_lbl}.csv")
@@ -467,12 +360,6 @@ def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
         h.to_csv(path, index=False)
     except Exception:
         pass
-
-    if "queue_drive_save_df" in globals() and callable(globals()["queue_drive_save_df"]):
-        try:
-            globals()["queue_drive_save_df"](h, f"history_{season_lbl}.csv")
-        except Exception:
-            pass
 
 
 # =====================================================
@@ -486,10 +373,8 @@ def _history_expected_cols():
         "action",
     ]
 
-
 def _history_empty_df():
     return pd.DataFrame(columns=_history_expected_cols())
-
 
 def load_history_file(path: str) -> pd.DataFrame:
     try:
@@ -504,7 +389,6 @@ def load_history_file(path: str) -> pd.DataFrame:
         pass
     return _history_empty_df()
 
-
 def next_hist_id(h: pd.DataFrame) -> int:
     try:
         if h is None or not isinstance(h, pd.DataFrame) or h.empty or "id" not in h.columns:
@@ -513,7 +397,6 @@ def next_hist_id(h: pd.DataFrame) -> int:
         return int(v.max()) + 1
     except Exception:
         return 1
-
 
 def log_history_row(
     proprietaire: str,
@@ -546,9 +429,7 @@ def log_history_row(
 
     h = pd.concat([h, pd.DataFrame([row_hist])], ignore_index=True)
     st.session_state["history"] = h
-
-    season_lbl = str(st.session_state.get("season", "")).strip()
-    persist_history(h, season_lbl)
+    persist_history(h, str(st.session_state.get("season", "")).strip())
 
 
 # =====================================================
@@ -556,7 +437,6 @@ def log_history_row(
 # =====================================================
 def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
-
 
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str) -> pd.DataFrame:
@@ -579,7 +459,7 @@ def load_players_db(path: str) -> pd.DataFrame:
 
 
 # =====================================================
-# FANTRAX PARSER (as provided, lightly cleaned)
+# FANTRAX PARSER
 # =====================================================
 def parse_fantrax(upload) -> pd.DataFrame:
     raw_lines = upload.read().decode("utf-8", errors="ignore").splitlines()
@@ -649,7 +529,6 @@ def parse_fantrax(upload) -> pd.DataFrame:
         .str.replace(" ", "", regex=False)
         .replace(["None", "nan", "NaN", ""], "0")
     )
-    # Fantrax salaries often in "thousands" -> your original multiplies by 1000
     out["Salaire"] = pd.to_numeric(sal, errors="coerce").fillna(0).astype(int) * 1000
 
     if status_col:
@@ -659,9 +538,7 @@ def parse_fantrax(upload) -> pd.DataFrame:
 
     out["Slot"] = out["Statut"].apply(lambda s: SLOT_ACTIF if s == STATUT_GC else "")
     out["IR Date"] = ""
-    out = clean_data(out)
-    return out
-
+    return clean_data(out)
 
 def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     if df is None or not isinstance(df, pd.DataFrame):
@@ -700,11 +577,9 @@ def set_move_ctx(owner: str, joueur: str, source_key: str):
         "nonce": st.session_state["move_nonce"],
     }
 
-
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
     st.session_state["move_source"] = ""
-
 
 def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_slot: str, action_label: str) -> bool:
     st.session_state["last_move_error"] = ""
@@ -741,7 +616,6 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     pos0 = str(before.get("Pos", "F")).strip()
     equipe0 = str(before.get("Equipe", "")).strip()
 
-    # IR keeps current statut
     if to_slot == SLOT_IR:
         to_statut = from_statut
 
@@ -755,7 +629,6 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
         st.session_state["last_move_error"] = f"Slot invalide CE : {to_slot}"
         return False
 
-    # Apply
     df0.loc[mask, "Statut"] = to_statut
     df0.loc[mask, "Slot"] = to_slot if to_slot else ""
 
@@ -770,7 +643,6 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     df0 = clean_data(df0)
     st.session_state["data"] = df0
 
-    # History
     try:
         log_history_row(
             proprietaire=proprietaire,
@@ -786,7 +658,6 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
     except Exception:
         pass
 
-    # Persist
     season_lbl = str(st.session_state.get("season", "")).strip()
     try:
         persist_data(df0, season_lbl)
@@ -798,14 +669,13 @@ def apply_move_with_history(proprietaire: str, joueur: str, to_statut: str, to_s
 
 
 # =====================================================
-# UI — roster click list (your compact list)
+# UI — roster click list
 # =====================================================
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     if df_src is None or not isinstance(df_src, pd.DataFrame) or df_src.empty:
         st.info("Aucun joueur.")
         return None
 
-    # Inject CSS once per session (optional but cleaner)
     if not st.session_state.get("_roster_css_injected", False):
         st.markdown(
             """
@@ -819,17 +689,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                 overflow: hidden;
                 text-overflow: ellipsis;
               }
-              .salaryCell{
-                white-space: nowrap;
-                text-align: right;
-                font-weight: 900;
-                display: block;
-              }
-              .levelCell{
-                white-space: nowrap;
-                opacity: .85;
-                font-weight: 800;
-              }
+              .salaryCell{ white-space: nowrap; text-align: right; font-weight: 900; display: block; }
+              .levelCell{ white-space: nowrap; opacity: .85; font-weight: 800; }
             </style>
             """,
             unsafe_allow_html=True,
@@ -857,19 +718,15 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t["_initial"] = t["Joueur"].str.upper().str[0].fillna("?")
 
     t = (
-        t.sort_values(
-            by=["_pos", "Salaire", "_initial", "Joueur"],
-            ascending=[True, False, True, True],
-            kind="mergesort",
-        )
+        t.sort_values(by=["_pos", "Salaire", "_initial", "Joueur"],
+                      ascending=[True, False, True, True],
+                      kind="mergesort")
         .drop(columns=["_pos", "_initial"])
         .reset_index(drop=True)
     )
 
-    # Disable mode if caller asked for it
     disabled = str(source_key or "").endswith("_disabled")
 
-    # ✅ Colonnes (Alignement): Pos | Équipe | Joueur | Level | Salaire
     h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
@@ -888,7 +745,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
 
-        # Stable-ish row id (better than index i)
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
@@ -896,12 +752,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
-        if c[2].button(
-            joueur,
-            key=f"{source_key}_{owner}_{row_key}",
-            use_container_width=True,
-            disabled=disabled,
-        ):
+        if c[2].button(joueur, key=f"{source_key}_{owner}_{row_key}",
+                       use_container_width=True, disabled=disabled):
             clicked = joueur
 
         c[3].markdown(
@@ -913,39 +765,26 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     return clicked
 
 
-
 # =====================================================
-# MOVE DIALOG (single version)
+# MOVE DIALOG (motif + destination + délai)
 # =====================================================
 def _init_pending_moves():
     if "pending_moves" not in st.session_state or not isinstance(st.session_state.get("pending_moves"), list):
         st.session_state["pending_moves"] = []
 
 def _effective_date(reason: str, from_slot: str, to_slot: str, to_statut: str) -> datetime:
-    """Retourne la date/heure d'effet selon les règles fournies."""
     now = datetime.now(TZ_TOR)
-
-    # Demi-mois: immédiat (tu as précisé)
     if str(reason).lower().startswith("demi"):
         return now
-
-    # Retour vers Actif: immédiat
     if to_slot == SLOT_ACTIF:
         return now
-
-    # Actif -> Mineur : +3 jours
     if from_slot == SLOT_ACTIF and to_statut == STATUT_CE:
         return now + timedelta(days=3)
-
-    # Actif -> Banc : +1 jour
     if from_slot == SLOT_ACTIF and to_slot == SLOT_BANC:
         return now + timedelta(days=1)
-
-    # Blessure (IR) et autres: immédiat par défaut
     return now
 
 def process_pending_moves():
-    """Applique les déplacements en attente dont la date d'effet est atteinte."""
     _init_pending_moves()
     pending = st.session_state.get("pending_moves", [])
     if not pending:
@@ -956,7 +795,6 @@ def process_pending_moves():
         return
 
     now = datetime.now(TZ_TOR)
-
     remaining = []
     changed = False
 
@@ -977,30 +815,16 @@ def process_pending_moves():
         joueur = str(pm.get("joueur", "")).strip()
         to_statut = str(pm.get("to_statut", "")).strip()
         to_slot = str(pm.get("to_slot", "")).strip()
-        reason = str(pm.get("reason", "")).strip()
         note = str(pm.get("note", "")).strip()
 
-        ok = apply_move_with_history(
-            owner,
-            joueur,
-            to_statut,
-            to_slot,
-            f"EFFECTIF — {note or reason or 'Déplacement programmé'}",
-        )
+        ok = apply_move_with_history(owner, joueur, to_statut, to_slot, f"EFFECTIF — {note or 'Déplacement programmé'}")
         if ok:
             changed = True
-        else:
-            # si refusé (donnée incohérente), on laisse tomber l'entrée
-            pass
 
     st.session_state["pending_moves"] = remaining
     if changed:
         st.session_state["data"] = clean_data(st.session_state["data"])
-        # pas de rerun forcé ici: Streamlit rerender naturellement
 
-# =====================================================
-# MOVE DIALOG (version: motif + direction + application différée selon règles)
-# =====================================================
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -1044,7 +868,8 @@ def open_move_dialog():
     <style>
       .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
       .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-weight:900;font-size:12px}
+      .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.08);
+            border:1px solid rgba(255,255,255,.12);font-weight:900;font-size:12px}
     </style>
     """
 
@@ -1060,7 +885,6 @@ def open_move_dialog():
         )
         st.divider()
 
-        # 1) Motif
         reason = st.radio(
             "Type de changement",
             ["Changement demi-mois", "Blessure"],
@@ -1071,7 +895,6 @@ def open_move_dialog():
 
         st.divider()
 
-        # 2) Destination
         destinations = [
             ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
             ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
@@ -1092,11 +915,8 @@ def open_move_dialog():
         )
         to_statut, to_slot = mapping[choice]
 
-        # 3) Calcul date d'effet
         eff_dt = _effective_date(reason, cur_slot, to_slot, to_statut)
         now = datetime.now(TZ_TOR)
-        delay = eff_dt - now
-        delay_days = max(0, int(delay.total_seconds() // 86400))
 
         hint = "immédiat"
         if eff_dt.date() > now.date():
@@ -1143,7 +963,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# DIALOG — Preview Alignement Grand Club (GC)
+# DIALOG — Preview Alignement GC
 # =====================================================
 def open_gc_preview_dialog():
     if not st.session_state.get("gc_preview_open"):
@@ -1155,11 +975,8 @@ def open_gc_preview_dialog():
     df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 
     dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
-
-    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
     if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
-
     gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
 
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
@@ -1169,7 +986,6 @@ def open_gc_preview_dialog():
     @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
     def _dlg():
         st.caption("Prévisualisation rapide du Grand Club (GC).")
-
         c1, c2, c3 = st.columns(3)
         with c1: st.metric("Total GC", money(used_gc))
         with c2: st.metric("Plafond GC", money(cap_gc))
@@ -1182,42 +998,14 @@ def open_gc_preview_dialog():
         if gc_all.empty:
             st.info("Aucun joueur GC pour cette équipe.")
         else:
-            show_cols = [c for c in ["Joueur", "Pos", "Équipe", "Slot", "Salaire"] if c in gc_all.columns]
+            show_cols = [c for c in ["Joueur", "Pos", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
             df_show = gc_all[show_cols].copy()
-
             if "Salaire" in df_show.columns:
                 df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
-
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
         if st.button("OK", use_container_width=True, key="gc_preview_ok"):
             st.session_state["gc_preview_open"] = False
-            do_rerun()
-
-    _dlg()
-
-
-
-# =====================================================
-# DIALOG — Alignement GC non conforme (dépasse plafond)
-# =====================================================
-def open_cap_nonconforme_dialog():
-    if not st.session_state.get("cap_nonconforme_open"):
-        return
-
-    owner = str(get_selected_team() or "").strip()
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    used_gc = int(st.session_state.get("used_gc_last", 0) or 0)
-    over = max(0, used_gc - cap_gc)
-
-    @st.dialog("🚨 Alignement non conforme", width="small")
-    def _dlg():
-        st.error("Alignement n'est pas conforme.")
-        st.markdown(f"Vous dépassez le plafond salarial du Grand Club de **{money(over)}**.")
-        st.markdown("---")
-        if st.button("OK", use_container_width=True, key="cap_nonconforme_ok"):
-            st.session_state["cap_nonconforme_open"] = False
-            st.session_state["active_tab"] = "🧾 Alignement"
             do_rerun()
 
     _dlg()
@@ -1234,7 +1022,6 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
     resume = []
     for team in teams_all:
         d = df[df["Propriétaire"].astype(str).str.strip().eq(team)].copy()
-
         if d.empty:
             total_gc = 0
             total_ce = 0
@@ -1244,7 +1031,7 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
 
         resume.append(
             {
-"Propriétaire": team,
+                "Propriétaire": team,
                 "Logo": team_logo_path(team),
                 "Total Grand Club": int(total_gc),
                 "Montant Disponible GC": int(cap_gc - int(total_gc)),
@@ -1254,15 +1041,7 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
         )
     return pd.DataFrame(resume)
 
-
 def build_tableau_ui(plafonds: pd.DataFrame):
-    """
-    📊 Tableau — masses salariales
-    - pas de boutons au milieu (le choix d'équipe se fait dans le sidebar)
-    - surlignage subtil + crochet vert (fade-in)
-    - rendu Cloud-proof via components.html
-    """
-    
     selected = str(get_selected_team() or "").strip()
 
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
@@ -1270,14 +1049,7 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         return
 
     view = plafonds.copy()
-
-    cols = [
-        "Propriétaire",
-        "Total Grand Club",
-        "Montant Disponible GC",
-        "Total Club École",
-        "Montant Disponible CE",
-    ]
+    cols = ["Propriétaire", "Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]
     for c in cols:
         if c not in view.columns:
             view[c] = 0 if ("Total" in c or "Montant" in c) else "—"
@@ -1291,70 +1063,25 @@ def build_tableau_ui(plafonds: pd.DataFrame):
     for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
         view[c] = view[c].apply(_fmt_money)
 
-    # --- HTML table (Cloud-proof)
     css = """
     <style>
-      .pms-wrap{
-        margin-top: 10px;
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 16px;
-        overflow: hidden;
-        background: rgba(255,255,255,0.02);
-      }
-      table.pms{
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        color: rgba(255,255,255,0.92);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      }
-      table.pms thead th{
-        text-align: left;
-        padding: 11px 12px;
-        background: rgba(255,255,255,0.06);
-        border-bottom: 1px solid rgba(255,255,255,0.10);
-        font-weight: 900;
-        letter-spacing: .2px;
-        color: rgba(255,255,255,0.88);
-      }
-      table.pms tbody td{
-        padding: 11px 12px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-        vertical-align: middle;
-        font-weight: 650;
-      }
-      table.pms tbody tr{
-        transition: background 220ms ease, transform 220ms ease;
-      }
-      table.pms tbody tr:hover{
-        background: rgba(255,255,255,0.035);
-      }
-
-      /* sélection: très subtile + lisible */
-      tr.pms-selected{
-        background: rgba(34,197,94,0.16) !important;
-      }
-      tr.pms-selected td:first-child{
-        border-left: 5px solid rgba(34,197,94,0.85);
-      }
-
+      .pms-wrap{ margin-top: 10px; border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;
+                overflow: hidden; background: rgba(255,255,255,0.02); }
+      table.pms{ width: 100%; border-collapse: collapse; font-size: 14px; color: rgba(255,255,255,0.92);
+                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+      table.pms thead th{ text-align: left; padding: 11px 12px; background: rgba(255,255,255,0.06);
+                         border-bottom: 1px solid rgba(255,255,255,0.10); font-weight: 900; letter-spacing: .2px;
+                         color: rgba(255,255,255,0.88); }
+      table.pms tbody td{ padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
+                         vertical-align: middle; font-weight: 650; }
+      table.pms tbody tr{ transition: background 220ms ease, transform 220ms ease; }
+      table.pms tbody tr:hover{ background: rgba(255,255,255,0.035); }
+      tr.pms-selected{ background: rgba(34,197,94,0.16) !important; }
+      tr.pms-selected td:first-child{ border-left: 5px solid rgba(34,197,94,0.85); }
       .cell-right{ text-align:right; white-space:nowrap; }
-      .import-ok{ font-weight:1000; opacity:0.9; }
-
-      /* crochet */
-      .pms-check{
-        display:inline-block;
-        margin-left: 10px;
-        font-weight: 1000;
-        color: rgba(34,197,94,0.95);
-        opacity: 0;
-        transform: translateY(1px);
-        animation: pmsFadeIn 280ms ease forwards;
-      }
-      @keyframes pmsFadeIn{
-        from { opacity: 0; transform: translateY(3px); }
-        to   { opacity: 1; transform: translateY(0px); }
-      }
+      .pms-check{ display:inline-block; margin-left: 10px; font-weight: 1000; color: rgba(34,197,94,0.95);
+                 opacity: 0; transform: translateY(1px); animation: pmsFadeIn 280ms ease forwards; }
+      @keyframes pmsFadeIn{ from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0px); } }
     </style>
     """
 
@@ -1363,13 +1090,11 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         owner = str(r.get("Propriétaire", "")).strip()
         is_sel = bool(selected) and (owner == selected)
         tr_class = "pms-selected" if is_sel else ""
-
         check = "<span class='pms-check'>✓</span>" if is_sel else ""
-
         rows.append(
             f"""
             <tr class="{tr_class}">
-<td><b>{html.escape(owner)}</b>{check}</td>
+              <td><b>{html.escape(owner)}</b>{check}</td>
               <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
               <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
               <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
@@ -1384,7 +1109,7 @@ def build_tableau_ui(plafonds: pd.DataFrame):
       <table class="pms">
         <thead>
           <tr>
-<th>Propriétaire</th>
+            <th>Propriétaire</th>
             <th style="text-align:right">Total GC</th>
             <th style="text-align:right">Reste GC</th>
             <th style="text-align:right">Total CE</th>
@@ -1403,206 +1128,15 @@ def build_tableau_ui(plafonds: pd.DataFrame):
 
     components.html(html_doc, height=360, scrolling=False)
 
-# =====================================================
-# 🧾 ALIGNEMENT — Build lists + UI (Desktop/Mobile)
-# =====================================================
-
-# --- Data de base
-df = st.session_state.get("data", pd.DataFrame())
-df = clean_data(df)
-st.session_state["data"] = df
-
-proprietaire = str(get_selected_team() or "").strip()
-if not proprietaire:
-    st.info("Sélectionne une équipe dans le menu à gauche.")
-    st.stop()
-
-# --- Filtre par propriétaire
-dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
-if dprop.empty:
-    st.warning(f"Aucun alignement importé pour **{proprietaire}**.")
-    st.stop()
-
-# --- État popup (dialog move)
-popup_open = bool(st.session_state.get("move_ctx"))
-
-# --- Colonnes requises pour filtrer
-if "Statut" not in dprop.columns:
-    st.error("Colonne **Statut** manquante dans les données (impossible de bâtir GC/CE/Banc/IR).")
-    st.stop()
-
-stat = dprop["Statut"].astype(str)
 
 # =====================================================
-# BUILD DFS (⚠️ ajuste les contains selon TES valeurs de Statut)
-# =====================================================
-gc_actif = dprop[stat.str.contains("Actif", case=False, na=False)].copy()
-ce_all = dprop[stat.str.contains("Mineur|CE|Club École|Club Ecole", case=False, na=False, regex=True)].copy()
-gc_banc = dprop[stat.str.contains("Banc", case=False, na=False)].copy()
-injured_all = dprop[stat.str.contains(r"\bIR\b|Bless", case=False, na=False, regex=True)].copy()
-
-# =====================================================
-# 📱 Alignement — Desktop vs Mobile (tabs)
-# =====================================================
-mobile_view = bool(st.session_state.get("mobile_view", False))
-
-def _render_gc_block(gc_actif_df: pd.DataFrame, proprietaire: str, popup_open: bool):
-    with st.container(border=True):
-        st.markdown("### 🟢 GC — Actifs")
-        if gc_actif_df is None or gc_actif_df.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_actif_df, proprietaire, "actifs")
-                if p:
-                    set_move_ctx(proprietaire, p, "actifs")
-                    do_rerun()
-            else:
-                roster_click_list(gc_actif_df, proprietaire, "actifs_disabled")
-
-def _render_ce_block(ce_all_df: pd.DataFrame, proprietaire: str, popup_open: bool):
-    with st.container(border=True):
-        st.markdown("### 🔵 CE — Mineur")
-        if ce_all_df is None or ce_all_df.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(ce_all_df, proprietaire, "min")
-                if p:
-                    set_move_ctx(proprietaire, p, "min")
-                    do_rerun()
-            else:
-                roster_click_list(ce_all_df, proprietaire, "min_disabled")
-
-def _render_banc_block(gc_banc_df: pd.DataFrame, proprietaire: str, popup_open: bool):
-    if gc_banc_df is None or gc_banc_df.empty:
-        st.info("Aucun joueur.")
-        return
-    if not popup_open:
-        p = roster_click_list(gc_banc_df, proprietaire, "banc")
-        if p:
-            set_move_ctx(proprietaire, p, "banc")
-            do_rerun()
-    else:
-        roster_click_list(gc_banc_df, proprietaire, "banc_disabled")
-
-def _render_ir_block(injured_df: pd.DataFrame, proprietaire: str, popup_open: bool):
-    if injured_df is None or injured_df.empty:
-        st.info("Aucun joueur blessé.")
-        return
-    if not popup_open:
-        p_ir = roster_click_list(injured_df, proprietaire, "ir")
-        if p_ir:
-            set_move_ctx(proprietaire, p_ir, "ir")
-            do_rerun()
-    else:
-        roster_click_list(injured_df, proprietaire, "ir_disabled")
-
-# --- UI
-if mobile_view:
-    t1, t2, t3, t4 = st.tabs(["🟢 GC", "🔵 CE", "🟡 Banc", "🩹 IR"])
-    with t1:
-        _render_gc_block(gc_actif, proprietaire, popup_open)
-    with t2:
-        _render_ce_block(ce_all, proprietaire, popup_open)
-    with t3:
-        _render_banc_block(gc_banc, proprietaire, popup_open)
-    with t4:
-        _render_ir_block(injured_all, proprietaire, popup_open)
-else:
-    colA, colB = st.columns(2, gap="small")
-    with colA:
-        _render_gc_block(gc_actif, proprietaire, popup_open)
-    with colB:
-        _render_ce_block(ce_all, proprietaire, popup_open)
-
-    st.divider()
-
-    with st.expander("🟡 Banc", expanded=True):
-        _render_banc_block(gc_banc, proprietaire, popup_open)
-
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        _render_ir_block(injured_all, proprietaire, popup_open)
-
-open_move_dialog()
-
-
-
-
-
-
-
-
-
-
-# =====================================================
-# LOGO POOL — SAME WIDTH AS TABLE (FULL BANNER, CLEAN)
-# =====================================================
-import os
-import streamlit as st
-
-LOGO_POOL_FILE = os.path.join("data", "Logo_Pool.png")
-
-if os.path.exists(LOGO_POOL_FILE):
-    b64 = base64.b64encode(open(LOGO_POOL_FILE, "rb").read()).decode("utf-8")
-
-    st.markdown(
-        """
-        <style>
-          /* Wrapper aligné sur le container Streamlit */
-          .pool-banner-wrap{
-            width: 100%;
-            margin: 0.25rem auto 1.0rem auto;
-            border-radius: 16px;
-            overflow: hidden;
-
-            /* look clean */
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.06);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-          }
-
-          /* Image plein cadre (pas de bandes vides) */
-          .pool-banner-wrap img{
-            width: 100%;
-            height: 140px;          /* ajuste 120–170 selon ton goût */
-            object-fit: cover;      /* ✅ rempli la largeur */
-            display: block;
-            opacity: 0.98;
-          }
-
-          /* Sur mobile */
-          @media (max-width: 900px){
-            .pool-banner-wrap img{ height: 110px; }
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f"""
-        <div class="pool-banner-wrap">
-          <img src="data:image/png;base64,{b64}" alt="Logo Pool">
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# =====================================================
-# SEASON — assure que la variable `season` existe
+# LOAD SEASON + LOAD DATA/HISTORY + PLAYERS DB + PLAFONDS
 # =====================================================
 season = str(st.session_state.get("season") or "").strip()
 if not season:
-    season = saison_auto()                 # fallback
-    st.session_state["season"] = season    # sync
+    season = saison_auto()
+    st.session_state["season"] = season
 
-
-
-# =====================================================
-# LOAD DATA + HISTORY (local only here; Drive queue flush can be added later)
-# =====================================================
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
@@ -1620,7 +1154,6 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
             pass
-
     st.session_state["data"] = clean_data(df_loaded)
     st.session_state["data_season"] = season
 
@@ -1628,16 +1161,90 @@ if "history_season" not in st.session_state or st.session_state["history_season"
     st.session_state["history"] = load_history_file(HISTORY_FILE)
     st.session_state["history_season"] = season
 
-# Players DB
-players_db = load_players_db(PLAYERS_DB_FILE)
-st.session_state["players_db"] = players_db
+st.session_state["players_db"] = load_players_db(PLAYERS_DB_FILE)
 
-# Build plafonds
-df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-df = clean_data(df)
-st.session_state["data"] = df
-plafonds = rebuild_plafonds(df)
-st.session_state["plafonds"] = plafonds
+df0 = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+st.session_state["data"] = df0
+st.session_state["plafonds"] = rebuild_plafonds(df0)
+
+
+# =====================================================
+# SIDEBAR — Saison + Équipe + Plafonds + Mobile
+# =====================================================
+st.sidebar.header("📅 Saison")
+saisons = ["2024-2025", "2025-2026", "2026-2027"]
+auto = saison_auto()
+if auto not in saisons:
+    saisons.append(auto)
+    saisons.sort()
+
+season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
+st.session_state["season"] = season_pick
+st.session_state["LOCKED"] = saison_verrouillee(season_pick)
+
+# Mobile view
+st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
+if st.session_state.get("mobile_view", False):
+    st.markdown(
+        "<style>.block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}</style>",
+        unsafe_allow_html=True
+    )
+
+# Default caps
+if "PLAFOND_GC" not in st.session_state:
+    st.session_state["PLAFOND_GC"] = 95_500_000
+if "PLAFOND_CE" not in st.session_state:
+    st.session_state["PLAFOND_CE"] = 47_750_000
+
+st.sidebar.divider()
+st.sidebar.header("💰 Plafonds")
+if st.sidebar.button("✏️ Modifier les plafonds"):
+    st.session_state["edit_plafond"] = True
+
+if st.session_state.get("edit_plafond"):
+    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
+        "Plafond Grand Club",
+        value=int(st.session_state["PLAFOND_GC"]),
+        step=500_000,
+    )
+    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
+        "Plafond Club École",
+        value=int(st.session_state["PLAFOND_CE"]),
+        step=250_000,
+    )
+
+st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
+st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+
+# Team picker
+st.sidebar.divider()
+st.sidebar.markdown("### 🏒 Équipes")
+teams = list(LOGOS.keys())
+cur = str(st.session_state.get("selected_team", "")).strip()
+if cur not in teams and teams:
+    cur = teams[0]
+
+chosen = st.sidebar.selectbox(
+    "Choisir une équipe",
+    teams if teams else [""],
+    index=(teams.index(cur) if cur in teams else 0),
+    key="sb_team_select",
+)
+
+# ✅ SYNC — SOURCE DE VÉRITÉ
+if chosen and str(chosen).strip():
+    st.session_state["selected_team"] = str(chosen).strip()
+    st.session_state["align_owner"] = str(chosen).strip()
+
+logo_path = team_logo_path(get_selected_team())
+if logo_path:
+    st.sidebar.image(logo_path, use_container_width=True)
+
+if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+    st.session_state["gc_preview_open"] = True
+    st.session_state["active_tab"] = "🧾 Alignement"
+    do_rerun()
+
 
 # =====================================================
 # NAV
@@ -1664,59 +1271,15 @@ active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
 st.divider()
 
 
-# --- Popups globaux (sidebar preview / non conformité)
+# =====================================================
+# Global scheduled moves + dialogs
+# =====================================================
+process_pending_moves()
 open_gc_preview_dialog()
-open_cap_nonconforme_dialog()
 
-@st.dialog("⚠️ Alignement non conforme", width="small")
-def non_conforme_dialog(depassement: int):
-    st.error("Alignement n'est pas conforme.")
-    st.write(f"Vous dépassez le plafond salarial GC de **{money(depassement)}**.")
-    if st.button("OK", use_container_width=True, type="primary"):
-        st.session_state["active_tab"] = "🧾 Alignement"
-        do_rerun() if "do_rerun" in globals() else st.rerun()
 
 # =====================================================
-# 📎 Copier le lien mobile (?mobile=1)
-# =====================================================
-def copy_mobile_link_button(label="📎 Copier le lien mobile"):
-    js = f"""
-    <script>
-    function copyMobileLink() {{
-        const url = new URL(window.location.href);
-        url.searchParams.set("mobile", "1");
-        navigator.clipboard.writeText(url.toString()).then(() => {{
-            const btn = document.getElementById("copy-mobile-link-btn");
-            if (btn) {{
-                btn.innerText = "✅ Lien copié";
-                setTimeout(() => btn.innerText = "{label}", 1600);
-            }}
-        }});
-    }}
-    </script>
-
-    <button id="copy-mobile-link-btn"
-            onclick="copyMobileLink()"
-            style="
-                width:100%;
-                padding:6px 10px;
-                margin-top:6px;
-                border-radius:8px;
-                border:1px solid rgba(255,255,255,.25);
-                background:transparent;
-                cursor:pointer;
-                font-size:13px;">
-        {label}
-    </button>
-    """
-    st.components.v1.html(js, height=48)
-
-# Bouton dans la sidebar
-with st.sidebar:
-    copy_mobile_link_button()
-
-# =====================================================
-# ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
+# ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
 if active_tab == "📊 Tableau":
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
@@ -1725,10 +1288,7 @@ if active_tab == "📊 Tableau":
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
-    
-
-    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-    df = clean_data(df)
+    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
     st.session_state["data"] = df
 
     proprietaire = str(get_selected_team() or "").strip()
@@ -1743,22 +1303,9 @@ elif active_tab == "🧾 Alignement":
 
     if dprop.empty:
         st.warning(f"Aucun alignement importé pour **{proprietaire}** (Admin → Import).")
-
         j1, j2 = st.columns(2)
-        with j1:
-            st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-        with j2:
-            st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
-
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs"); st.info("Aucun joueur.")
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur"); st.info("Aucun joueur.")
-        with st.expander("🟡 Banc", expanded=True):
-            st.info("Aucun joueur.")
-        with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-            st.info("Aucun joueur blessé.")
-
+        with j1: st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
+        with j2: st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
         clear_move_ctx()
         st.stop()
 
@@ -1772,8 +1319,7 @@ elif active_tab == "🧾 Alignement":
     gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
 
     tmp = gc_actif.copy()
-    tmp["Pos"] = tmp.get("Pos", "F")
-    tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+    tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
     nb_F = int((tmp["Pos"] == "F").sum())
     nb_D = int((tmp["Pos"] == "D").sum())
     nb_G = int((tmp["Pos"] == "G").sum())
@@ -1783,12 +1329,9 @@ elif active_tab == "🧾 Alignement":
     remain_gc = cap_gc - used_gc
     remain_ce = cap_ce - used_ce
 
-
     j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
+    with j1: st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
+    with j2: st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
 
     def gm_metric(label: str, value: str):
         st.markdown(
@@ -1811,7 +1354,7 @@ elif active_tab == "🧾 Alignement":
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     st.divider()
@@ -1820,50 +1363,8 @@ elif active_tab == "🧾 Alignement":
     if popup_open:
         st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
 
-    # =====================================================
-    # 💾 Enregistrer l’alignement (validation plafond au clic)
-    #   -> Popup seulement quand GC dépasse
-    # =====================================================
-    save_row1, save_row2 = st.columns([1, 3], vertical_alignment="center")
+    mobile_view = bool(st.session_state.get("mobile_view", False))
 
-    with save_row1:
-        save_click = st.button(
-            "💾 Enregistrer",
-            help="Valide le plafond GC et enregistre l’alignement",
-            use_container_width=True,
-            disabled=popup_open,
-            key="btn_save_alignement",
-        )
-
-    with save_row2:
-        if used_gc > cap_gc:
-            st.caption(
-                f"⚠️ GC dépasse le plafond de {money(used_gc - cap_gc)} (message affiché à l’enregistrement)."
-            )
-        else:
-            st.caption("✅ Prêt à enregistrer.")
-
-    if save_click:
-        if used_gc > cap_gc:
-            non_conforme_dialog(int(used_gc - cap_gc))
-            st.stop()
-        else:
-            df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-            df_all = clean_data(df_all)
-            st.session_state["data"] = df_all
-
-            persist_data(df_all, season)
-            st.session_state["plafonds"] = rebuild_plafonds(df_all)
-
-            st.success("✅ Alignement enregistré.")
-            do_rerun() if "do_rerun" in globals() else st.rerun()
-
-        st.divider()
-
-    # =====================================================
-    # 📱 Alignement — Desktop vs Mobile (query param/override déjà dans session_state)
-    # =====================================================
-   
     def _render_gc_block():
         with st.container(border=True):
             st.markdown("### 🟢 Actifs (Grand Club)")
@@ -1873,8 +1374,7 @@ elif active_tab == "🧾 Alignement":
                 if not popup_open:
                     p = roster_click_list(gc_actif, proprietaire, "actifs")
                     if p:
-                        set_move_ctx(proprietaire, p, "actifs")
-                        do_rerun()
+                        set_move_ctx(proprietaire, p, "actifs"); do_rerun()
                 else:
                     roster_click_list(gc_actif, proprietaire, "actifs_disabled")
 
@@ -1887,8 +1387,7 @@ elif active_tab == "🧾 Alignement":
                 if not popup_open:
                     p = roster_click_list(ce_all, proprietaire, "min")
                     if p:
-                        set_move_ctx(proprietaire, p, "min")
-                        do_rerun()
+                        set_move_ctx(proprietaire, p, "min"); do_rerun()
                 else:
                     roster_click_list(ce_all, proprietaire, "min_disabled")
 
@@ -1898,16 +1397,11 @@ elif active_tab == "🧾 Alignement":
         _render_ce_block()
     else:
         colA, colB = st.columns(2, gap="small")
-        with colA:
-            _render_gc_block()
-        with colB:
-            _render_ce_block()
+        with colA: _render_gc_block()
+        with colB: _render_ce_block()
 
     st.divider()
 
-    # =====================================================
-    # 🟡 Banc
-    # =====================================================
     with st.expander("🟡 Banc", expanded=True):
         if gc_banc.empty:
             st.info("Aucun joueur.")
@@ -1915,14 +1409,10 @@ elif active_tab == "🧾 Alignement":
             if not popup_open:
                 p = roster_click_list(gc_banc, proprietaire, "banc")
                 if p:
-                    set_move_ctx(proprietaire, p, "banc")
-                    do_rerun()
+                    set_move_ctx(proprietaire, p, "banc"); do_rerun()
             else:
                 roster_click_list(gc_banc, proprietaire, "banc_disabled")
 
-    # =====================================================
-    # 🩹 Joueurs Blessés (IR)
-    # =====================================================
     with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
         if injured_all.empty:
             st.info("Aucun joueur blessé.")
@@ -1930,13 +1420,11 @@ elif active_tab == "🧾 Alignement":
             if not popup_open:
                 p_ir = roster_click_list(injured_all, proprietaire, "ir")
                 if p_ir:
-                    set_move_ctx(proprietaire, p_ir, "ir")
-                    do_rerun()
+                    set_move_ctx(proprietaire, p_ir, "ir"); do_rerun()
             else:
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     open_move_dialog()
-
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
@@ -1950,7 +1438,6 @@ elif active_tab == "👤 Joueurs":
 
     df_db = players_db.copy()
 
-    # Normalize player name column
     if "Player" not in df_db.columns:
         found = None
         for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
@@ -1991,19 +1478,19 @@ elif active_tab == "👤 Joueurs":
         st.session_state["j_name"] = ""
 
     c1, c2, c3 = st.columns([2, 1, 1])
-
     with c1:
         a, b = st.columns([12, 1])
         with a:
             q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
         with b:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom", use_container_width=True, on_click=clear_j_name)
+            st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom",
+                      use_container_width=True, on_click=clear_j_name)
 
     with c2:
         if "Team" in df_db.columns:
-            teams = sorted(list(LOGOS.keys()))
-            options_team = ["Toutes"] + teams
+            teams_db = sorted(df_db["Team"].dropna().astype(str).unique().tolist())
+            options_team = ["Toutes"] + teams_db
             cur_team = st.session_state.get("j_team", "Toutes")
             if cur_team not in options_team:
                 st.session_state["j_team"] = "Toutes"
@@ -2071,7 +1558,6 @@ elif active_tab == "👤 Joueurs":
         else:
             dff = dff.head(250).reset_index(drop=True)
             st.markdown("### Résultats")
-
             show_cols = [c for c in ["Player", "Team", "Position", cap_col, "Level"] if c and c in dff.columns]
             df_show = dff[show_cols].copy()
 
@@ -2094,7 +1580,6 @@ elif active_tab == "🕘 Historique":
         st.info("Aucune entrée d’historique pour cette saison.")
         st.stop()
 
-    # Parse timestamp
     h["timestamp_dt"] = h["timestamp"].apply(to_dt_local)
     h = h.sort_values("timestamp_dt", ascending=False, na_position="last")
 
@@ -2107,12 +1592,9 @@ elif active_tab == "🕘 Historique":
         st.info("Aucune entrée pour ce propriétaire.")
         st.stop()
 
-    st.caption("Affichage simple (tu peux me redonner ton UI bulk/undo si tu veux le remettre ici).")
     h_show = h.copy()
-    if "timestamp_dt" in h_show.columns:
-        h_show["timestamp"] = h_show["timestamp_dt"].apply(format_date_fr)
-        # optionnel: cacher la colonne technique
-        h_show = h_show.drop(columns=["timestamp_dt"])
+    h_show["timestamp"] = h_show["timestamp_dt"].apply(format_date_fr)
+    h_show = h_show.drop(columns=["timestamp_dt"])
 
     st.dataframe(h_show.head(500), use_container_width=True, hide_index=True)
 
@@ -2121,6 +1603,7 @@ elif active_tab == "⚖️ Transactions":
     st.caption("Vérifie si une transaction respecte le plafond GC / CE.")
 
     plafonds = st.session_state.get("plafonds")
+    df = st.session_state.get("data")
     if df is None or df.empty or plafonds is None or plafonds.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
@@ -2185,13 +1668,13 @@ elif active_tab == "🛠️ Gestion Admin":
         init_align = st.file_uploader(
             "CSV — Alignement (Fantrax)",
             type=["csv", "txt"],
-            key=f"admin_import_align__{season}__{chosen_owner}__{u_nonce}",
+            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
         )
     with c_init2:
         init_hist = st.file_uploader(
             "CSV — Historique (optionnel)",
             type=["csv", "txt"],
-            key=f"admin_import_hist__{season}__{chosen_owner}__{u_nonce}",
+            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
         )
 
     c_btn1, c_btn2 = st.columns([1, 1])
@@ -2228,10 +1711,9 @@ elif active_tab == "🛠️ Gestion Admin":
             owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
             filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
 
-            df_cur = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-            df_cur = clean_data(df_cur)
+            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
 
-            df_team = df_team.copy()
+            df_team = clean_data(df_team.copy())
             df_team["Propriétaire"] = owner_final
             df_team = clean_data(df_team)
 
@@ -2248,29 +1730,25 @@ elif active_tab == "🛠️ Gestion Admin":
 
             df_new = clean_data(df_new)
             st.session_state["data"] = df_new
-            persist_data(df_new, season)
+            persist_data(df_new, season_pick)
 
-            # update plafonds
             st.session_state["plafonds"] = rebuild_plafonds(df_new)
 
-            # Resync selection
             st.session_state["selected_team"] = owner_final
             st.session_state["align_owner"] = owner_final
             clear_move_ctx()
 
             manifest["fantrax_by_team"][owner_final] = {
                 "uploaded_name": filename_final,
-                "season": season,
+                "season": season_pick,
                 "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
                 "team": owner_final,
             }
             save_init_manifest(manifest)
 
-            # Optional import history
             if init_hist is not None:
                 try:
                     h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
-                    # Normalize history cols minimally if user uploads
                     if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
                         h0["proprietaire"] = h0["Propriétaire"]
                     if "Joueur" in h0.columns and "joueur" not in h0.columns:
@@ -2280,7 +1758,7 @@ elif active_tab == "🛠️ Gestion Admin":
                             h0[c] = ""
                     h0 = h0[_history_expected_cols()].copy()
                     st.session_state["history"] = h0
-                    persist_history(h0, season)
+                    persist_history(h0, season_pick)
                 except Exception as e:
                     st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
 
@@ -2294,21 +1772,20 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
     st.markdown("### 📌 Derniers imports par équipe")
+
     by_team = manifest.get("fantrax_by_team", {}) or {}
     if not by_team:
         st.caption("— Aucun import enregistré —")
     else:
-        # ✅ Tri ultra-compact (⬇️ / ⬆️) + dates FR
         if "admin_imports_desc" not in st.session_state:
-            st.session_state["admin_imports_desc"] = True  # ⬇️ plus récent en premier
+            st.session_state["admin_imports_desc"] = True
 
         c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
         with c1:
             icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
             if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
                 st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
-                do_rerun()  # ou st.rerun()
-
+                do_rerun()
         with c2:
             st.caption("Tri par date")
 
@@ -2341,6 +1818,7 @@ elif active_tab == "🧠 Recommandations":
     st.caption("Recommandations automatiques basées sur les montants disponibles.")
 
     plafonds0 = st.session_state.get("plafonds")
+    df = st.session_state.get("data")
     if df is None or df.empty or plafonds0 is None or plafonds0.empty:
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
