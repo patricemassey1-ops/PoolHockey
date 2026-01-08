@@ -805,33 +805,36 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         st.info("Aucun joueur.")
         return None
 
-    st.markdown(
-        """
-        <style>
-          div[data-testid="stButton"] > button{
-            padding: 0.18rem 0.45rem;
-            font-weight: 900;
-            text-align: left;
-            justify-content: flex-start;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .salaryCell{
-            white-space: nowrap;
-            text-align: right;
-            font-weight: 900;
-            display: block;
-          }
-          .levelCell{
-            white-space: nowrap;
-            opacity: .85;
-            font-weight: 800;
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Inject CSS once per session (optional but cleaner)
+    if not st.session_state.get("_roster_css_injected", False):
+        st.markdown(
+            """
+            <style>
+              div[data-testid="stButton"] > button{
+                padding: 0.18rem 0.45rem;
+                font-weight: 900;
+                text-align: left;
+                justify-content: flex-start;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .salaryCell{
+                white-space: nowrap;
+                text-align: right;
+                font-weight: 900;
+                display: block;
+              }
+              .levelCell{
+                white-space: nowrap;
+                opacity: .85;
+                font-weight: 800;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.session_state["_roster_css_injected"] = True
 
     t = df_src.copy()
     for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": ""}.items():
@@ -863,6 +866,9 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         .reset_index(drop=True)
     )
 
+    # Disable mode if caller asked for it
+    disabled = str(source_key or "").endswith("_disabled")
+
     # ✅ Colonnes (Alignement): Pos | Équipe | Joueur | Level | Salaire
     h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
     h[0].markdown("**Pos**")
@@ -872,7 +878,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     h[4].markdown("**Salaire**")
 
     clicked = None
-    for i, r in t.iterrows():
+    for _, r in t.iterrows():
         joueur = str(r.get("Joueur", "")).strip()
         if not joueur:
             continue
@@ -882,15 +888,30 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
 
+        # Stable-ish row id (better than index i)
+        row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
+        row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
+
         c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
-        if c[2].button(joueur, key=f"{source_key}_{owner}_{joueur}_{i}", use_container_width=True):
+
+        if c[2].button(
+            joueur,
+            key=f"{source_key}_{owner}_{row_key}",
+            use_container_width=True,
+            disabled=disabled,
+        ):
             clicked = joueur
-        c[3].markdown(f"<span class='levelCell'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>", unsafe_allow_html=True)
+
+        c[3].markdown(
+            f"<span class='levelCell'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
+            unsafe_allow_html=True,
+        )
         c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
+
 
 
 # =====================================================
@@ -1692,6 +1713,45 @@ def non_conforme_dialog(depassement: int):
         do_rerun() if "do_rerun" in globals() else st.rerun()
 
 # =====================================================
+# 📎 Copier le lien mobile (?mobile=1)
+# =====================================================
+def copy_mobile_link_button(label="📎 Copier le lien mobile"):
+    js = f"""
+    <script>
+    function copyMobileLink() {{
+        const url = new URL(window.location.href);
+        url.searchParams.set("mobile", "1");
+        navigator.clipboard.writeText(url.toString()).then(() => {{
+            const btn = document.getElementById("copy-mobile-link-btn");
+            if (btn) {{
+                btn.innerText = "✅ Lien copié";
+                setTimeout(() => btn.innerText = "{label}", 1600);
+            }}
+        }});
+    }}
+    </script>
+
+    <button id="copy-mobile-link-btn"
+            onclick="copyMobileLink()"
+            style="
+                width:100%;
+                padding:6px 10px;
+                margin-top:6px;
+                border-radius:8px;
+                border:1px solid rgba(255,255,255,.25);
+                background:transparent;
+                cursor:pointer;
+                font-size:13px;">
+        {label}
+    </button>
+    """
+    st.components.v1.html(js, height=48)
+
+# Bouton dans la sidebar
+with st.sidebar:
+    copy_mobile_link_button()
+
+# =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN (no syntax errors)
 # =====================================================
 if active_tab == "📊 Tableau":
@@ -1834,62 +1894,12 @@ elif active_tab == "🧾 Alignement":
             st.success("✅ Alignement enregistré.")
             do_rerun() if "do_rerun" in globals() else st.rerun()
 
-    st.divider()
+        st.divider()
+
     # =====================================================
-    # 🧱 Colonnes de déplacement : Desktop (2 colonnes) / Mobile (stack)
+    # 📱 Alignement — Desktop vs Mobile (query param/override déjà dans session_state)
     # =====================================================
-    # Détection simple mobile (basée sur largeur via query param si tu veux),
-    # sinon on choisit un seuil "safe" en se basant sur sidebar state.
-    # Option rapide: un toggle dans la sidebar
-    if "mobile_view" not in st.session_state:
-        st.session_state["mobile_view"] = False
-
-    # (Optionnel) Toggle mobile dans sidebar si tu veux forcer
-    # st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
-
-    mobile_view = bool(st.session_state.get("mobile_view", False))
-
-# =====================================================
-# 📎 Copier le lien mobile (?mobile=1)
-# =====================================================
-def copy_mobile_link_button(label="📎 Copier le lien mobile"):
-    js = f"""
-    <script>
-    function copyMobileLink() {{
-        const url = new URL(window.location.href);
-        url.searchParams.set("mobile", "1");
-        navigator.clipboard.writeText(url.toString()).then(() => {{
-            const btn = document.getElementById("copy-mobile-link-btn");
-            if (btn) {{
-                btn.innerText = "✅ Lien copié";
-                setTimeout(() => btn.innerText = "{label}", 1600);
-            }}
-        }});
-    }}
-    </script>
-
-    <button id="copy-mobile-link-btn"
-            onclick="copyMobileLink()"
-            style="
-                width:100%;
-                padding:6px 10px;
-                margin-top:6px;
-                border-radius:8px;
-                border:1px solid rgba(255,255,255,.25);
-                background:transparent;
-                cursor:pointer;
-                font-size:13px;">
-        {label}
-    </button>
-    """
-    st.components.v1.html(js, height=48)
-
-# Bouton dans la sidebar
-with st.sidebar:
-    copy_mobile_link_button()
-
-
-
+   
     def _render_gc_block():
         with st.container(border=True):
             st.markdown("### 🟢 Actifs (Grand Club)")
@@ -1931,7 +1941,6 @@ with st.sidebar:
 
     st.divider()
 
-
     # =====================================================
     # 🟡 Banc
     # =====================================================
@@ -1963,6 +1972,7 @@ with st.sidebar:
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     open_move_dialog()
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
