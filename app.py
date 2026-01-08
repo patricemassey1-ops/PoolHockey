@@ -1063,93 +1063,65 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
     st.session_state["data"] = df_loaded
     st.session_state["data_season"] = season
 
+# =====================================================
+# LOAD DATA + HISTORY + PENDING MOVES (ORDER IS CRITICAL)
+# =====================================================
+
+# --- Saison (fallback sécurisé)
+season = str(st.session_state.get("season") or "").strip()
+if not season:
+    season = saison_auto()
+    st.session_state["season"] = season
+
+# --- Paths
+DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
+
+st.session_state["DATA_FILE"] = DATA_FILE
+st.session_state["HISTORY_FILE"] = HISTORY_FILE
+
+# -----------------------------------------------------
+# 1) LOAD DATA (CSV → session_state)
+# -----------------------------------------------------
+if "data_season" not in st.session_state or st.session_state["data_season"] != season:
+    if os.path.exists(DATA_FILE):
+        try:
+            df_loaded = pd.read_csv(DATA_FILE)
+        except Exception:
+            df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+    else:
+        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+        try:
+            df_loaded.to_csv(DATA_FILE, index=False)
+        except Exception:
+            pass
+
+    st.session_state["data"] = clean_data(df_loaded)
+    st.session_state["data_season"] = season
+else:
+    # sécurité: s'assurer que data est propre
+    st.session_state["data"] = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+
 # -----------------------------------------------------
 # 2) LOAD HISTORY (CSV → session_state)
 # -----------------------------------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
     st.session_state["history"] = load_history_file(HISTORY_FILE)
     st.session_state["history_season"] = season
+else:
+    # sécurité: s'assurer que history est un DF
+    h0 = st.session_state.get("history")
+    st.session_state["history"] = h0 if isinstance(h0, pd.DataFrame) else _history_empty_df()
 
 # -----------------------------------------------------
 # 3) PROCESS PENDING MOVES  ⬅️ IMPORTANT
-#    (applique les moves programmés dont la date est atteinte)
+#    (doit être appelé APRÈS data + history chargés)
 # -----------------------------------------------------
-
-def _init_pending_moves():
-    if "pending_moves" not in st.session_state or not isinstance(st.session_state.get("pending_moves"), list):
-        st.session_state["pending_moves"] = []
-
-def process_pending_moves():
-    """
-    Applique les déplacements en attente dont la date d'effet est atteinte.
-    NOTE: Les délais (+3 jours, etc.) sont calculés au moment où tu *programmes* le move
-          dans open_move_dialog() via effective_at.
-    """
-    _init_pending_moves()
-
-    pending = st.session_state.get("pending_moves", [])
-    if not pending:
-        return
-
-    df_all = st.session_state.get("data")
-    if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
-        return
-
-    now = datetime.now(TZ_TOR)
-
-    remaining = []
-    changed = False
-
-    for pm in pending:
-        # Parse effective date
-        eff_raw = pm.get("effective_at")
-        eff = pd.to_datetime(eff_raw, errors="coerce")
-        if pd.isna(eff):
-            # entrée invalide -> on la drop
-            continue
-
-        # Convert to python datetime naive/local-ish
-        try:
-            eff_dt = eff.to_pydatetime()
-        except Exception:
-            continue
-
-        # Pas encore dû
-        if eff_dt > now:
-            remaining.append(pm)
-            continue
-
-        owner = str(pm.get("owner", "")).strip()
-        joueur = str(pm.get("joueur", "")).strip()
-        to_statut = str(pm.get("to_statut", "")).strip()
-        to_slot = str(pm.get("to_slot", "")).strip()
-        reason = str(pm.get("reason", "")).strip()
-        note = str(pm.get("note", "")).strip()
-
-        ok = apply_move_with_history(
-            owner,
-            joueur,
-            to_statut,
-            to_slot,
-            f"EFFECTIF — {note or reason or 'Déplacement programmé'}",
-        )
-        if ok:
-            changed = True
-        # si ok=False, on drop l'entrée (évite boucle infinie)
-
-    st.session_state["pending_moves"] = remaining
-
-    # Optionnel: refresh clean
-    if changed:
-        try:
-            st.session_state["data"] = clean_data(st.session_state.get("data"))
-        except Exception:
-            pass
-
-
-# ⚠️ DOIT être appelé APRÈS data + history chargés
-process_pending_moves()
-
+if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
+    try:
+        process_pending_moves()
+    except Exception as e:
+        st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
 # -----------------------------------------------------
 # 4) PLAYERS DATABASE (read-only)
@@ -1158,14 +1130,12 @@ players_db = load_players_db(PLAYERS_DB_FILE)
 st.session_state["players_db"] = players_db
 
 # -----------------------------------------------------
-# 5) REBUILD PLAFONDS (toujours à partir des data finales)
+# 5) BUILD PLAFONDS (si tu l'utilises globalement)
 # -----------------------------------------------------
-df_final = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-df_final = clean_data(df_final)
-st.session_state["data"] = df_final
+df0 = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+st.session_state["data"] = df0
+st.session_state["plafonds"] = rebuild_plafonds(df0)
 
-plafonds = rebuild_plafonds(df_final)
-st.session_state["plafonds"] = plafonds
 
 
 
@@ -1303,12 +1273,139 @@ def clear_move_ctx():
 
 # =====================================================
 # Global scheduled moves + dialogs (APPELS)
-#   ⚠️ ces fonctions doivent déjà être définies plus haut dans le fichier:
-#     - process_pending_moves
-#     - open_gc_preview_dialog
+#   ✅ DOIT être appelé APRÈS:
+#      - load data (st.session_state["data"])
+#      - load history (st.session_state["history"])
+#      - season défini
 # =====================================================
-process_pending_moves()
-open_gc_preview_dialog()
+if "data" in st.session_state and isinstance(st.session_state.get("data"), pd.DataFrame):
+    try:
+        process_pending_moves()
+    except Exception as e:
+        st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
+
+try:
+    open_gc_preview_dialog()
+except Exception:
+    pass
+
+
+# =====================================================
+# UI — roster click list (compact list)
+#   ⚠️ DOIT être défini AVANT Alignement (car appelé dans _render_gc_block)
+# =====================================================
+def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
+    if df_src is None or not isinstance(df_src, pd.DataFrame) or df_src.empty:
+        st.info("Aucun joueur.")
+        return None
+
+    # CSS injecté 1x
+    if not st.session_state.get("_roster_css_injected", False):
+        st.markdown(
+            """
+            <style>
+              div[data-testid="stButton"] > button{
+                padding: 0.18rem 0.45rem;
+                font-weight: 900;
+                text-align: left;
+                justify-content: flex-start;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .salaryCell{
+                white-space: nowrap;
+                text-align: right;
+                font-weight: 900;
+                display: block;
+              }
+              .levelCell{
+                white-space: nowrap;
+                opacity: .85;
+                font-weight: 800;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.session_state["_roster_css_injected"] = True
+
+    t = df_src.copy()
+
+    # colonnes minimales
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": ""}.items():
+        if c not in t.columns:
+            t[c] = d
+
+    t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Level"]  = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
+
+    bad = {"", "none", "nan", "null"}
+    t = t[~t["Joueur"].str.lower().isin(bad)].copy()
+    if t.empty:
+        st.info("Aucun joueur.")
+        return None
+
+    # tri
+    t["Pos"] = t["Pos"].apply(normalize_pos)
+    t["_pos"] = t["Pos"].apply(pos_sort_key)
+    t["_initial"] = t["Joueur"].str.upper().str[0].fillna("?")
+
+    t = (
+        t.sort_values(
+            by=["_pos", "Salaire", "_initial", "Joueur"],
+            ascending=[True, False, True, True],
+            kind="mergesort",
+        )
+        .drop(columns=["_pos", "_initial"])
+        .reset_index(drop=True)
+    )
+
+    disabled = str(source_key or "").endswith("_disabled")
+
+    # header
+    h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+    h[0].markdown("**Pos**")
+    h[1].markdown("**Équipe**")
+    h[2].markdown("**Joueur**")
+    h[3].markdown("**Level**")
+    h[4].markdown("**Salaire**")
+
+    clicked = None
+    for _, r in t.iterrows():
+        joueur = str(r.get("Joueur", "")).strip()
+        if not joueur:
+            continue
+
+        pos = r.get("Pos", "F")
+        team = str(r.get("Equipe", "")).strip()
+        lvl = str(r.get("Level", "")).strip()
+        salaire = int(r.get("Salaire", 0) or 0)
+
+        row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
+        row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
+
+        c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+        c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
+        c[1].markdown(team if team and team.lower() not in bad else "—")
+
+        if c[2].button(
+            joueur,
+            key=f"{source_key}_{owner}_{row_key}",
+            use_container_width=True,
+            disabled=disabled,
+        ):
+            clicked = joueur
+
+        c[3].markdown(
+            f"<span class='levelCell'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
+            unsafe_allow_html=True,
+        )
+        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+
+    return clicked
 
 
 # =====================================================
