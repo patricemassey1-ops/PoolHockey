@@ -1072,10 +1072,84 @@ if "history_season" not in st.session_state or st.session_state["history_season"
 
 # -----------------------------------------------------
 # 3) PROCESS PENDING MOVES  ⬅️ IMPORTANT
-#    (CE → Actif +3 jours, Actif → Banc +1 jour, etc.)
+#    (applique les moves programmés dont la date est atteinte)
 # -----------------------------------------------------
+
+def _init_pending_moves():
+    if "pending_moves" not in st.session_state or not isinstance(st.session_state.get("pending_moves"), list):
+        st.session_state["pending_moves"] = []
+
+def process_pending_moves():
+    """
+    Applique les déplacements en attente dont la date d'effet est atteinte.
+    NOTE: Les délais (+3 jours, etc.) sont calculés au moment où tu *programmes* le move
+          dans open_move_dialog() via effective_at.
+    """
+    _init_pending_moves()
+
+    pending = st.session_state.get("pending_moves", [])
+    if not pending:
+        return
+
+    df_all = st.session_state.get("data")
+    if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
+        return
+
+    now = datetime.now(TZ_TOR)
+
+    remaining = []
+    changed = False
+
+    for pm in pending:
+        # Parse effective date
+        eff_raw = pm.get("effective_at")
+        eff = pd.to_datetime(eff_raw, errors="coerce")
+        if pd.isna(eff):
+            # entrée invalide -> on la drop
+            continue
+
+        # Convert to python datetime naive/local-ish
+        try:
+            eff_dt = eff.to_pydatetime()
+        except Exception:
+            continue
+
+        # Pas encore dû
+        if eff_dt > now:
+            remaining.append(pm)
+            continue
+
+        owner = str(pm.get("owner", "")).strip()
+        joueur = str(pm.get("joueur", "")).strip()
+        to_statut = str(pm.get("to_statut", "")).strip()
+        to_slot = str(pm.get("to_slot", "")).strip()
+        reason = str(pm.get("reason", "")).strip()
+        note = str(pm.get("note", "")).strip()
+
+        ok = apply_move_with_history(
+            owner,
+            joueur,
+            to_statut,
+            to_slot,
+            f"EFFECTIF — {note or reason or 'Déplacement programmé'}",
+        )
+        if ok:
+            changed = True
+        # si ok=False, on drop l'entrée (évite boucle infinie)
+
+    st.session_state["pending_moves"] = remaining
+
+    # Optionnel: refresh clean
+    if changed:
+        try:
+            st.session_state["data"] = clean_data(st.session_state.get("data"))
+        except Exception:
+            pass
+
+
 # ⚠️ DOIT être appelé APRÈS data + history chargés
 process_pending_moves()
+
 
 # -----------------------------------------------------
 # 4) PLAYERS DATABASE (read-only)
