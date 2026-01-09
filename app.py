@@ -15,6 +15,7 @@ import json
 import html
 import base64
 import hashlib
+import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -340,100 +341,6 @@ def format_date_fr(x) -> str:
 # =====================================================
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
-
-# =====================================================
-# GOOGLE DRIVE (PERSISTENCE) — dossier partagé
-#   Objectif: garder tes imports après rerun / redéploiement.
-#   ✅ Fallback local si Drive non configuré.
-#
-#   Pour activer (recommandé: Service Account):
-#   1) Crée un Service Account Google Cloud + active "Google Drive API".
-#   2) Partage ton dossier Drive avec l'email du service account (éditeur).
-#   3) Mets le JSON dans st.secrets["gdrive_sa"]["json"] (dict ou string JSON)
-#   4) Mets folder_id dans st.secrets["gdrive_sa"]["folder_id"] (sinon défaut ci-dessous).
-# =====================================================
-DEFAULT_GDRIVE_FOLDER_ID = "1Tx6Lc0fhsbbDm6r_YOpcDIhJh4my-olU"
-
-def _gdrive_config():
-    cfg = st.secrets.get("gdrive_sa", {}) if hasattr(st, "secrets") else {}
-    folder_id = str(cfg.get("folder_id") or DEFAULT_GDRIVE_FOLDER_ID).strip()
-    sa_json = cfg.get("json")  # dict (recommandé) ou string JSON
-    return folder_id, sa_json
-
-@st.cache_resource(show_spinner=False)
-def _drive_service():
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-    except Exception:
-        return None
-    folder_id, sa_json = _gdrive_config()
-    if not folder_id or not sa_json:
-        return None
-    try:
-        info = sa_json
-        if isinstance(sa_json, str):
-            info = json.loads(sa_json)
-        creds = service_account.Credentials.from_service_account_info(
-            info,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
-    except Exception:
-        return None
-
-def _drive_enabled() -> bool:
-    return _drive_service() is not None
-
-def _drive_find_file_id(filename: str) -> str | None:
-    svc = _drive_service()
-    if svc is None:
-        return None
-    folder_id, _ = _gdrive_config()
-    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    res = svc.files().list(q=q, fields="files(id,name)", pageSize=1).execute()
-    files = res.get("files", [])
-    return files[0]["id"] if files else None
-
-def drive_download_bytes(filename: str) -> bytes | None:
-    svc = _drive_service()
-    if svc is None:
-        return None
-    file_id = _drive_find_file_id(filename)
-    if not file_id:
-        return None
-    try:
-        from googleapiclient.http import MediaIoBaseDownload
-        import io
-        fh = io.BytesIO()
-        request = svc.files().get_media(fileId=file_id)
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        return fh.getvalue()
-    except Exception:
-        return None
-
-def drive_upload_bytes(filename: str, content: bytes, mimetype: str = "text/csv") -> bool:
-    svc = _drive_service()
-    if svc is None:
-        return False
-    folder_id, _ = _gdrive_config()
-    try:
-        from googleapiclient.http import MediaIoBaseUpload
-        import io
-        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mimetype, resumable=True)
-        existing_id = _drive_find_file_id(filename)
-        if existing_id:
-            svc.files().update(fileId=existing_id, media_body=media).execute()
-        else:
-            meta = {"name": filename, "parents": [folder_id]}
-            svc.files().create(body=meta, media_body=media, fields="id").execute()
-        return True
-    except Exception:
-        return False
-
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
 LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
@@ -826,41 +733,19 @@ def save_init_manifest(manifest: dict) -> None:
 # =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    filename = f"fantrax_{season_lbl}.csv"
-    path = os.path.join(DATA_DIR, filename)
+    path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
     st.session_state["DATA_FILE"] = path
-
-    # 1) Local
     try:
         df.to_csv(path, index=False)
     except Exception:
         pass
 
-    # 2) Drive (si configuré)
-    try:
-        if _drive_enabled():
-            content = df.to_csv(index=False).encode("utf-8")
-            drive_upload_bytes(filename, content, mimetype="text/csv")
-    except Exception:
-        pass
-
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    filename = f"history_{season_lbl}.csv"
-    path = os.path.join(DATA_DIR, filename)
+    path = os.path.join(DATA_DIR, f"history_{season_lbl}.csv")
     st.session_state["HISTORY_FILE"] = path
-
-    # 1) Local
     try:
         h.to_csv(path, index=False)
-    except Exception:
-        pass
-
-    # 2) Drive (si configuré)
-    try:
-        if _drive_enabled():
-            content = h.to_csv(index=False).encode("utf-8")
-            drive_upload_bytes(filename, content, mimetype="text/csv")
     except Exception:
         pass
 
@@ -891,6 +776,300 @@ def load_history_file(path: str) -> pd.DataFrame:
     except Exception:
         pass
     return _history_empty_df()
+# =====================================================
+# WAIVERS / BALLOTAGE (STD seulement)
+#   - Un joueur STD en "Changement demi-mois" passe au ballotage jusqu'au lendemain 19h (America/Montreal)
+#   - Pendant le ballotage: le joueur (et son salaire) reste à l'équipe d'origine
+#   - Réclamation: une autre équipe peut cliquer "Réclamer" -> le joueur change d'équipe, salaire suit
+# =====================================================
+TZ_LOCAL = ZoneInfo("America/Montreal")
+
+def _waivers_expected_cols():
+    return [
+        "id", "timestamp", "season",
+        "owner_from", "joueur", "pos", "equipe", "salaire", "level",
+        "holding_statut", "holding_slot",
+        "intended_statut", "intended_slot",
+        "waiver_end",
+        "claimed_by", "claimed_at",
+        "status",
+        "note",
+    ]
+
+def _waivers_empty_df():
+    return pd.DataFrame(columns=_waivers_expected_cols())
+
+def load_waivers_file(path: str) -> pd.DataFrame:
+    try:
+        if path and os.path.exists(path):
+            w = pd.read_csv(path)
+            if isinstance(w, pd.DataFrame):
+                for c in _waivers_expected_cols():
+                    if c not in w.columns:
+                        w[c] = ""
+                return w[_waivers_expected_cols()]
+    except Exception:
+        pass
+    return _waivers_empty_df()
+
+def persist_waivers(w: pd.DataFrame, season_lbl: str) -> None:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    path = os.path.join(DATA_DIR, f"waivers_{season_lbl}.csv")
+    st.session_state["WAIVERS_FILE"] = path
+    try:
+        w.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def _next_day_19h(now_dt: datetime) -> datetime:
+    now_dt = now_dt.astimezone(TZ_LOCAL)
+    nxt = (now_dt + timedelta(days=1)).date()
+    return datetime(nxt.year, nxt.month, nxt.day, 19, 0, 0, tzinfo=TZ_LOCAL)
+
+def _get_player_row(df: pd.DataFrame, owner: str, joueur: str):
+    try:
+        m = (
+            df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+            & df["Joueur"].astype(str).str.strip().eq(str(joueur).strip())
+        )
+        if m.any():
+            return df.loc[m].iloc[0]
+    except Exception:
+        pass
+    return None
+
+def place_on_waivers(owner: str, joueur: str, intended_statut: str, intended_slot: str, note: str = "") -> bool:
+    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    if df is None or df.empty:
+        st.session_state["last_move_error"] = "Données manquantes."
+        return False
+
+    row = _get_player_row(df, owner, joueur)
+    if row is None:
+        st.session_state["last_move_error"] = "Joueur introuvable."
+        return False
+
+    pos = str(row.get("Pos", "")).strip()
+    equipe = str(row.get("Equipe", "")).strip()
+    salaire = float(pd.to_numeric(row.get("Salaire", 0), errors="coerce") or 0)
+    level = str(row.get("Level", "")).strip().upper()
+
+    w = st.session_state.get("waivers")
+    w = w if isinstance(w, pd.DataFrame) else _waivers_empty_df()
+
+    # éviter doublon
+    try:
+        pending = w[
+            w["status"].astype(str).eq("pending")
+            & w["owner_from"].astype(str).str.strip().eq(str(owner).strip())
+            & w["joueur"].astype(str).str.strip().eq(str(joueur).strip())
+        ]
+        if not pending.empty:
+            st.session_state["last_move_error"] = "Ce joueur est déjà au ballotage."
+            st.session_state["waivers"] = w
+            return False
+    except Exception:
+        pass
+
+    now = datetime.now(TZ_LOCAL)
+    waiver_end = _next_day_19h(now)
+    wid = f"w_{now.strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+
+    # holding: banc GC
+    holding_statut, holding_slot = STATUT_GC, SLOT_BANC
+
+    # appliquer holding
+    try:
+        m = (
+            df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+            & df["Joueur"].astype(str).str.strip().eq(str(joueur).strip())
+        )
+        idx = df.index[m][0]
+        df.at[idx, "Statut"] = holding_statut
+        df.at[idx, "Slot"] = holding_slot
+        st.session_state["data"] = df
+    except Exception:
+        pass
+
+    rec = {
+        "id": wid,
+        "timestamp": now.isoformat(timespec="seconds"),
+        "season": season,
+        "owner_from": str(owner).strip(),
+        "joueur": str(joueur).strip(),
+        "pos": pos,
+        "equipe": equipe,
+        "salaire": salaire,
+        "level": level,
+        "holding_statut": holding_statut,
+        "holding_slot": holding_slot,
+        "intended_statut": str(intended_statut),
+        "intended_slot": str(intended_slot or ""),
+        "waiver_end": waiver_end.isoformat(timespec="seconds"),
+        "claimed_by": "",
+        "claimed_at": "",
+        "status": "pending",
+        "note": str(note or ""),
+    }
+    w = pd.concat([w, pd.DataFrame([rec])], ignore_index=True)
+    st.session_state["waivers"] = w
+
+    persist_waivers(w, season)
+    persist_data(st.session_state["data"], season)
+    return True
+
+def process_waivers():
+    w = st.session_state.get("waivers")
+    w = w if isinstance(w, pd.DataFrame) else _waivers_empty_df()
+    if w.empty:
+        st.session_state["waivers"] = w
+        return
+
+    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    if df is None or df.empty:
+        st.session_state["waivers"] = w
+        return
+
+    now = datetime.now(TZ_LOCAL)
+    changed = False
+
+    for i, r in w.iterrows():
+        if str(r.get("status", "")) != "pending":
+            continue
+
+        end = pd.to_datetime(r.get("waiver_end"), errors="coerce")
+        if end is pd.NaT:
+            continue
+        if getattr(end, "tzinfo", None) is None:
+            end = end.to_pydatetime().replace(tzinfo=TZ_LOCAL)
+        else:
+            end = end.to_pydatetime().astimezone(TZ_LOCAL)
+
+        if now < end:
+            continue
+
+        # expire -> apply intended (owner unchanged)
+        owner = str(r.get("owner_from", "")).strip()
+        joueur = str(r.get("joueur", "")).strip()
+        to_statut = str(r.get("intended_statut", "")).strip()
+        to_slot = str(r.get("intended_slot", "")).strip()
+
+        try:
+            m = (
+                df["Propriétaire"].astype(str).str.strip().eq(owner)
+                & df["Joueur"].astype(str).str.strip().eq(joueur)
+            )
+            if m.any():
+                idx = df.index[m][0]
+                df.at[idx, "Statut"] = to_statut
+                df.at[idx, "Slot"] = to_slot
+                changed = True
+        except Exception:
+            pass
+
+        w.at[i, "status"] = "expired"
+        changed = True
+
+    if changed:
+        st.session_state["data"] = df
+        st.session_state["waivers"] = w
+        persist_data(df, season)
+        persist_waivers(w, season)
+
+def claim_waiver(waiver_id: str, claimant_owner: str) -> bool:
+    w = st.session_state.get("waivers")
+    w = w if isinstance(w, pd.DataFrame) else _waivers_empty_df()
+    if w.empty:
+        return False
+
+    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    if df is None or df.empty:
+        return False
+
+    claimant_owner = str(claimant_owner).strip()
+
+    try:
+        m = w["id"].astype(str).eq(str(waiver_id))
+        if not m.any():
+            return False
+
+        i = w.index[m][0]
+        r = w.loc[i]
+        if str(r.get("status", "")) != "pending":
+            return False
+
+        owner_from = str(r.get("owner_from", "")).strip()
+        if claimant_owner == owner_from:
+            return False
+
+        joueur = str(r.get("joueur", "")).strip()
+        md = (
+            df["Propriétaire"].astype(str).str.strip().eq(owner_from)
+            & df["Joueur"].astype(str).str.strip().eq(joueur)
+        )
+        if not md.any():
+            return False
+
+        idx = df.index[md][0]
+        df.at[idx, "Propriétaire"] = claimant_owner
+        df.at[idx, "Statut"] = STATUT_GC
+        df.at[idx, "Slot"] = SLOT_BANC
+
+        now = datetime.now(TZ_LOCAL)
+        w.at[i, "status"] = "claimed"
+        w.at[i, "claimed_by"] = claimant_owner
+        w.at[i, "claimed_at"] = now.isoformat(timespec="seconds")
+
+        st.session_state["data"] = df
+        st.session_state["waivers"] = w
+        persist_data(df, season)
+        persist_waivers(w, season)
+        return True
+    except Exception:
+        return False
+
+def render_waivers_table(current_owner: str):
+    """Affiche les joueurs au ballotage + bouton Réclamer."""
+    current_owner = str(current_owner or "").strip()
+    w = st.session_state.get("waivers")
+    w = w if isinstance(w, pd.DataFrame) else _waivers_empty_df()
+
+    pending = w[w["status"].astype(str).eq("pending")].copy() if not w.empty else _waivers_empty_df()
+    if pending.empty:
+        st.caption("Aucun joueur au ballotage en ce moment.")
+        return
+
+    pending["waiver_end_dt"] = pd.to_datetime(pending["waiver_end"], errors="coerce")
+    pending = pending.sort_values(by=["waiver_end_dt", "owner_from", "joueur"], ascending=[True, True, True], kind="mergesort")
+
+    for _, r in pending.iterrows():
+        joueur = str(r.get("joueur", "")).strip()
+        owner_from = str(r.get("owner_from", "")).strip()
+        pos = str(r.get("pos", "")).strip()
+        equipe = str(r.get("equipe", "")).strip()
+        salaire = r.get("salaire", 0)
+        waiver_end = str(r.get("waiver_end", "")).replace("T", " ")
+        wid = str(r.get("id", ""))
+
+        with st.container(border=True):
+            left, right = st.columns([5, 2], vertical_alignment="center")
+            with left:
+                st.markdown(
+                    f"**{joueur}**\n\n"
+                    f"{owner_from} · {pos} · {equipe} · **{money(salaire)}**\n\n"
+                    f"⏰ Deadline: **{waiver_end}**"
+                )
+            with right:
+                if current_owner and current_owner != owner_from:
+                    if st.button("Réclamer", key=f"claim_{wid}", use_container_width=True):
+                        if claim_waiver(wid, current_owner):
+                            st.toast("✅ Réclamation effectuée (joueur au banc)", icon="✅")
+                            do_rerun()
+                        else:
+                            st.toast("❌ Réclamation impossible", icon="❌")
+                else:
+                    st.caption("—")
+
 
 def next_hist_id(h: pd.DataFrame) -> int:
     try:
@@ -1066,95 +1245,6 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     s = s.mask(s.eq(""), str(fallback_owner or "").strip())
     out["Propriétaire"] = s
     return out
-
-# =====================================================
-# MOVE + HISTORY (wrapper safe)
-#   - évite NameError: apply_move_with_history
-#   - écrit dans st.session_state["history"]
-# =====================================================
-from datetime import datetime
-import pandas as pd
-import streamlit as st
-
-def _history_append(owner: str, joueur: str, from_statut: str, from_slot: str,
-                    to_statut: str, to_slot: str, note: str = ""):
-    """Append une entrée d'historique en mémoire (session_state)."""
-    if "history" not in st.session_state or st.session_state["history"] is None:
-        st.session_state["history"] = pd.DataFrame(
-            columns=["timestamp", "proprietaire", "joueur", "from_statut", "from_slot", "to_statut", "to_slot", "note"]
-        )
-
-    h = st.session_state["history"].copy()
-    row = {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "proprietaire": str(owner),
-        "joueur": str(joueur),
-        "from_statut": str(from_statut),
-        "from_slot": str(from_slot),
-        "to_statut": str(to_statut),
-        "to_slot": str(to_slot),
-        "note": str(note or ""),
-    }
-    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
-    st.session_state["history"] = h
-
-
-def apply_move_with_history(owner: str, joueur: str, to_statut: str, to_slot: str, note: str = "") -> bool:
-    """
-    Applique le move (via ta fonction existante) + ajoute une entrée d'historique.
-    Retourne True si le move a été appliqué, sinon False.
-    """
-    df = st.session_state.get("data")
-    if df is None or df.empty:
-        st.error("Données manquantes (st.session_state['data']).")
-        return False
-
-    # --- trouver la ligne du joueur (1ère occurrence)
-    m = (
-        df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-        & df["Joueur"].astype(str).str.strip().eq(str(joueur).strip())
-    )
-    if not m.any():
-        st.warning(f"Joueur introuvable: {joueur} ({owner}).")
-        return False
-
-    idx = df.index[m][0]
-    from_statut = str(df.at[idx, "Statut"]) if "Statut" in df.columns else ""
-    from_slot   = str(df.at[idx, "Slot"])   if "Slot"   in df.columns else ""
-
-    # --- applique le move via la fonction existante (selon ton code)
-    ok = False
-
-    if "apply_move" in globals() and callable(globals()["apply_move"]):
-        # Signature attendue : apply_move(owner, joueur, to_statut, to_slot, note?)
-        try:
-            ok = bool(globals()["apply_move"](owner, joueur, to_statut, to_slot, note))
-        except TypeError:
-            # si ta apply_move n'accepte pas note
-            ok = bool(globals()["apply_move"](owner, joueur, to_statut, to_slot))
-    elif "apply_move_player" in globals() and callable(globals()["apply_move_player"]):
-        # Alternative fréquente
-        try:
-            ok = bool(globals()["apply_move_player"](owner, joueur, to_statut, to_slot, note))
-        except TypeError:
-            ok = bool(globals()["apply_move_player"](owner, joueur, to_statut, to_slot))
-    else:
-        # Fallback minimal: modifie directement df (si tes colonnes existent)
-        if "Statut" in df.columns:
-            df.at[idx, "Statut"] = to_statut
-            ok = True
-        if "Slot" in df.columns and to_slot is not None:
-            df.at[idx, "Slot"] = to_slot
-            ok = True
-        st.session_state["data"] = df
-
-    if not ok:
-        return False
-
-    # --- historique
-    _history_append(owner, joueur, from_statut, from_slot, to_statut, to_slot, note)
-
-    return True
 
 
 # =====================================================
@@ -1406,7 +1496,37 @@ def open_move_dialog():
 
             # IMMÉDIAT
             if immediate:
-                ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
+    
+                # -----------------------------
+                # DEMI-MOIS / BALLOTAGE (STD)
+                # -----------------------------
+                df_now = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+                lvl = ""
+                try:
+                    rr = _get_player_row(df_now, owner, joueur)
+                    lvl = str(rr.get("Level", "")).strip().upper() if rr is not None else ""
+                except Exception:
+                    lvl = ""
+
+                ok = False
+
+                if reason == "Changement demi-mois":
+                    # STD -> ballotage jusqu'au lendemain 19h
+                    if lvl == "STD":
+                        ok = place_on_waivers(owner, joueur, to_statut, to_slot, note=note)
+                        if ok:
+                            st.toast("⏳ Joueur placé au ballotage (réclamations jusqu'à demain 19h)", icon="⏳")
+                    else:
+                        # ELC (ou autre) -> pas de ballotage: move immédiat
+                        # règle: ELC retourne Mineur par défaut, sinon Banc
+                        auto_statut, auto_slot = to_statut, to_slot
+                        if lvl == "ELC":
+                            auto_statut, auto_slot = (STATUT_CE, "") if to_statut != STATUT_GC else (STATUT_GC, SLOT_BANC)
+                        ok = apply_move_with_history(owner, joueur, auto_statut, auto_slot, note + f" | level={lvl or '—'}")
+                else:
+                    # Blessure -> move immédiat
+                    ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note + f" | level={lvl or '—'}")
+
                 if ok:
                     # ✅ Auto-remplacement si GC ACTIF -> IR
                     if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
@@ -1441,7 +1561,61 @@ def open_move_dialog():
 
 
 # =====================================================
+# DIALOG — Preview Alignement Grand Club (GC)
+# =====================================================
+def open_gc_preview_dialog():
+    if not st.session_state.get("gc_preview_open"):
+        return
 
+    owner = str(get_selected_team() or "").strip()
+
+    df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
+
+    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
+    if not dprop.empty and "Slot" in dprop.columns:
+        dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+
+    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
+
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
+    remain_gc = cap_gc - used_gc
+
+    @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
+    def _dlg():
+        st.caption("Prévisualisation rapide du Grand Club (GC).")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Total GC", money(used_gc))
+        with c2:
+            st.metric("Plafond GC", money(cap_gc))
+        with c3:
+            if used_gc > cap_gc:
+                st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
+            else:
+                st.success(f"Conforme — reste: {money(remain_gc)}")
+
+        if gc_all.empty:
+            st.info("Aucun joueur GC pour cette équipe.")
+        else:
+            # ✅ Pos complètement à gauche
+            show_cols = [c for c in ["Pos", "Joueur", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
+            df_show = gc_all[show_cols].copy()
+
+            if "Salaire" in df_show.columns:
+                df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        if st.button("OK", use_container_width=True, key="gc_preview_ok"):
+            st.session_state["gc_preview_open"] = False
+            do_rerun()
+
+    _dlg()
 
 
 
@@ -1576,41 +1750,24 @@ if not season:
 # --- Paths
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
+WAIVERS_FILE = os.path.join(DATA_DIR, f"waivers_{season}.csv")
 
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
+st.session_state["WAIVERS_FILE"] = WAIVERS_FILE
 
 # -----------------------------------------------------
 # 1) LOAD ALIGNEMENT DATA (CSV → session_state)
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
 
-    df_loaded = None
-
-    # 1) Google Drive (si configuré)
-    if _drive_enabled():
+    if os.path.exists(DATA_FILE):
         try:
-            b = drive_download_bytes(os.path.basename(DATA_FILE))
-            if b:
-                df_loaded = pd.read_csv(io.BytesIO(b))
-                # cache local pour accélérer les prochains runs
-                try:
-                    with open(DATA_FILE, "wb") as f:
-                        f.write(b)
-                except Exception:
-                    pass
+            df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
-            df_loaded = None
-
-    # 2) Local (fallback)
-    if df_loaded is None:
-        if os.path.exists(DATA_FILE):
-            try:
-                df_loaded = pd.read_csv(DATA_FILE)
-            except Exception:
-                df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-        else:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+    else:
+        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
         try:
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
@@ -1633,40 +1790,23 @@ if not season:
 # --- Paths
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
+WAIVERS_FILE = os.path.join(DATA_DIR, f"waivers_{season}.csv")
 
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
+st.session_state["WAIVERS_FILE"] = WAIVERS_FILE
 
 # -----------------------------------------------------
 # 1) LOAD DATA (CSV → session_state)
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-    df_loaded = None
-
-    # 1) Google Drive (si configuré)
-    if _drive_enabled():
+    if os.path.exists(DATA_FILE):
         try:
-            b = drive_download_bytes(os.path.basename(DATA_FILE))
-            if b:
-                df_loaded = pd.read_csv(io.BytesIO(b))
-                # cache local pour accélérer les prochains runs
-                try:
-                    with open(DATA_FILE, "wb") as f:
-                        f.write(b)
-                except Exception:
-                    pass
+            df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
-            df_loaded = None
-
-    # 2) Local (fallback)
-    if df_loaded is None:
-        if os.path.exists(DATA_FILE):
-            try:
-                df_loaded = pd.read_csv(DATA_FILE)
-            except Exception:
-                df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-        else:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+    else:
+        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
         try:
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
@@ -1689,6 +1829,19 @@ else:
     h0 = st.session_state.get("history")
     st.session_state["history"] = h0 if isinstance(h0, pd.DataFrame) else _history_empty_df()
 
+
+# -----------------------------------------------------
+# 2b) LOAD WAIVERS / BALLOTAGE (CSV → session_state)
+# -----------------------------------------------------
+if "waivers_season" not in st.session_state or st.session_state["waivers_season"] != season:
+    st.session_state["waivers"] = load_waivers_file(WAIVERS_FILE)
+    st.session_state["waivers_season"] = season
+else:
+    w0 = st.session_state.get("waivers")
+    st.session_state["waivers"] = w0 if isinstance(w0, pd.DataFrame) else _waivers_empty_df()
+
+# Expire automatiquement (si nécessaire)
+process_waivers()
 # -----------------------------------------------------
 # 3) PROCESS PENDING MOVES  ⬅️ IMPORTANT
 #    (doit être appelé APRÈS data + history chargés)
@@ -1788,6 +1941,7 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+    st.session_state["gc_preview_open"] = True
     st.session_state["active_tab"] = "🧾 Alignement"
     do_rerun()
 
@@ -1862,7 +2016,19 @@ if _has_data and _has_hist:
         except Exception as e:
             st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
+    # 2) Dialog preview GC (si présent)
+    if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
+        try:
+            open_gc_preview_dialog()
+        except Exception as e:
+            st.warning(f"⚠️ open_gc_preview_dialog() a échoué: {type(e).__name__}: {e}")
+
     # 3) Dialog MOVE (si présent)  ✅ IMPORTANT
+    if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
+        try:
+            open_move_dialog()
+        except Exception as e:
+            st.warning(f"⚠️ open_move_dialog() a échoué: {type(e).__name__}: {e}")
 
 
 
@@ -2001,6 +2167,9 @@ if active_tab == "📊 Tableau":
 
     # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
+    st.divider()
+    st.subheader("⏳ Ballotage (réclamations jusqu'à demain 19h)")
+    render_waivers_table(get_selected_team())
 
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
@@ -2070,6 +2239,26 @@ elif active_tab == "🧾 Alignement":
     )
 
     st.write("")
+
+    # --- Tes métriques (animées)
+    def gm_metric(label: str, value: str):
+        st.markdown(
+            f"""
+            <div class="fade-in lift" style="text-align:left;padding:6px 8px;border:1px solid #1f2937;border-radius:10px;background:#111827">
+                <div style="font-size:12px;opacity:.75;font-weight:800">{html.escape(label)}</div>
+                <div style="font-size:20px;font-weight:1000">{html.escape(str(value))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    cols = st.columns(6)
+    with cols[0]: gm_metric("Total GC", money(used_gc))
+    with cols[1]: gm_metric("Reste GC", money(remain_gc))
+    with cols[2]: gm_metric("Total CE", money(used_ce))
+    with cols[3]: gm_metric("Reste CE", money(remain_ce))
+    with cols[4]: gm_metric("Banc", str(len(gc_banc)))
+    with cols[5]: gm_metric("IR", str(len(injured_all)))
 
     st.write("")
 
@@ -2410,50 +2599,16 @@ elif active_tab == "🛠️ Gestion Admin":
             key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
         )
 
-    # -------------------------------------------------
-    # Mémoire d'import (évite de ré-uploader à chaque run)
-    #   - stocké en session_state (valide tant que la session tourne)
-    #   - persistant via Google Drive si configuré (persist_data/persist_history)
-    # -------------------------------------------------
-    if init_align is not None:
-        try:
-            st.session_state["last_import_align"] = {
-                "season": str(season_pick),
-                "owner": str(chosen_owner),
-                "name": str(init_align.name),
-                "bytes": bytes(init_align.getbuffer()),
-            }
-        except Exception:
-            pass
-
-    init_align_bytes = None
-    init_align_name = None
-    if init_align is not None:
-        try:
-            init_align_bytes = bytes(init_align.getbuffer())
-            init_align_name = str(init_align.name)
-        except Exception:
-            init_align_bytes = None
-            init_align_name = None
-    else:
-        last = st.session_state.get("last_import_align") or {}
-        if last.get("season") == str(season_pick) and last.get("owner") == str(chosen_owner):
-            init_align_bytes = last.get("bytes")
-            init_align_name = last.get("name")
-            if init_align_bytes:
-                st.caption(f"ℹ️ Dernier import réutilisé: {init_align_name}")
-
-
     c_btn1, c_btn2 = st.columns([1, 1])
 
     with c_btn1:
         if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-            if not init_align_bytes:
+            if init_align is None:
                 st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
             else:
                 try:
-                    buf = io.BytesIO(init_align_bytes or b"")
-                    buf.name = init_align_name or "import.csv"
+                    buf = io.BytesIO(init_align.getbuffer())
+                    buf.name = init_align.name
                     df_import = parse_fantrax(buf)
                     df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
                     df_import["Propriétaire"] = str(chosen_owner).strip()
@@ -2461,7 +2616,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
                     st.session_state["init_preview_df"] = df_import
                     st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                    st.session_state["init_preview_filename"] = (init_align_name or "import.csv")
+                    st.session_state["init_preview_filename"] = init_align.name
                     st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
                 except Exception as e:
                     st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
