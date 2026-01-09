@@ -1,11 +1,5 @@
 # =====================================================
 # app.py — PMS Pool (CLEAN / SAFE / NO CSS SYNTAX ERRORS)
-#   ✅ CSS injecté 1 seule fois (inject_css)
-#   ✅ aucune ligne décorative non-commentée (pas d’emoji hors string/comment)
-#   ✅ pas de doublon NAV
-#   ✅ moves: just_moved flag + auto-remplacement IR
-#   ✅ pending moves: init + process (safe)
-#   ✅ apply_move_with_history: update DF + plafonds + history + persist
 # =====================================================
 
 # =====================================================
@@ -58,30 +52,28 @@ def init_flags():
     if "last_move_error" not in st.session_state:
         st.session_state["last_move_error"] = ""
 
-
 init_flags()
 
 
 # =====================================================
-# CSS — INJECTION UNIQUE (SAFE) + lisibilité
+# THEME — UNIQUE / SAFE / DOUX (dark & light)
 # =====================================================
-def inject_css(mode: str = "dark") -> None:
-    mode = str(mode or "dark").strip().lower()
-    is_dark = (mode != "light")
+def apply_theme(mode: str = "dark") -> None:
+    mode = str(mode or "dark").lower()
+    dark = mode == "dark"
 
-    bg = "#0b1220" if is_dark else "#ffffff"
-    panel = "#0f172a" if is_dark else "#f8fafc"
-    panel2 = "#111827" if is_dark else "#ffffff"
-    text = "#e5e7eb" if is_dark else "#0f172a"
-    muted = "#9ca3af" if is_dark else "#475569"
-    border = "rgba(148,163,184,0.25)" if is_dark else "rgba(15,23,42,0.12)"
-    accent = "rgba(34,197,94,0.85)"
+    bg = "#0b1220" if dark else "#f5f7fb"
+    panel = "#0f172a" if dark else "#ffffff"
+    text = "#e5e7eb" if dark else "#0f172a"
+    muted = "#94a3b8" if dark else "#64748b"
+    border = "rgba(148,163,184,0.22)" if dark else "rgba(15,23,42,0.12)"
+    accent = "#22c55e"
 
     st.markdown(
         f"""
 <style>
 :root {{
-  color-scheme: {"dark" if is_dark else "light"};
+  color-scheme: {"dark" if dark else "light"};
 }}
 
 .stApp {{
@@ -89,17 +81,9 @@ def inject_css(mode: str = "dark") -> None:
   color: {text} !important;
 }}
 
-p, span, label, div {{
-  color: {text};
-}}
-
 .block-container {{
-  padding-top: 14px !important;
   max-width: 1200px;
-}}
-
-hr {{
-  border-color: {border} !important;
+  padding-top: 16px;
 }}
 
 [data-testid="stSidebar"] {{
@@ -107,34 +91,41 @@ hr {{
   border-right: 1px solid {border} !important;
 }}
 
-div[data-testid="stContainer"] {{
-  background: {panel2};
-  border: 1px solid {border};
-  border-radius: 12px;
-  padding: 12px;
+hr {{
+  border-color: {border} !important;
+}}
+
+h1, h2, h3, h4 {{
+  color: {text} !important;
+}}
+
+.muted {{
+  color: {muted} !important;
 }}
 
 input, textarea {{
-  background: {"#0b1020" if is_dark else "#ffffff"} !important;
+  background: {"#0b1020" if dark else "#ffffff"} !important;
   color: {text} !important;
   border: 1px solid {border} !important;
   border-radius: 10px !important;
 }}
 
+div[data-baseweb="select"] {{
+  max-width: 260px;
+}}
+
 div[data-baseweb="select"] > div {{
-  background: {"#0b1020" if is_dark else "#ffffff"} !important;
-  color: {text} !important;
+  background: {"#0b1020" if dark else "#ffffff"} !important;
   border: 1px solid {border} !important;
   border-radius: 10px !important;
 }}
 
 button {{
-  background: {"#111827" if is_dark else "#0f172a"} !important;
-  color: {"#f9fafb" if is_dark else "#f8fafc"} !important;
+  background: {"#111827" if dark else "#f1f5f9"} !important;
+  color: {text} !important;
   border: 1px solid {border} !important;
   border-radius: 12px !important;
   font-weight: 700 !important;
-  padding: 8px 12px !important;
 }}
 
 button:hover {{
@@ -142,47 +133,30 @@ button:hover {{
 }}
 
 div[role="radiogroup"] {{
-  display: flex !important;
-  flex-wrap: wrap !important;
-  gap: 8px !important;
-  margin-bottom: 4px !important;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }}
 
 div[role="radiogroup"] > label {{
-  border: 1px solid {border} !important;
-  background: rgba(255,255,255,{"0.04" if is_dark else "0.70"}) !important;
-  border-radius: 999px !important;
-  padding: 8px 14px !important;
-  color: {text} !important;
-  font-weight: 800 !important;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 700;
+  border: 1px solid {border};
+  background: rgba(255,255,255,{"0.04" if dark else "0.6"});
 }}
 
 div[role="radiogroup"] > label[data-selected="true"] {{
-  border-color: {accent} !important;
-  background: rgba(34,197,94,{"0.18" if is_dark else "0.14"}) !important;
-}}
-
-div[data-testid="stButton"] > button {{
-  text-align: left !important;
-  justify-content: flex-start !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-}}
-
-.muted {{
-  color: {muted} !important;
+  border-color: {accent};
+  background: rgba(34,197,94,{"0.18" if dark else "0.14"});
 }}
 
 .salaryCell {{
-  white-space: nowrap;
   text-align: right;
   font-weight: 800;
-  display: block;
 }}
 
 .levelCell {{
-  white-space: nowrap;
   opacity: 0.85;
   font-weight: 700;
 }}
@@ -190,6 +164,13 @@ div[data-testid="stButton"] > button {{
         """,
         unsafe_allow_html=True,
     )
+
+# Alias pour compatibilité: ton code appelle inject_css(...)
+inject_css = apply_theme
+
+# ✅ IMPORTANT: injecter le CSS UNE SEULE FOIS par run
+apply_theme(st.session_state.get("theme_mode", "dark"))
+
 
 
 # =====================================================
@@ -1222,7 +1203,7 @@ def open_move_dialog():
         )
         st.divider()
 
-        def _schedule_move(note: str):
+            def _schedule_move(note: str):
             _init_pending_moves()
             st.session_state["pending_moves"].append({
                 "owner": owner,
@@ -1245,8 +1226,10 @@ def open_move_dialog():
         ):
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
+            # IMMÉDIAT
             if immediate:
                 ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
+
                 if ok:
                     rep_ok = None
                     if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
@@ -1264,17 +1247,24 @@ def open_move_dialog():
                     do_rerun()
                 else:
                     st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+
+            # PROGRAMMÉ
             else:
                 _schedule_move(note)
                 st.toast(f"Déplacement programmé ({hint})", icon="🕒")
                 _close()
                 do_rerun()
 
-        if c2.button("Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
+        if c2.button(
+            "Annuler",
+            use_container_width=True,
+            key=f"cancel_{owner}_{joueur}_{nonce}",
+        ):
             _close()
             do_rerun()
 
     _dlg()
+
 
 
 # =====================================================
@@ -1364,80 +1354,99 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 # =====================================================
 with st.sidebar:
     st.markdown("### Apparence")
-    st.session_state["theme_mode"] = st.radio(
+
+    prev_mode = str(st.session_state.get("theme_mode", "dark") or "dark")
+    new_mode = st.radio(
         "Mode d’affichage",
         ["dark", "light"],
-        index=0 if st.session_state["theme_mode"] == "dark" else 1,
+        index=0 if prev_mode == "dark" else 1,
         horizontal=True,
         key="theme_mode_radio",
     )
 
-inject_css(st.session_state.get("theme_mode", "dark"))
+    # ✅ si changement -> save + rerun (le CSS est injecté en haut, 1 seule fois)
+    if new_mode != prev_mode:
+        st.session_state["theme_mode"] = new_mode
+        do_rerun()
 
-st.sidebar.header("Saison")
-saisons = ["2024-2025", "2025-2026", "2026-2027"]
-auto = saison_auto()
-if auto not in saisons:
-    saisons.append(auto)
-    saisons.sort()
+    st.header("Saison")
+    saisons = ["2024-2025", "2025-2026", "2026-2027"]
+    auto = saison_auto()
+    if auto not in saisons:
+        saisons.append(auto)
+        saisons.sort()
 
-season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
-st.session_state["season"] = season_pick
-st.session_state["LOCKED"] = saison_verrouillee(season_pick)
+    # fallback index safe
+    idx = saisons.index(auto) if auto in saisons else 0
 
-st.sidebar.checkbox("Mode mobile", key="mobile_view")
-
-# Default caps
-if "PLAFOND_GC" not in st.session_state:
-    st.session_state["PLAFOND_GC"] = 95_500_000
-if "PLAFOND_CE" not in st.session_state:
-    st.session_state["PLAFOND_CE"] = 47_750_000
-
-st.sidebar.divider()
-st.sidebar.header("Plafonds")
-if st.sidebar.button("Modifier les plafonds"):
-    st.session_state["edit_plafond"] = True
-
-if st.session_state.get("edit_plafond"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club",
-        value=int(st.session_state["PLAFOND_GC"]),
-        step=500_000,
+    season_pick = st.selectbox(
+        "Saison",
+        saisons,
+        index=idx,
+        key="sb_season_select",
     )
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École",
-        value=int(st.session_state["PLAFOND_CE"]),
-        step=250_000,
+    st.session_state["season"] = season_pick
+    st.session_state["LOCKED"] = saison_verrouillee(season_pick)
+
+    st.checkbox("Mode mobile", key="mobile_view")
+
+    # Default caps
+    if "PLAFOND_GC" not in st.session_state:
+        st.session_state["PLAFOND_GC"] = 95_500_000
+    if "PLAFOND_CE" not in st.session_state:
+        st.session_state["PLAFOND_CE"] = 47_750_000
+
+    st.divider()
+    st.header("Plafonds")
+    if st.button("Modifier les plafonds"):
+        st.session_state["edit_plafond"] = True
+
+    if st.session_state.get("edit_plafond"):
+        st.session_state["PLAFOND_GC"] = st.number_input(
+            "Plafond Grand Club",
+            value=int(st.session_state["PLAFOND_GC"]),
+            step=500_000,
+        )
+        st.session_state["PLAFOND_CE"] = st.number_input(
+            "Plafond Club École",
+            value=int(st.session_state["PLAFOND_CE"]),
+            step=250_000,
+        )
+
+    st.metric("Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
+    st.metric("Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+
+    st.divider()
+    st.markdown("### Équipes")
+
+    teams = list(LOGOS.keys())
+    cur = str(st.session_state.get("selected_team", "") or "").strip()
+    if teams and cur not in teams:
+        cur = teams[0]
+
+    chosen = st.selectbox(
+        "Choisir une équipe",
+        teams if teams else [""],
+        index=(teams.index(cur) if (teams and cur in teams) else 0),
+        key="sb_team_select",
     )
 
-st.sidebar.metric("Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("Plafond Club École", money(st.session_state["PLAFOND_CE"]))
+    if chosen and str(chosen).strip():
+        chosen = str(chosen).strip()
+        if chosen != str(st.session_state.get("selected_team", "")).strip():
+            st.session_state["selected_team"] = chosen
+            st.session_state["align_owner"] = chosen
+            do_rerun()
 
-st.sidebar.divider()
-st.sidebar.markdown("### Équipes")
-teams = list(LOGOS.keys())
-cur = str(st.session_state.get("selected_team", "")).strip()
-if cur not in teams and teams:
-    cur = teams[0]
+    logo_path = team_logo_path(get_selected_team())
+    if logo_path:
+        st.image(logo_path, use_container_width=True)
 
-chosen = st.sidebar.selectbox(
-    "Choisir une équipe",
-    teams if teams else [""],
-    index=(teams.index(cur) if cur in teams else 0),
-    key="sb_team_select",
-)
-if chosen and str(chosen).strip():
-    st.session_state["selected_team"] = str(chosen).strip()
-    st.session_state["align_owner"] = str(chosen).strip()
+    if st.button("Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+        st.session_state["gc_preview_open"] = True
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
 
-logo_path = team_logo_path(get_selected_team())
-if logo_path:
-    st.sidebar.image(logo_path, use_container_width=True)
-
-if st.sidebar.button("Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
-    st.session_state["gc_preview_open"] = True
-    st.session_state["active_tab"] = "🧾 Alignement"
-    do_rerun()
 
 
 # =====================================================
@@ -1500,21 +1509,41 @@ except Exception as e:
 
 
 # =====================================================
-# NAV
+# NAV — compact & lisible (selectbox, sans CSS)
+#   ✅ garde ton routing: if active_tab == ...
+#   ✅ aucun CSS (donc aucune erreur "invalid decimal literal")
 # =====================================================
 is_admin = _is_admin_whalers()
-NAV_TABS = ["📊 Tableau", "🧾 Alignement", "👤 Joueurs", "🕘 Historique", "⚖️ Transactions"]
+
+NAV_TABS = [
+    "📊 Tableau",
+    "🧾 Alignement",
+    "👤 Joueurs",
+    "🕘 Historique",
+    "⚖️ Transactions",
+]
 if is_admin:
     NAV_TABS.append("🛠️ Gestion Admin")
 NAV_TABS.append("🧠 Recommandations")
 
+# init + fallback (safe)
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "📊 Tableau"
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
+active_tab = st.selectbox(
+    "Navigation",
+    NAV_TABS,
+    index=NAV_TABS.index(st.session_state["active_tab"]),
+    key="active_tab",
+)
+
 st.divider()
+
+
+
+
 
 
 # =====================================================
