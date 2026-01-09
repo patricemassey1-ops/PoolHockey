@@ -60,14 +60,15 @@ init_flags()
 # =====================================================
 def apply_theme(mode: str = "dark") -> None:
     mode = str(mode or "dark").lower()
-    dark = mode == "dark"
+    dark = (mode == "dark")
 
-    bg = "#eef2f7" if dark else "#eef2f7"          # fond gris bleuté doux
-    panel = "#0f172a" if dark else "#ffffff"       # sidebar blanche
-    text = "#e5e7eb" if dark else "#0b1220"        # texte foncé mais doux
+    # 🎨 Palette douce (inspirée UI pro type PoolExpert)
+    bg = "#0b1220" if dark else "#eef2f7"          # fond principal
+    panel = "#0f172a" if dark else "#ffffff"       # sidebar
+    text = "#e5e7eb" if dark else "#0b1220"        # texte
     muted = "#94a3b8" if dark else "#556070"
     border = "rgba(148,163,184,0.22)" if dark else "rgba(15,23,42,0.10)"
-
+    accent = "#22c55e"
 
     st.markdown(
         f"""
@@ -110,14 +111,6 @@ input, textarea {{
   border-radius: 10px !important;
 }}
 
-div[data-baseweb="select"] {{
-  max-width: 260px;
-}}
-
-div[data-baseweb="select"] { width: 100% !important; max-width: 100% !important; }
-
-}}
-
 button {{
   background: {"#111827" if dark else "#f1f5f9"} !important;
   color: {text} !important;
@@ -141,7 +134,7 @@ div[role="radiogroup"] > label {{
   padding: 6px 12px;
   font-weight: 700;
   border: 1px solid {border};
-  background: rgba(255,255,255,{"0.04" if dark else "0.6"});
+  background: rgba(255,255,255,{"0.04" if dark else "0.65"});
 }}
 
 div[role="radiogroup"] > label[data-selected="true"] {{
@@ -158,16 +151,27 @@ div[role="radiogroup"] > label[data-selected="true"] {{
   opacity: 0.85;
   font-weight: 700;
 }}
+
+# ✅ SELECTBOX — largeur adaptée au conteneur
+div[data-baseweb="select"] {{
+  width: 100% !important;
+  max-width: 100% !important;
+}}
+
+div[data-baseweb="select"] > div {{
+  background: {"#0b1020" if dark else "#ffffff"} !important;
+  border: 1px solid {border} !important;
+  border-radius: 10px !important;
+}}
 </style>
         """,
         unsafe_allow_html=True,
     )
 
-# Alias pour compatibilité: ton code appelle inject_css(...)
+
+# Alias pour compatibilité (ton code appelle inject_css)
 inject_css = apply_theme
 
-# ✅ IMPORTANT: injecter le CSS UNE SEULE FOIS par run
-apply_theme(st.session_state.get("theme_mode", "dark"))
 
 
 
