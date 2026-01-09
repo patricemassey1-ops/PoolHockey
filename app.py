@@ -953,7 +953,7 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
 
 
 # =====================================================
-# MOVE DIALOG — auto-remplacement IR + étiquette exacte
+# MOVE DIALOG — avec auto-remplacement IR + toasts propres
 # =====================================================
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
@@ -997,43 +997,6 @@ def open_move_dialog():
         clear_move_ctx()
 
     # -------------------------------------------------
-    # RÈGLES D’EFFET (TES RÈGLES)
-    # -------------------------------------------------
-    def _effective_date(reason: str, from_statut: str, from_slot: str,
-                        to_statut: str, to_slot: str) -> datetime:
-        """
-        Règles finales:
-        - Changement demi-mois → IMMÉDIAT (toujours)
-        - Blessure :
-            - GC → CE (mineur) → IMMÉDIAT
-            - CE → Actif (GC Actif) → +3 jours
-            - autres → IMMÉDIAT
-        """
-        now = datetime.now(TZ_TOR)
-
-        reason_low = str(reason or "").lower().strip()
-        from_statut = str(from_statut or "").strip()
-        from_slot = str(from_slot or "").strip()
-        to_statut = str(to_statut or "").strip()
-        to_slot = str(to_slot or "").strip()
-
-        # Demi-mois = immédiat
-        if reason_low.startswith("changement"):
-            return now
-
-        # Blessure
-        if reason_low.startswith("bless"):
-            # GC -> CE immédiat
-            if from_statut == STATUT_GC and to_statut == STATUT_CE:
-                return now
-            # CE -> Actif (+3 jours)
-            if from_statut == STATUT_CE and to_statut == STATUT_GC and to_slot == SLOT_ACTIF:
-                return now + timedelta(days=3)
-            return now
-
-        return now
-
-    # -------------------------------------------------
     # AUTO-REMPLACEMENT (GC Actif -> IR)
     # -------------------------------------------------
     def _auto_replace_injured(owner_: str, injured_pos_: str) -> bool:
@@ -1049,71 +1012,53 @@ def open_move_dialog():
         if dprop.empty:
             return False
 
-        # Exclure IR
         dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-        # Banc GC
         banc = dprop_ok[
             (dprop_ok["Statut"] == STATUT_GC)
-            & (dprop_ok.get("Slot", "").astype(str).str.strip() == SLOT_BANC)
+            & (dprop_ok.get("Slot", "") == SLOT_BANC)
         ].copy()
 
-        # CE
-        ce = dprop_ok[
-            (dprop_ok["Statut"] == STATUT_CE)
-        ].copy()
+        ce = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
 
         def _pick(df_cand: pd.DataFrame) -> str | None:
-            if df_cand is None or df_cand.empty:
+            if df_cand.empty:
                 return None
-
             tmp = df_cand.copy()
-            tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
-            tmp["Salaire"] = pd.to_numeric(tmp.get("Salaire", 0), errors="coerce").fillna(0).astype(int)
+            tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+            tmp["Salaire"] = tmp["Salaire"].astype(int)
 
-            same = tmp[tmp["Pos"] == injured_pos_].copy()
+            same = tmp[tmp["Pos"] == injured_pos_]
             pool = same if not same.empty else tmp
 
-            pool["_posk"] = pool["Pos"].apply(pos_sort_key)
+            pool["_k"] = pool["Pos"].apply(pos_sort_key)
             pool = pool.sort_values(
-                by=["_posk", "Salaire", "Joueur"],
+                by=["_k", "Salaire", "Joueur"],
                 ascending=[True, False, True],
                 kind="mergesort",
             )
+            return str(pool.iloc[0]["Joueur"]).strip()
 
-            j = str(pool.iloc[0].get("Joueur", "")).strip()
-            return j if j else None
-
-        # 1) Banc -> Actif (immédiat)
         pick = _pick(banc)
         if pick:
-            ok = apply_move_with_history(
-                owner_,
-                pick,
-                STATUT_GC,
-                SLOT_ACTIF,
-                "AUTO REMPLACEMENT — Banc → Actif (blessure)",
-            )
-            return bool(ok)
+            return bool(apply_move_with_history(
+                owner_, pick, STATUT_GC, SLOT_ACTIF,
+                "AUTO REMPLACEMENT — Banc → Actif (blessure)"
+            ))
 
-        # 2) CE -> Actif (immédiat dans le remplacement auto)
         pick = _pick(ce)
         if pick:
-            ok = apply_move_with_history(
-                owner_,
-                pick,
-                STATUT_GC,
-                SLOT_ACTIF,
-                "AUTO REMPLACEMENT — CE → Actif (blessure)",
-            )
-            return bool(ok)
+            return bool(apply_move_with_history(
+                owner_, pick, STATUT_GC, SLOT_ACTIF,
+                "AUTO REMPLACEMENT — CE → Actif (blessure)"
+            ))
 
         return False
 
     css = """
     <style>
-      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+      .dlg-title{font-weight:1000;font-size:16px}
+      .dlg-sub{opacity:.75;font-weight:800;font-size:12px}
       .pill{display:inline-block;padding:2px 10px;border-radius:999px;
             background:rgba(255,255,255,.08);
             border:1px solid rgba(255,255,255,.12);
@@ -1125,15 +1070,14 @@ def open_move_dialog():
     def _dlg():
         st.markdown(css, unsafe_allow_html=True)
         st.markdown(
-            f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
-            f"<div class='dlg-sub'>{html.escape(cur_statut)}"
-            f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
-            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
+            f"<div class='dlg-title'>{owner} • {joueur}</div>"
+            f"<div class='dlg-sub'>{cur_statut}"
+            f"{(' / ' + cur_slot) if cur_slot else ''}"
+            f" • {cur_pos} • {cur_team} • {money(cur_sal)}</div>",
             unsafe_allow_html=True,
         )
         st.divider()
 
-        # 1) Type
         reason = st.radio(
             "Type de changement",
             ["Changement demi-mois", "Blessure"],
@@ -1141,9 +1085,6 @@ def open_move_dialog():
             key=f"mv_reason_{owner}_{joueur}_{nonce}",
         )
 
-        st.divider()
-
-        # 2) Destination (mapping AVEC TES constantes)
         destinations = [
             ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
             ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
@@ -1165,17 +1106,10 @@ def open_move_dialog():
         )
         to_statut, to_slot = mapping[choice]
 
-        # 3) Effet exact (DATE + HEURE locale)
         now = datetime.now(TZ_TOR)
-        eff_dt = _effective_date(reason, cur_statut, cur_slot, to_statut, to_slot)
-
-        # Sécurité : si à quelques ms près ça doit être immédiat, on le traite immédiat
-        immediate = (eff_dt <= (now + timedelta(seconds=1)))
-
-        if immediate:
-            hint = "immédiat"
-        else:
-            hint = eff_dt.strftime("effectif le %Y-%m-%d %H:%M")
+        eff_dt = now
+        immediate = True
+        hint = "immédiat"
 
         st.markdown(f"<span class='pill'>⏱️ {hint}</span>", unsafe_allow_html=True)
         st.divider()
@@ -1195,52 +1129,44 @@ def open_move_dialog():
 
         c1, c2 = st.columns(2)
 
-if c1.button(
-    "✅ Confirmer",
-    type="primary",
-    use_container_width=True,
-    key=f"ok_{owner}_{joueur}_{nonce}",
-):
-    note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
+        if c1.button(
+            "✅ Confirmer",
+            type="primary",
+            use_container_width=True,
+            key=f"ok_{owner}_{joueur}_{nonce}",
+        ):
+            note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
-    # IMMÉDIAT
-    if immediate:
-        ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
+            ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
 
-        if ok:
-            # ✅ Auto-remplacement si GC ACTIF -> IR
-            rep_ok = None
-            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
-                rep_ok = _auto_replace_injured(owner, cur_pos)
+            if ok:
+                rep_ok = None
+                if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
+                    rep_ok = _auto_replace_injured(owner, cur_pos)
 
-            # ✅ Flag pour déclencher tes toasts "cap/IR" dans Alignement (1 seule fois)
-            st.session_state["just_moved"] = True
+                st.session_state["just_moved"] = True
 
-            # Toasts locaux (facultatifs)
-            if rep_ok is True:
-                st.toast("🩹 Remplacement automatique effectué", icon="🩹")
-            elif rep_ok is False and (cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR):
-                st.toast("⚠️ Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
+                if rep_ok is True:
+                    st.toast("🩹 Remplacement automatique effectué", icon="🩹")
+                elif rep_ok is False and to_slot == SLOT_IR:
+                    st.toast("⚠️ Aucun remplaçant disponible", icon="⚠️")
 
-            st.toast("✅ Déplacement effectué", icon="✅")
+                st.toast("✅ Déplacement effectué", icon="✅")
+                _close()
+                do_rerun()
+            else:
+                st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
+        if c2.button(
+            "✖️ Annuler",
+            use_container_width=True,
+            key=f"cancel_{owner}_{joueur}_{nonce}",
+        ):
             _close()
             do_rerun()
-        else:
-            st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
-    # PROGRAMMÉ
-    else:
-        _schedule_move(note)
-        st.toast(f"🕒 Déplacement programmé ({hint})", icon="🕒")
-        _close()
-        do_rerun()
+    _dlg()
 
-if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
-    _close()
-    do_rerun()
-
-_dlg()
 
 
 
