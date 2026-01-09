@@ -251,22 +251,22 @@ st.markdown(
 
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
-    st.markdown(
+st.markdown(
     """
     <style>
     /* =========================================
-       🔝 NAV (radio horizontale) — version LISIBLE
+       NAV RADIO HORIZONTALE - VERSION LISIBLE
        - cache les ronds
        - gros texte
-       - vrais "tabs"
+       - vrais onglets
        ========================================= */
 
-    /* Cache le rond radio */
+    /* Cache le bouton radio */
     div[role="radiogroup"] input[type="radio"]{
         display:none !important;
     }
 
-    /* Container */
+    /* Conteneur */
     div[role="radiogroup"]{
         gap: .45rem !important;
         flex-wrap: wrap !important;
@@ -285,7 +285,9 @@ st.markdown(
         font-size: 14px !important;
         letter-spacing: .2px !important;
         line-height: 1 !important;
-        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+        transition: transform 120ms ease,
+                    background 120ms ease,
+                    border-color 120ms ease;
     }
 
     div[role="radiogroup"] > label:hover{
@@ -294,15 +296,15 @@ st.markdown(
         border-color: rgba(226,232,240,.45) !important;
     }
 
-    /* Actif */
+    /* Onglet actif */
     div[role="radiogroup"] > label[data-selected="true"]{
-        background: rgba(34,197,94,.18) !important;
-        border-color: rgba(34,197,94,.65) !important;
+        background: rgba(34,197,94,.22) !important;
+        border-color: rgba(34,197,94,.70) !important;
         color: rgba(255,255,255,.98) !important;
         box-shadow: 0 8px 22px rgba(0,0,0,.25) !important;
     }
 
-    /* Texte du label (Streamlit met souvent du span) */
+    /* Texte interne */
     div[role="radiogroup"] > label *{
         color: inherit !important;
         font-weight: inherit !important;
@@ -311,6 +313,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 # =====================================================
