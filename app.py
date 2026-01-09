@@ -341,6 +341,100 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# =====================================================
+# GOOGLE DRIVE (PERSISTENCE) — dossier partagé
+#   Objectif: garder tes imports après rerun / redéploiement.
+#   ✅ Fallback local si Drive non configuré.
+#
+#   Pour activer (recommandé: Service Account):
+#   1) Crée un Service Account Google Cloud + active "Google Drive API".
+#   2) Partage ton dossier Drive avec l'email du service account (éditeur).
+#   3) Mets le JSON dans st.secrets["gdrive_sa"]["json"] (dict ou string JSON)
+#   4) Mets folder_id dans st.secrets["gdrive_sa"]["folder_id"] (sinon défaut ci-dessous).
+# =====================================================
+DEFAULT_GDRIVE_FOLDER_ID = "1Tx6Lc0fhsbbDm6r_YOpcDIhJh4my-olU"
+
+def _gdrive_config():
+    cfg = st.secrets.get("gdrive_sa", {}) if hasattr(st, "secrets") else {}
+    folder_id = str(cfg.get("folder_id") or DEFAULT_GDRIVE_FOLDER_ID).strip()
+    sa_json = cfg.get("json")  # dict (recommandé) ou string JSON
+    return folder_id, sa_json
+
+@st.cache_resource(show_spinner=False)
+def _drive_service():
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+    except Exception:
+        return None
+    folder_id, sa_json = _gdrive_config()
+    if not folder_id or not sa_json:
+        return None
+    try:
+        info = sa_json
+        if isinstance(sa_json, str):
+            info = json.loads(sa_json)
+        creds = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/drive"],
+        )
+        return build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception:
+        return None
+
+def _drive_enabled() -> bool:
+    return _drive_service() is not None
+
+def _drive_find_file_id(filename: str) -> str | None:
+    svc = _drive_service()
+    if svc is None:
+        return None
+    folder_id, _ = _gdrive_config()
+    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    res = svc.files().list(q=q, fields="files(id,name)", pageSize=1).execute()
+    files = res.get("files", [])
+    return files[0]["id"] if files else None
+
+def drive_download_bytes(filename: str) -> bytes | None:
+    svc = _drive_service()
+    if svc is None:
+        return None
+    file_id = _drive_find_file_id(filename)
+    if not file_id:
+        return None
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        import io
+        fh = io.BytesIO()
+        request = svc.files().get_media(fileId=file_id)
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue()
+    except Exception:
+        return None
+
+def drive_upload_bytes(filename: str, content: bytes, mimetype: str = "text/csv") -> bool:
+    svc = _drive_service()
+    if svc is None:
+        return False
+    folder_id, _ = _gdrive_config()
+    try:
+        from googleapiclient.http import MediaIoBaseUpload
+        import io
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mimetype, resumable=True)
+        existing_id = _drive_find_file_id(filename)
+        if existing_id:
+            svc.files().update(fileId=existing_id, media_body=media).execute()
+        else:
+            meta = {"name": filename, "parents": [folder_id]}
+            svc.files().create(body=meta, media_body=media, fields="id").execute()
+        return True
+    except Exception:
+        return False
+
+
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
 LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
@@ -732,19 +826,41 @@ def save_init_manifest(manifest: dict) -> None:
 # =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
+    filename = f"fantrax_{season_lbl}.csv"
+    path = os.path.join(DATA_DIR, filename)
     st.session_state["DATA_FILE"] = path
+
+    # 1) Local
     try:
         df.to_csv(path, index=False)
     except Exception:
         pass
 
+    # 2) Drive (si configuré)
+    try:
+        if _drive_enabled():
+            content = df.to_csv(index=False).encode("utf-8")
+            drive_upload_bytes(filename, content, mimetype="text/csv")
+    except Exception:
+        pass
+
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    path = os.path.join(DATA_DIR, f"history_{season_lbl}.csv")
+    filename = f"history_{season_lbl}.csv"
+    path = os.path.join(DATA_DIR, filename)
     st.session_state["HISTORY_FILE"] = path
+
+    # 1) Local
     try:
         h.to_csv(path, index=False)
+    except Exception:
+        pass
+
+    # 2) Drive (si configuré)
+    try:
+        if _drive_enabled():
+            content = h.to_csv(index=False).encode("utf-8")
+            drive_upload_bytes(filename, content, mimetype="text/csv")
     except Exception:
         pass
 
@@ -1236,61 +1352,7 @@ def open_move_dialog():
 
 
 # =====================================================
-# DIALOG — Preview Alignement Grand Club (GC)
-# =====================================================
-def open_gc_preview_dialog():
-    if not st.session_state.get("gc_preview_open"):
-        return
 
-    owner = str(get_selected_team() or "").strip()
-
-    df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-    df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-
-    dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
-
-    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
-    if not dprop.empty and "Slot" in dprop.columns:
-        dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
-
-    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
-
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
-    remain_gc = cap_gc - used_gc
-
-    @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
-    def _dlg():
-        st.caption("Prévisualisation rapide du Grand Club (GC).")
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Total GC", money(used_gc))
-        with c2:
-            st.metric("Plafond GC", money(cap_gc))
-        with c3:
-            if used_gc > cap_gc:
-                st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
-            else:
-                st.success(f"Conforme — reste: {money(remain_gc)}")
-
-        if gc_all.empty:
-            st.info("Aucun joueur GC pour cette équipe.")
-        else:
-            # ✅ Pos complètement à gauche
-            show_cols = [c for c in ["Pos", "Joueur", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
-            df_show = gc_all[show_cols].copy()
-
-            if "Salaire" in df_show.columns:
-                df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
-
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-        if st.button("OK", use_container_width=True, key="gc_preview_ok"):
-            st.session_state["gc_preview_open"] = False
-            do_rerun()
-
-    _dlg()
 
 
 
@@ -1434,13 +1496,32 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
 
-    if os.path.exists(DATA_FILE):
+    df_loaded = None
+
+    # 1) Google Drive (si configuré)
+    if _drive_enabled():
         try:
-            df_loaded = pd.read_csv(DATA_FILE)
+            b = drive_download_bytes(os.path.basename(DATA_FILE))
+            if b:
+                df_loaded = pd.read_csv(io.BytesIO(b))
+                # cache local pour accélérer les prochains runs
+                try:
+                    with open(DATA_FILE, "wb") as f:
+                        f.write(b)
+                except Exception:
+                    pass
         except Exception:
+            df_loaded = None
+
+    # 2) Local (fallback)
+    if df_loaded is None:
+        if os.path.exists(DATA_FILE):
+            try:
+                df_loaded = pd.read_csv(DATA_FILE)
+            except Exception:
+                df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+        else:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-    else:
-        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
         try:
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
@@ -1471,13 +1552,32 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 # 1) LOAD DATA (CSV → session_state)
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-    if os.path.exists(DATA_FILE):
+    df_loaded = None
+
+    # 1) Google Drive (si configuré)
+    if _drive_enabled():
         try:
-            df_loaded = pd.read_csv(DATA_FILE)
+            b = drive_download_bytes(os.path.basename(DATA_FILE))
+            if b:
+                df_loaded = pd.read_csv(io.BytesIO(b))
+                # cache local pour accélérer les prochains runs
+                try:
+                    with open(DATA_FILE, "wb") as f:
+                        f.write(b)
+                except Exception:
+                    pass
         except Exception:
+            df_loaded = None
+
+    # 2) Local (fallback)
+    if df_loaded is None:
+        if os.path.exists(DATA_FILE):
+            try:
+                df_loaded = pd.read_csv(DATA_FILE)
+            except Exception:
+                df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
+        else:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-    else:
-        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
         try:
             df_loaded.to_csv(DATA_FILE, index=False)
         except Exception:
@@ -1599,7 +1699,6 @@ if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
-    st.session_state["gc_preview_open"] = True
     st.session_state["active_tab"] = "🧾 Alignement"
     do_rerun()
 
@@ -1674,19 +1773,7 @@ if _has_data and _has_hist:
         except Exception as e:
             st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
-    # 2) Dialog preview GC (si présent)
-    if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
-        try:
-            open_gc_preview_dialog()
-        except Exception as e:
-            st.warning(f"⚠️ open_gc_preview_dialog() a échoué: {type(e).__name__}: {e}")
-
     # 3) Dialog MOVE (si présent)  ✅ IMPORTANT
-    if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
-        try:
-            open_move_dialog()
-        except Exception as e:
-            st.warning(f"⚠️ open_move_dialog() a échoué: {type(e).__name__}: {e}")
 
 
 
@@ -1894,26 +1981,6 @@ elif active_tab == "🧾 Alignement":
     )
 
     st.write("")
-
-    # --- Tes métriques (animées)
-    def gm_metric(label: str, value: str):
-        st.markdown(
-            f"""
-            <div class="fade-in lift" style="text-align:left;padding:6px 8px;border:1px solid #1f2937;border-radius:10px;background:#111827">
-                <div style="font-size:12px;opacity:.75;font-weight:800">{html.escape(label)}</div>
-                <div style="font-size:20px;font-weight:1000">{html.escape(str(value))}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    cols = st.columns(6)
-    with cols[0]: gm_metric("Total GC", money(used_gc))
-    with cols[1]: gm_metric("Reste GC", money(remain_gc))
-    with cols[2]: gm_metric("Total CE", money(used_ce))
-    with cols[3]: gm_metric("Reste CE", money(remain_ce))
-    with cols[4]: gm_metric("Banc", str(len(gc_banc)))
-    with cols[5]: gm_metric("IR", str(len(injured_all)))
 
     st.write("")
 
@@ -2254,16 +2321,50 @@ elif active_tab == "🛠️ Gestion Admin":
             key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
         )
 
+    # -------------------------------------------------
+    # Mémoire d'import (évite de ré-uploader à chaque run)
+    #   - stocké en session_state (valide tant que la session tourne)
+    #   - persistant via Google Drive si configuré (persist_data/persist_history)
+    # -------------------------------------------------
+    if init_align is not None:
+        try:
+            st.session_state["last_import_align"] = {
+                "season": str(season_pick),
+                "owner": str(chosen_owner),
+                "name": str(init_align.name),
+                "bytes": bytes(init_align.getbuffer()),
+            }
+        except Exception:
+            pass
+
+    init_align_bytes = None
+    init_align_name = None
+    if init_align is not None:
+        try:
+            init_align_bytes = bytes(init_align.getbuffer())
+            init_align_name = str(init_align.name)
+        except Exception:
+            init_align_bytes = None
+            init_align_name = None
+    else:
+        last = st.session_state.get("last_import_align") or {}
+        if last.get("season") == str(season_pick) and last.get("owner") == str(chosen_owner):
+            init_align_bytes = last.get("bytes")
+            init_align_name = last.get("name")
+            if init_align_bytes:
+                st.caption(f"ℹ️ Dernier import réutilisé: {init_align_name}")
+
+
     c_btn1, c_btn2 = st.columns([1, 1])
 
     with c_btn1:
         if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-            if init_align is None:
+            if not init_align_bytes:
                 st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
             else:
                 try:
-                    buf = io.BytesIO(init_align.getbuffer())
-                    buf.name = init_align.name
+                    buf = io.BytesIO(init_align_bytes or b"")
+                    buf.name = init_align_name or "import.csv"
                     df_import = parse_fantrax(buf)
                     df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
                     df_import["Propriétaire"] = str(chosen_owner).strip()
@@ -2271,7 +2372,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
                     st.session_state["init_preview_df"] = df_import
                     st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                    st.session_state["init_preview_filename"] = init_align.name
+                    st.session_state["init_preview_filename"] = (init_align_name or "import.csv")
                     st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
                 except Exception as e:
                     st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
