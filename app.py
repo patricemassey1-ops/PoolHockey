@@ -1999,36 +1999,101 @@ def clear_move_ctx():
 
 
 # =====================================================
-# Global scheduled moves + dialogs (APPELS SAFE)
-#   ✅ 1 seule fois
-#   ✅ seulement si data/history existent
-#   ✅ jamais de NameError
+# MOVE + HISTORY (SAFE)  ✅ définit apply_move_with_history
 # =====================================================
-_has_data = isinstance(st.session_state.get("data"), pd.DataFrame)
-_has_hist = isinstance(st.session_state.get("history"), pd.DataFrame)
+from datetime import datetime
+import pandas as pd
+import streamlit as st
 
-if _has_data and _has_hist:
+def _ensure_history_df():
+    if "history" not in st.session_state or st.session_state["history"] is None:
+        st.session_state["history"] = pd.DataFrame(
+            columns=[
+                "timestamp", "proprietaire", "joueur",
+                "from_statut", "from_slot",
+                "to_statut", "to_slot",
+                "note"
+            ]
+        )
 
-    # 1) Appliquer les déplacements programmés
-    if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
+def _history_append(owner: str, joueur: str,
+                    from_statut: str, from_slot: str,
+                    to_statut: str, to_slot: str,
+                    note: str = ""):
+    _ensure_history_df()
+    h = st.session_state["history"].copy()
+
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "proprietaire": str(owner),
+        "joueur": str(joueur),
+        "from_statut": str(from_statut or ""),
+        "from_slot": str(from_slot or ""),
+        "to_statut": str(to_statut or ""),
+        "to_slot": str(to_slot or ""),
+        "note": str(note or ""),
+    }
+    st.session_state["history"] = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+
+
+def apply_move_with_history(owner: str, joueur: str,
+                            to_statut: str, to_slot: str,
+                            note: str = "") -> bool:
+    """
+    Wrapper universel:
+      - applique le move via ta fonction existante si dispo (apply_move / apply_move_player)
+      - sinon fallback minimal (modifie df Statut/Slot)
+      - ajoute une entrée dans history
+    """
+    df = st.session_state.get("data", None)
+    if df is None or df.empty:
+        st.error("Données manquantes: st.session_state['data'].")
+        return False
+
+    owner_s = str(owner).strip()
+    joueur_s = str(joueur).strip()
+
+    m = (
+        df["Propriétaire"].astype(str).str.strip().eq(owner_s)
+        & df["Joueur"].astype(str).str.strip().eq(joueur_s)
+    )
+    if not m.any():
+        st.warning(f"Joueur introuvable: {joueur_s} ({owner_s}).")
+        return False
+
+    idx = df.index[m][0]
+    from_statut = str(df.at[idx, "Statut"]) if "Statut" in df.columns else ""
+    from_slot   = str(df.at[idx, "Slot"])   if "Slot" in df.columns else ""
+
+    ok = False
+
+    # 1) Branche sur TA fonction existante
+    if "apply_move" in globals() and callable(globals()["apply_move"]):
         try:
-            process_pending_moves()
-        except Exception as e:
-            st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
-
-    # 2) Dialog preview GC (si présent)
-    if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
+            ok = bool(globals()["apply_move"](owner_s, joueur_s, to_statut, to_slot, note))
+        except TypeError:
+            ok = bool(globals()["apply_move"](owner_s, joueur_s, to_statut, to_slot))
+    elif "apply_move_player" in globals() and callable(globals()["apply_move_player"]):
         try:
-            open_gc_preview_dialog()
-        except Exception as e:
-            st.warning(f"⚠️ open_gc_preview_dialog() a échoué: {type(e).__name__}: {e}")
+            ok = bool(globals()["apply_move_player"](owner_s, joueur_s, to_statut, to_slot, note))
+        except TypeError:
+            ok = bool(globals()["apply_move_player"](owner_s, joueur_s, to_statut, to_slot))
+    else:
+        # 2) Fallback minimal si tu n’as pas de fonction apply_move
+        if "Statut" in df.columns:
+            df.at[idx, "Statut"] = to_statut
+            ok = True
+        if "Slot" in df.columns and to_slot is not None:
+            df.at[idx, "Slot"] = to_slot
+            ok = True
+        st.session_state["data"] = df
 
-    # 3) Dialog MOVE (si présent)  ✅ IMPORTANT
-    if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
-        try:
-            open_move_dialog()
-        except Exception as e:
-            st.warning(f"⚠️ open_move_dialog() a échoué: {type(e).__name__}: {e}")
+    if not ok:
+        return False
+
+    _history_append(owner_s, joueur_s, from_statut, from_slot, to_statut, to_slot, note)
+    return True
+
 
 
 
