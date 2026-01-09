@@ -252,10 +252,9 @@ st.markdown(
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
 # =====================================================
-# NAV CSS — SAFE MODE (ne peut PAS casser Python)
+# NAV CSS — ULTRA SAFE (string isolée)
 # =====================================================
-st.markdown(
-    """
+NAV_CSS = """
 <style>
 div[role="radiogroup"] input[type="radio"] {
     display: none !important;
@@ -283,9 +282,9 @@ div[role="radiogroup"] > label[data-selected="true"] {
     color: white !important;
 }
 </style>
-    """,
-    unsafe_allow_html=True
-)
+"""
+st.markdown(NAV_CSS, unsafe_allow_html=True)
+
 
 
 
