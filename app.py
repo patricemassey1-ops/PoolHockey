@@ -252,65 +252,41 @@ st.markdown(
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
 # =====================================================
-# NAV CSS — lisible, sans ronds, reposant pour les yeux
+# NAV CSS — SAFE MODE (ne peut PAS casser Python)
 # =====================================================
 st.markdown(
     """
-    <style>
-    /* NAV RADIO HORIZONTALE - VERSION LISIBLE */
+<style>
+div[role="radiogroup"] input[type="radio"] {
+    display: none !important;
+}
 
-    /* cacher les ronds radio */
-    div[role="radiogroup"] input[type="radio"]{
-        display: none !important;
-    }
+div[role="radiogroup"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+}
 
-    /* conteneur */
-    div[role="radiogroup"]{
-        gap: 0.45rem !important;
-        flex-wrap: wrap !important;
-        align-items: center !important;
-    }
+div[role="radiogroup"] > label {
+    padding: 8px 14px !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(148,163,184,0.35) !important;
+    background: rgba(15,23,42,0.6) !important;
+    color: #e5e7eb !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}
 
-    /* onglet */
-    div[role="radiogroup"] > label{
-        margin: 0 !important;
-        padding: 0.55rem 0.9rem !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(148,163,184,0.35) !important;
-        background: rgba(15,23,42,0.55) !important;
-        color: rgba(226,232,240,0.95) !important;
-        font-weight: 900 !important;
-        font-size: 14px !important;
-        line-height: 1 !important;
-        transition: transform 120ms ease,
-                    background 120ms ease,
-                    border-color 120ms ease;
-    }
-
-    /* hover */
-    div[role="radiogroup"] > label:hover{
-        transform: translateY(-1px);
-        background: rgba(30,41,59,0.7) !important;
-        border-color: rgba(226,232,240,0.45) !important;
-    }
-
-    /* onglet actif */
-    div[role="radiogroup"] > label[data-selected="true"]{
-        background: rgba(34,197,94,0.22) !important;
-        border-color: rgba(34,197,94,0.75) !important;
-        color: rgba(255,255,255,0.98) !important;
-        box-shadow: 0 8px 22px rgba(0,0,0,0.25) !important;
-    }
-
-    /* texte interne */
-    div[role="radiogroup"] > label *{
-        color: inherit !important;
-        font-weight: inherit !important;
-    }
-    </style>
+div[role="radiogroup"] > label[data-selected="true"] {
+    background: rgba(34,197,94,0.25) !important;
+    border-color: rgba(34,197,94,0.8) !important;
+    color: white !important;
+}
+</style>
     """,
     unsafe_allow_html=True
 )
+
 
 
 
