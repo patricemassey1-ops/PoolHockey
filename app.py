@@ -28,6 +28,142 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# =====================================================
+# 🎨 THEME — Dark doux / Light (Sidebar toggle)
+# =====================================================
+import streamlit as st
+
+if "theme_mode" not in st.session_state:
+    st.session_state["theme_mode"] = "dark"
+
+with st.sidebar:
+    st.markdown("### 🎨 Apparence")
+    st.session_state["theme_mode"] = st.radio(
+        "Mode d’affichage",
+        ["dark", "light"],
+        index=0 if st.session_state["theme_mode"] == "dark" else 1,
+        horizontal=True,
+        key="theme_mode_radio",
+    )
+
+def apply_theme(mode: str):
+    if mode == "dark":
+        st.markdown(
+            """
+            <style>
+            /* ===============================
+               🌙 DARK MODE DOUX
+               =============================== */
+
+            :root {
+                color-scheme: dark;
+            }
+
+            /* App générale */
+            .stApp {
+                background-color: #0f172a;   /* slate-900 */
+                color: #e5e7eb;              /* gray-200 */
+            }
+
+            /* Sidebar */
+            [data-testid="stSidebar"] {
+                background-color: #111827;   /* gray-900 */
+                border-right: 1px solid #1f2937;
+            }
+
+            /* Titres & texte */
+            h1, h2, h3, h4, h5 {
+                color: #f9fafb;
+                font-weight: 600;
+            }
+
+            p, span, label, div {
+                color: #e5e7eb;
+            }
+
+            /* Containers / cards */
+            div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
+                background-color: #111827;
+                border-radius: 10px;
+                padding: 0.75rem;
+            }
+
+            /* Inputs */
+            input, textarea {
+                background-color: #020617 !important;
+                color: #e5e7eb !important;
+                border: 1px solid #1f2937 !important;
+                border-radius: 6px;
+            }
+
+            /* Selectbox */
+            div[data-baseweb="select"] > div {
+                background-color: #020617 !important;
+                color: #e5e7eb !important;
+                border-radius: 6px;
+                border: 1px solid #1f2937;
+            }
+
+            /* Boutons */
+            button {
+                background-color: #1f2937 !important;
+                color: #f9fafb !important;
+                border-radius: 8px !important;
+                border: 1px solid #374151 !important;
+            }
+
+            button:hover {
+                background-color: #374151 !important;
+            }
+
+            /* Radio / checkbox */
+            label > div {
+                color: #e5e7eb !important;
+            }
+
+            /* Tables / dataframes */
+            .stDataFrame, .stTable {
+                background-color: #020617;
+                border-radius: 8px;
+            }
+
+            /* Dividers */
+            hr {
+                border-color: #1f2937;
+            }
+
+            /* Scrollbar (webkit) */
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: #020617;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #1f2937;
+                border-radius: 4px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    else:
+        # 🌞 LIGHT MODE SIMPLE (propre)
+        st.markdown(
+            """
+            <style>
+            :root { color-scheme: light; }
+            .stApp { background-color: #ffffff; color: #111827; }
+            [data-testid="stSidebar"] { background-color: #f9fafb; }
+            h1, h2, h3, h4, h5 { color: #111827; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+apply_theme(st.session_state["theme_mode"])
+
 
 # =====================================================
 # DATE FORMAT — Français (cloud-proof, no locale)
