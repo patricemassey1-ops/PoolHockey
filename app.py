@@ -369,21 +369,19 @@ def _sha256(s: str) -> str:
 def _login_header():
     logo_file = os.path.join("data", "Logo_Pool.png")
 
-    st.markdown(
-        """
-        <style>
-          .block-container { padding-top: 1.2rem !important; }
-          .pms-header-wrap{ max-width: 1120px; margin: 0 auto 10px auto; }
-          .pms-emoji{ font-size: 64px; line-height: 1; display:flex; align-items:center; justify-content:center;
-                     opacity: .95; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
-          .pms-text{ font-weight: 1000; letter-spacing: .06em; color: #ff3b30; font-size: 54px; line-height: 1;
-                     margin-left: 10px; text-shadow: 0 10px 20px rgba(0,0,0,.35); display:inline-block;
-                     transform: translateY(-2px); }
-          .pms-logo{ width: 100%; display:flex; justify-content:center; align-items:center; }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    css = (
+        "<style>\n"
+        ".block-container { padding-top: 1.2rem !important; }\n"
+        ".pms-header-wrap{ max-width: 1120px; margin: 0 auto 10px auto; }\n"
+        ".pms-emoji{ font-size: 64px; line-height: 1; display:flex; align-items:center; justify-content:center;\n"
+        "           opacity: .95; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }\n"
+        ".pms-text{ font-weight: 1000; letter-spacing: .06em; color: #ff3b30; font-size: 54px; line-height: 1;\n"
+        "          margin-left: 10px; text-shadow: 0 10px 20px rgba(0,0,0,.35); display:inline-block;\n"
+        "          transform: translateY(-2px); }\n"
+        ".pms-logo{ width: 100%; display:flex; justify-content:center; align-items:center; }\n"
+        "</style>\n"
     )
+    st.markdown(css, unsafe_allow_html=True)
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
@@ -399,7 +397,10 @@ def _login_header():
             if os.path.exists(logo_file):
                 st.image(logo_file, use_container_width=True)
             else:
-                st.markdown('<div class="pms-logo"><span class="pms-text">PMS</span></div>', unsafe_allow_html=True)
+                st.markdown(
+                    '<div class="pms-logo"><span class="pms-text">PMS</span></div>',
+                    unsafe_allow_html=True,
+                )
 
         with c3:
             st.markdown('<div class="pms-emoji">🥅</div>', unsafe_allow_html=True)
@@ -407,6 +408,7 @@ def _login_header():
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
+
 
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
