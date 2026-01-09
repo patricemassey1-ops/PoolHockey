@@ -57,15 +57,18 @@ init_flags()
 
 # =====================================================
 # THEME — UNIQUE / SAFE / DOUX (dark & light)
+#   ✅ aucune ligne CSS hors string
+#   ✅ pas de "}" en trop
+#   ✅ selectbox et inputs prennent la largeur du conteneur
 # =====================================================
 def apply_theme(mode: str = "dark") -> None:
-    mode = str(mode or "dark").lower()
+    mode = str(mode or "dark").strip().lower()
     dark = (mode == "dark")
 
-    # 🎨 Palette douce (inspirée UI pro type PoolExpert)
-    bg = "#0b1220" if dark else "#eef2f7"          # fond principal
-    panel = "#0f172a" if dark else "#ffffff"       # sidebar
-    text = "#e5e7eb" if dark else "#0b1220"        # texte
+    # Palette douce
+    bg = "#0b1220" if dark else "#eef2f7"
+    panel = "#0f172a" if dark else "#ffffff"
+    text = "#e5e7eb" if dark else "#0b1220"
     muted = "#94a3b8" if dark else "#556070"
     border = "rgba(148,163,184,0.22)" if dark else "rgba(15,23,42,0.10)"
     accent = "#22c55e"
@@ -96,7 +99,7 @@ hr {{
   border-color: {border} !important;
 }}
 
-h1, h2, h3, h4 {{
+h1, h2, h3, h4, p, span, label, div {{
   color: {text} !important;
 }}
 
@@ -123,6 +126,19 @@ button:hover {{
   filter: brightness(1.06);
 }}
 
+/* ✅ Select / dropdown = largeur du conteneur */
+div[data-baseweb="select"] {{
+  width: 100% !important;
+  max-width: 100% !important;
+}}
+
+div[data-baseweb="select"] > div {{
+  background: {"#0b1020" if dark else "#ffffff"} !important;
+  border: 1px solid {border} !important;
+  border-radius: 10px !important;
+}}
+
+/* Radio group ok */
 div[role="radiogroup"] {{
   display: flex;
   gap: 6px;
@@ -134,7 +150,7 @@ div[role="radiogroup"] > label {{
   padding: 6px 12px;
   font-weight: 700;
   border: 1px solid {border};
-  background: rgba(255,255,255,{"0.04" if dark else "0.65"});
+  background: rgba(255,255,255,{"0.04" if dark else "0.60"});
 }}
 
 div[role="radiogroup"] > label[data-selected="true"] {{
@@ -151,26 +167,14 @@ div[role="radiogroup"] > label[data-selected="true"] {{
   opacity: 0.85;
   font-weight: 700;
 }}
-
-# ✅ SELECTBOX — largeur adaptée au conteneur
-div[data-baseweb="select"] {{
-  width: 100% !important;
-  max-width: 100% !important;
-}}
-
-div[data-baseweb="select"] > div {{
-  background: {"#0b1020" if dark else "#ffffff"} !important;
-  border: 1px solid {border} !important;
-  border-radius: 10px !important;
-}}
 </style>
         """,
         unsafe_allow_html=True,
     )
 
-
-# Alias pour compatibilité (ton code appelle inject_css)
+# Alias pour compatibilité: ton code appelle inject_css(...)
 inject_css = apply_theme
+
 
 
 
@@ -1533,9 +1537,7 @@ except Exception as e:
 
 
 # =====================================================
-# NAV — hybride AUTO (desktop boutons si ça fitte, sinon selectbox)
-#   ✅ sans CSS
-#   ✅ garde ton routing: if active_tab == ...
+# NAV — stable (selectbox, sans CSS)
 # =====================================================
 is_admin = _is_admin_whalers()
 
@@ -1550,42 +1552,20 @@ if is_admin:
     NAV_TABS.append("🛠️ Gestion Admin")
 NAV_TABS.append("🧠 Recommandations")
 
-# init + fallback (safe)
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "📊 Tableau"
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-# mode mobile (clé déjà chez toi)
-is_mobile = bool(st.session_state.get("mobile_view", False))
-
-# heuristique: si trop d’onglets ou texte trop long -> selectbox
-tabs_count = len(NAV_TABS)
-max_len = max(len(t) for t in NAV_TABS) if NAV_TABS else 0
-force_select = (tabs_count >= 7) or (max_len >= 18)
-
-use_selectbox = is_mobile or force_select
-
-if use_selectbox:
-    active_tab = st.selectbox(
-        "Navigation",
-        NAV_TABS,
-        index=NAV_TABS.index(st.session_state["active_tab"]),
-        key="active_tab",
-    )
-else:
-    cols = st.columns(len(NAV_TABS), gap="small")
-    current = st.session_state["active_tab"]
-
-    for i, tab in enumerate(NAV_TABS):
-        btn_type = "primary" if tab == current else "secondary"
-        if cols[i].button(tab, use_container_width=True, type=btn_type, key=f"nav_btn_{i}"):
-            st.session_state["active_tab"] = tab
-            do_rerun()
-
-    active_tab = st.session_state["active_tab"]
+active_tab = st.selectbox(
+    "Navigation",
+    NAV_TABS,
+    index=NAV_TABS.index(st.session_state["active_tab"]),
+    key="active_tab",
+)
 
 st.divider()
+
 
 
 
