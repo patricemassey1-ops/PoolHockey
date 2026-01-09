@@ -1067,6 +1067,95 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     out["Propriétaire"] = s
     return out
 
+# =====================================================
+# MOVE + HISTORY (wrapper safe)
+#   - évite NameError: apply_move_with_history
+#   - écrit dans st.session_state["history"]
+# =====================================================
+from datetime import datetime
+import pandas as pd
+import streamlit as st
+
+def _history_append(owner: str, joueur: str, from_statut: str, from_slot: str,
+                    to_statut: str, to_slot: str, note: str = ""):
+    """Append une entrée d'historique en mémoire (session_state)."""
+    if "history" not in st.session_state or st.session_state["history"] is None:
+        st.session_state["history"] = pd.DataFrame(
+            columns=["timestamp", "proprietaire", "joueur", "from_statut", "from_slot", "to_statut", "to_slot", "note"]
+        )
+
+    h = st.session_state["history"].copy()
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "proprietaire": str(owner),
+        "joueur": str(joueur),
+        "from_statut": str(from_statut),
+        "from_slot": str(from_slot),
+        "to_statut": str(to_statut),
+        "to_slot": str(to_slot),
+        "note": str(note or ""),
+    }
+    h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+    st.session_state["history"] = h
+
+
+def apply_move_with_history(owner: str, joueur: str, to_statut: str, to_slot: str, note: str = "") -> bool:
+    """
+    Applique le move (via ta fonction existante) + ajoute une entrée d'historique.
+    Retourne True si le move a été appliqué, sinon False.
+    """
+    df = st.session_state.get("data")
+    if df is None or df.empty:
+        st.error("Données manquantes (st.session_state['data']).")
+        return False
+
+    # --- trouver la ligne du joueur (1ère occurrence)
+    m = (
+        df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+        & df["Joueur"].astype(str).str.strip().eq(str(joueur).strip())
+    )
+    if not m.any():
+        st.warning(f"Joueur introuvable: {joueur} ({owner}).")
+        return False
+
+    idx = df.index[m][0]
+    from_statut = str(df.at[idx, "Statut"]) if "Statut" in df.columns else ""
+    from_slot   = str(df.at[idx, "Slot"])   if "Slot"   in df.columns else ""
+
+    # --- applique le move via la fonction existante (selon ton code)
+    ok = False
+
+    if "apply_move" in globals() and callable(globals()["apply_move"]):
+        # Signature attendue : apply_move(owner, joueur, to_statut, to_slot, note?)
+        try:
+            ok = bool(globals()["apply_move"](owner, joueur, to_statut, to_slot, note))
+        except TypeError:
+            # si ta apply_move n'accepte pas note
+            ok = bool(globals()["apply_move"](owner, joueur, to_statut, to_slot))
+    elif "apply_move_player" in globals() and callable(globals()["apply_move_player"]):
+        # Alternative fréquente
+        try:
+            ok = bool(globals()["apply_move_player"](owner, joueur, to_statut, to_slot, note))
+        except TypeError:
+            ok = bool(globals()["apply_move_player"](owner, joueur, to_statut, to_slot))
+    else:
+        # Fallback minimal: modifie directement df (si tes colonnes existent)
+        if "Statut" in df.columns:
+            df.at[idx, "Statut"] = to_statut
+            ok = True
+        if "Slot" in df.columns and to_slot is not None:
+            df.at[idx, "Slot"] = to_slot
+            ok = True
+        st.session_state["data"] = df
+
+    if not ok:
+        return False
+
+    # --- historique
+    _history_append(owner, joueur, from_statut, from_slot, to_statut, to_slot, note)
+
+    return True
+
 
 # =====================================================
 # MOVE DIALOG — auto-remplacement IR + étiquette exacte
