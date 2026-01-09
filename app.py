@@ -251,62 +251,67 @@ st.markdown(
 
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
+    st.markdown(
+    """
+    <style>
     /* =========================================
-       🔝 NAV (radio horizontale) — actif/inactif clair
+       🔝 NAV (radio horizontale) — version LISIBLE
+       - cache les ronds
+       - gros texte
+       - vrais "tabs"
        ========================================= */
-    div[role="radiogroup"] > label {
-        background-color: transparent;
-        padding: 0.4rem 0.8rem;
-        border-radius: 8px;
-        font-weight: 500;
-        color: #9ca3af;
-        transition: all 0.15s ease-in-out;
-    }
-    div[role="radiogroup"] > label:hover {
-        background-color: #1f2937;
-        color: #e5e7eb;
-    }
-    div[role="radiogroup"] > label[data-selected="true"] {
-        background-color: #1f2937;
-        color: #f9fafb;
-        box-shadow: inset 0 -2px 0 #22c55e;
+
+    /* Cache le rond radio */
+    div[role="radiogroup"] input[type="radio"]{
+        display:none !important;
     }
 
-    /* =========================================
-       🔘 Boutons uniformes (global)
-       ========================================= */
-    button {
-        background-color: #1f2937 !important;
-        color: #f9fafb !important;
-        border-radius: 10px !important;
-        border: 1px solid #374151 !important;
-        font-weight: 500;
-        padding: 0.45rem 0.9rem !important;
-        transition: all 0.15s ease-in-out;
+    /* Container */
+    div[role="radiogroup"]{
+        gap: .45rem !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
     }
-    button:hover { background-color: #374151 !important; transform: translateY(-1px); }
-    button:active { transform: translateY(0); }
 
-    button[kind="primary"] {
-        background-color: #16a34a !important;
-        border-color: #16a34a !important;
-        color: white !important;
+    /* Onglet */
+    div[role="radiogroup"] > label{
+        margin: 0 !important;
+        padding: .55rem .85rem !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(148,163,184,.35) !important;
+        background: rgba(15,23,42,.55) !important;
+        color: rgba(226,232,240,.92) !important;
+        font-weight: 900 !important;
+        font-size: 14px !important;
+        letter-spacing: .2px !important;
+        line-height: 1 !important;
+        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
     }
-    button[kind="primary"]:hover { background-color: #22c55e !important; }
 
-    /* =========================================
-       📊 Dataframe (si applicable)
-       ========================================= */
-    .stDataFrame tbody tr:hover { background-color: rgba(255,255,255,0.04); }
-    .stDataFrame thead tr th {
-        background-color: #020617 !important;
-        color: #9ca3af !important;
-        font-weight: 600;
+    div[role="radiogroup"] > label:hover{
+        transform: translateY(-1px);
+        background: rgba(30,41,59,.70) !important;
+        border-color: rgba(226,232,240,.45) !important;
+    }
+
+    /* Actif */
+    div[role="radiogroup"] > label[data-selected="true"]{
+        background: rgba(34,197,94,.18) !important;
+        border-color: rgba(34,197,94,.65) !important;
+        color: rgba(255,255,255,.98) !important;
+        box-shadow: 0 8px 22px rgba(0,0,0,.25) !important;
+    }
+
+    /* Texte du label (Streamlit met souvent du span) */
+    div[role="radiogroup"] > label *{
+        color: inherit !important;
+        font-weight: inherit !important;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
+
 
 # =====================================================
 # DATE FORMAT — Français (cloud-proof, no locale)
@@ -1286,26 +1291,69 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         view[c] = view[c].apply(_fmt_money)
 
     css = """
-    <style>
-      .pms-wrap{ margin-top: 10px; border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;
-                overflow: hidden; background: rgba(255,255,255,0.02); }
-      table.pms{ width: 100%; border-collapse: collapse; font-size: 14px; color: rgba(255,255,255,0.92);
-                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
-      table.pms thead th{ text-align: left; padding: 11px 12px; background: rgba(255,255,255,0.06);
-                         border-bottom: 1px solid rgba(255,255,255,0.10); font-weight: 900; letter-spacing: .2px;
-                         color: rgba(255,255,255,0.88); }
-      table.pms tbody td{ padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
-                         vertical-align: middle; font-weight: 650; }
-      table.pms tbody tr{ transition: background 220ms ease, transform 220ms ease; }
-      table.pms tbody tr:hover{ background: rgba(255,255,255,0.035); }
-      tr.pms-selected{ background: rgba(34,197,94,0.16) !important; }
-      tr.pms-selected td:first-child{ border-left: 5px solid rgba(34,197,94,0.85); }
-      .cell-right{ text-align:right; white-space:nowrap; }
-      .pms-check{ display:inline-block; margin-left: 10px; font-weight: 1000; color: rgba(34,197,94,0.95);
-                 opacity: 0; transform: translateY(1px); animation: pmsFadeIn 280ms ease forwards; }
-      @keyframes pmsFadeIn{ from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0px); } }
-    </style>
-    """
+<style>
+  .pms-wrap{
+    margin-top: 10px;
+    border: 1px solid rgba(148,163,184,0.25);
+    border-radius: 14px;
+    overflow: hidden;
+    background: rgba(15,23,42,0.35);
+  }
+
+  table.pms{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    color: rgba(226,232,240,0.92);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  table.pms thead th{
+    text-align: left;
+    padding: 12px 12px;
+    background: rgba(2,6,23,0.65);
+    border-bottom: 1px solid rgba(148,163,184,0.18);
+    font-weight: 900;
+    letter-spacing: .2px;
+    color: rgba(226,232,240,0.9);
+  }
+
+  table.pms tbody td{
+    padding: 12px 12px;
+    border-bottom: 1px solid rgba(148,163,184,0.12);
+    vertical-align: middle;
+    font-weight: 700;
+  }
+
+  table.pms tbody tr:hover{
+    background: rgba(148,163,184,0.10);
+  }
+
+  /* ✅ LIGNE SÉLECTIONNÉE: contraste fort + texte lisible */
+  tr.pms-selected{
+    background: rgba(34,197,94,0.26) !important;
+  }
+  tr.pms-selected td{
+    color: rgba(255,255,255,0.98) !important;
+  }
+  tr.pms-selected td:first-child{
+    border-left: 6px solid rgba(34,197,94,0.95);
+  }
+
+  .cell-right{
+    text-align:right;
+    white-space:nowrap;
+  }
+
+  .pms-check{
+    display:inline-block;
+    margin-left: 10px;
+    font-weight: 1000;
+    color: rgba(255,255,255,0.95);
+  }
+</style>
+"""
+
 
     rows = []
     for _, r in view[cols].iterrows():
