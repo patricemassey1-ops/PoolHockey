@@ -1063,10 +1063,7 @@ def open_move_dialog():
 
     def _effective_date(reason: str, from_statut: str, from_slot: str, to_statut: str, to_slot: str) -> datetime:
         now = datetime.now(TZ_TOR)
-        reason_low = str(reason or "").lower().strip()
-        from_statut = str(from_statut or "").strip()
-        to_statut = str(to_statut or "").strip()
-        to_slot = str(to_slot or "").strip()
+        reason_low = str(reason or "").lower()
 
         if reason_low.startswith("changement"):
             return now
@@ -1097,53 +1094,42 @@ def open_move_dialog():
 
         banc = dprop_ok[
             (dprop_ok["Statut"] == STATUT_GC)
-            & (dprop_ok.get("Slot", "").astype(str).str.strip() == SLOT_BANC)
+            & (dprop_ok["Slot"] == SLOT_BANC)
         ].copy()
 
-        ce = dprop_ok[(dprop_ok["Statut"] == STATUT_CE)].copy()
+        ce = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
 
         def _pick(df_cand: pd.DataFrame) -> str | None:
-            if df_cand is None or df_cand.empty:
+            if df_cand.empty:
                 return None
 
             tmp = df_cand.copy()
-            tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
-            tmp["Salaire"] = pd.to_numeric(tmp.get("Salaire", 0), errors="coerce").fillna(0).astype(int)
+            tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
+            tmp["Salaire"] = pd.to_numeric(tmp["Salaire"], errors="coerce").fillna(0).astype(int)
+            tmp["_posk"] = tmp["Pos"].apply(pos_sort_key)
 
-            same = tmp[tmp["Pos"] == injured_pos_].copy()
-            pool = same if not same.empty else tmp
-
-            pool["_posk"] = pool["Pos"].apply(pos_sort_key)
-            pool = pool.sort_values(
+            tmp = tmp.sort_values(
                 by=["_posk", "Salaire", "Joueur"],
                 ascending=[True, False, True],
                 kind="mergesort",
             )
 
-            j = str(pool.iloc[0].get("Joueur", "")).strip()
+            j = str(tmp.iloc[0]["Joueur"]).strip()
             return j if j else None
 
         pick = _pick(banc)
         if pick:
-            ok = apply_move_with_history(
-                owner_,
-                pick,
-                STATUT_GC,
-                SLOT_ACTIF,
-                "AUTO REMPLACEMENT — Banc → Actif (blessure)",
-            )
-            return bool(ok)
+            return bool(apply_move_with_history(
+                owner_, pick, STATUT_GC, SLOT_ACTIF,
+                "AUTO REMPLACEMENT — Banc → Actif (blessure)"
+            ))
 
         pick = _pick(ce)
         if pick:
-            ok = apply_move_with_history(
-                owner_,
-                pick,
-                STATUT_GC,
-                SLOT_ACTIF,
-                "AUTO REMPLACEMENT — CE → Actif (blessure)",
-            )
-            return bool(ok)
+            return bool(apply_move_with_history(
+                owner_, pick, STATUT_GC, SLOT_ACTIF,
+                "AUTO REMPLACEMENT — CE → Actif (blessure)"
+            ))
 
         return False
 
@@ -1159,6 +1145,7 @@ def open_move_dialog():
             """,
             unsafe_allow_html=True,
         )
+
         st.divider()
 
         reason = st.radio(
@@ -1192,25 +1179,18 @@ def open_move_dialog():
 
         now = datetime.now(TZ_TOR)
         eff_dt = _effective_date(reason, cur_statut, cur_slot, to_statut, to_slot)
-        immediate = (eff_dt <= (now + timedelta(seconds=1)))
-
+        immediate = eff_dt <= (now + timedelta(seconds=1))
         hint = "immédiat" if immediate else eff_dt.strftime("effectif le %Y-%m-%d %H:%M")
-        st.markdown(
-            f"<span style='display:inline-block;padding:4px 10px;border-radius:999px;"
-            f"border:1px solid rgba(148,163,184,0.25);background:rgba(255,255,255,0.04);"
-            f"font-weight:900;font-size:12px'>⏱️ {html.escape(hint)}</span>",
-            unsafe_allow_html=True,
-        )
-        st.divider()
 
-            def _schedule_move(note: str):
+        st.caption(f"⏱️ {hint}")
+
+        def _schedule_move(note: str):
             _init_pending_moves()
             st.session_state["pending_moves"].append({
                 "owner": owner,
                 "joueur": joueur,
                 "to_statut": to_statut,
                 "to_slot": to_slot,
-                "reason": reason,
                 "note": note,
                 "effective_at": eff_dt.isoformat(timespec="seconds"),
                 "created_at": now.isoformat(timespec="seconds"),
@@ -1218,52 +1198,33 @@ def open_move_dialog():
 
         c1, c2 = st.columns(2)
 
-        if c1.button(
-            "Confirmer",
-            type="primary",
-            use_container_width=True,
-            key=f"ok_{owner}_{joueur}_{nonce}",
-        ):
+        if c1.button("Confirmer", type="primary", use_container_width=True):
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
-            # IMMÉDIAT
             if immediate:
                 ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
-
                 if ok:
-                    rep_ok = None
                     if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
-                        rep_ok = _auto_replace_injured(owner, cur_pos)
+                        _auto_replace_injured(owner, cur_pos)
 
                     st.session_state["just_moved"] = True
-
-                    if rep_ok is True:
-                        st.toast("Remplacement automatique effectué", icon="🩹")
-                    elif rep_ok is False and (cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR):
-                        st.toast("Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
-
                     st.toast("Déplacement effectué", icon="✅")
                     _close()
                     do_rerun()
                 else:
                     st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
-
-            # PROGRAMMÉ
             else:
                 _schedule_move(note)
                 st.toast(f"Déplacement programmé ({hint})", icon="🕒")
                 _close()
                 do_rerun()
 
-        if c2.button(
-            "Annuler",
-            use_container_width=True,
-            key=f"cancel_{owner}_{joueur}_{nonce}",
-        ):
+        if c2.button("Annuler", use_container_width=True):
             _close()
             do_rerun()
 
     _dlg()
+
 
 
 
