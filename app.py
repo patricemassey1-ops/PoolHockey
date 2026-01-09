@@ -164,6 +164,149 @@ def apply_theme(mode: str):
 
 apply_theme(st.session_state["theme_mode"])
 
+# =====================================================
+# CSS — Micro-animations + Alertes visuelles + UI polish
+#   ✅ coller UNE seule fois, au top du fichier
+# =====================================================
+st.markdown(
+    """
+    <style>
+    /* =========================================
+       ✨ Micro animations (douces)
+       ========================================= */
+    .fade-in { animation: fadeIn 180ms ease-out both; }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(2px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .lift { transition: transform 120ms ease, box-shadow 120ms ease; }
+    .lift:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
+
+    .pulse-soft { animation: pulseSoft 1.6s ease-in-out infinite; }
+    @keyframes pulseSoft {
+        0%, 100% { box-shadow: 0 0 0 rgba(0,0,0,0); }
+        50% { box-shadow: 0 0 0 6px rgba(34,197,94,0.06); }
+    }
+
+    .pulse-warn { animation: pulseWarn 1.8s ease-in-out infinite; }
+    @keyframes pulseWarn {
+        0%, 100% { box-shadow: 0 0 0 rgba(0,0,0,0); }
+        50% { box-shadow: 0 0 0 7px rgba(245,158,11,0.10); }
+    }
+
+    .pulse-danger { animation: pulseDanger 1.7s ease-in-out infinite; }
+    @keyframes pulseDanger {
+        0%, 100% { box-shadow: 0 0 0 rgba(0,0,0,0); }
+        50% { box-shadow: 0 0 0 7px rgba(239,68,68,0.10); }
+    }
+
+    /* =========================================
+       🏷️ Pills / Badges (OK / Warning / Danger)
+       ========================================= */
+    .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.24rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid #374151;
+        background: #111827;
+        color: #e5e7eb;
+        font-size: 0.82rem;
+        line-height: 1;
+        white-space: nowrap;
+        user-select: none;
+        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    .pill:hover { transform: translateY(-1px); }
+
+    .pill .dot {
+        width: 8px; height: 8px;
+        border-radius: 999px;
+        background: #6b7280;
+    }
+
+    .pill-ok     { border-color: rgba(34,197,94,0.35);  background: rgba(34,197,94,0.08); }
+    .pill-ok .dot { background: #22c55e; }
+
+    .pill-warn     { border-color: rgba(245,158,11,0.40); background: rgba(245,158,11,0.10); }
+    .pill-warn .dot { background: #f59e0b; }
+
+    .pill-danger     { border-color: rgba(239,68,68,0.45); background: rgba(239,68,68,0.10); }
+    .pill-danger .dot { background: #ef4444; }
+
+    /* =========================================
+       🧾 Carte d’alerte (bande à gauche)
+       ========================================= */
+    .alert-card {
+        border: 1px solid #1f2937;
+        background: #111827;
+        border-radius: 12px;
+        padding: 0.65rem 0.8rem;
+    }
+    .alert-card.ok     { border-left: 4px solid #22c55e; }
+    .alert-card.warn   { border-left: 4px solid #f59e0b; }
+    .alert-card.danger { border-left: 4px solid #ef4444; }
+
+    .muted { color: #9ca3af; font-size: 0.85rem; }
+
+    /* =========================================
+       🔝 NAV (radio horizontale) — actif/inactif clair
+       ========================================= */
+    div[role="radiogroup"] > label {
+        background-color: transparent;
+        padding: 0.4rem 0.8rem;
+        border-radius: 8px;
+        font-weight: 500;
+        color: #9ca3af;
+        transition: all 0.15s ease-in-out;
+    }
+    div[role="radiogroup"] > label:hover {
+        background-color: #1f2937;
+        color: #e5e7eb;
+    }
+    div[role="radiogroup"] > label[data-selected="true"] {
+        background-color: #1f2937;
+        color: #f9fafb;
+        box-shadow: inset 0 -2px 0 #22c55e;
+    }
+
+    /* =========================================
+       🔘 Boutons uniformes (global)
+       ========================================= */
+    button {
+        background-color: #1f2937 !important;
+        color: #f9fafb !important;
+        border-radius: 10px !important;
+        border: 1px solid #374151 !important;
+        font-weight: 500;
+        padding: 0.45rem 0.9rem !important;
+        transition: all 0.15s ease-in-out;
+    }
+    button:hover { background-color: #374151 !important; transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+
+    button[kind="primary"] {
+        background-color: #16a34a !important;
+        border-color: #16a34a !important;
+        color: white !important;
+    }
+    button[kind="primary"]:hover { background-color: #22c55e !important; }
+
+    /* =========================================
+       📊 Dataframe (si applicable)
+       ========================================= */
+    .stDataFrame tbody tr:hover { background-color: rgba(255,255,255,0.04); }
+    .stDataFrame thead tr th {
+        background-color: #020617 !important;
+        color: #9ca3af !important;
+        font-weight: 600;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # =====================================================
 # DATE FORMAT — Français (cloud-proof, no locale)
@@ -415,6 +558,114 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     bad = {"", "none", "nan", "null"}
     out = out[~out["Joueur"].str.lower().isin(bad)].copy()
     return out.reset_index(drop=True)
+
+# =====================================================
+# HELPERS UI — Pills + Alert cards (1 seule fois)
+# =====================================================
+def pill(label: str, value: str, level: str = "ok", pulse: bool = False):
+    level_class = {"ok": "pill-ok", "warn": "pill-warn", "danger": "pill-danger"}.get(level, "pill-ok")
+    pulse_class = {"ok": "pulse-soft", "warn": "pulse-warn", "danger": "pulse-danger"}.get(level, "")
+    pulse_class = pulse_class if pulse else ""
+    st.markdown(
+        f"""
+        <span class="pill {level_class} {pulse_class} fade-in">
+            <span class="dot"></span>
+            <b>{label}</b>
+            <span class="muted">{value}</span>
+        </span>
+        """,
+        unsafe_allow_html=True
+    )
+
+def alert_card(title: str, subtitle: str, level: str = "ok", pulse: bool = False):
+    lvl = level if level in ("ok", "warn", "danger") else "ok"
+    pulse_class = {"ok": "pulse-soft", "warn": "pulse-warn", "danger": "pulse-danger"}.get(lvl, "")
+    pulse_class = pulse_class if pulse else ""
+    st.markdown(
+        f"""
+        <div class="alert-card {lvl} {pulse_class} fade-in lift">
+            <div style="font-weight:600; color:#f9fafb;">{title}</div>
+            <div class="muted">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# =====================================================
+# ALERTES — Cap GC/CE + IR + Toasts (1 seule fois)
+#   Utilisation: show_status_alerts(...)
+# =====================================================
+def _level_for_cap(total: int, cap: int) -> str:
+    if cap <= 0:
+        return "ok"
+    if total > cap:
+        return "danger"
+    reste = cap - total
+    pct_reste = reste / cap if cap else 0
+    if pct_reste < 0.05:
+        return "warn"
+    return "ok"
+
+def show_status_alerts(
+    *,
+    total_gc: int, cap_gc: int,
+    total_ce: int, cap_ce: int,
+    ir_count: int = 0,
+    toast: bool = False,
+    context: str = ""
+):
+    # niveaux
+    lvl_gc = _level_for_cap(total_gc, cap_gc)
+    lvl_ce = _level_for_cap(total_ce, cap_ce)
+
+    reste_gc = cap_gc - total_gc
+    reste_ce = cap_ce - total_ce
+
+    lvl_ir = "ok"
+    if ir_count >= 3:
+        lvl_ir = "danger"
+    elif ir_count > 0:
+        lvl_ir = "warn"
+
+    # Pills en haut
+    c1, c2, c3 = st.columns([2, 2, 1.4], vertical_alignment="center")
+    with c1:
+        pill("GC", f"{total_gc:,.0f} / {cap_gc:,.0f} $", level=lvl_gc, pulse=(lvl_gc != "ok"))
+        st.write("")
+        pill("Reste GC", f"{reste_gc:,.0f} $", level=("danger" if reste_gc < 0 else lvl_gc), pulse=(lvl_gc != "ok"))
+    with c2:
+        pill("CE", f"{total_ce:,.0f} / {cap_ce:,.0f} $", level=lvl_ce, pulse=(lvl_ce != "ok"))
+        st.write("")
+        pill("Reste CE", f"{reste_ce:,.0f} $", level=("danger" if reste_ce < 0 else lvl_ce), pulse=(lvl_ce != "ok"))
+    with c3:
+        pill("IR", f"{ir_count} joueur(s)", level=lvl_ir, pulse=(lvl_ir != "ok"))
+
+    st.write("")
+
+    # Cartes d’alerte (seulement si warn/danger)
+    if lvl_gc == "danger":
+        alert_card("🚨 Plafond GC dépassé", "Réduis la masse salariale ou déplace un joueur.", level="danger", pulse=True)
+    elif lvl_gc == "warn":
+        alert_card("⚠️ Reste GC faible", "Tu approches du plafond — attention aux moves.", level="warn", pulse=True)
+
+    if lvl_ce == "danger":
+        alert_card("🚨 Plafond CE dépassé", "Ajuste le Club École (CE) pour revenir sous le plafond.", level="danger", pulse=True)
+    elif lvl_ce == "warn":
+        alert_card("⚠️ Reste CE faible", "Tu approches du plafond CE — attention aux moves.", level="warn", pulse=True)
+
+    if lvl_ir != "ok":
+        alert_card("🩹 Joueurs blessés (IR)", "Des joueurs sont sur IR — vérifie tes remplacements.", level=lvl_ir, pulse=(lvl_ir == "danger"))
+
+    # Toasts optionnels (utile après un move)
+    if toast:
+        prefix = f"{context} — " if context else ""
+        if lvl_gc == "danger" or lvl_ce == "danger":
+            st.toast(prefix + "🚨 Plafond dépassé", icon="🚨")
+        elif lvl_gc == "warn" or lvl_ce == "warn":
+            st.toast(prefix + "⚠️ Proche du plafond", icon="⚠️")
+        if lvl_ir != "ok":
+            st.toast(prefix + f"🩹 IR: {ir_count} joueur(s)", icon="🩹")
+
 
 
 # =====================================================
@@ -944,40 +1195,53 @@ def open_move_dialog():
 
         c1, c2 = st.columns(2)
 
-        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
+if c1.button(
+    "✅ Confirmer",
+    type="primary",
+    use_container_width=True,
+    key=f"ok_{owner}_{joueur}_{nonce}",
+):
+    note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
-            note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
+    # IMMÉDIAT
+    if immediate:
+        ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
 
-            # IMMÉDIAT
-            if immediate:
-                ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
-                if ok:
-                    # ✅ Auto-remplacement si GC ACTIF -> IR
-                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
-                        rep_ok = _auto_replace_injured(owner, cur_pos)
-                        if rep_ok:
-                            st.toast("🩹 Remplacement automatique effectué", icon="🩹")
-                        else:
-                            st.toast("⚠️ Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
+        if ok:
+            # ✅ Auto-remplacement si GC ACTIF -> IR
+            rep_ok = None
+            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
+                rep_ok = _auto_replace_injured(owner, cur_pos)
 
-                    st.toast("✅ Déplacement effectué", icon="✅")
-                    _close()
-                    do_rerun()
-                else:
-                    st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+            # ✅ Flag pour déclencher tes toasts "cap/IR" dans Alignement (1 seule fois)
+            st.session_state["just_moved"] = True
 
-            # PROGRAMMÉ
-            else:
-                _schedule_move(note)
-                st.toast(f"🕒 Déplacement programmé ({hint})", icon="🕒")
-                _close()
-                do_rerun()
+            # Toasts locaux (facultatifs)
+            if rep_ok is True:
+                st.toast("🩹 Remplacement automatique effectué", icon="🩹")
+            elif rep_ok is False and (cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR):
+                st.toast("⚠️ Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
 
-        if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
+            st.toast("✅ Déplacement effectué", icon="✅")
+
             _close()
             do_rerun()
+        else:
+            st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
 
-    _dlg()
+    # PROGRAMMÉ
+    else:
+        _schedule_move(note)
+        st.toast(f"🕒 Déplacement programmé ({hint})", icon="🕒")
+        _close()
+        do_rerun()
+
+if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
+    _close()
+    do_rerun()
+
+_dlg()
+
 
 
 
@@ -1369,13 +1633,26 @@ if is_admin:
     NAV_TABS.append("🛠️ Gestion Admin")
 NAV_TABS.append("🧠 Recommandations")
 
+# état par défaut
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "📊 Tableau"
+
+# sécurité si onglet invalide
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
+# 🔘 NAV UI (UNE SEULE FOIS)
+active_tab = st.radio(
+    "",
+    NAV_TABS,
+    horizontal=True,
+    key="active_tab",
+)
 st.divider()
+
+# ✅ init flags globaux (1x par session)
+if "just_moved" not in st.session_state:
+    st.session_state["just_moved"] = False
 
 
 # =====================================================
@@ -1387,6 +1664,9 @@ def set_move_ctx(owner: str, joueur: str, source_key: str):
     owner = str(owner or "").strip()
     joueur = str(joueur or "").strip()
     source_key = str(source_key or "").strip()
+
+    # 🔒 reset toast flag à l'ouverture d'un nouveau move
+    st.session_state["just_moved"] = False
 
     st.session_state["move_nonce"] = int(st.session_state.get("move_nonce", 0)) + 1
     st.session_state["move_source"] = source_key
@@ -1401,6 +1681,7 @@ def clear_move_ctx():
     st.session_state["move_source"] = ""
 
 
+
 # =====================================================
 # Global scheduled moves + dialogs (APPELS SAFE)
 #   ✅ 1 seule fois
@@ -1411,17 +1692,28 @@ _has_data = isinstance(st.session_state.get("data"), pd.DataFrame)
 _has_hist = isinstance(st.session_state.get("history"), pd.DataFrame)
 
 if _has_data and _has_hist:
+
+    # 1) Appliquer les déplacements programmés
     if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
         try:
             process_pending_moves()
         except Exception as e:
             st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
+    # 2) Dialog preview GC (si présent)
     if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
         try:
             open_gc_preview_dialog()
         except Exception as e:
             st.warning(f"⚠️ open_gc_preview_dialog() a échoué: {type(e).__name__}: {e}")
+
+    # 3) Dialog MOVE (si présent)  ✅ IMPORTANT
+    if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
+        try:
+            open_move_dialog()
+        except Exception as e:
+            st.warning(f"⚠️ open_move_dialog() a échoué: {type(e).__name__}: {e}")
+
 
 
 
@@ -1542,12 +1834,25 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     return clicked
 
+if "just_moved" not in st.session_state:
+    st.session_state["just_moved"] = False
+
 
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
 if active_tab == "📊 Tableau":
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+
+    # Sous-titre discret (UI)
+    st.markdown(
+        '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
+        unsafe_allow_html=True
+    )
+
+    st.write("")  # spacing léger
+
+    # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
 
 elif active_tab == "🧾 Alignement":
@@ -1576,9 +1881,7 @@ elif active_tab == "🧾 Alignement":
         clear_move_ctx()
         st.stop()
 
-    # ... (ton reste de bloc Alignement inchangé)
-
-
+    # --- Split IR vs non-IR (DOIT être avant les totaux)
     injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
@@ -1599,15 +1902,34 @@ elif active_tab == "🧾 Alignement":
     remain_gc = cap_gc - used_gc
     remain_ce = cap_ce - used_ce
 
+    # --- Barres plafond (tes barres restent)
     j1, j2 = st.columns(2)
-    with j1: st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-    with j2: st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
+    with j1:
+        st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
+    with j2:
+        st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
 
+    st.write("")
+
+    # --- ✅ Pills + Alert cards (après calculs)
+    show_status_alerts(
+        total_gc=int(used_gc),
+        cap_gc=int(cap_gc),
+        total_ce=int(used_ce),
+        cap_ce=int(cap_ce),
+        ir_count=int(len(injured_all)),
+        toast=False,
+        context=proprietaire,
+    )
+
+    st.write("")
+
+    # --- Tes métriques (animées)
     def gm_metric(label: str, value: str):
         st.markdown(
             f"""
-            <div style="text-align:left">
-                <div style="font-size:12px;opacity:.75;font-weight:700">{html.escape(label)}</div>
+            <div class="fade-in lift" style="text-align:left;padding:6px 8px;border:1px solid #1f2937;border-radius:10px;background:#111827">
+                <div style="font-size:12px;opacity:.75;font-weight:800">{html.escape(label)}</div>
                 <div style="font-size:20px;font-weight:1000">{html.escape(str(value))}</div>
             </div>
             """,
@@ -1621,6 +1943,8 @@ elif active_tab == "🧾 Alignement":
     with cols[3]: gm_metric("Reste CE", money(remain_ce))
     with cols[4]: gm_metric("Banc", str(len(gc_banc)))
     with cols[5]: gm_metric("IR", str(len(injured_all)))
+
+    st.write("")
 
     st.markdown(
         f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
@@ -1695,6 +2019,18 @@ elif active_tab == "🧾 Alignement":
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
     open_move_dialog()
+
+    if st.session_state.pop("just_moved", False):
+        show_status_alerts(
+            total_gc=int(used_gc),
+            cap_gc=int(cap_gc),
+            total_ce=int(used_ce),
+            cap_ce=int(cap_ce),
+            ir_count=int(len(injured_all)),
+            toast=True,
+            context="Move appliqué",
+        )
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
