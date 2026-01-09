@@ -62,12 +62,12 @@ def apply_theme(mode: str = "dark") -> None:
     mode = str(mode or "dark").lower()
     dark = mode == "dark"
 
-    bg = "#0b1220" if dark else "#f5f7fb"
-    panel = "#0f172a" if dark else "#ffffff"
-    text = "#e5e7eb" if dark else "#0f172a"
-    muted = "#94a3b8" if dark else "#64748b"
-    border = "rgba(148,163,184,0.22)" if dark else "rgba(15,23,42,0.12)"
-    accent = "#22c55e"
+    bg = "#eef2f7" if dark else "#eef2f7"          # fond gris bleuté doux
+    panel = "#0f172a" if dark else "#ffffff"       # sidebar blanche
+    text = "#e5e7eb" if dark else "#0b1220"        # texte foncé mais doux
+    muted = "#94a3b8" if dark else "#556070"
+    border = "rgba(148,163,184,0.22)" if dark else "rgba(15,23,42,0.10)"
+
 
     st.markdown(
         f"""
@@ -114,10 +114,8 @@ div[data-baseweb="select"] {{
   max-width: 260px;
 }}
 
-div[data-baseweb="select"] > div {{
-  background: {"#0b1020" if dark else "#ffffff"} !important;
-  border: 1px solid {border} !important;
-  border-radius: 10px !important;
+div[data-baseweb="select"] { width: 100% !important; max-width: 100% !important; }
+
 }}
 
 button {{
@@ -1063,12 +1061,17 @@ def open_move_dialog():
 
     def _effective_date(reason: str, from_statut: str, from_slot: str, to_statut: str, to_slot: str) -> datetime:
         now = datetime.now(TZ_TOR)
-        reason_low = str(reason or "").lower()
+        reason_low = str(reason or "").lower().strip()
+
+        from_statut = str(from_statut or "").strip()
+        to_statut = str(to_statut or "").strip()
+        to_slot = str(to_slot or "").strip()
 
         if reason_low.startswith("changement"):
             return now
 
         if reason_low.startswith("bless"):
+            # règles actuelles
             if from_statut == STATUT_GC and to_statut == STATUT_CE:
                 return now
             if from_statut == STATUT_CE and to_statut == STATUT_GC and to_slot == SLOT_ACTIF:
@@ -1077,6 +1080,9 @@ def open_move_dialog():
 
         return now
 
+    # -------------------------------------------------
+    # AUTO-REMPLACEMENT (GC Actif -> IR)
+    # -------------------------------------------------
     def _auto_replace_injured(owner_: str, injured_pos_: str) -> bool:
         dfx = st.session_state.get("data")
         if dfx is None or not isinstance(dfx, pd.DataFrame) or dfx.empty:
@@ -1090,46 +1096,61 @@ def open_move_dialog():
         if dprop.empty:
             return False
 
+        # Exclure IR
         dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
+        # Banc GC
         banc = dprop_ok[
             (dprop_ok["Statut"] == STATUT_GC)
-            & (dprop_ok["Slot"] == SLOT_BANC)
+            & (dprop_ok.get("Slot", "").astype(str).str.strip() == SLOT_BANC)
         ].copy()
 
-        ce = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
+        # CE
+        ce = dprop_ok[(dprop_ok["Statut"] == STATUT_CE)].copy()
 
         def _pick(df_cand: pd.DataFrame) -> str | None:
-            if df_cand.empty:
+            if df_cand is None or df_cand.empty:
                 return None
 
             tmp = df_cand.copy()
-            tmp["Pos"] = tmp["Pos"].apply(normalize_pos)
-            tmp["Salaire"] = pd.to_numeric(tmp["Salaire"], errors="coerce").fillna(0).astype(int)
-            tmp["_posk"] = tmp["Pos"].apply(pos_sort_key)
+            tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
+            tmp["Salaire"] = pd.to_numeric(tmp.get("Salaire", 0), errors="coerce").fillna(0).astype(int)
 
-            tmp = tmp.sort_values(
+            same = tmp[tmp["Pos"] == injured_pos_].copy()
+            pool = same if not same.empty else tmp
+
+            pool["_posk"] = pool["Pos"].apply(pos_sort_key)
+            pool = pool.sort_values(
                 by=["_posk", "Salaire", "Joueur"],
                 ascending=[True, False, True],
                 kind="mergesort",
             )
-
-            j = str(tmp.iloc[0]["Joueur"]).strip()
+            j = str(pool.iloc[0].get("Joueur", "")).strip()
             return j if j else None
 
+        # 1) Banc -> Actif
         pick = _pick(banc)
         if pick:
-            return bool(apply_move_with_history(
-                owner_, pick, STATUT_GC, SLOT_ACTIF,
-                "AUTO REMPLACEMENT — Banc → Actif (blessure)"
-            ))
+            ok = apply_move_with_history(
+                owner_,
+                pick,
+                STATUT_GC,
+                SLOT_ACTIF,
+                "AUTO REMPLACEMENT — Banc → Actif (blessure)",
+            )
+            return bool(ok)
 
+        # 2) CE -> Actif
         pick = _pick(ce)
         if pick:
-            return bool(apply_move_with_history(
-                owner_, pick, STATUT_GC, SLOT_ACTIF,
-                "AUTO REMPLACEMENT — CE → Actif (blessure)"
-            ))
+            ok = apply_move_with_history(
+                owner_,
+                pick,
+                STATUT_GC,
+                SLOT_ACTIF,
+                "AUTO REMPLACEMENT — CE → Actif (blessure)",
+            )
+            return bool(ok)
 
         return False
 
@@ -1145,9 +1166,9 @@ def open_move_dialog():
             """,
             unsafe_allow_html=True,
         )
-
         st.divider()
 
+        # 1) Type
         reason = st.radio(
             "Type de changement",
             ["Changement demi-mois", "Blessure"],
@@ -1157,12 +1178,14 @@ def open_move_dialog():
 
         st.divider()
 
+        # 2) Destination
         destinations = [
             ("Actif", (STATUT_GC, SLOT_ACTIF)),
             ("Banc", (STATUT_GC, SLOT_BANC)),
             ("Mineur", (STATUT_CE, "")),
             ("Blessé (IR)", (cur_statut, SLOT_IR)),
         ]
+
         current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
 
@@ -1177,53 +1200,89 @@ def open_move_dialog():
         )
         to_statut, to_slot = mapping[choice]
 
+        # 3) Date effective
         now = datetime.now(TZ_TOR)
         eff_dt = _effective_date(reason, cur_statut, cur_slot, to_statut, to_slot)
         immediate = eff_dt <= (now + timedelta(seconds=1))
-        hint = "immédiat" if immediate else eff_dt.strftime("effectif le %Y-%m-%d %H:%M")
 
-        st.caption(f"⏱️ {hint}")
+        hint = "immédiat" if immediate else eff_dt.strftime("effectif le %Y-%m-%d %H:%M")
+        st.markdown(
+            f"<span style='display:inline-block;padding:4px 10px;border-radius:999px;"
+            f"border:1px solid rgba(148,163,184,0.25);background:rgba(255,255,255,0.06);"
+            f"font-weight:900;font-size:12px'>⏱️ {html.escape(hint)}</span>",
+            unsafe_allow_html=True,
+        )
+        st.divider()
 
         def _schedule_move(note: str):
             _init_pending_moves()
-            st.session_state["pending_moves"].append({
-                "owner": owner,
-                "joueur": joueur,
-                "to_statut": to_statut,
-                "to_slot": to_slot,
-                "note": note,
-                "effective_at": eff_dt.isoformat(timespec="seconds"),
-                "created_at": now.isoformat(timespec="seconds"),
-            })
+            st.session_state["pending_moves"].append(
+                {
+                    "owner": owner,
+                    "joueur": joueur,
+                    "to_statut": to_statut,
+                    "to_slot": to_slot,
+                    "reason": reason,
+                    "note": note,
+                    "effective_at": eff_dt.isoformat(timespec="seconds"),
+                    "created_at": now.isoformat(timespec="seconds"),
+                }
+            )
 
+        # ✅ ICI: colonnes au BON niveau (PAS dans _schedule_move)
         c1, c2 = st.columns(2)
 
-        if c1.button("Confirmer", type="primary", use_container_width=True):
+        if c1.button(
+            "✅ Confirmer",
+            type="primary",
+            use_container_width=True,
+            key=f"ok_{owner}_{joueur}_{nonce}",
+        ):
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
+            # IMMÉDIAT
             if immediate:
                 ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
-                if ok:
-                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
-                        _auto_replace_injured(owner, cur_pos)
 
+                if ok:
+                    # ✅ Auto-remplacement si GC ACTIF -> IR
+                    rep_ok = None
+                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR:
+                        rep_ok = _auto_replace_injured(owner, cur_pos)
+
+                    # ✅ Flag global (tes toasts cap/IR dans Alignement)
                     st.session_state["just_moved"] = True
-                    st.toast("Déplacement effectué", icon="✅")
+
+                    # Toasts locaux (optionnels)
+                    if rep_ok is True:
+                        st.toast("🩹 Remplacement automatique effectué", icon="🩹")
+                    elif rep_ok is False and (cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF and to_slot == SLOT_IR):
+                        st.toast("⚠️ Aucun remplaçant disponible (Banc/CE)", icon="⚠️")
+
+                    st.toast("✅ Déplacement effectué", icon="✅")
+
                     _close()
                     do_rerun()
                 else:
                     st.error(st.session_state.get("last_move_error") or "Déplacement refusé.")
+
+            # PROGRAMMÉ
             else:
                 _schedule_move(note)
-                st.toast(f"Déplacement programmé ({hint})", icon="🕒")
+                st.toast(f"🕒 Déplacement programmé ({hint})", icon="🕒")
                 _close()
                 do_rerun()
 
-        if c2.button("Annuler", use_container_width=True):
+        if c2.button(
+            "✖️ Annuler",
+            use_container_width=True,
+            key=f"cancel_{owner}_{joueur}_{nonce}",
+        ):
             _close()
             do_rerun()
 
     _dlg()
+
 
 
 
