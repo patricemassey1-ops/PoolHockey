@@ -252,38 +252,57 @@ st.markdown(
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
 # =====================================================
-# NAV CSS — ULTRA SAFE (string isolée)
+# NAV CSS — ULTRA SAFE
 # =====================================================
-NAV_CSS = """
-<style>
-div[role="radiogroup"] input[type="radio"] {
-    display: none !important;
-}
-
-div[role="radiogroup"] {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 8px !important;
-}
-
-div[role="radiogroup"] > label {
-    padding: 8px 14px !important;
-    border-radius: 10px !important;
-    border: 1px solid rgba(148,163,184,0.35) !important;
-    background: rgba(15,23,42,0.6) !important;
-    color: #e5e7eb !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
-}
-
-div[role="radiogroup"] > label[data-selected="true"] {
-    background: rgba(34,197,94,0.25) !important;
-    border-color: rgba(34,197,94,0.8) !important;
-    color: white !important;
-}
-</style>
-"""
+NAV_CSS = (
+    "<style>\n"
+    "div[role=\"radiogroup\"] input[type=\"radio\"] { display: none !important; }\n"
+    "div[role=\"radiogroup\"] { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }\n"
+    "div[role=\"radiogroup\"] > label {\n"
+    "  padding: 8px 14px !important;\n"
+    "  border-radius: 10px !important;\n"
+    "  border: 1px solid rgba(148,163,184,0.35) !important;\n"
+    "  background: rgba(15,23,42,0.6) !important;\n"
+    "  color: #e5e7eb !important;\n"
+    "  font-weight: 700 !important;\n"
+    "  font-size: 14px !important;\n"
+    "}\n"
+    "div[role=\"radiogroup\"] > label[data-selected=\"true\"] {\n"
+    "  background: rgba(34,197,94,0.25) !important;\n"
+    "  border-color: rgba(34,197,94,0.8) !important;\n"
+    "  color: white !important;\n"
+    "}\n"
+    "</style>\n"
+)
 st.markdown(NAV_CSS, unsafe_allow_html=True)
+
+# =====================================================
+# NAV
+# =====================================================
+is_admin = _is_admin_whalers()
+
+NAV_TABS = [
+    "📊 Tableau",
+    "🧾 Alignement",
+    "👤 Joueurs",
+    "🕘 Historique",
+    "⚖️ Transactions",
+]
+if is_admin:
+    NAV_TABS.append("🛠️ Gestion Admin")
+NAV_TABS.append("🧠 Recommandations")
+
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "📊 Tableau"
+if st.session_state["active_tab"] not in NAV_TABS:
+    st.session_state["active_tab"] = NAV_TABS[0]
+
+active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
+st.divider()
+
+# init flags (1x)
+if "just_moved" not_
+
 
 
 
