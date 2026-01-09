@@ -1533,9 +1533,9 @@ except Exception as e:
 
 
 # =====================================================
-# NAV — compact & lisible (selectbox, sans CSS)
+# NAV — hybride AUTO (desktop boutons si ça fitte, sinon selectbox)
+#   ✅ sans CSS
 #   ✅ garde ton routing: if active_tab == ...
-#   ✅ aucun CSS (donc aucune erreur "invalid decimal literal")
 # =====================================================
 is_admin = _is_admin_whalers()
 
@@ -1556,14 +1556,37 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.selectbox(
-    "Navigation",
-    NAV_TABS,
-    index=NAV_TABS.index(st.session_state["active_tab"]),
-    key="active_tab",
-)
+# mode mobile (clé déjà chez toi)
+is_mobile = bool(st.session_state.get("mobile_view", False))
+
+# heuristique: si trop d’onglets ou texte trop long -> selectbox
+tabs_count = len(NAV_TABS)
+max_len = max(len(t) for t in NAV_TABS) if NAV_TABS else 0
+force_select = (tabs_count >= 7) or (max_len >= 18)
+
+use_selectbox = is_mobile or force_select
+
+if use_selectbox:
+    active_tab = st.selectbox(
+        "Navigation",
+        NAV_TABS,
+        index=NAV_TABS.index(st.session_state["active_tab"]),
+        key="active_tab",
+    )
+else:
+    cols = st.columns(len(NAV_TABS), gap="small")
+    current = st.session_state["active_tab"]
+
+    for i, tab in enumerate(NAV_TABS):
+        btn_type = "primary" if tab == current else "secondary"
+        if cols[i].button(tab, use_container_width=True, type=btn_type, key=f"nav_btn_{i}"):
+            st.session_state["active_tab"] = tab
+            do_rerun()
+
+    active_tab = st.session_state["active_tab"]
 
 st.divider()
+
 
 
 
