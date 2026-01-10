@@ -872,6 +872,81 @@ def buyout_penalty_sum(owner: str, bucket: str | None = None) -> int:
     return int(pen.sum())
 
 
+
+# =====================================================
+# TRADE MARKET (joueurs disponibles aux échanges)
+#   - Purement informatif (tag 🔁), persistant par saison
+# =====================================================
+def _trade_market_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    return os.path.join(DATA_DIR, f"trade_market_{season_lbl}.csv")
+
+def load_trade_market(season_lbl: str) -> pd.DataFrame:
+    path = _trade_market_path(season_lbl)
+    cols = ["season", "proprietaire", "joueur", "is_available", "updated_at"]
+    if os.path.exists(path):
+        try:
+            t = pd.read_csv(path)
+            for c in cols:
+                if c not in t.columns:
+                    t[c] = ""
+            return t[cols].copy()
+        except Exception:
+            pass
+    return pd.DataFrame(columns=cols)
+
+def save_trade_market(season_lbl: str, t: pd.DataFrame) -> None:
+    path = _trade_market_path(season_lbl)
+    cols = ["season", "proprietaire", "joueur", "is_available", "updated_at"]
+    try:
+        if t is None or not isinstance(t, pd.DataFrame):
+            t = pd.DataFrame(columns=cols)
+        for c in cols:
+            if c not in t.columns:
+                t[c] = ""
+        t = t[cols].copy()
+        t.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def is_on_trade_market(t: pd.DataFrame, owner: str, joueur: str) -> bool:
+    if t is None or not isinstance(t, pd.DataFrame) or t.empty:
+        return False
+    owner = str(owner or "").strip()
+    joueur = str(joueur or "").strip()
+    m = (
+        t["proprietaire"].astype(str).str.strip().eq(owner)
+        & t["joueur"].astype(str).str.strip().eq(joueur)
+    )
+    if not m.any():
+        return False
+    v = str(t.loc[m].iloc[-1].get("is_available", "")).strip().lower()
+    return v in {"1", "true", "yes", "oui", "y"}
+
+def set_owner_market(t: pd.DataFrame, season_lbl: str, owner: str, available_players: list[str]) -> pd.DataFrame:
+    owner = str(owner or "").strip()
+    available_set = {str(x).strip() for x in (available_players or []) if str(x).strip()}
+    now = datetime.now(TZ_TOR).isoformat(timespec="seconds")
+
+    base = t.copy() if isinstance(t, pd.DataFrame) else load_trade_market(season_lbl)
+    # retire anciennes lignes pour owner puis réécrit l'état final
+    if not base.empty:
+        base = base[~base["proprietaire"].astype(str).str.strip().eq(owner)].copy()
+
+    rows = []
+    for j in sorted(available_set):
+        rows.append({
+            "season": str(season_lbl),
+            "proprietaire": owner,
+            "joueur": j,
+            "is_available": True,
+            "updated_at": now,
+        })
+
+    if rows:
+        base = pd.concat([base, pd.DataFrame(rows)], ignore_index=True)
+    return base
+
 # =====================================================
 # PLAYERS DB
 # =====================================================
@@ -1050,6 +1125,74 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
 # =====================================================
 # MOVE DIALOG — auto-remplacement IR + étiquette exacte
 # =====================================================
+
+# =====================================================
+# PENDING MOVES (déplacements programmés)
+# =====================================================
+def _init_pending_moves():
+    if "pending_moves" not in st.session_state or st.session_state["pending_moves"] is None:
+        st.session_state["pending_moves"] = []
+
+def process_pending_moves():
+    """
+    Applique les moves programmés dont la date d'effet est atteinte.
+    Stockage: st.session_state["pending_moves"] = list[dict]
+    """
+    _init_pending_moves()
+    moves = st.session_state.get("pending_moves") or []
+    if not isinstance(moves, list) or not moves:
+        return
+
+    now = datetime.now(TZ_TOR)
+    keep = []
+    applied = 0
+
+    for mv in moves:
+        try:
+            eff = pd.to_datetime(mv.get("effective_at"), errors="coerce")
+            eff = eff.to_pydatetime() if not pd.isna(eff) else None
+        except Exception:
+            eff = None
+
+        if eff is None or eff > now:
+            keep.append(mv)
+            continue
+
+        owner = str(mv.get("owner","")).strip()
+        joueur = str(mv.get("joueur","")).strip()
+        to_statut = str(mv.get("to_statut","")).strip()
+        to_slot = str(mv.get("to_slot","")).strip()
+        note = str(mv.get("note","")).strip() or "Move programmé"
+
+        ok = False
+        if "apply_move_with_history" in globals() and callable(globals()["apply_move_with_history"]):
+            ok = bool(globals()["apply_move_with_history"](owner, joueur, to_statut, to_slot, note))
+        else:
+            # fallback minimal
+            df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+            m = (
+                df["Propriétaire"].astype(str).str.strip().eq(owner)
+                & df["Joueur"].astype(str).str.strip().eq(joueur)
+            )
+            if m.any():
+                idx = df.index[m][0]
+                df.at[idx, "Statut"] = to_statut
+                df.at[idx, "Slot"] = to_slot
+                st.session_state["data"] = df
+                ok = True
+
+        if ok:
+            applied += 1
+        else:
+            keep.append(mv)
+
+    st.session_state["pending_moves"] = keep
+    if applied:
+        try:
+            persist_data(st.session_state.get("data"), st.session_state.get("season"))
+        except Exception:
+            pass
+
 def open_move_dialog():
     ctx = st.session_state.get("move_ctx")
     if not ctx:
@@ -1239,31 +1382,17 @@ def open_move_dialog():
         st.divider()
 
         # 2) Destination (mapping AVEC TES constantes)
-        destinations = [
-            ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
-            ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
-            ("🔵 Mineur", (STATUT_CE, "")),
-            ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
-        ]
-
-        # ✅ Règles d'affichage des destinations (selon le type)
-        # - Demi-mois: seulement Banc et Mineur
-        # - Blessure:
-        #     - si joueur est sur IR -> seulement Actif (retour)
-        #     - si joueur vient du CE -> seulement Actif
-        #     - sinon (GC) -> seulement Blessé (IR)
-        if reason == "Changement demi-mois":
+        # RÈGLE: si le joueur provient du CE et que "Blessure" est sélectionné,
+        #        le seul choix permis est "🟢 Actif" (rappel pour remplacer).
+        if reason == "Blessure" and cur_statut == STATUT_CE:
+            destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+        else:
             destinations = [
+                ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
                 ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
                 ("🔵 Mineur", (STATUT_CE, "")),
+                ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
             ]
-        elif reason == "Blessure":
-            if (cur_slot or "") == SLOT_IR:
-                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
-            elif cur_statut == STATUT_CE:
-                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
-            else:
-                destinations = [("🩹 Blessé (IR)", (cur_statut, SLOT_IR))]
 
         current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
@@ -1710,7 +1839,7 @@ NAV_TABS = [
     "📊 Tableau",
     "🧾 Alignement",
     "🧑‍💼 GM",
-    "👤 Joueurs",
+    "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
 ]
@@ -2163,15 +2292,17 @@ elif active_tab == "🧑‍💼 GM":
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Masse GC", money(total_gc))
-    c2.metric("Pénalités rachat GC (50%)", money(pen_gc))
-    c3.metric("GC (incl. pénalités)", money(total_gc_incl))
-
+    if pen_gc:
+        c2.metric("Pénalités rachat GC (50%)", money(pen_gc))
+    if pen_gc:
+        c3.metric("GC (incl. pénalités)", money(total_gc_incl))
     c4, c5, _c6 = st.columns(3)
     c4.metric("Masse CE", money(total_ce))
-    c5.metric("Pénalités rachat CE (50%)", money(pen_ce))
-
-    st.markdown(cap_bar_html(total_gc_incl, cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
-    st.markdown(cap_bar_html(total_ce_incl, cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
+    if pen_ce:
+        c5.metric("Pénalités rachat CE (50%)", money(pen_ce))
+        _c6.metric("CE (incl. pénalités)", money(total_ce_incl))
+    st.markdown(cap_bar_html((total_gc_incl if pen_gc else total_gc), cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
+    st.markdown(cap_bar_html((total_ce_incl if pen_ce else total_ce), cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
 
     st.divider()
 
@@ -2268,9 +2399,9 @@ elif active_tab == "🧑‍💼 GM":
             do_rerun()
 
 
-elif active_tab == "👤 Joueurs":
-    st.subheader("👤 Joueurs")
-    st.caption("Aucun résultat tant qu’aucun filtre n’est rempli.")
+elif active_tab == "👤 Joueurs autonomes":
+    st.subheader("👤 Joueurs autonomes")
+    st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
 
     players_db = st.session_state.get("players_db")
     if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
@@ -2442,7 +2573,7 @@ elif active_tab == "🕘 Historique":
 
 elif active_tab == "⚖️ Transactions":
     st.subheader("⚖️ Transactions")
-    st.caption("Vérifie si une transaction respecte le plafond GC / CE.")
+    st.caption("Construis une transaction (joueurs + choix + salaire retenu) et vois l’impact sur les masses salariales.")
 
     plafonds = st.session_state.get("plafonds")
     df = st.session_state.get("data")
@@ -2450,28 +2581,214 @@ elif active_tab == "⚖️ Transactions":
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
-    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).unique().tolist())
-    if not owners:
-        st.info("Aucun propriétaire trouvé. Va dans 🛠️ Gestion Admin → Import.")
+    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    if len(owners) < 2:
+        st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
         st.stop()
 
-    p = st.selectbox("Propriétaire", owners, key="tx_owner")
-    salaire = st.number_input("Salaire du joueur", min_value=0, step=100_000, value=0, key="tx_salary")
-    statut = st.radio("Statut", [STATUT_GC, STATUT_CE], key="tx_statut", horizontal=True)
+    picks = load_picks(season) if "load_picks" in globals() else {}
+    market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
 
-    ligne_df = plafonds[plafonds["Propriétaire"].astype(str) == str(p)]
-    if ligne_df.empty:
-        st.error("Propriétaire introuvable dans les plafonds.")
+    def _roster(owner: str) -> pd.DataFrame:
+        d = df[df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())].copy()
+        d = clean_data(d)
+        # on exclut IR du marché par défaut
+        if "Slot" in d.columns:
+            d = d[d["Slot"].astype(str).str.strip() != SLOT_IR].copy()
+        return d
+
+    def _player_label(r) -> str:
+        j = str(r.get("Joueur","")).strip()
+        pos = str(r.get("Pos","")).strip()
+        team = str(r.get("Equipe","")).strip()
+        lvl = str(r.get("Level","")).strip()
+        sal = int(pd.to_numeric(r.get("Salaire",0), errors="coerce") or 0)
+        flag = "🔁 " if is_on_trade_market(market, str(r.get("Propriétaire","")), j) else ""
+        return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · {money(sal)}"
+
+    def _owner_picks(owner: str):
+        """Retourne les choix détenus par owner sous forme 'R{round} — {orig}' (rondes 1-7 seulement)."""
+        out = []
+        if isinstance(picks, dict) and picks:
+            for orig_team, rounds in (picks or {}).items():
+                if not isinstance(rounds, dict):
+                    continue
+                for rd, holder in rounds.items():
+                    try:
+                        rdi = int(rd)
+                    except Exception:
+                        continue
+                    if rdi >= 8:  # 8e ronde non échangeable
+                        continue
+                    if str(holder).strip() == str(owner).strip():
+                        out.append(f"R{rdi} — {orig_team}")
+        return sorted(out, key=lambda x: (int(re.search(r'R(\d+)', x).group(1)), x))
+
+    # --- Choix des 2 propriétaires côte à côte
+    cA, cB = st.columns(2, vertical_alignment="top")
+    with cA:
+        owner_a = st.selectbox("Propriétaire A", owners, index=0, key="tx_owner_a")
+    with cB:
+        owner_b = st.selectbox("Propriétaire B", owners, index=1 if len(owners)>1 else 0, key="tx_owner_b")
+
+    if owner_a == owner_b:
+        st.warning("Choisis deux propriétaires différents.")
         st.stop()
 
-    ligne = ligne_df.iloc[0]
-    reste = int(ligne["Montant Disponible GC"]) if statut == STATUT_GC else int(ligne["Montant Disponible CE"])
-    st.metric("Montant disponible", money(reste))
+    st.divider()
 
-    if int(salaire) > int(reste):
-        st.error("🚨 Dépassement du plafond")
-    else:
-        st.success("✅ Transaction valide")
+    # --- Options marché
+    mc1, mc2 = st.columns([1, 2], vertical_alignment="center")
+    with mc1:
+        market_only = st.checkbox("Afficher seulement joueurs sur le marché", value=False, key="tx_market_only")
+    with mc2:
+        st.caption("🔁 = joueur annoncé disponible sur le marché des échanges.")
+
+    dfa = _roster(owner_a)
+    dfb = _roster(owner_b)
+
+    # --- Sélection multi joueurs + picks
+    left, right = st.columns(2, vertical_alignment="top")
+
+    def _multiselect_players(owner: str, dfo: pd.DataFrame, side_key: str):
+        if dfo.empty:
+            st.info("Aucun joueur.")
+            return [], {}
+
+        # options
+        rows = dfo.to_dict("records")
+        opts = []
+        map_lbl_to_name = {}
+        for r in rows:
+            j = str(r.get("Joueur","")).strip()
+            if not j:
+                continue
+            if market_only and (not is_on_trade_market(market, owner, j)):
+                continue
+            lbl = _player_label(r)
+            opts.append(lbl)
+            map_lbl_to_name[lbl] = j
+
+        picked_lbl = st.multiselect("Joueurs inclus", opts, key=f"tx_players_{side_key}")
+        picked_names = [map_lbl_to_name[x] for x in picked_lbl if x in map_lbl_to_name]
+
+        # retenue salaire (par joueur)
+        retained = {}
+        if picked_names:
+            st.markdown("**Salaire retenu (optionnel)**")
+            for j in picked_names:
+                sal = int(pd.to_numeric(dfo.loc[dfo["Joueur"].astype(str).str.strip().eq(j), "Salaire"].iloc[0], errors="coerce") or 0)
+                retained[j] = st.number_input(
+                    f"Retenu sur {j}",
+                    min_value=0,
+                    max_value=int(sal),
+                    step=50_000,
+                    value=0,
+                    key=f"tx_ret_{side_key}_{re.sub(r'[^a-zA-Z0-9_]', '_', j)[:40]}",
+                )
+
+        # picks
+        owner_picks = _owner_picks(owner)
+        picked_picks = st.multiselect("Choix de repêchage (R1–R7)", owner_picks, key=f"tx_picks_{side_key}")
+
+        # montants retenus global (cash) — optionnel
+        cash = st.number_input("Montant retenu (cash) — optionnel", min_value=0, step=50_000, value=0, key=f"tx_cash_{side_key}")
+
+        return picked_names, {"retained": retained, "picks": picked_picks, "cash": int(cash)}
+
+    with left:
+        st.markdown(f"### {owner_a} ➜ envoie")
+        a_players, a_meta = _multiselect_players(owner_a, dfa, "A")
+
+    with right:
+        st.markdown(f"### {owner_b} ➜ envoie")
+        b_players, b_meta = _multiselect_players(owner_b, dfb, "B")
+
+    st.divider()
+
+    # --- Affichage détails (salaire, pos, level, années restantes si dispo)
+    def _detail_df(owner: str, dfo: pd.DataFrame, picked: list[str]) -> pd.DataFrame:
+        if not picked:
+            return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Années (si dispo)","Marché"])
+        tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])].copy()
+        tmp["Salaire"] = tmp["Salaire"].apply(lambda x: money(int(pd.to_numeric(x, errors="coerce") or 0)))
+        tmp["Marché"] = tmp["Joueur"].apply(lambda j: "Oui" if is_on_trade_market(market, owner, str(j)) else "Non")
+
+        # années restantes (si dispo)
+        yrs = ""
+        for cand in ["Years Left","Years","Yrs","Term","Contract Years Remaining","YearsRemaining"]:
+            if cand in tmp.columns:
+                yrs = cand
+                break
+        if yrs:
+            tmp["Années (si dispo)"] = tmp[yrs].astype(str)
+        else:
+            tmp["Années (si dispo)"] = ""
+
+        keep = [c for c in ["Joueur","Pos","Equipe","Salaire","Level","Années (si dispo)","Marché"] if c in tmp.columns]
+        return tmp[keep].reset_index(drop=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"#### Détails — {owner_a} envoie")
+        st.dataframe(_detail_df(owner_a, dfa, a_players), use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown(f"#### Détails — {owner_b} envoie")
+        st.dataframe(_detail_df(owner_b, dfb, b_players), use_container_width=True, hide_index=True)
+
+    # --- Résumé + Impact (approximation simple)
+    def _sum_salary(dfo: pd.DataFrame, picked: list[str]) -> int:
+        if not picked or dfo.empty:
+            return 0
+        m = dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])
+        return int(pd.to_numeric(dfo.loc[m, "Salaire"], errors="coerce").fillna(0).sum())
+
+    sal_a = _sum_salary(dfa, a_players)
+    sal_b = _sum_salary(dfb, b_players)
+
+    ret_a = int(sum((a_meta.get("retained") or {}).values()))
+    ret_b = int(sum((b_meta.get("retained") or {}).values()))
+
+    # Impact net (simplifié): l'équipe qui envoie garde la retenue (elle paie), l'équipe qui reçoit ajoute salaire - retenue
+    # A reçoit: sal_b - ret_b ; A enlève: sal_a ; A paie: ret_a ; +cash optionnel
+    # Net cap A = (sal_b - ret_b) - sal_a + ret_a + cash_A (si tu utilises cash comme pénalité)
+    net_a = (sal_b - ret_b) - sal_a + ret_a + int(a_meta.get("cash",0))
+    net_b = (sal_a - ret_a) - sal_b + ret_b + int(b_meta.get("cash",0))
+
+    st.markdown("### Résumé")
+    s1, s2 = st.columns(2)
+    with s1:
+        st.markdown(f"**{owner_a}** reçoit: {len(b_players)} joueur(s), {len(b_meta.get('picks',[]))} pick(s)")
+        st.caption(f"Variation cap (approx): {money(net_a)} (positif = augmente)")
+    with s2:
+        st.markdown(f"**{owner_b}** reçoit: {len(a_players)} joueur(s), {len(a_meta.get('picks',[]))} pick(s)")
+        st.caption(f"Variation cap (approx): {money(net_b)} (positif = augmente)")
+
+    st.divider()
+
+    # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
+    st.markdown("### Marché des échanges (optionnel)")
+    st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
+
+    mm1, mm2 = st.columns(2)
+    with mm1:
+        if not dfa.empty:
+            opts = sorted(dfa["Joueur"].dropna().astype(str).str.strip().unique().tolist())
+            cur_on = [j for j in opts if is_on_trade_market(market, owner_a, j)]
+            new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, default=cur_on, key="tx_market_a")
+            market = set_owner_market(market, season, owner_a, new_on)
+    with mm2:
+        if not dfb.empty:
+            opts = sorted(dfb["Joueur"].dropna().astype(str).str.strip().unique().tolist())
+            cur_on = [j for j in opts if is_on_trade_market(market, owner_b, j)]
+            new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, default=cur_on, key="tx_market_b")
+            market = set_owner_market(market, season, owner_b, new_on)
+
+    if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
+        save_trade_market(season, market)
+        st.toast("✅ Marché sauvegardé", icon="✅")
+        do_rerun()
+
 
 elif active_tab == "🛠️ Gestion Admin":
     if not is_admin:
@@ -2657,7 +2974,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
-    st.caption("Recommandations automatiques basées sur les montants disponibles.")
+    st.caption("Une recommandation unique par équipe (résumé).")
 
     plafonds0 = st.session_state.get("plafonds")
     df = st.session_state.get("data")
@@ -2665,15 +2982,28 @@ elif active_tab == "🧠 Recommandations":
         st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
         st.stop()
 
+    rows = []
     for _, r in plafonds0.iterrows():
+        owner = str(r.get("Propriétaire", "")).strip()
         dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
         dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
-        owner = str(r.get("Propriétaire", "")).strip()
 
+        # Une seule ligne par équipe
         if dispo_gc < 2_000_000:
-            st.warning(f"{owner} : rétrogradation recommandée")
-        if dispo_ce > 10_000_000:
-            st.info(f"{owner} : rappel possible")
+            reco = "Rétrogradation recommandée (manque de marge GC)"
+            lvl = "warn"
+        elif dispo_ce > 10_000_000:
+            reco = "Rappel possible (marge CE élevée)"
+            lvl = "ok"
+        else:
+            reco = "Aucune action urgente"
+            lvl = "ok"
+
+        rows.append({"Équipe": owner, "Marge GC": money(dispo_gc), "Marge CE": money(dispo_ce), "Recommandation": reco, "_lvl": lvl})
+
+    out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
+    st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
+
 
 else:
     st.warning("Onglet inconnu")
