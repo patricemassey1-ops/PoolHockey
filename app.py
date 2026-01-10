@@ -827,7 +827,7 @@ def _buyouts_path(season_lbl: str) -> str:
 
 def load_buyouts(season_lbl: str) -> pd.DataFrame:
     path = _buyouts_path(season_lbl)
-    cols = ["timestamp", "season", "proprietaire", "joueur", "salaire", "penalite"]
+    cols = ["timestamp", "season", "proprietaire", "joueur", "salaire", "penalite", "bucket"]
     if os.path.exists(path):
         try:
             b = pd.read_csv(path)
@@ -846,16 +846,31 @@ def save_buyouts(season_lbl: str, b: pd.DataFrame) -> None:
     except Exception:
         pass
 
-def buyout_penalty_sum(owner: str) -> int:
+def buyout_penalty_sum(owner: str, bucket: str | None = None) -> int:
+    """Somme des pénalités de rachat pour une équipe.
+    bucket: 'GC' ou 'CE' (optionnel). Si None -> toutes les pénalités.
+    """
     b = st.session_state.get("buyouts")
     if b is None or not isinstance(b, pd.DataFrame) or b.empty:
         return 0
     owner = str(owner or "").strip()
+
     tmp = b[b["proprietaire"].astype(str).str.strip().eq(owner)].copy()
     if tmp.empty:
         return 0
-    pen = pd.to_numeric(tmp["penalite"], errors="coerce").fillna(0).astype(int)
+
+    if bucket:
+        bucket = str(bucket).strip().upper()
+        if "bucket" in tmp.columns:
+            tmp = tmp[tmp["bucket"].astype(str).str.strip().str.upper().eq(bucket)].copy()
+        else:
+            # compat vieux fichiers: bucket manquant -> considérer GC par défaut
+            if bucket != "GC":
+                return 0
+
+    pen = pd.to_numeric(tmp.get("penalite", 0), errors="coerce").fillna(0).astype(int)
     return int(pen.sum())
+
 
 # =====================================================
 # PLAYERS DB
@@ -1167,7 +1182,7 @@ def open_move_dialog():
         # 1) Banc -> Actif (immédiat)
         pick = _pick(banc)
         if pick:
-            ok = apply_move_with_history(
+            ok = _apply_f(
                 owner_,
                 pick,
                 STATUT_GC,
@@ -1179,7 +1194,7 @@ def open_move_dialog():
         # 2) CE -> Actif (immédiat dans le remplacement auto)
         pick = _pick(ce)
         if pick:
-            ok = apply_move_with_history(
+            ok = _apply_f(
                 owner_,
                 pick,
                 STATUT_GC,
@@ -1231,6 +1246,25 @@ def open_move_dialog():
             ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
         ]
 
+        # ✅ Règles d'affichage des destinations (selon le type)
+        # - Demi-mois: seulement Banc et Mineur
+        # - Blessure:
+        #     - si joueur est sur IR -> seulement Actif (retour)
+        #     - si joueur vient du CE -> seulement Actif
+        #     - sinon (GC) -> seulement Blessé (IR)
+        if reason == "Changement demi-mois":
+            destinations = [
+                ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
+                ("🔵 Mineur", (STATUT_CE, "")),
+            ]
+        elif reason == "Blessure":
+            if (cur_slot or "") == SLOT_IR:
+                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+            elif cur_statut == STATUT_CE:
+                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+            else:
+                destinations = [("🩹 Blessé (IR)", (cur_statut, SLOT_IR))]
+
         current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
 
@@ -1260,6 +1294,35 @@ def open_move_dialog():
         st.markdown(f"<span class='pill'>⏱️ {hint}</span>", unsafe_allow_html=True)
         st.divider()
 
+        # ✅ Sécurité: apply_move_with_history doit exister
+        _apply_f = globals().get("apply_move_with_history")
+        if not callable(_apply_f):
+            def _apply_f(owner_x: str, joueur_x: str, to_statut_x: str, to_slot_x: str, note_x: str = "") -> bool:
+                df_x = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+                if df_x is None or df_x.empty:
+                    st.session_state["last_move_error"] = "Données manquantes."
+                    return False
+                m2 = (
+                    df_x["Propriétaire"].astype(str).str.strip().eq(str(owner_x).strip())
+                    & df_x["Joueur"].astype(str).str.strip().eq(str(joueur_x).strip())
+                )
+                if not m2.any():
+                    st.session_state["last_move_error"] = "Joueur introuvable."
+                    return False
+                idx2 = df_x.index[m2][0]
+                from_statut2 = str(df_x.at[idx2, "Statut"]) if "Statut" in df_x.columns else ""
+                from_slot2 = str(df_x.at[idx2, "Slot"]) if "Slot" in df_x.columns else ""
+                df_x.at[idx2, "Statut"] = to_statut_x
+                df_x.at[idx2, "Slot"] = to_slot_x
+                st.session_state["data"] = clean_data(df_x)
+                persist_data(st.session_state["data"], str(st.session_state.get("season") or season))
+                # log minimal
+                try:
+                    log_history_row(str(owner_x), str(joueur_x), "", "", from_statut2, from_slot2, str(to_statut_x), str(to_slot_x), str(note_x))
+                except Exception:
+                    pass
+                return True
+
         def _schedule_move(note: str):
             _init_pending_moves()
             st.session_state["pending_moves"].append({
@@ -1281,7 +1344,7 @@ def open_move_dialog():
 
             # IMMÉDIAT
             if immediate:
-                ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note)
+                ok = _apply_f(owner, joueur, to_statut, to_slot, note)
                 if ok:
                     # ✅ Auto-remplacement retiré (comme demandé)
 
@@ -1386,8 +1449,9 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
             total_gc = d[(d["Statut"] == STATUT_GC) & (d["Slot"] != SLOT_IR)]["Salaire"].sum()
             total_ce = d[(d["Statut"] == STATUT_CE) & (d["Slot"] != SLOT_IR)]["Salaire"].sum()
 
-            # + pénalités de rachat (50%) (comptabilisées dans la masse GC)
-            total_gc = int(total_gc) + int(buyout_penalty_sum(team))
+            # + pénalités de rachat (50%) (peuvent être appliquées GC ou CE)
+            total_gc = int(total_gc) + int(buyout_penalty_sum(team, "GC"))
+            total_ce = int(total_ce) + int(buyout_penalty_sum(team, "CE"))
 
         resume.append(
             {
@@ -1860,6 +1924,60 @@ if active_tab == "📊 Tableau":
     # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
 
+    st.write("")
+    st.markdown("### 🕒 Derniers changements (moves / rachats / échanges)")
+
+    def _recent_changes_df(limit: int = 15) -> pd.DataFrame:
+        rows = []
+
+        # Moves / actions via history
+        h = st.session_state.get("history")
+        if isinstance(h, pd.DataFrame) and not h.empty:
+            hh = h.copy()
+            # normaliser colonnes
+            if "timestamp" in hh.columns:
+                hh["_dt"] = hh["timestamp"].apply(to_dt_local)
+            else:
+                hh["_dt"] = pd.NaT
+            for _, r in hh.iterrows():
+                rows.append({
+                    "Date": format_date_fr(r.get("timestamp")),
+                    "_dt": r.get("_dt", pd.NaT),
+                    "Type": str(r.get("action", "") or "MOVE"),
+                    "Équipe": str(r.get("proprietaire", "") or ""),
+                    "Détail": f"{str(r.get('joueur','') or '')} — {str(r.get('from_statut','') or '')}/{str(r.get('from_slot','') or '')} → {str(r.get('to_statut','') or '')}/{str(r.get('to_slot','') or '')}".strip(),
+                })
+
+        # Rachats
+        b = st.session_state.get("buyouts")
+        if isinstance(b, pd.DataFrame) and not b.empty:
+            bb = b.copy()
+            bb["_dt"] = bb["timestamp"].apply(to_dt_local) if "timestamp" in bb.columns else pd.NaT
+            for _, r in bb.iterrows():
+                bucket = str(r.get("bucket", "GC") or "GC").strip().upper()
+                rows.append({
+                    "Date": format_date_fr(r.get("timestamp")),
+                    "_dt": r.get("_dt", pd.NaT),
+                    "Type": f"RACHAT {bucket}",
+                    "Équipe": str(r.get("proprietaire", "") or ""),
+                    "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
+                })
+
+        # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
+        out = pd.DataFrame(rows)
+        if out.empty:
+            return out
+
+        out = out.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
+        return out.head(int(limit))
+
+    recent = _recent_changes_df(20)
+    if recent.empty:
+        st.caption("Aucun changement enregistré pour l’instant.")
+    else:
+        st.dataframe(recent, use_container_width=True, hide_index=True)
+
+
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
@@ -2038,16 +2156,22 @@ elif active_tab == "🧑‍💼 GM":
     d_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
     total_gc = int(d_ok[(d_ok["Statut"] == STATUT_GC)]["Salaire"].sum())
     total_ce = int(d_ok[(d_ok["Statut"] == STATUT_CE)]["Salaire"].sum())
-    pen = int(buyout_penalty_sum(owner))
-    total_gc_incl = total_gc + pen
+    pen_gc = int(buyout_penalty_sum(owner, "GC"))
+    pen_ce = int(buyout_penalty_sum(owner, "CE"))
+    total_gc_incl = total_gc + pen_gc
+    total_ce_incl = total_ce + pen_ce
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Masse GC", money(total_gc))
-    c2.metric("Pénalités rachat (50%)", money(pen))
+    c2.metric("Pénalités rachat GC (50%)", money(pen_gc))
     c3.metric("GC (incl. pénalités)", money(total_gc_incl))
 
+    c4, c5, _c6 = st.columns(3)
+    c4.metric("Masse CE", money(total_ce))
+    c5.metric("Pénalités rachat CE (50%)", money(pen_ce))
+
     st.markdown(cap_bar_html(total_gc_incl, cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
-    st.markdown(cap_bar_html(total_ce, cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
+    st.markdown(cap_bar_html(total_ce_incl, cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
 
     st.divider()
 
@@ -2073,22 +2197,34 @@ elif active_tab == "🧑‍💼 GM":
     st.divider()
 
     # Buyout
-    st.markdown("### 💥 Racheter un joueur (pénalité 50%)")
-    opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
-    joueur = st.selectbox("Joueur", opts, key="gm_buyout_player") if opts else ""
+    st.markdown("### 💥 Rachat de contrat (pénalité 50%)")
+
+    # UI compact (sélection moins large)
+    left, right = st.columns([2.2, 1], vertical_alignment="top")
+    with left:
+        opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
+        joueur = st.selectbox("Joueur", opts, key="gm_buyout_player") if opts else ""
+    with right:
+        bucket = st.radio("Appliquer sur", ["Rachat GC", "Rachat CE"], horizontal=False, key="gm_buyout_bucket")
+
     if joueur:
         row = dprop[dprop["Joueur"].astype(str).eq(joueur)].iloc[0]
         salaire = int(row.get("Salaire", 0) or 0)
         penalite = int(round(salaire * 0.5))
+        bucket_code = "GC" if bucket == "Rachat GC" else "CE"
 
-        st.info(f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** (ajoutée à la masse GC)")
+        st.info(
+            f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** "
+            f"(ajoutée à la masse **{bucket_code}**)"
+        )
 
+        # bouton dédié sous le choix (comme demandé)
         if st.button("✅ Confirmer le rachat", type="primary", use_container_width=True, key="gm_buyout_ok"):
             # Charger buyouts
             b = st.session_state.get("buyouts")
             if b is None or not isinstance(b, pd.DataFrame) or st.session_state.get("_buyouts_season") != str(st.session_state.get("season")):
                 b = load_buyouts(str(st.session_state.get("season")))
-            # Append
+
             rec = {
                 "timestamp": datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S"),
                 "season": str(st.session_state.get("season")),
@@ -2096,11 +2232,28 @@ elif active_tab == "🧑‍💼 GM":
                 "joueur": joueur,
                 "salaire": salaire,
                 "penalite": penalite,
+                "bucket": bucket_code,
             }
             b = pd.concat([b, pd.DataFrame([rec])], ignore_index=True)
             st.session_state["buyouts"] = b
             st.session_state["_buyouts_season"] = str(st.session_state.get("season"))
             save_buyouts(str(st.session_state.get("season")), b)
+
+            # Historique: une entrée claire
+            try:
+                log_history_row(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    pos=str(row.get("Pos", "") or ""),
+                    equipe=str(row.get("Equipe", "") or ""),
+                    from_statut=str(row.get("Statut", "") or ""),
+                    from_slot=str(row.get("Slot", "") or ""),
+                    to_statut="",
+                    to_slot="",
+                    action=f"RACHAT {bucket_code} (50%)",
+                )
+            except Exception:
+                pass
 
             # Retirer le joueur du roster
             df2 = st.session_state.get("data", df).copy()
@@ -2109,10 +2262,11 @@ elif active_tab == "🧑‍💼 GM":
             st.session_state["data"] = clean_data(df2)
             persist_data(st.session_state["data"], str(st.session_state.get("season")))
 
-            # Rebuild plafonds (avec pénalité)
+            # Rebuild plafonds (avec pénalité dans GC/CE)
             st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
-            st.toast("✅ Rachat appliqué. Pénalité ajoutée à la masse GC.", icon="✅")
+            st.toast(f"✅ Rachat appliqué. Pénalité ajoutée à la masse {bucket_code}.", icon="✅")
             do_rerun()
+
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
