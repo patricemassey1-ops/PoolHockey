@@ -341,35 +341,8 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-def _find_file_case_insensitive(directory: str, filename: str) -> str:
-    """Return full path to filename in directory, case-insensitive; '' if not found."""
-    try:
-        if not directory or not filename:
-            return ""
-        direct = os.path.join(directory, filename)
-        if os.path.exists(direct):
-            return direct
-        target = filename.lower()
-        for f in os.listdir(directory):
-            if f.lower() == target:
-                cand = os.path.join(directory, f)
-                if os.path.exists(cand):
-                    return cand
-    except Exception:
-        pass
-    return ""
-
-def data_file(*candidates: str) -> str:
-    """Return first existing file in DATA_DIR (case-insensitive), else join of first candidate."""
-    for name in candidates:
-        p = _find_file_case_insensitive(DATA_DIR, str(name))
-        if p:
-            return p
-    return os.path.join(DATA_DIR, str(candidates[0])) if candidates else ""
-
-# Supporte les 2 noms de fichiers qu'on voit souvent
-PLAYERS_DB_FILE = data_file("Hockey.Players.csv", "Hockey_Players.csv", "hockey_players.csv")
-LOGO_POOL_FILE   = data_file("Logo_Pool.png", "logo_pool.png", "LOGO_POOL.png")
+PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
+LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
 REQUIRED_COLS = [
@@ -393,7 +366,7 @@ def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def _login_header():
-    logo_file = LOGO_POOL_FILE
+    logo_file = os.path.join("data", "Logo_Pool.png")
 
     st.markdown(
         """
@@ -925,10 +898,10 @@ def load_players_db(path: str) -> pd.DataFrame:
 # FANTRAX PARSER
 # =====================================================
 def parse_fantrax(upload) -> pd.DataFrame:
-    \"\"\"Parse un export Fantrax (format variable).
+    """Parse un export Fantrax (format variable).
     ✅ supporte colonnes: Player/Name/Joueur + Salary/Cap Hit/AAV/Salaire
     ✅ supporte séparateurs: , ; \t |
-    \"\"\"
+    """
     raw = upload.read()
     if isinstance(raw, bytes):
         raw_text = raw.decode("utf-8", errors="ignore")
