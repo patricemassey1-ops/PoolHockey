@@ -2884,7 +2884,30 @@ elif active_tab == "👤 Joueurs autonomes":
     with c1:
         a, b = st.columns([12, 1])
         with a:
-            q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
+            q_raw = st.text_input("Nom / Prénom", placeholder="Tape 3 lettres…", key="j_name")
+
+            # 🔎 Autocomplete (3+ lettres) → suggestions
+            q_name = q_raw
+            if isinstance(df_db, pd.DataFrame) and "Player" in df_db.columns and str(q_raw or "").strip() and len(str(q_raw).strip()) >= 3:
+                _q = str(q_raw).strip()
+                _cand = (
+                    df_db["Player"].astype(str)
+                    .dropna()
+                    .loc[lambda s: s.str.contains(_q, case=False, na=False)]
+                    .drop_duplicates()
+                    .head(40)
+                    .tolist()
+                )
+                if _cand:
+                    picked = st.selectbox(
+                        "Suggestions",
+                        ["—"] + _cand,
+                        index=0,
+                        key="fa_suggest_pick",
+                        help="Choisis un joueur pour compléter automatiquement",
+                    )
+                    if picked and picked != "—":
+                        q_name = picked
         with b:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom",
@@ -3417,6 +3440,128 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
+
+
+    # =====================================================
+    # 📥 Import Fantrax par équipe (RESTORÉ)
+    #   - Preview + Confirmer
+    #   - Enregistre un manifest des imports (fantrax_by_team)
+    # =====================================================
+    manifest = load_init_manifest() or {}
+    if "fantrax_by_team" not in manifest:
+        manifest["fantrax_by_team"] = {}
+
+    with st.expander("📥 Importer un alignement Fantrax (par équipe)", expanded=True):
+        teams = sorted(list(LOGOS.keys())) or []
+        default_owner = str(st.session_state.get("selected_team") or (teams[0] if teams else "")).strip()
+        if teams and default_owner not in teams:
+            default_owner = teams[0]
+
+        chosen_owner = st.selectbox(
+            "Importer l'alignement dans quelle équipe ?",
+            teams if teams else [""],
+            index=(teams.index(default_owner) if teams and default_owner in teams else 0),
+            key="admin_import_team_pick",
+        )
+
+        clear_team_before = st.checkbox(
+            f"Vider l’alignement de {chosen_owner} avant import",
+            value=True,
+            help="Recommandé si tu réimportes la même équipe.",
+            key="admin_clear_team_before",
+        )
+
+        u_nonce = int(st.session_state.get("uploader_nonce", 0))
+        init_align = st.file_uploader(
+            "CSV — Alignement (Fantrax)",
+            type=["csv", "txt"],
+            key=f"admin_import_align__{season}__{chosen_owner}__{u_nonce}",
+        )
+
+        cbtn1, cbtn2 = st.columns([1, 1])
+        with cbtn1:
+            if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
+                if init_align is None:
+                    st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
+                else:
+                    try:
+                        buf = io.BytesIO(init_align.getbuffer())
+                        buf.name = getattr(init_align, "name", "fantrax.csv")
+                        df_import = parse_fantrax(buf)
+
+                        # force owner + clean + inject levels
+                        df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                        df_import["Propriétaire"] = str(chosen_owner).strip()
+                        df_import = clean_data(df_import)
+
+                        # Level inject (si base dispo)
+                        players_db = st.session_state.get("players_db") or load_players_db(PLAYERS_DB_FILE)
+                        if isinstance(players_db, pd.DataFrame) and not players_db.empty:
+                            df_import = inject_levels(df_import, players_db)
+
+                        st.session_state["init_preview_df"] = df_import
+                        st.session_state["init_preview_owner"] = str(chosen_owner).strip()
+                        st.session_state["init_preview_filename"] = getattr(init_align, "name", "fantrax.csv")
+                        st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                    except Exception as e:
+                        st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
+
+        preview_df = st.session_state.get("init_preview_df")
+        if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+            st.dataframe(preview_df.head(30), use_container_width=True, hide_index=True)
+
+        with cbtn2:
+            disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
+            if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
+                df_team = st.session_state.get("init_preview_df").copy()
+                owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
+                filename_final = str(st.session_state.get("init_preview_filename", "") or "").strip()
+
+                df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+
+                if clear_team_before:
+                    keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                    df_new = pd.concat([keep, df_team], ignore_index=True)
+                else:
+                    df_new = pd.concat([df_cur, df_team], ignore_index=True)
+
+                # dédoublonnage (même joueur même owner)
+                if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                    df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                    df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
+                    df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+                df_new = clean_data(df_new)
+
+                # reinject levels si possible
+                players_db = st.session_state.get("players_db")
+                if isinstance(players_db, pd.DataFrame) and not players_db.empty:
+                    df_new = inject_levels(df_new, players_db)
+
+                st.session_state["data"] = df_new
+                persist_data(df_new, season)
+
+                st.session_state["plafonds"] = rebuild_plafonds(df_new)
+                st.session_state["selected_team"] = owner_final
+
+                manifest["fantrax_by_team"][owner_final] = {
+                    "uploaded_name": filename_final,
+                    "season": season,
+                    "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
+                    "team": owner_final,
+                }
+                save_init_manifest(manifest)
+
+                st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
+                st.session_state.pop("init_preview_df", None)
+                st.session_state.pop("init_preview_owner", None)
+                st.session_state.pop("init_preview_filename", None)
+
+                st.success(f"✅ Import OK — équipe **{owner_final}** mise à jour.")
+                do_rerun()
+
+    st.divider()
+
 
     # =====================================================
     # ✅ Console Admin — Ajout / Retrait joueur (note obligatoire)
