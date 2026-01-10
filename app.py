@@ -104,8 +104,124 @@ def saison_verrouillee(season: str) -> bool:
     except Exception:
         return False
 
+# =====================================================
+# PLAYERS DB (Hockey.Players.csv) + INDEX NOM + Level
+# =====================================================
 def _norm_name(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s or "").strip()).lower()
+    s = str(s or "").strip().lower()
+    s = re.sub(r"[\.\-']", " ", s)          # enlève . - '
+    s = re.sub(r"[^a-z0-9,\s]", " ", s)     # garde lettres/chiffres/virgule/espace
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _name_variants(name: str) -> list[str]:
+    """
+    Retourne plusieurs clés possibles pour matcher:
+      - "last, first"  -> "last first" et "first last"
+      - "first last"   -> "first last" et "last first"
+    """
+    n = _norm_name(name)
+    if not n:
+        return []
+
+    variants = set()
+    variants.add(n)
+
+    # cas "last, first"
+    if "," in n:
+        parts = [p.strip() for p in n.split(",", 1)]
+        last = parts[0].strip()
+        first = parts[1].strip() if len(parts) > 1 else ""
+        if last and first:
+            variants.add(f"{last} {first}".strip())
+            variants.add(f"{first} {last}".strip())
+    else:
+        # cas "first last"
+        parts = n.split(" ")
+        if len(parts) >= 2:
+            first = parts[0].strip()
+            last = parts[-1].strip()
+            if first and last:
+                variants.add(f"{first} {last}".strip())
+                variants.add(f"{last} {first}".strip())
+
+    return [v for v in variants if v]
+
+@st.cache_data(show_spinner=False)
+def load_players_db(path: str) -> pd.DataFrame:
+    if not path or not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        dfp = pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+    # colonnes minimales attendues
+    if "Player" not in dfp.columns:
+        # fallback: trouve une colonne nom
+        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
+            if cand in dfp.columns:
+                dfp = dfp.rename(columns={cand: "Player"})
+                break
+
+    if "Player" not in dfp.columns:
+        return pd.DataFrame()
+
+    # s'assurer que Level existe
+    if "Level" not in dfp.columns:
+        dfp["Level"] = ""
+
+    return dfp
+
+def build_players_index(dfp: pd.DataFrame) -> dict:
+    """
+    Index: name_key -> Level (et on peut étendre plus tard)
+    """
+    idx = {}
+    if dfp is None or not isinstance(dfp, pd.DataFrame) or dfp.empty:
+        return idx
+
+    for _, r in dfp.iterrows():
+        nm = str(r.get("Player", "")).strip()
+        lvl = str(r.get("Level", "")).strip()
+        if not nm:
+            continue
+        for k in _name_variants(nm):
+            # garde le 1er trouvé (ou remplace si le nouveau a un Level non vide)
+            if k not in idx or (not idx[k] and lvl):
+                idx[k] = lvl
+    return idx
+
+def inject_level_into_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ajoute/Met à jour df['Level'] en matchant df['Joueur'] avec players_index.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if "Joueur" not in df.columns:
+        return df
+
+    df = df.copy()
+    if "Level" not in df.columns:
+        df["Level"] = ""
+
+    pidx = st.session_state.get("players_index", {}) or {}
+    if not pidx:
+        return df
+
+    def _lookup(jname: str) -> str:
+        for k in _name_variants(jname):
+            if k in pidx and str(pidx[k]).strip():
+                return str(pidx[k]).strip()
+        return ""
+
+    # Inject seulement si vide (ou si tu veux forcer, enlève la condition)
+    m = df["Level"].astype(str).str.strip().eq("")
+    if m.any():
+        df.loc[m, "Level"] = df.loc[m, "Joueur"].astype(str).map(_lookup)
+
+    return df
+
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or not isinstance(df, pd.DataFrame):
@@ -395,18 +511,29 @@ season = str(st.session_state["season"]).strip()
 if st.session_state.get("_loaded_season") != season:
     df = load_df(season, "fantrax", REQUIRED_COLS)
     df = clean_data(df)
-    players_db = load_players_db()
-    df = inject_levels(df, players_db)
-    st.session_state["data"] = clean_data(df)
 
+    # --- LOAD PLAYERS DB (Hockey.Players.csv)
+    PLAYERS_DB_PATH = os.path.join("data", "Hockey.Players.csv")
+    players_db = load_players_db(PLAYERS_DB_PATH)
+
+    # --- BUILD INDEX (Nom ↔ Prénom)
+    players_index = build_players_index(players_db)
+    st.session_state["players_index"] = players_index
+    st.session_state["players_db"] = players_db
+
+    # --- INJECT LEVEL INTO DATA
+    df = inject_level_into_data(df)
+
+    st.session_state["data"] = clean_data(df)
     st.session_state["history"] = load_df(season, "history", HIST_COLS)
 
     st.session_state["_loaded_season"] = season
 
-# always keep clean + level injected if missing
-players_db = load_players_db()
-st.session_state["data"] = inject_levels(clean_data(st.session_state.get("data")), players_db)
-st.session_state["players_db"] = players_db
+# safety: toujours réinjecter si data change (import, move, etc.)
+df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+df = inject_level_into_data(df)
+st.session_state["data"] = df
+
 
 # =====================================================
 # SIDEBAR
