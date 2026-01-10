@@ -790,7 +790,8 @@ def _picks_path(season_lbl: str) -> str:
     season_lbl = str(season_lbl or "").strip() or "season"
     return os.path.join(DATA_DIR, f"picks_{season_lbl}.json")
 
-def load_picks(season_lbl: str, teams: list[str]) -> dict:
+def load_picks(season_lbl: str, teams: list[str] | None = None) -> dict:
+    teams = teams or sorted(list(LOGOS.keys()))
     path = _picks_path(season_lbl)
     if os.path.exists(path):
         try:
@@ -1122,6 +1123,21 @@ def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     return out
 
 
+
+# =====================================================
+# DIALOG GUARD — un seul dialog à la fois
+# =====================================================
+def _set_active_dialog(name: str):
+    st.session_state["active_dialog"] = str(name or "").strip()
+
+def _clear_active_dialog(name: str | None = None):
+    if name is None or st.session_state.get("active_dialog") == name:
+        st.session_state["active_dialog"] = ""
+
+def _can_open_dialog(name: str) -> bool:
+    cur = str(st.session_state.get("active_dialog") or "")
+    return (cur == "") or (cur == str(name or ""))
+
 # =====================================================
 # MOVE DIALOG — auto-remplacement IR + étiquette exacte
 # =====================================================
@@ -1194,6 +1210,12 @@ def process_pending_moves():
             pass
 
 def open_move_dialog():
+    if not _can_open_dialog('move'):
+        return
+    # si un autre dialog est demandé, ne pas en ouvrir 2
+    if st.session_state.get('gc_preview_open'):
+        return
+    _set_active_dialog('move')
     ctx = st.session_state.get("move_ctx")
     if not ctx:
         return
@@ -1233,6 +1255,7 @@ def open_move_dialog():
 
     def _close():
         clear_move_ctx()
+        _clear_active_dialog("move")
 
     # -------------------------------------------------
     # RÈGLES D’EFFET (TES RÈGLES)
@@ -1371,70 +1394,84 @@ def open_move_dialog():
         )
         st.divider()
 
-        # 1) Type
-        # 1) Type (règles)
-        # - Si le joueur est au Club École: on remplace "Blessure" par "Remplacement"
-        # - Sinon: "Blessure" normal
-        reason_options = ["Changement demi-mois", "Blessure"]
-        if cur_statut == STATUT_CE:
-            reason_options = ["Changement demi-mois", "Remplacement"]
+        # 1) Type (adapté selon le joueur)
+        is_ir = (cur_slot == SLOT_IR)
+        is_banc = (cur_statut == STATUT_GC and cur_slot == SLOT_BANC)
+        is_ce = (cur_statut == STATUT_CE)
 
-        reason = st.radio(
-            "Type de changement",
-            reason_options,
-            horizontal=True,
-            key=f"mv_reason_{owner}_{joueur}_{nonce}",
-        )
+        # Règles:
+        # - Joueur IR: retour GC uniquement (Actif)
+        # - Joueur Banc: pas d'option Blessure (donc pas de type Blessure)
+        # - Joueur CE: le type "Blessure" devient "Remplacement"
+        if is_ir:
+            reason = "Blessure"
+            st.markdown("<span class='pill'>🩹 Joueur sur IR — retour au GC seulement</span>", unsafe_allow_html=True)
+        else:
+            if is_ce:
+                reason_opts = ["Changement demi-mois", "Remplacement"]
+            else:
+                reason_opts = ["Changement demi-mois", "Blessure"]
+
+            # Banc GC: jamais Blessure
+            if is_banc:
+                reason_opts = ["Changement demi-mois"]
+
+            reason = st.radio(
+                "Type de changement",
+                reason_opts,
+                horizontal=True,
+                key=f"mv_reason_{owner}_{joueur}_{nonce}",
+            )
 
         st.divider()
 
-        # 2) Destination (règles)
-        # Règles demandées:
-        # - Demi-mois:
-        #     * si joueur GC Actif -> Banc ou Mineur (pas IR)
-        #     * si joueur GC Banc -> Actif ou Mineur (pas IR)
-        #     * si joueur CE -> Actif/Banc/Mineur (pas IR)
-        # - Blessure (GC uniquement): seulement "Blessé (IR)" (sauf si déjà IR -> seulement Actif)
-        # - Remplacement (CE uniquement): seulement "Actif"
-        if cur_statut == STATUT_CE:
-            if reason == "Remplacement":
-                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
-            else:  # demi-mois
-                destinations = [
-                    ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
-                    ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
-                    ("🔵 Mineur", (STATUT_CE, "")),
-                ]
+        # 2) Destination (selon règles)
+        destinations = []
+
+        if is_ir:
+            # (1) joueur blessé: retour GC uniquement
+            destinations = [("🟢 Retour Actif", (STATUT_GC, SLOT_ACTIF))]
         else:
-            # cur_statut == GC
-            if reason == "Blessure":
-                if cur_slot == SLOT_IR:
-                    destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
-                else:
-                    destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
-            else:  # demi-mois
-                if cur_slot == SLOT_ACTIF:
+            if reason == "Changement demi-mois":
+                # (2) Demi-mois: pas de choix "Blessé" jamais
+                if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
                     destinations = [
                         ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
                         ("🔵 Mineur", (STATUT_CE, "")),
                     ]
-                elif cur_slot == SLOT_BANC:
+                elif cur_statut == STATUT_GC and cur_slot == SLOT_BANC:
                     destinations = [
                         ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
                         ("🔵 Mineur", (STATUT_CE, "")),
                     ]
                 else:
+                    # joueur CE: demi-mois -> Banc GC ou Mineur (reste CE)
                     destinations = [
-                        ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
                         ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
                         ("🔵 Mineur", (STATUT_CE, "")),
                     ]
 
+            else:
+                # (3) Blessure / Remplacement
+                if is_ce:
+                    # CE -> seulement Actif (remplacement)
+                    destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+                else:
+                    # GC: Blessure -> seulement Blessé (IR)
+                    # Banc n'arrive pas ici car reason_opts l'exclut
+                    destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
+
+        # Enlever l'option identique à l'état actuel
         current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
 
         labels = [d[0] for d in destinations]
         mapping = {d[0]: d[1] for d in destinations}
+
+        # sécurité si aucune destination
+        if not labels:
+            st.info("Aucune destination valide pour ce joueur.")
+            st.stop()
 
         choice = st.radio(
             "Destination",
@@ -1541,6 +1578,9 @@ def open_move_dialog():
 # DIALOG — Preview Alignement Grand Club (GC)
 # =====================================================
 def open_gc_preview_dialog():
+    if not _can_open_dialog('gc_preview'):
+        return
+    _set_active_dialog('gc_preview')
     if not st.session_state.get("gc_preview_open"):
         return
 
@@ -1590,6 +1630,7 @@ def open_gc_preview_dialog():
 
         if st.button("OK", use_container_width=True, key="gc_preview_ok"):
             st.session_state["gc_preview_open"] = False
+            _clear_active_dialog("gc_preview")
             do_rerun()
 
     _dlg()
@@ -2664,7 +2705,7 @@ elif active_tab == "⚖️ Transactions":
         st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
         st.stop()
 
-    picks = load_picks(season)
+    picks = load_picks(season, sorted(list(LOGOS.keys())))
     market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
 
     def _roster(owner: str) -> pd.DataFrame:
