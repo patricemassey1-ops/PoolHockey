@@ -1260,7 +1260,7 @@ def open_move_dialog():
             return now
 
         # Blessure
-        if reason_low.startswith("bless"):
+        if reason_low.startswith("bless") or reason_low.startswith("remp"):
             # GC -> CE immédiat
             if from_statut == STATUT_GC and to_statut == STATUT_CE:
                 return now
@@ -1372,27 +1372,63 @@ def open_move_dialog():
         st.divider()
 
         # 1) Type
+        # 1) Type (règles)
+        # - Si le joueur est au Club École: on remplace "Blessure" par "Remplacement"
+        # - Sinon: "Blessure" normal
+        reason_options = ["Changement demi-mois", "Blessure"]
+        if cur_statut == STATUT_CE:
+            reason_options = ["Changement demi-mois", "Remplacement"]
+
         reason = st.radio(
             "Type de changement",
-            ["Changement demi-mois", "Blessure"],
+            reason_options,
             horizontal=True,
             key=f"mv_reason_{owner}_{joueur}_{nonce}",
         )
 
         st.divider()
 
-        # 2) Destination (mapping AVEC TES constantes)
-        # RÈGLE: si le joueur provient du CE et que "Blessure" est sélectionné,
-        #        le seul choix permis est "🟢 Actif" (rappel pour remplacer).
-        if reason == "Blessure" and cur_statut == STATUT_CE:
-            destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+        # 2) Destination (règles)
+        # Règles demandées:
+        # - Demi-mois:
+        #     * si joueur GC Actif -> Banc ou Mineur (pas IR)
+        #     * si joueur GC Banc -> Actif ou Mineur (pas IR)
+        #     * si joueur CE -> Actif/Banc/Mineur (pas IR)
+        # - Blessure (GC uniquement): seulement "Blessé (IR)" (sauf si déjà IR -> seulement Actif)
+        # - Remplacement (CE uniquement): seulement "Actif"
+        if cur_statut == STATUT_CE:
+            if reason == "Remplacement":
+                destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+            else:  # demi-mois
+                destinations = [
+                    ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
+                    ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
+                    ("🔵 Mineur", (STATUT_CE, "")),
+                ]
         else:
-            destinations = [
-                ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
-                ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
-                ("🔵 Mineur", (STATUT_CE, "")),
-                ("🩹 Blessé (IR)", (cur_statut, SLOT_IR)),
-            ]
+            # cur_statut == GC
+            if reason == "Blessure":
+                if cur_slot == SLOT_IR:
+                    destinations = [("🟢 Actif", (STATUT_GC, SLOT_ACTIF))]
+                else:
+                    destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
+            else:  # demi-mois
+                if cur_slot == SLOT_ACTIF:
+                    destinations = [
+                        ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
+                        ("🔵 Mineur", (STATUT_CE, "")),
+                    ]
+                elif cur_slot == SLOT_BANC:
+                    destinations = [
+                        ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
+                        ("🔵 Mineur", (STATUT_CE, "")),
+                    ]
+                else:
+                    destinations = [
+                        ("🟢 Actif", (STATUT_GC, SLOT_ACTIF)),
+                        ("🟡 Banc", (STATUT_GC, SLOT_BANC)),
+                        ("🔵 Mineur", (STATUT_CE, "")),
+                    ]
 
         current = (cur_statut, cur_slot or "")
         destinations = [d for d in destinations if d[1] != current]
@@ -2531,10 +2567,39 @@ elif active_tab == "👤 Joueurs autonomes":
         else:
             dff = dff.head(250).reset_index(drop=True)
             st.markdown("### Résultats")
-            show_cols = [c for c in ["Player", "Team", "Position", cap_col, "Level"] if c and c in dff.columns]
+
+            # --- GP / Games Played (NHL) + admissibilité (≠ELC et <85 GP)
+            gp_col = None
+            for cand in ["GP", "Games", "Games Played", "NHL GP", "GP NHL", "GP_NHL", "games_played"]:
+                if cand in dff.columns:
+                    gp_col = cand
+                    break
+            if gp_col:
+                dff["_gp_int"] = pd.to_numeric(dff[gp_col], errors="coerce").fillna(0).astype(int)
+            else:
+                dff["_gp_int"] = 0
+
+            lvl_col = "Level" if "Level" in dff.columns else None
+            dff["_lvl_norm"] = dff[lvl_col].astype(str).str.strip().str.upper() if lvl_col else ""
+
+            dff["_admissible"] = (dff["_lvl_norm"] != "ELC") & (dff["_gp_int"] < 85)
+
+            only_eligible = st.checkbox(
+                "Afficher seulement les joueurs admissibles (≠ ELC et < 85 matchs NHL)",
+                value=True,
+                key="fa_only_eligible",
+            )
+            if only_eligible:
+                dff = dff[dff["_admissible"]].copy()
+
+            # Tableau affiché
+            show_cols = [c for c in ["Player", "Team", "Position", (gp_col or ""), cap_col, "Level"] if c and c in dff.columns]
             df_show = dff[show_cols].copy()
 
-            if cap_col in df_show.columns:
+            if gp_col and gp_col in df_show.columns:
+                df_show = df_show.rename(columns={gp_col: "GP"})
+
+            if cap_col and cap_col in df_show.columns:
                 df_show[cap_col] = df_show[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
                 df_show = df_show.rename(columns={cap_col: "Cap Hit"})
 
@@ -2542,6 +2607,19 @@ elif active_tab == "👤 Joueurs autonomes":
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
             st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+            # Sélection (pour transactions / notes) — seulement admissibles
+            elig_names = (
+                dff[dff["_admissible"]]["Player"].dropna().astype(str).unique().tolist()
+                if "Player" in dff.columns else []
+            )
+            elig_names = sorted([x.strip() for x in elig_names if str(x).strip()])
+            st.session_state["fa_selected"] = st.multiselect(
+                "Sélectionner des joueurs autonomes (admissibles seulement)",
+                options=elig_names,
+                default=st.session_state.get("fa_selected", []),
+                key="fa_selected_multiselect",
+            )
 
 elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
@@ -2586,7 +2664,7 @@ elif active_tab == "⚖️ Transactions":
         st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
         st.stop()
 
-    picks = load_picks(season) if "load_picks" in globals() else {}
+    picks = load_picks(season)
     market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
 
     def _roster(owner: str) -> pd.DataFrame:
