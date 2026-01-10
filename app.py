@@ -29,140 +29,10 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="PMS", layout="wide")
 
 # =====================================================
-# 🎨 THEME — Dark doux / Light (Sidebar toggle)
+# THEME
+#   (retiré: pas de Dark/Light)
 # =====================================================
-import streamlit as st
 
-if "theme_mode" not in st.session_state:
-    st.session_state["theme_mode"] = "dark"
-
-with st.sidebar:
-    st.markdown("### 🎨 Apparence")
-    st.session_state["theme_mode"] = st.radio(
-        "Mode d’affichage",
-        ["dark", "light"],
-        index=0 if st.session_state["theme_mode"] == "dark" else 1,
-        horizontal=True,
-        key="theme_mode_radio",
-    )
-
-def apply_theme(mode: str):
-    if mode == "dark":
-        st.markdown(
-            """
-            <style>
-            /* ===============================
-               🌙 DARK MODE DOUX
-               =============================== */
-
-            :root {
-                color-scheme: dark;
-            }
-
-            /* App générale */
-            .stApp {
-                background-color: #0f172a;   /* slate-900 */
-                color: #e5e7eb;              /* gray-200 */
-            }
-
-            /* Sidebar */
-            [data-testid="stSidebar"] {
-                background-color: #111827;   /* gray-900 */
-                border-right: 1px solid #1f2937;
-            }
-
-            /* Titres & texte */
-            h1, h2, h3, h4, h5 {
-                color: #f9fafb;
-                font-weight: 600;
-            }
-
-            p, span, label, div {
-                color: #e5e7eb;
-            }
-
-            /* Containers / cards */
-            div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
-                background-color: #111827;
-                border-radius: 10px;
-                padding: 0.75rem;
-            }
-
-            /* Inputs */
-            input, textarea {
-                background-color: #020617 !important;
-                color: #e5e7eb !important;
-                border: 1px solid #1f2937 !important;
-                border-radius: 6px;
-            }
-
-            /* Selectbox */
-            div[data-baseweb="select"] > div {
-                background-color: #020617 !important;
-                color: #e5e7eb !important;
-                border-radius: 6px;
-                border: 1px solid #1f2937;
-            }
-
-            /* Boutons */
-            button {
-                background-color: #1f2937 !important;
-                color: #f9fafb !important;
-                border-radius: 8px !important;
-                border: 1px solid #374151 !important;
-            }
-
-            button:hover {
-                background-color: #374151 !important;
-            }
-
-            /* Radio / checkbox */
-            label > div {
-                color: #e5e7eb !important;
-            }
-
-            /* Tables / dataframes */
-            .stDataFrame, .stTable {
-                background-color: #020617;
-                border-radius: 8px;
-            }
-
-            /* Dividers */
-            hr {
-                border-color: #1f2937;
-            }
-
-            /* Scrollbar (webkit) */
-            ::-webkit-scrollbar {
-                width: 8px;
-            }
-            ::-webkit-scrollbar-track {
-                background: #020617;
-            }
-            ::-webkit-scrollbar-thumb {
-                background: #1f2937;
-                border-radius: 4px;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    else:
-        # 🌞 LIGHT MODE SIMPLE (propre)
-        st.markdown(
-            """
-            <style>
-            :root { color-scheme: light; }
-            .stApp { background-color: #ffffff; color: #111827; }
-            [data-testid="stSidebar"] { background-color: #f9fafb; }
-            h1, h2, h3, h4, h5 { color: #111827; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
-apply_theme(st.session_state["theme_mode"])
 
 # =====================================================
 # CSS — Micro-animations + Alertes visuelles + UI polish
@@ -342,7 +212,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
-LOGO_POOL_FILE = os.path.join(DATA_DIR, "Logo_Pool.png")
+LOGO_POOL_FILE = next((os.path.join(DATA_DIR, n) for n in ["Logo_Pool.png","logo_pool.png","LOGO_POOL.png"] if os.path.exists(os.path.join(DATA_DIR, n))), os.path.join(DATA_DIR, "Logo_Pool.png"))
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
 REQUIRED_COLS = [
@@ -448,21 +318,7 @@ require_password()
 #   ✅ affiché après login (pas seulement sur l'écran mot de passe)
 #   ✅ PAS de nouvelle injection CSS (on respecte tes règles d'or)
 # =====================================================
-def render_app_header():
-    logo_file = LOGO_POOL_FILE
-    c1, c2, c3 = st.columns([1.1, 8, 1.1], vertical_alignment="center")
-    with c1:
-        st.markdown("## 🏒")
-    with c2:
-        if logo_file and os.path.exists(logo_file):
-            st.image(logo_file, use_container_width=True)
-        else:
-            st.markdown("## PMS")
-    with c3:
-        st.markdown("## 🥅")
-    st.divider()
-
-render_app_header()
+# (header global retiré: logo uniquement sur écran mot de passe)
 
 if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
     st.markdown("### 🔐 Générateur de hash (temporaire)")
@@ -867,6 +723,139 @@ def log_history_row(
     st.session_state["history"] = h
     persist_history(h, str(st.session_state.get("season", "")).strip())
 
+
+
+# =====================================================
+# MOVE + HISTORY (définition unique)
+#   ✅ corrige NameError: apply_move_with_history
+# =====================================================
+def apply_move_with_history(owner: str, joueur: str, to_statut: str, to_slot: str, note: str = "") -> bool:
+    """
+    Applique un move (Statut/Slot) + écrit l'historique.
+    - Simple et robuste: on modifie la ligne dans df.
+    """
+    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        st.session_state["last_move_error"] = "Données manquantes."
+        return False
+
+    owner_s = str(owner or "").strip()
+    joueur_s = str(joueur or "").strip()
+
+    m = (
+        df["Propriétaire"].astype(str).str.strip().eq(owner_s)
+        & df["Joueur"].astype(str).str.strip().eq(joueur_s)
+    )
+    if not m.any():
+        st.session_state["last_move_error"] = "Joueur introuvable."
+        return False
+
+    idx = df.index[m][0]
+    from_statut = str(df.at[idx, "Statut"] if "Statut" in df.columns else "")
+    from_slot = str(df.at[idx, "Slot"] if "Slot" in df.columns else "")
+
+    # appliquer
+    if "Statut" in df.columns:
+        df.at[idx, "Statut"] = str(to_statut or "").strip()
+    if "Slot" in df.columns:
+        df.at[idx, "Slot"] = str(to_slot or "").strip()
+
+    st.session_state["data"] = df
+    persist_data(df, str(st.session_state.get("season") or ""))
+
+    # log history (avec pos/equipe/saison)
+    try:
+        row = df.loc[idx]
+        log_history_row(
+            proprietaire=owner_s,
+            joueur=joueur_s,
+            pos=str(row.get("Pos", "")).strip(),
+            equipe=str(row.get("Equipe", "")).strip(),
+            from_statut=from_statut,
+            from_slot=from_slot,
+            to_statut=str(to_statut or "").strip(),
+            to_slot=str(to_slot or "").strip(),
+            action=str(note or ""),
+        )
+    except Exception:
+        pass
+
+    return True
+
+
+# =====================================================
+# PICKS (repêchage) — 8 rondes / 8 choix par équipe
+# =====================================================
+def _picks_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    return os.path.join(DATA_DIR, f"picks_{season_lbl}.json")
+
+def load_picks(season_lbl: str, teams: list[str]) -> dict:
+    path = _picks_path(season_lbl)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+            # normaliser
+            for t in teams:
+                data.setdefault(t, {})
+                for rnd in range(1, 9):
+                    data[t].setdefault(str(rnd), t)
+            return data
+        except Exception:
+            pass
+    # init: chaque équipe possède ses 8 choix
+    data = {t: {str(r): t for r in range(1, 9)} for t in teams}
+    save_picks(season_lbl, data)
+    return data
+
+def save_picks(season_lbl: str, data: dict) -> None:
+    path = _picks_path(season_lbl)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data or {}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# =====================================================
+# BUYOUTS — pénalité 50% salaire (affichée dans la masse)
+# =====================================================
+def _buyouts_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    return os.path.join(DATA_DIR, f"buyouts_{season_lbl}.csv")
+
+def load_buyouts(season_lbl: str) -> pd.DataFrame:
+    path = _buyouts_path(season_lbl)
+    cols = ["timestamp", "season", "proprietaire", "joueur", "salaire", "penalite"]
+    if os.path.exists(path):
+        try:
+            b = pd.read_csv(path)
+            for c in cols:
+                if c not in b.columns:
+                    b[c] = ""
+            return b[cols].copy()
+        except Exception:
+            return pd.DataFrame(columns=cols)
+    return pd.DataFrame(columns=cols)
+
+def save_buyouts(season_lbl: str, b: pd.DataFrame) -> None:
+    path = _buyouts_path(season_lbl)
+    try:
+        b.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def buyout_penalty_sum(owner: str) -> int:
+    b = st.session_state.get("buyouts")
+    if b is None or not isinstance(b, pd.DataFrame) or b.empty:
+        return 0
+    owner = str(owner or "").strip()
+    tmp = b[b["proprietaire"].astype(str).str.strip().eq(owner)].copy()
+    if tmp.empty:
+        return 0
+    pen = pd.to_numeric(tmp["penalite"], errors="coerce").fillna(0).astype(int)
+    return int(pen.sum())
 
 # =====================================================
 # PLAYERS DB
@@ -1397,6 +1386,9 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
             total_gc = d[(d["Statut"] == STATUT_GC) & (d["Slot"] != SLOT_IR)]["Salaire"].sum()
             total_ce = d[(d["Statut"] == STATUT_CE) & (d["Slot"] != SLOT_IR)]["Salaire"].sum()
 
+            # + pénalités de rachat (50%) (comptabilisées dans la masse GC)
+            total_gc = int(total_gc) + int(buyout_penalty_sum(team))
+
         resume.append(
             {
                 "Propriétaire": team,
@@ -1410,6 +1402,11 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(resume)
 
 def build_tableau_ui(plafonds: pd.DataFrame):
+    """
+    Tableau des masses salariales (cliquable):
+      - clic sur le nom d'équipe => sélectionne l'équipe (comme l'ancien selectbox sidebar)
+      - aucun dédoublement: on affiche une seule fois les valeurs
+    """
     selected = str(get_selected_team() or "").strip()
 
     if plafonds is None or not isinstance(plafonds, pd.DataFrame) or plafonds.empty:
@@ -1417,84 +1414,46 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         return
 
     view = plafonds.copy()
-    cols = ["Propriétaire", "Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]
-    for c in cols:
-        if c not in view.columns:
-            view[c] = 0 if ("Total" in c or "Montant" in c) else "—"
 
+    # Colonnes attendues (fallback)
+    for c in ["Propriétaire", "Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
+        if c not in view.columns:
+            view[c] = 0 if ("Total" in c or "Montant" in c) else ""
+
+    # Format money
     def _fmt_money(x):
         try:
             return money(int(float(x)))
         except Exception:
             return money(0)
 
-    for c in ["Total Grand Club", "Montant Disponible GC", "Total Club École", "Montant Disponible CE"]:
-        view[c] = view[c].apply(_fmt_money)
+    view["_TotalGC"] = view["Total Grand Club"].apply(_fmt_money)
+    view["_ResteGC"] = view["Montant Disponible GC"].apply(_fmt_money)
+    view["_TotalCE"] = view["Total Club École"].apply(_fmt_money)
+    view["_ResteCE"] = view["Montant Disponible CE"].apply(_fmt_money)
 
-    css = """
-    <style>
-      .pms-wrap{ margin-top: 10px; border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;
-                overflow: hidden; background: rgba(255,255,255,0.02); }
-      table.pms{ width: 100%; border-collapse: collapse; font-size: 14px; color: rgba(255,255,255,0.92);
-                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
-      table.pms thead th{ text-align: left; padding: 11px 12px; background: rgba(255,255,255,0.06);
-                         border-bottom: 1px solid rgba(255,255,255,0.10); font-weight: 900; letter-spacing: .2px;
-                         color: rgba(255,255,255,0.88); }
-      table.pms tbody td{ padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
-                         vertical-align: middle; font-weight: 650; }
-      table.pms tbody tr{ transition: background 220ms ease, transform 220ms ease; }
-      table.pms tbody tr:hover{ background: rgba(255,255,255,0.035); }
-      tr.pms-selected{ background: rgba(34,197,94,0.16) !important; }
-      tr.pms-selected td:first-child{ border-left: 5px solid rgba(34,197,94,0.85); }
-      .cell-right{ text-align:right; white-space:nowrap; }
-      .pms-check{ display:inline-block; margin-left: 10px; font-weight: 1000; color: rgba(34,197,94,0.95);
-                 opacity: 0; transform: translateY(1px); animation: pmsFadeIn 280ms ease forwards; }
-      @keyframes pmsFadeIn{ from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0px); } }
-    </style>
-    """
+    st.markdown("#### Cliquez sur une équipe pour la sélectionner")
+    h = st.columns([2.6, 1.5, 1.5, 1.5, 1.5], vertical_alignment="center")
+    h[0].markdown("**Équipe**")
+    h[1].markdown("**Total GC**")
+    h[2].markdown("**Reste GC**")
+    h[3].markdown("**Total CE**")
+    h[4].markdown("**Reste CE**")
 
-    rows = []
-    for _, r in view[cols].iterrows():
+    for _, r in view.iterrows():
         owner = str(r.get("Propriétaire", "")).strip()
-        is_sel = bool(selected) and (owner == selected)
-        tr_class = "pms-selected" if is_sel else ""
-        check = "<span class='pms-check'>✓</span>" if is_sel else ""
-        rows.append(
-            f"""
-            <tr class="{tr_class}">
-              <td><b>{html.escape(owner)}</b>{check}</td>
-              <td class="cell-right">{html.escape(str(r.get("Total Grand Club","")))}</td>
-              <td class="cell-right">{html.escape(str(r.get("Montant Disponible GC","")))}</td>
-              <td class="cell-right">{html.escape(str(r.get("Total Club École","")))}</td>
-              <td class="cell-right">{html.escape(str(r.get("Montant Disponible CE","")))}</td>
-            </tr>
-            """
-        )
+        is_sel = bool(owner) and owner == selected
 
-    html_doc = f"""
-    {css}
-    <div class="pms-wrap">
-      <table class="pms">
-        <thead>
-          <tr>
-            <th>Propriétaire</th>
-            <th style="text-align:right">Total GC</th>
-            <th style="text-align:right">Reste GC</th>
-            <th style="text-align:right">Total CE</th>
-            <th style="text-align:right">Reste CE</th>
-          </tr>
-        </thead>
-        <tbody>
-          {''.join(rows)}
-        </tbody>
-      </table>
-    </div>
-    """
+        c = st.columns([2.6, 1.5, 1.5, 1.5, 1.5], vertical_alignment="center")
 
-    if not selected:
-        st.info("Choisis une équipe dans la barre latérale pour la surligner ici.")
+        label = f"✅ {owner}" if is_sel else owner
+        if c[0].button(label, key=f"tbl_pick_{owner}", use_container_width=True):
+            pick_team(owner)
 
-    components.html(html_doc, height=360, scrolling=False)
+        c[1].markdown(r["_TotalGC"])
+        c[2].markdown(r["_ResteGC"])
+        c[3].markdown(r["_TotalCE"])
+        c[4].markdown(r["_ResteCE"])
 
 
 # =====================================================
@@ -1661,33 +1620,22 @@ st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE
 
 # Team picker
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipes")
-teams = list(LOGOS.keys())
-cur = str(st.session_state.get("selected_team", "")).strip()
-if cur not in teams and teams:
-    cur = teams[0]
+st.sidebar.markdown("### 🏒 Équipe choisie")
+team_sel = str(st.session_state.get("selected_team", "") or "").strip()
+if not team_sel:
+    team_sel = "—"
+st.sidebar.write(f"**{team_sel}**")
 
-chosen = st.sidebar.selectbox(
-    "Choisir une équipe",
-    teams if teams else [""],
-    index=(teams.index(cur) if cur in teams else 0),
-    key="sb_team_select",
-)
-
-# ✅ SYNC — SOURCE DE VÉRITÉ
-if chosen and str(chosen).strip():
-    st.session_state["selected_team"] = str(chosen).strip()
-    st.session_state["align_owner"] = str(chosen).strip()
-
-logo_path = team_logo_path(get_selected_team())
+logo_path = team_logo_path(team_sel)
 if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
+
+# (Sélection de l'équipe = via clic dans le tableau de la page 📊 Tableau)
 
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
     st.session_state["gc_preview_open"] = True
     st.session_state["active_tab"] = "🧾 Alignement"
     do_rerun()
-
 
 # =====================================================
 # NAV
@@ -1697,6 +1645,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "📊 Tableau",
     "🧾 Alignement",
+    "🧑‍💼 GM",
     "👤 Joueurs",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2065,6 +2014,105 @@ elif active_tab == "🧾 Alignement":
             context="Move appliqué",
         )
 
+
+
+elif active_tab == "🧑‍💼 GM":
+    st.subheader("🧑‍💼 GM")
+    owner = str(get_selected_team() or "").strip()
+    if not owner:
+        st.info("Sélectionne une équipe en cliquant son nom dans 📊 Tableau.")
+        st.stop()
+
+    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+    st.session_state["data"] = df
+
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
+    if dprop.empty:
+        st.warning("Aucune donnée d'alignement pour cette équipe.")
+        st.stop()
+
+    # masse salariale (incl. pénalités)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+
+    d_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+    total_gc = int(d_ok[(d_ok["Statut"] == STATUT_GC)]["Salaire"].sum())
+    total_ce = int(d_ok[(d_ok["Statut"] == STATUT_CE)]["Salaire"].sum())
+    pen = int(buyout_penalty_sum(owner))
+    total_gc_incl = total_gc + pen
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Masse GC", money(total_gc))
+    c2.metric("Pénalités rachat (50%)", money(pen))
+    c3.metric("GC (incl. pénalités)", money(total_gc_incl))
+
+    st.markdown(cap_bar_html(total_gc_incl, cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
+    st.markdown(cap_bar_html(total_ce, cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
+
+    st.divider()
+
+    # Picks
+    teams = sorted(list(LOGOS.keys()))
+    picks = st.session_state.get("picks")
+    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != str(st.session_state.get("season")):
+        picks = load_picks(str(st.session_state.get("season")), teams)
+        st.session_state["picks"] = picks
+        st.session_state["_picks_season"] = str(st.session_state.get("season"))
+
+    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
+    owned_rounds = [r for r, who in my_picks.items() if str(who).strip() == owner]
+    st.markdown("### 🎯 Choix de repêchage")
+    st.write(f"Choix appartenant à **{owner}** : **{len(my_picks)}** (rondes 1 à 8).")
+    st.caption("Note: la ronde 8 n'est pas échangeable (règle), mais ici on affiche seulement la possession.")
+
+    df_picks = pd.DataFrame(
+        [{"Ronde": int(r), "Appartient à": str(who)} for r, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
+    )
+    st.dataframe(df_picks, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # Buyout
+    st.markdown("### 💥 Racheter un joueur (pénalité 50%)")
+    opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
+    joueur = st.selectbox("Joueur", opts, key="gm_buyout_player") if opts else ""
+    if joueur:
+        row = dprop[dprop["Joueur"].astype(str).eq(joueur)].iloc[0]
+        salaire = int(row.get("Salaire", 0) or 0)
+        penalite = int(round(salaire * 0.5))
+
+        st.info(f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** (ajoutée à la masse GC)")
+
+        if st.button("✅ Confirmer le rachat", type="primary", use_container_width=True, key="gm_buyout_ok"):
+            # Charger buyouts
+            b = st.session_state.get("buyouts")
+            if b is None or not isinstance(b, pd.DataFrame) or st.session_state.get("_buyouts_season") != str(st.session_state.get("season")):
+                b = load_buyouts(str(st.session_state.get("season")))
+            # Append
+            rec = {
+                "timestamp": datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S"),
+                "season": str(st.session_state.get("season")),
+                "proprietaire": owner,
+                "joueur": joueur,
+                "salaire": salaire,
+                "penalite": penalite,
+            }
+            b = pd.concat([b, pd.DataFrame([rec])], ignore_index=True)
+            st.session_state["buyouts"] = b
+            st.session_state["_buyouts_season"] = str(st.session_state.get("season"))
+            save_buyouts(str(st.session_state.get("season")), b)
+
+            # Retirer le joueur du roster
+            df2 = st.session_state.get("data", df).copy()
+            m = df2["Propriétaire"].astype(str).str.strip().eq(owner) & df2["Joueur"].astype(str).str.strip().eq(joueur)
+            df2 = df2.loc[~m].copy()
+            st.session_state["data"] = clean_data(df2)
+            persist_data(st.session_state["data"], str(st.session_state.get("season")))
+
+            # Rebuild plafonds (avec pénalité)
+            st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
+            st.toast("✅ Rachat appliqué. Pénalité ajoutée à la masse GC.", icon="✅")
+            do_rerun()
 
 elif active_tab == "👤 Joueurs":
     st.subheader("👤 Joueurs")
