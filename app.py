@@ -14,6 +14,7 @@ import re
 import json
 import html
 import base64
+import secrets
 import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -790,25 +791,47 @@ def _picks_path(season_lbl: str) -> str:
     season_lbl = str(season_lbl or "").strip() or "season"
     return os.path.join(DATA_DIR, f"picks_{season_lbl}.json")
 
+def draft_years_for_season(season_lbl: str) -> list[int]:
+    """Fenêtre de 3 années de repêchage basée sur la saison.
+    Ex: '2025-2026' -> [2025, 2026, 2027]
+    """
+    try:
+        base = int(str(season_lbl).split("-")[0])
+    except Exception:
+        base = datetime.now(TZ_TOR).year
+    return [base, base + 1, base + 2]
+
+
 def load_picks(season_lbl: str, teams: list[str] | None = None) -> dict:
+    """Structure:
+    picks[team][year][round] = owner_du_choix
+    - 8 rondes (1..8)
+    - années = draft_years_for_season(season_lbl)
+    """
     teams = teams or sorted(list(LOGOS.keys()))
+    years = [str(y) for y in draft_years_for_season(season_lbl)]
     path = _picks_path(season_lbl)
+
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f) or {}
-            # normaliser
+            # normaliser + auto-ajouter années/rondes manquantes
             for t in teams:
                 data.setdefault(t, {})
-                for rnd in range(1, 9):
-                    data[t].setdefault(str(rnd), t)
+                for y in years:
+                    data[t].setdefault(y, {})
+                    for rnd in range(1, 9):
+                        data[t][y].setdefault(str(rnd), t)
             return data
         except Exception:
             pass
-    # init: chaque équipe possède ses 8 choix
-    data = {t: {str(r): t for r in range(1, 9)} for t in teams}
+
+    # init: chaque équipe possède ses 8 choix, pour les 3 années
+    data = {t: {y: {str(r): t for r in range(1, 9)} for y in years} for t in teams}
     save_picks(season_lbl, data)
     return data
+
 
 def save_picks(season_lbl: str, data: dict) -> None:
     path = _picks_path(season_lbl)
@@ -818,6 +841,9 @@ def save_picks(season_lbl: str, data: dict) -> None:
     except Exception:
         pass
 
+
+def pick_label(year: str, rnd: str) -> str:
+    return f"{year} — Ronde {rnd}"
 
 # =====================================================
 # BUYOUTS — pénalité 50% salaire (affichée dans la masse)
@@ -948,6 +974,145 @@ def set_owner_market(t: pd.DataFrame, season_lbl: str, owner: str, available_pla
         base = pd.concat([base, pd.DataFrame(rows)], ignore_index=True)
     return base
 
+
+# =====================================================
+# TRADE PROPOSALS (approbation des 2 équipes)
+#   - Une transaction est valide seulement si owner A + owner B ont approuvé
+#   - Persistant par saison (CSV)
+# =====================================================
+def _trade_proposals_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    return os.path.join(DATA_DIR, f"trade_proposals_{season_lbl}.csv")
+
+def _trade_proposals_cols():
+    return [
+        "id", "created_at", "season",
+        "owner_a", "owner_b",
+        "a_players", "b_players",
+        "a_picks", "b_picks",
+        "a_retained", "b_retained",
+        "approved_a", "approved_b",
+        "status",
+        "note",
+    ]
+
+def load_trade_proposals(season_lbl: str) -> pd.DataFrame:
+    path = _trade_proposals_path(season_lbl)
+    cols = _trade_proposals_cols()
+    if os.path.exists(path):
+        try:
+            t = pd.read_csv(path)
+            for c in cols:
+                if c not in t.columns:
+                    t[c] = ""
+            return t[cols].copy()
+        except Exception:
+            pass
+    return pd.DataFrame(columns=cols)
+
+def save_trade_proposals(season_lbl: str, t: pd.DataFrame) -> None:
+    path = _trade_proposals_path(season_lbl)
+    cols = _trade_proposals_cols()
+    try:
+        if t is None or not isinstance(t, pd.DataFrame):
+            t = pd.DataFrame(columns=cols)
+        for c in cols:
+            if c not in t.columns:
+                t[c] = ""
+        t = t[cols].copy()
+        t.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def _json_dump(x) -> str:
+    try:
+        return json.dumps(x, ensure_ascii=False)
+    except Exception:
+        return "[]"
+
+def _json_load(s, fallback):
+    try:
+        if pd.isna(s):
+            return fallback
+        if isinstance(s, (list, dict)):
+            return s
+        s = str(s or "").strip()
+        return json.loads(s) if s else fallback
+    except Exception:
+        return fallback
+
+def submit_trade_proposal(season_lbl: str, owner_a: str, owner_b: str,
+                          a_players: list[str], b_players: list[str],
+                          a_picks: list[str], b_picks: list[str],
+                          a_retained: dict, b_retained: dict,
+                          note: str = "") -> str:
+    t = load_trade_proposals(season_lbl)
+    now = datetime.now(TZ_TOR).isoformat(timespec="seconds")
+    tid = f"tr_{datetime.now(TZ_TOR).strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}"
+    row = {
+        "id": tid,
+        "created_at": now,
+        "season": str(season_lbl),
+        "owner_a": str(owner_a).strip(),
+        "owner_b": str(owner_b).strip(),
+        "a_players": _json_dump(a_players or []),
+        "b_players": _json_dump(b_players or []),
+        "a_picks": _json_dump(a_picks or []),
+        "b_picks": _json_dump(b_picks or []),
+        "a_retained": _json_dump(a_retained or {}),
+        "b_retained": _json_dump(b_retained or {}),
+        "approved_a": False,
+        "approved_b": False,
+        "status": "pending",
+        "note": str(note or ""),
+    }
+    t = pd.concat([t, pd.DataFrame([row])], ignore_index=True)
+    save_trade_proposals(season_lbl, t)
+    return tid
+
+def approve_trade_proposal(season_lbl: str, trade_id: str, owner: str, approve: bool) -> bool:
+    t = load_trade_proposals(season_lbl)
+    if t.empty:
+        return False
+    m = t["id"].astype(str).eq(str(trade_id))
+    if not m.any():
+        return False
+    i = t.index[m][0]
+    oa = str(t.at[i, "owner_a"] or "").strip()
+    ob = str(t.at[i, "owner_b"] or "").strip()
+    owner = str(owner or "").strip()
+
+    if owner == oa:
+        t.at[i, "approved_a"] = bool(approve)
+    elif owner == ob:
+        t.at[i, "approved_b"] = bool(approve)
+    else:
+        return False
+
+    # status
+    a_ok = str(t.at[i, "approved_a"]).lower() in {"true", "1", "yes"}
+    b_ok = str(t.at[i, "approved_b"]).lower() in {"true", "1", "yes"}
+    t.at[i, "status"] = "approved" if (a_ok and b_ok) else "pending"
+
+    save_trade_proposals(season_lbl, t)
+    return True
+
+def latest_trade_proposal(season_lbl: str) -> dict | None:
+    t = load_trade_proposals(season_lbl)
+    if t is None or t.empty:
+        return None
+    tmp = t.copy()
+    tmp["_dt"] = tmp["created_at"].apply(to_dt_local)
+    tmp = tmp.sort_values("_dt", ascending=False, na_position="last")
+    r = tmp.iloc[0].to_dict()
+    # parse json columns for UI use
+    r["a_players"] = _json_load(r.get("a_players"), [])
+    r["b_players"] = _json_load(r.get("b_players"), [])
+    r["a_picks"] = _json_load(r.get("a_picks"), [])
+    r["b_picks"] = _json_load(r.get("b_picks"), [])
+    r["a_retained"] = _json_load(r.get("a_retained"), {})
+    r["b_retained"] = _json_load(r.get("b_retained"), {})
+    return r
 # =====================================================
 # PLAYERS DB
 # =====================================================
@@ -2118,6 +2283,29 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 # =====================================================
 if active_tab == "📊 Tableau":
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+    # Alertes échanges (approbations)
+    tprops = load_trade_proposals(season)
+    if tprops is not None and not tprops.empty:
+        tp = tprops.copy()
+        tp["_dt"] = tp["created_at"].apply(to_dt_local)
+        tp = tp.sort_values("_dt", ascending=False, na_position="last")
+        pending = tp[tp["status"].astype(str).eq("pending")].head(5)
+        approved = tp[tp["status"].astype(str).eq("approved")].head(5)
+
+        if not pending.empty:
+            with st.expander("🚨 Échanges en attente d'approbation", expanded=True):
+                for _, r in pending.iterrows():
+                    oa = str(r["owner_a"]); ob = str(r["owner_b"])
+                    created = format_date_fr(r["created_at"])
+                    st.warning(f"Échange **{oa}** ⇄ **{ob}** — en attente (créé le {created})")
+
+        if not approved.empty:
+            with st.expander("✅ Échanges approuvés", expanded=False):
+                for _, r in approved.iterrows():
+                    oa = str(r["owner_a"]); ob = str(r["owner_b"])
+                    created = format_date_fr(r["created_at"])
+                    st.success(f"Échange **{oa}** ⇄ **{ob}** — approuvé (créé le {created})")
+
 
     # Sous-titre discret (UI)
     st.markdown(
@@ -2392,16 +2580,26 @@ elif active_tab == "🧑‍💼 GM":
         st.session_state["_picks_season"] = str(st.session_state.get("season"))
 
     my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
-    owned_rounds = [r for r, who in my_picks.items() if str(who).strip() == owner]
     st.markdown("### 🎯 Choix de repêchage")
-    st.write(f"Choix appartenant à **{owner}** : **{len(my_picks)}** (rondes 1 à 8).")
-    st.caption("Note: la ronde 8 n'est pas échangeable (règle), mais ici on affiche seulement la possession.")
+    years = sorted([str(y) for y in (my_picks.keys() if isinstance(my_picks, dict) else [])])
+    total_slots = len(years) * 8 if years else 0
 
-    df_picks = pd.DataFrame(
-        [{"Ronde": int(r), "Appartient à": str(who)} for r, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
-    )
+    rows = []
+    owned_count = 0
+    if isinstance(my_picks, dict):
+        for y in years:
+            rounds = my_picks.get(y, {}) if isinstance(my_picks.get(y, {}), dict) else {}
+            for r in range(1, 9):
+                holder = str(rounds.get(str(r), owner)).strip()
+                rows.append({"Année": int(y), "Ronde": r, "Appartient à": holder})
+                if holder == owner:
+                    owned_count += 1
+
+    st.write(f"Choix appartenant à **{owner}** : **{owned_count} / {total_slots}** (3 années × 8 rondes).")
+    st.caption("Les échanges peuvent inclure des choix 2025/2026/2027 (selon la saison). La ronde 8 peut être verrouillée ailleurs si tu veux une règle stricte.")
+
+    df_picks = pd.DataFrame(rows).sort_values(["Année", "Ronde"])
     st.dataframe(df_picks, use_container_width=True, hide_index=True)
-
     st.divider()
 
     # Buyout
@@ -2475,6 +2673,52 @@ elif active_tab == "🧑‍💼 GM":
             st.toast(f"✅ Rachat appliqué. Pénalité ajoutée à la masse {bucket_code}.", icon="✅")
             do_rerun()
 
+
+    st.divider()
+    st.markdown("### 🔁 Marché des échanges")
+    st.caption("Marque les joueurs de ton équipe comme disponibles sur le marché des échanges.")
+
+    tm = load_trade_market(season)
+    owner = str(get_selected_team() or "").strip()
+    df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df_all = clean_data(df_all) if isinstance(df_all, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    dprop = df_all[df_all.get("Propriétaire","").astype(str).str.strip().eq(owner)].copy() if owner else pd.DataFrame()
+    options = []
+    if not dprop.empty:
+        for j in sorted(dprop["Joueur"].dropna().astype(str).unique().tolist()):
+            if j.strip():
+                options.append(j.strip())
+
+    selected_now = []
+    if options:
+        for j in options:
+            if is_on_trade_market(tm, owner, j):
+                selected_now.append(j)
+
+    picked = st.multiselect(
+        "Joueurs sur le marché",
+        options,
+        default=selected_now,
+        key="gm_trade_market_ms",
+    )
+
+    cA, cB = st.columns([1, 1])
+    with cA:
+        if st.button("💾 Enregistrer", type="primary", use_container_width=True, key="gm_trade_market_save"):
+            # reset owner entries then set selected
+            if owner:
+                tm[str(owner)] = {str(j): True for j in (picked or [])}
+                save_trade_market(season, tm)
+                st.toast("✅ Marché mis à jour", icon="✅")
+                do_rerun()
+    with cB:
+        if st.button("🧹 Tout retirer", use_container_width=True, key="gm_trade_market_clear"):
+            if owner:
+                tm[str(owner)] = {}
+                save_trade_market(season, tm)
+                st.toast("✅ Marché vidé", icon="✅")
+                do_rerun()
 
 elif active_tab == "👤 Joueurs autonomes":
     st.subheader("👤 Joueurs autonomes")
@@ -2692,6 +2936,52 @@ elif active_tab == "🕘 Historique":
 
 elif active_tab == "⚖️ Transactions":
     st.subheader("⚖️ Transactions")
+
+    # -------------------------------------------------
+    # ✅ Approbation requise (2 propriétaires)
+    # -------------------------------------------------
+    latest = latest_trade_proposal(season)
+    if latest:
+        oa = str(latest.get("owner_a","")).strip()
+        ob = str(latest.get("owner_b","")).strip()
+        status = str(latest.get("status","")).strip()
+        created = format_date_fr(latest.get("created_at"))
+        st.markdown("### ✅ Dernière proposition d'échange")
+        left, right = st.columns([3, 2], vertical_alignment="center")
+        with left:
+            st.markdown(f"**{oa}** ⇄ **{ob}**")
+            st.caption(f"Créée le {created} — statut: **{status}**")
+        with right:
+            # Les checkboxes sont activées seulement pour les équipes concernées
+            current_team = str(get_selected_team() or "").strip()
+            can_a = (current_team == oa)
+            can_b = (current_team == ob)
+
+            a_prev = str(latest.get("approved_a","")).lower() in {"true","1","yes"}
+            b_prev = str(latest.get("approved_b","")).lower() in {"true","1","yes"}
+
+            a_ok = st.checkbox(f"Approuvé par {oa}", value=a_prev, disabled=(not can_a), key=f"appr_a_{latest['id']}")
+            b_ok = st.checkbox(f"Approuvé par {ob}", value=b_prev, disabled=(not can_b), key=f"appr_b_{latest['id']}")
+
+            if can_a and (a_ok != a_prev):
+                approve_trade_proposal(season, latest["id"], oa, a_ok)
+                st.toast("✅ Approbation mise à jour", icon="✅")
+                do_rerun()
+            if can_b and (b_ok != b_prev):
+                approve_trade_proposal(season, latest["id"], ob, b_ok)
+                st.toast("✅ Approbation mise à jour", icon="✅")
+                do_rerun()
+
+        # Détails compact
+        with st.expander("📦 Détails de la proposition", expanded=False):
+            st.markdown(f"**{oa} donne**: {', '.join(latest.get('a_players',[]) or []) or '—'}")
+            st.markdown(f"**{oa} picks**: {', '.join(latest.get('a_picks',[]) or []) or '—'}")
+            st.markdown(f"**{ob} donne**: {', '.join(latest.get('b_players',[]) or []) or '—'}")
+            st.markdown(f"**{ob} picks**: {', '.join(latest.get('b_picks',[]) or []) or '—'}")
+            if str(latest.get("note","")).strip():
+                st.caption(f"Note: {latest['note']}")
+
+        st.divider()
     st.caption("Construis une transaction (joueurs + choix + salaire retenu) et vois l’impact sur les masses salariales.")
 
     plafonds = st.session_state.get("plafonds")
@@ -2726,24 +3016,33 @@ elif active_tab == "⚖️ Transactions":
         return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · {money(sal)}"
 
     def _owner_picks(owner: str):
-        """Retourne les choix détenus par owner sous forme 'R{round} — {orig}' (rondes 1-7 seulement)."""
+        """Retourne les choix détenus par owner sous forme 'YYYY — R{round} — {orig}' (rondes 1-7)."""
         out = []
         if isinstance(picks, dict) and picks:
-            for orig_team, rounds in (picks or {}).items():
-                if not isinstance(rounds, dict):
+            for orig_team, years_map in (picks or {}).items():
+                if not isinstance(years_map, dict):
                     continue
-                for rd, holder in rounds.items():
-                    try:
-                        rdi = int(rd)
-                    except Exception:
+                for year, rounds in years_map.items():
+                    if not isinstance(rounds, dict):
                         continue
-                    if rdi >= 8:  # 8e ronde non échangeable
-                        continue
-                    if str(holder).strip() == str(owner).strip():
-                        out.append(f"R{rdi} — {orig_team}")
-        return sorted(out, key=lambda x: (int(re.search(r'R(\d+)', x).group(1)), x))
+                    for rd, holder in rounds.items():
+                        try:
+                            rdi = int(rd)
+                        except Exception:
+                            continue
+                        if rdi >= 8:  # 8e ronde non échangeable
+                            continue
+                        if str(holder).strip() == str(owner).strip():
+                            out.append(f"{year} — R{rdi} — {orig_team}")
+        def _k(x: str):
+            m1 = re.search(r"^(\d{4})", x)
+            m2 = re.search(r"R(\d+)", x)
+            y = int(m1.group(1)) if m1 else 0
+            r = int(m2.group(1)) if m2 else 0
+            return (y, r, x)
+        return sorted(out, key=_k)
 
-    # --- Choix des 2 propriétaires côte à côte
+# --- Choix des 2 propriétaires côte à côte
     cA, cB = st.columns(2, vertical_alignment="top")
     with cA:
         owner_a = st.selectbox("Propriétaire A", owners, index=0, key="tx_owner_a")
@@ -2882,31 +3181,32 @@ elif active_tab == "⚖️ Transactions":
     with s2:
         st.markdown(f"**{owner_b}** reçoit: {len(a_players)} joueur(s), {len(a_meta.get('picks',[]))} pick(s)")
         st.caption(f"Variation cap (approx): {money(net_b)} (positif = augmente)")
-
     st.divider()
 
-    # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
-    st.markdown("### Marché des échanges (optionnel)")
-    st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
-
-    mm1, mm2 = st.columns(2)
-    with mm1:
-        if not dfa.empty:
-            opts = sorted(dfa["Joueur"].dropna().astype(str).str.strip().unique().tolist())
-            cur_on = [j for j in opts if is_on_trade_market(market, owner_a, j)]
-            new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, default=cur_on, key="tx_market_a")
-            market = set_owner_market(market, season, owner_a, new_on)
-    with mm2:
-        if not dfb.empty:
-            opts = sorted(dfb["Joueur"].dropna().astype(str).str.strip().unique().tolist())
-            cur_on = [j for j in opts if is_on_trade_market(market, owner_b, j)]
-            new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, default=cur_on, key="tx_market_b")
-            market = set_owner_market(market, season, owner_b, new_on)
-
-    if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
-        save_trade_market(season, market)
-        st.toast("✅ Marché sauvegardé", icon="✅")
+    # -------------------------------------------------
+    # Soumettre une proposition (sera valide seulement après 2 approbations)
+    # -------------------------------------------------
+    note = st.text_input("Note (optionnel)", value="", key="tx_note")
+    if st.button("📨 Soumettre la proposition d'échange", type="primary", use_container_width=True, key="tx_submit"):
+        tid = submit_trade_proposal(
+            season_lbl=season,
+            owner_a=owner_a,
+            owner_b=owner_b,
+            a_players=a_players,
+            b_players=b_players,
+            a_picks=a_meta.get("picks", []),
+            b_picks=b_meta.get("picks", []),
+            a_retained={"retained_total": int(a_meta.get("retained", 0)), "cash": int(a_meta.get("cash", 0))},
+            b_retained={"retained_total": int(b_meta.get("retained", 0)), "cash": int(b_meta.get("cash", 0))},
+            note=note,
+        )
+        st.toast("✅ Proposition soumise. Les 2 équipes doivent approuver.", icon="✅")
+        # Log historique (info)
+        log_history_row(owner_a, f"ÉCHANGE PROPOSÉ → {owner_b}", "", "", "", "", "", "", f"trade_proposal:{tid}")
+        log_history_row(owner_b, f"ÉCHANGE PROPOSÉ → {owner_a}", "", "", "", "", "", "", f"trade_proposal:{tid}")
         do_rerun()
+
+    # Marché des échanges: déplacé dans l’onglet 🧑‍💼 GM.
 
 
 elif active_tab == "🛠️ Gestion Admin":
