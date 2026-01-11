@@ -2055,12 +2055,19 @@ def open_move_dialog():
 
     css = """
     <style>
-      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .pill{display:inline-block;padding:2px 10px;border-radius:999px;
-            background:rgba(255,255,255,.08);
-            border:1px solid rgba(255,255,255,.12);
-            font-weight:900;font-size:12px}
+      /* Modal move dialog — pixel-ish */
+      .mvHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
+      .mvIcon{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+              background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-size:20px}
+      .mvTitle{font-weight:1000;font-size:22px;line-height:1.05;margin-top:2px}
+      .mvSub{opacity:.80;font-weight:800;font-size:12px;margin-top:4px}
+      .mvHint{opacity:.80;font-size:12px;margin-top:10px}
+      .mvSep{height:1px;background:rgba(255,255,255,.10);margin:12px 0}
+      .pill-mini{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+                 background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+                 font-weight:900;font-size:12px;white-space:nowrap}
+      .dot{width:8px;height:8px;border-radius:999px;background:#6b7280}
+      .dot-ok{background:#22c55e}.dot-warn{background:#f59e0b}.dot-danger{background:#ef4444}
     </style>
     """
 
@@ -2068,13 +2075,20 @@ def open_move_dialog():
     def _dlg():
         st.markdown(css, unsafe_allow_html=True)
         st.markdown(
-            f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
-            f"<div class='dlg-sub'>{html.escape(cur_statut)}"
-            f"{(' / ' + html.escape(cur_slot)) if cur_slot else ''}"
-            f" • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>",
+            f"""
+            <div class='mvHead'>
+              <div class='mvIcon'>🎯</div>
+              <div>
+                <div class='mvTitle'>Déplacement</div>
+                <div class='mvSub'>{html.escape(owner)} • <b>{html.escape(joueur)}</b></div>
+                <div class='mvSub'>Actuel: {html.escape(cur_statut)}{(' / ' + html.escape(cur_slot)) if cur_slot else ''} • {html.escape(cur_pos)} • {html.escape(cur_team)} • {money(cur_sal)}</div>
+              </div>
+            </div>
+            <div class='mvHint'>Sélectionne un <b>type</b> → puis la <b>destination</b> → applique.</div>
+            <div class='mvSep'></div>
+            """,
             unsafe_allow_html=True,
         )
-        st.divider()
 
         # 1) Type (adapté selon le joueur)
         is_ir = (cur_slot == SLOT_IR)
@@ -4451,4 +4465,4 @@ elif active_tab == "🧠 Recommandations":
 
 
 else:
-    st.warning("Onglet inconnu")v
+    st.warning("Onglet inconnu")
