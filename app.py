@@ -3351,15 +3351,13 @@ elif active_tab == "🧾 Alignement":
         unsafe_allow_html=True
     )
 
-    # Pills (même look qu'avant) — ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Banc, Mineur, IR
+    # Pills (look pro) — on garde seulement: Actifs | Mineur | Banc | IR
+    #   ✅ Actifs à côté de Mineur
+    #   ✅ Banc à côté de IR
     items = [
-        ("GC", f"{money(total_gc)} / {money(cap_gc)}", "danger" if total_gc > cap_gc else "ok"),
-        ("Reste GC", money(cap_gc - total_gc), "danger" if (cap_gc - total_gc) < 0 else ("warn" if (cap_gc - total_gc) < int(0.1*cap_gc) else "ok")),
-        ("CE", f"{money(total_ce)} / {money(cap_ce)}", "danger" if total_ce > cap_ce else "ok"),
-        ("Reste CE", money(cap_ce - total_ce), "danger" if (cap_ce - total_ce) < 0 else "ok"),
         ("Actifs", str(len(gc_actif)), "ok"),
-        ("Banc", str(len(gc_banc)), "ok"),
         ("Mineur", str(len(ce_all)), "ok"),
+        ("Banc", str(len(gc_banc)), "ok"),
         ("IR", str(len(ir_all)), "warn" if len(ir_all) > 0 else "ok"),
     ]
     st.markdown(pills_row_html(items), unsafe_allow_html=True)
