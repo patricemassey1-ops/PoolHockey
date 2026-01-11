@@ -3122,6 +3122,17 @@ elif active_tab == "🧾 Alignement":
     # =====================================================
     # MOVE UI (INLINE FORCÉ) — évite les popups qui ne s'affichent pas
     # =====================================================
+    # --- Reset automatique si move_ctx fantôme (ex: crash/rerun avant ouverture)
+    _ctx = st.session_state.get("move_ctx")
+    if _ctx is not None:
+        _player = ""
+        if isinstance(_ctx, dict):
+            _player = str(_ctx.get("player", "") or "").strip()
+        # Si on n'a pas de joueur, on considère que c'est un verrou fantôme.
+        if not _player:
+            clear_move_ctx()
+            st.session_state["active_dialog"] = ""
+            st.session_state["move_auto_open"] = False
     if st.session_state.get("move_ctx") is not None:
         c1, c2 = st.columns([3, 1])
         with c1:
