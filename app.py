@@ -1379,6 +1379,102 @@ def parse_fantrax(upload) -> pd.DataFrame:
     out["IR Date"] = ""
     return clean_data(out)
 
+
+def inject_levels(df: pd.DataFrame, players_db: pd.DataFrame) -> pd.DataFrame:
+    """Ajoute Level et NHL GP à df (alignement) à partir de Hockey.Players.csv.
+    Matching par nom normalisé (tolère 'Nom, Prénom' et 'Prénom Nom').
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
+        out = df.copy()
+        if "Level" not in out.columns:
+            out["Level"] = ""
+        if "NHL GP" not in out.columns:
+            out["NHL GP"] = 0
+        return out
+
+    out = df.copy()
+    if "Joueur" not in out.columns:
+        return out
+
+    name_col = None
+    for cand in ["Player", "Joueur", "Name", "Full Name", "fullname", "player"]:
+        if cand in players_db.columns:
+            name_col = cand
+            break
+    level_col = "Level" if "Level" in players_db.columns else None
+    gp_col = None
+    for cand in ["NHL GP", "GP", "Games Played", "games_played"]:
+        if cand in players_db.columns:
+            gp_col = cand
+            break
+
+    if not name_col:
+        if "Level" not in out.columns:
+            out["Level"] = ""
+        if "NHL GP" not in out.columns:
+            out["NHL GP"] = 0
+        return out
+
+    def _k(s: str) -> str:
+        s = str(s or "").strip().lower()
+        s = s.replace(",", " ")
+        s = re.sub(r"[^a-z\s\-']", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    pdb = players_db.copy()
+    pdb["_k"] = pdb[name_col].astype(str).map(_k)
+
+    def _swap_key(name: str) -> str:
+        name = str(name or "").strip()
+        if "," in name:
+            parts = [p.strip() for p in name.split(",", 1)]
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return _k(parts[1] + " " + parts[0])
+        toks = _k(name).split()
+        if len(toks) >= 2:
+            return " ".join(toks[1:] + toks[:1])
+        return _k(name)
+
+    pdb["_k2"] = pdb[name_col].astype(str).map(_swap_key)
+
+    lvl_map = {}
+    gp_map = {}
+
+    if level_col:
+        s = pdb[level_col].astype(str).fillna("").map(lambda x: x.strip().upper())
+        for k, v in zip(pdb["_k"], s):
+            if k and k not in lvl_map:
+                lvl_map[k] = v
+        for k, v in zip(pdb["_k2"], s):
+            if k and k not in lvl_map:
+                lvl_map[k] = v
+
+    if gp_col:
+        g = pd.to_numeric(pdb[gp_col], errors="coerce").fillna(0).astype(int)
+        for k, v in zip(pdb["_k"], g):
+            if k and k not in gp_map:
+                gp_map[k] = int(v)
+        for k, v in zip(pdb["_k2"], g):
+            if k and k not in gp_map:
+                gp_map[k] = int(v)
+
+    keys = out["Joueur"].astype(str).map(_k)
+    if "Level" not in out.columns:
+        out["Level"] = ""
+    if "NHL GP" not in out.columns:
+        out["NHL GP"] = 0
+
+    out["Level"] = [lvl_map.get(k, out.at[i, "Level"]) for i, k in enumerate(keys)]
+    out["NHL GP"] = [gp_map.get(k, int(out.at[i, "NHL GP"]) if str(out.at[i, "NHL GP"]).strip() else 0) for i, k in enumerate(keys)]
+
+    out["Level"] = out["Level"].astype(str).fillna("").map(lambda x: x.strip().upper())
+    out["NHL GP"] = pd.to_numeric(out["NHL GP"], errors="coerce").fillna(0).astype(int)
+    return out
+
+
 def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     if df is None or not isinstance(df, pd.DataFrame):
         return df
@@ -2469,190 +2565,51 @@ if active_tab == "📊 Tableau":
 
     # Réclamations
     _init_fa_claims()
-    claims = st.session_state.get("fa_claims") or {}
-    if not claims:
-        st.info("Aucune réclamation pour le moment.")
+    claims = st.session_state.get("fa_claims")
+    if not isinstance(claims, pd.DataFrame):
+        claims = load_fa_claims(season)
+
+    if claims is None or claims.empty:
+        st.info("Aucune réclamation en attente.")
     else:
-        order = _fa_priority_order(points_df)
-        rows = []
-        for owner in order if order else sorted(claims.keys()):
-            for i, c in enumerate(claims.get(owner, []) or [], start=1):
-                rows.append({
-                    "Priorité": order.index(owner) + 1 if owner in order else 999,
-                    "Propriétaire": owner,
-                    "#": i,
-                    "Joueur": c.get("player", ""),
-                    "Destination": c.get("dest", "GC"),
-                })
-        dfc = pd.DataFrame(rows)
-        if not dfc.empty:
-            dfc = dfc.sort_values(["Priorité", "Propriétaire", "#"], kind="mergesort")
-            st.dataframe(dfc, use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucune réclamation pour le moment.")
+        # Affiche en ordre de priorité (par points) puis du plus récent au plus ancien
+        claims2 = claims.copy()
+        claims2["timestamp_dt"] = pd.to_datetime(claims2.get("timestamp"), errors="coerce")
+        claims2 = claims2.sort_values(["timestamp_dt"], ascending=[False])
 
-        # confirmer embauche: seul propriétaire en priorité (ou admin) peut confirmer
-        owner_me = str(get_selected_team() or "").strip()
-        is_admin = bool(_is_admin_whalers()) if "_is_admin_whalers" in globals() else False
+        # Ordre des équipes selon points (si dispo), sinon alphabétique
+        owner_order = []
+        try:
+            if isinstance(points_df, pd.DataFrame) and not points_df.empty and "Propriétaire" in points_df.columns:
+                owner_order = points_df["Propriétaire"].astype(str).tolist()
+        except Exception:
+            owner_order = []
+        if not owner_order:
+            owner_order = sorted(claims2["owner"].dropna().astype(str).unique().tolist())
 
-        next_owner = None
-        for ow in order:
-            if claims.get(ow):
-                next_owner = ow
-                break
+        for ow in owner_order:
+            sub = claims2[claims2["owner"].astype(str) == str(ow)]
+            if sub.empty:
+                continue
+            with st.expander(f"📥 Réclamations — {ow} ({len(sub)})", expanded=False):
+                show = sub[["timestamp", "player", "pos", "team", "level", "gp", "salary", "destination", "status", "note"]].copy()
+                show.rename(columns={
+                    "timestamp": "Date",
+                    "player": "Joueur",
+                    "pos": "Pos",
+                    "team": "Équipe",
+                    "level": "Level",
+                    "gp": "GP",
+                    "salary": "Salaire",
+                    "destination": "Destination",
+                    "status": "Statut",
+                    "note": "Note",
+                }, inplace=True)
+                # format salaire
+                if "Salaire" in show.columns:
+                    show["Salaire"] = show["Salaire"].apply(money)
+                st.dataframe(show, use_container_width=True, hide_index=True)
 
-        if next_owner:
-            st.caption(f"Prochaine priorité d'embauche: **{next_owner}** (points les plus bas).")
-
-        if next_owner and (is_admin or owner_me == next_owner):
-            st.markdown("##### ✅ Confirmer une embauche (équipe en priorité)")
-            ow = next_owner
-            for idx2, c in enumerate(list(claims.get(ow, [])), start=1):
-                pname = str(c.get("player", "")).strip()
-                dest = str(c.get("dest", "GC")).strip()
-                if not pname:
-                    continue
-                cols = st.columns([6, 2, 2], vertical_alignment="center")
-                cols[0].markdown(f"**{pname}** → {dest}")
-                note = cols[1].text_input("Note", value="Embauche FA", key=f"hire_note_{ow}_{idx2}")
-                if cols[2].button("Valider", key=f"hire_btn_{ow}_{idx2}", use_container_width=True):
-                    ok = hire_free_agent(ow, pname, dest, note.strip() or f"EMBAUCHE FA ({dest})")
-                    if ok:
-                        # retirer de la liste
-                        st.session_state["fa_claims"][ow] = [
-                            x for x in st.session_state["fa_claims"].get(ow, [])
-                            if _norm_name(x.get("player", "")) != _norm_name(pname)
-                        ]
-                        persist_fa_claims(st.session_state["fa_claims"], season)
-                        st.toast("✅ Joueur embauché", icon="✅")
-                        do_rerun()
-                    else:
-                        st.error(st.session_state.get("last_move_error", "Impossible d'embaucher ce joueur."))
-
-    def _recent_changes_df(limit: int = 15) -> pd.DataFrame:
-        rows = []
-
-        # Moves / actions via history
-        h = st.session_state.get("history")
-        if isinstance(h, pd.DataFrame) and not h.empty:
-            hh = h.copy()
-            # normaliser colonnes
-            if "timestamp" in hh.columns:
-                hh["_dt"] = hh["timestamp"].apply(to_dt_local)
-            else:
-                hh["_dt"] = pd.NaT
-            for _, r in hh.iterrows():
-                rows.append({
-                    "Date": format_date_fr(r.get("timestamp")),
-                    "_dt": r.get("_dt", pd.NaT),
-                    "Type": str(r.get("action", "") or "MOVE"),
-                    "Équipe": str(r.get("proprietaire", "") or ""),
-                    "Détail": f"{str(r.get('joueur','') or '')} — {str(r.get('from_statut','') or '')}/{str(r.get('from_slot','') or '')} → {str(r.get('to_statut','') or '')}/{str(r.get('to_slot','') or '')}".strip(),
-                })
-
-        # Rachats
-        b = st.session_state.get("buyouts")
-        if isinstance(b, pd.DataFrame) and not b.empty:
-            bb = b.copy()
-            bb["_dt"] = bb["timestamp"].apply(to_dt_local) if "timestamp" in bb.columns else pd.NaT
-            for _, r in bb.iterrows():
-                bucket = str(r.get("bucket", "GC") or "GC").strip().upper()
-                rows.append({
-                    "Date": format_date_fr(r.get("timestamp")),
-                    "_dt": r.get("_dt", pd.NaT),
-                    "Type": f"RACHAT {bucket}",
-                    "Équipe": str(r.get("proprietaire", "") or ""),
-                    "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
-                })
-
-        # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
-        out = pd.DataFrame(rows)
-        if out.empty:
-            return out
-
-        out = out.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
-        return out.head(int(limit))
-
-    recent = _recent_changes_df(20)
-    if recent.empty:
-        st.caption("Aucun changement enregistré pour l’instant.")
-    else:
-        st.dataframe(recent, use_container_width=True, hide_index=True)
-
-
-elif active_tab == "🧾 Alignement":
-    st.subheader("🧾 Alignement")
-
-    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-    st.session_state["data"] = df
-
-    proprietaire = str(get_selected_team() or "").strip()
-    if not proprietaire:
-        st.info("Sélectionne une équipe dans le menu à gauche.")
-        st.stop()
-
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
-
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
-
-    if dprop.empty:
-        st.warning(f"Aucun alignement importé pour **{proprietaire}** (Admin → Import).")
-        j1, j2 = st.columns(2)
-        with j1:
-            st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-        with j2:
-            st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
-        clear_move_ctx()
-        st.stop()
-
-    # --- Split IR vs non-IR (DOIT être avant les totaux)
-    injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
-    dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
-
-    gc_all = dprop_ok[dprop_ok["Statut"] == STATUT_GC].copy()
-    ce_all = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
-
-    gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
-
-    tmp = gc_actif.copy()
-    tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
-
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
-
-    # --- Barres plafond (tes barres restent)
-    j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
-
-    st.write("")
-
-    # --- ✅ Pills + Alert cards (après calculs)
-    show_status_alerts(
-        total_gc=int(used_gc),
-        cap_gc=int(cap_gc),
-        total_ce=int(used_ce),
-        cap_ce=int(cap_ce),
-        ir_count=int(len(injured_all)),
-        toast=False,
-        context=proprietaire,
-    )
-
-    st.write("")
-
-    st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
-        unsafe_allow_html=True,
-    )
 
     st.divider()
 
@@ -3058,7 +3015,7 @@ elif active_tab == "👤 Joueurs autonomes":
             "✅": st.column_config.CheckboxColumn(""),
             "Destination": st.column_config.SelectboxColumn(
                 "Destination",
-                options=["GC", "CE"],
+                options=["➡️ GC", "⬇️ CE"],
                 required=True,
             ),
         },
@@ -3431,6 +3388,32 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
+
+    # 🧪 Test stockage (local / Drive sync)
+    with st.expander("🧪 Test Google Drive / Stockage", expanded=False):
+        st.caption("Test simple: écrit/relit un fichier dans le dossier data. Si ton serveur synchronise data vers Google Drive, ce test le valide aussi.")
+        folder_id = "1OMyNcLqulMVMACt1hjlL-ZEDs2-nXksM"
+        if st.button(f"🧪 Test Google Drive ({folder_id})", use_container_width=True, key="admin_test_gdrive"):
+            try:
+                import time
+                fn = os.path.join(DATA_DIR, f"_gdrive_test_{int(time.time())}.txt")
+                payload = f"PMS Drive test {datetime.now(TZ_TOR).isoformat(timespec='seconds')}\nFolderId={folder_id}\n"
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                with open(fn, "r", encoding="utf-8") as f:
+                    back = f.read()
+                ok = (back == payload)
+                if ok:
+                    st.success(f"✅ Écriture/lecture OK: {fn}")
+                else:
+                    st.error("❌ Lecture différente de l'écriture (stockage instable).")
+                try:
+                    os.remove(fn)
+                except Exception:
+                    st.info("(Impossible de supprimer le fichier test — permissions?)")
+            except Exception as e:
+                st.error(f"❌ Test échoué : {type(e).__name__}: {e}")
+
 
 
     # =====================================================
