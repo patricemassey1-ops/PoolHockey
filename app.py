@@ -3263,7 +3263,6 @@ elif active_tab == "🧾 Alignement":
         ("Mineur", str(len(ce_all)), "ok"),
         ("IR", str(len(ir_all)), "warn" if len(ir_all) > 0 else "ok"),
     ]
-    st.markdown(pills_row_html(items), unsafe_allow_html=True)
 
     # Barres plafonds (GC / CE)
     def _cap_box(title: str, used: int, cap: int) -> str:
@@ -3287,6 +3286,19 @@ elif active_tab == "🧾 Alignement":
         f'<div class="capBars">{_cap_box("Grand Club", total_gc, cap_gc)}{_cap_box("Club École", total_ce, cap_ce)}</div>',
         unsafe_allow_html=True
     )
+
+    # Pills (même look qu'avant) — ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Banc, Mineur, IR
+    items = [
+        ("GC", f"{money(total_gc)} / {money(cap_gc)}", "danger" if total_gc > cap_gc else "ok"),
+        ("Reste GC", money(cap_gc - total_gc), "danger" if (cap_gc - total_gc) < 0 else ("warn" if (cap_gc - total_gc) < int(0.1*cap_gc) else "ok")),
+        ("CE", f"{money(total_ce)} / {money(cap_ce)}", "danger" if total_ce > cap_ce else "ok"),
+        ("Reste CE", money(cap_ce - total_ce), "danger" if (cap_ce - total_ce) < 0 else "ok"),
+        ("Actifs", str(len(gc_actif)), "ok"),
+        ("Banc", str(len(gc_banc)), "ok"),
+        ("Mineur", str(len(ce_all)), "ok"),
+        ("IR", str(len(ir_all)), "warn" if len(ir_all) > 0 else "ok"),
+    ]
+    st.markdown(pills_row_html(items), unsafe_allow_html=True)
 
     # Alertes visuelles (si tu dépasses / si IR)
     show_status_alerts(
@@ -3318,6 +3330,8 @@ elif active_tab == "🧾 Alignement":
             out = out.sort_values(["Pos", "Joueur"], kind="stable")
         return out
 
+    colL, colR = st.columns([2.2, 1.0], gap="large")
+
     with colL:
         st.markdown("### 📋 Roster")
         st.markdown("#### 🟢 Actifs (GC)")
@@ -3330,9 +3344,9 @@ elif active_tab == "🧾 Alignement":
         st.dataframe(roster_table(ir_all), use_container_width=True, hide_index=True, height=200)
 
     with colR:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown("### 🎯 Déplacement")
-        st.caption("Sélectionne un joueur → choisis le type → choisis la destination → applique.")
+        with st.container(border=True):
+            st.markdown("### 🎯 Déplacement")
+            st.caption("Sélectionne un joueur → choisis le type → choisis la destination → applique.")
 
         pool = dprop.copy()
         pool["Joueur"] = pool["Joueur"].astype(str).str.strip()
