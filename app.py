@@ -27,6 +27,24 @@ import streamlit.components.v1 as components
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
+
+
+# =====================================================
+# SAFE IMAGE (no crash if file missing/corrupt)
+# =====================================================
+def safe_image(path: str, **kwargs) -> bool:
+    """Try to display an image. Return True if shown, False otherwise."""
+    try:
+        if not path:
+            return False
+        import os
+        if not os.path.exists(path):
+            return False
+        st.image(path, **kwargs)
+        return True
+    except Exception:
+        return False
+
 st.set_page_config(page_title="PMS", layout="wide")
 
 # =====================================================
