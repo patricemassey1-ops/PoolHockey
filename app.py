@@ -444,11 +444,20 @@ def do_rerun():
             pass
 
 def money(v) -> str:
+    """Format: 1 000 000$ (sans espace avant $)."""
     try:
-        return f"{int(v):,}".replace(",", " ") + "$"
+        if v is None or (isinstance(v, float) and (v != v)):
+            n = 0
+        elif isinstance(v, str):
+            s = v.strip()
+            # garde seulement les chiffres et le signe -
+            s2 = re.sub(r"[^0-9\-]", "", s)
+            n = int(s2) if s2 not in ("", "-") else 0
+        else:
+            n = int(float(v))
+        return f"{n:,}".replace(",", " ") + "$"
     except Exception:
         return "0$"
-
 
 def parse_money(v) -> int:
     """Parse montants provenant d'inputs (ex: '3 000 000$', '3000000', 3000000)."""
@@ -1751,8 +1760,21 @@ def open_move_dialog():
         df_all["Propriétaire"].astype(str).str.strip().eq(owner)
         & df_all["Joueur"].astype(str).str.strip().eq(joueur)
     )
+
+    # fallback: match normalisé (évite les problèmes d'espaces / casse / caractères spéciaux)
     if df_all.loc[mask].empty:
-        st.error("Joueur introuvable.")
+        try:
+            jn = _norm_name(joueur)
+            mask2 = (
+                df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+                & df_all["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+            )
+            mask = mask2
+        except Exception:
+            pass
+
+    if df_all.loc[mask].empty:
+        st.error("Joueur introuvable (vérifie le nom / propriétaire).")
         clear_move_ctx()
         return
 
@@ -2400,24 +2422,6 @@ if teams:
     chosen = st.sidebar.selectbox("Choisir une équipe", teams, index=teams.index(cur_team), key="sb_team")
     if chosen and chosen != cur_team:
         pick_team(chosen)
-
-    with st.sidebar.expander("🖱️ Changer par logo", expanded=False):
-        cols = st.columns(3)
-        for i, t in enumerate(teams):
-            with cols[i % 3]:
-                lp = ""
-                try:
-                    if "team_logo_path" in globals() and callable(globals()["team_logo_path"]):
-                        lp = team_logo_path(t)
-                except Exception:
-                    lp = ""
-                if lp and os.path.exists(lp):
-                    st.image(lp, use_container_width=True)
-                if st.button(f"✅ {t}" if t == cur_team else t, key=f"sb_logo_{t}", use_container_width=True):
-                    pick_team(t)
-else:
-    st.sidebar.info("Aucune équipe disponible (importe d’abord une saison).")
-
 # Mobile view
 st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 if st.session_state.get("mobile_view", False):
@@ -2493,7 +2497,7 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
+active_tab = st.radio("Navigation", NAV_TABS, horizontal=True, key="active_tab", label_visibility="collapsed")
 st.divider()
 
 
@@ -2699,6 +2703,7 @@ if active_tab == "📊 Tableau":
         tp = tp.sort_values("_dt", ascending=False, na_position="last")
 
         def _trade_line(r) -> str:
+            """Retourne un résumé propre (markdown) d'une proposition d'échange."""
             oa = str(r.get("owner_a","")).strip()
             ob = str(r.get("owner_b","")).strip()
             created = format_date_fr(r.get("created_at",""))
@@ -2707,6 +2712,32 @@ if active_tab == "📊 Tableau":
             a_icon = "✅" if a_ok else "⏳"
             b_icon = "✅" if b_ok else "⏳"
 
+            a_players = _json_load(r.get("a_players","[]"), [])
+            b_players = _json_load(r.get("b_players","[]"), [])
+            a_picks   = _json_load(r.get("a_picks","[]"), [])
+            b_picks   = _json_load(r.get("b_picks","[]"), [])
+            a_retained_total = int(_to_int(r.get("a_retained_total", 0)))
+            b_retained_total = int(_to_int(r.get("b_retained_total", 0)))
+            a_cash = int(_to_int(r.get("a_cash", 0)))
+            b_cash = int(_to_int(r.get("b_cash", 0)))
+
+            def _join(xs):
+                xs = [str(x).strip() for x in (xs or []) if str(x).strip()]
+                return ", ".join(xs) if xs else "—"
+
+            # Markdown propre (sans \n affichés)
+            return (
+                f"**{oa}** {a_icon} ↔️ {b_icon} **{ob}**\n"
+                f"🕒 Créé le **{created}**\n\n"
+                f"**{oa} donne :** {_join(a_players)}\n"
+                f"• Picks : {_join(a_picks)}\n"
+                f"• Retenu : {money(a_retained_total)}\n"
+                f"• Cash : {money(a_cash)}\n\n"
+                f"**{ob} donne :** {_join(b_players)}\n"
+                f"• Picks : {_join(b_picks)}\n"
+                f"• Retenu : {money(b_retained_total)}\n"
+                f"• Cash : {money(b_cash)}"
+            )
             a_players = _json_load(r.get("a_players","[]"), [])
             b_players = _json_load(r.get("b_players","[]"), [])
             a_picks = _json_load(r.get("a_picks","[]"), [])
@@ -3236,7 +3267,10 @@ elif active_tab == "👤 Joueurs autonomes":
     dff["Destination"] = dff["Player"].astype(str).map(lambda p: str(fa_dest.get(str(p), "GC")).strip() or "GC")
 
     show_cols = ["✅", "Player", "Team", "Position", "Level", "NHL GP", "Propriétaire", "Destination"]
-    show = dff[show_cols].copy()
+    safe_cols = [c for c in show_cols if c in dff.columns]
+    if not safe_cols:
+        safe_cols = [c for c in dff.columns if c.lower() in {'player','joueur','team','equipe','position','pos','level','nhl gp','gp','propriétaire','proprietaire'}]
+    show = dff[safe_cols].copy()
 
     st.markdown("### Liste")
 
