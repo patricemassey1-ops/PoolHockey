@@ -4416,7 +4416,7 @@ elif active_tab == "🛠️ Gestion Admin":
                     "Date": str(info.get("saved_at", "") or "").strip(),
                 }
             )
-
+ 
         df_imports = pd.DataFrame(rows)
         df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
 
