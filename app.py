@@ -3330,134 +3330,166 @@ elif active_tab == "🧾 Alignement":
             out = out.sort_values(["Pos", "Joueur"], kind="stable")
         return out
 
-    colL, colR = st.columns([2.2, 1.0], gap="large")
+    
+    # -----------------------------
+    # 📋 Roster (sélection directe) + Popup Déplacement
+    #   ✅ Actifs & Mineur côte à côte
+    #   ✅ Banc & Blessé côte à côte
+    #   ✅ Click ligne → popup: Demi-mois / Blessure / Remplacement
+    # -----------------------------
 
-    with colL:
-        st.markdown("### 📋 Roster")
-        st.markdown("#### 🟢 Actifs (GC)")
-        st.dataframe(roster_table(gc_actif), use_container_width=True, hide_index=True, height=260)
-        st.markdown("#### 🟡 Banc (GC)")
-        st.dataframe(roster_table(gc_banc), use_container_width=True, hide_index=True, height=230)
-        st.markdown("#### 🔵 Mineur (CE)")
-        st.dataframe(roster_table(ce_all), use_container_width=True, hide_index=True, height=260)
-        st.markdown("#### 🩹 IR")
-        st.dataframe(roster_table(ir_all), use_container_width=True, hide_index=True, height=200)
+    def pick_index_from_df(df_src: pd.DataFrame, key: str, height: int = 260) -> int | None:
+        """Retourne l'index ORIGINAL (df_src.index) de la ligne sélectionnée dans st.dataframe."""
+        if df_src is None or df_src.empty:
+            st.info("Aucun joueur.")
+            return None
 
-    with colR:
-        with st.container(border=True):
-            st.markdown("### 🎯 Déplacement")
-            st.caption("Sélectionne un joueur → choisis le type → choisis la destination → applique.")
+        display = roster_table(df_src)
+        idx_list = list(df_src.index)
 
-        pool = dprop.copy()
-        pool["Joueur"] = pool["Joueur"].astype(str).str.strip()
-        pool = pool[~pool["Joueur"].str.lower().isin(BAD)].copy()
+        kwargs = dict(use_container_width=True, hide_index=True, height=height, key=key)
+        try:
+            st.dataframe(display, selection_mode="single-row", on_select="rerun", **kwargs)
+            sel = (st.session_state.get(key, {}) or {}).get("selection", {}) or {}
+            rows = sel.get("rows", []) or []
+            if rows:
+                pos = int(rows[0])
+                if 0 <= pos < len(idx_list):
+                    return idx_list[pos]
+        except TypeError:
+            # Streamlit plus ancien: pas de sélection
+            st.dataframe(display, **kwargs)
+        return None
 
-        def section_label(r):
-            stt = str(r.get("Statut", "")).strip()
-            slt = str(r.get("Slot", "")).strip()
-            if stt == STATUT_CE:
-                return "🔵 Mineur"
-            if slt == SLOT_IR:
-                return "🩹 IR"
-            if slt == SLOT_BANC:
-                return "🟡 Banc"
-            return "🟢 Actif"
+    def compute_destinations(cur_statut: str, cur_slot: str, move_type: str):
+        cur_statut = str(cur_statut or "").strip()
+        cur_slot = str(cur_slot or "").strip()
 
-        pool["_sec"] = pool.apply(section_label, axis=1)
-        pool["_pos"] = pool.apply(lambda r: str(r.get("Position", "") or r.get("Pos", "")).strip(), axis=1)
-        pool["_sal"] = pool["Salaire"].apply(lambda x: money(_to_int(x))) if "Salaire" in pool.columns else ""
-        pool["_label"] = pool.apply(lambda r: f"{r['Joueur']} — {r['_sec']} — {r['_pos']} — {r['_sal']}", axis=1)
+        dests = []
 
-        labels = ["— Choisir un joueur —"] + pool["_label"].tolist()
-        choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_pro_v31")
+        if move_type == "Changement demi-mois":
+            # Actif -> Banc ou Mineur
+            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
+                dests.append(("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)))
+                dests.append(("🔵 Mineur (CE)", (STATUT_CE, "")))
+            # Mineur -> Actif ou Banc
+            if cur_statut == STATUT_CE:
+                dests.append(("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)))
+                dests.append(("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)))
 
-        if choice != "— Choisir un joueur —":
-            row = pool[pool["_label"] == choice].iloc[0].to_dict()
-            cur_statut = str(row.get("Statut", "")).strip()
-            cur_slot = str(row.get("Slot", "")).strip()
+        elif move_type == "Blessure":
+            # Actif/Banc -> Blessé
+            if cur_statut == STATUT_GC and cur_slot in (SLOT_ACTIF, SLOT_BANC):
+                dests.append(("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR)))
 
-            is_ce = (cur_statut == STATUT_CE)
-            is_ir = (cur_slot == SLOT_IR)
-            is_banc = (cur_slot == SLOT_BANC)
+        elif move_type == "Remplacement":
+            # Mineur -> Actif
+            if cur_statut == STATUT_CE:
+                dests.append(("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)))
 
-            if is_ir:
-                reason_opts = ["Retour de blessure"]
-            else:
-                if is_ce:
-                    reason_opts = ["Changement demi-mois", "Remplacement"]
-                else:
-                    reason_opts = ["Changement demi-mois", "Blessure"]
-                if is_banc:
-                    reason_opts = ["Changement demi-mois"]
+        # retire la destination actuelle
+        current = (cur_statut, cur_slot or "")
+        dests = [(lab, val) for (lab, val) in dests if (val[0], val[1] or "") != current]
+        return dests
 
-            reason = st.radio("Type", reason_opts, horizontal=True, key="mv_reason_pro_v31")
+    def open_move_dialog(df_index: int):
+        st.session_state["mv_idx"] = int(df_index)
+        st.session_state["mv_open"] = True
 
-            destinations = []
-            if is_ir:
-                destinations = [("🟢 Retour Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
-            else:
-                if reason == "Changement demi-mois":
-                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
-                        destinations = [("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-                    elif cur_statut == STATUT_GC and cur_slot == SLOT_BANC:
-                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-                    elif cur_statut == STATUT_CE:
-                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC))]
-                    else:
-                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-                else:
-                    if is_ce:
-                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
-                    else:
-                        destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
+    if "mv_open" not in st.session_state:
+        st.session_state["mv_open"] = False
 
-            current = (cur_statut, cur_slot or "")
-            destinations = [(lab, val) for (lab, val) in destinations if (val[0], val[1] or "") != current]
+    @st.dialog("Déplacement")
+    def _move_dialog():
+        idx = st.session_state.get("mv_idx", None)
+        if idx is None or idx not in df.index:
+            st.warning("Sélection invalide.")
+            st.session_state["mv_open"] = False
+            return
 
-            if destinations:
-                dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_pro_v31")
-                dest_statut, dest_slot = dict(destinations)[dest_label]
+        row = df.loc[idx].to_dict()
+        joueur = str(row.get("Joueur", "")).strip()
+        cur_statut = str(row.get("Statut", "")).strip()
+        cur_slot = str(row.get("Slot", "")).strip()
 
-                st.markdown(
-    f"""**Avant :** {section_label(row)}  
-**Après :** {dest_label}"""
-)
-                if st.button("✅ Appliquer", type="primary", use_container_width=True):
-                    joueur = str(row.get("Joueur", "")).strip()
-                    jn = _norm_name(joueur)
-                    mask = (
-                        df["Propriétaire"].astype(str).str.strip().eq(proprietaire)
-                        & df["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+        st.markdown(f"**Joueur :** {joueur}")
+        st.markdown(f"**Avant :** {section_label(row)}")
+
+        move_type = st.radio(
+            "Type",
+            ["Changement demi-mois", "Blessure", "Remplacement"],
+            horizontal=True,
+            key="mv_type_v34",
+        )
+
+        destinations = compute_destinations(cur_statut, cur_slot, move_type)
+
+        if not destinations:
+            st.info("Aucune destination valide pour ce type.")
+            return
+
+        dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_v34")
+        dest_statut, dest_slot = dict(destinations)[dest_label]
+
+        st.markdown(f"**Après :** {dest_label}")
+
+        if st.button("✅ Appliquer", type="primary", use_container_width=True, key="mv_apply_v34"):
+            df.loc[idx, "Statut"] = dest_statut
+            df.loc[idx, "Slot"] = dest_slot
+            st.session_state["data"] = df
+
+            reason = move_type
+            if "append_history_move" in globals() and callable(globals()["append_history_move"]):
+                try:
+                    append_history_move(
+                        proprietaire=proprietaire,
+                        joueur=joueur,
+                        from_statut=cur_statut,
+                        from_slot=cur_slot,
+                        to_statut=dest_statut,
+                        to_slot=dest_slot,
+                        reason=reason,
                     )
-                    if df.loc[mask].empty:
-                        st.error("Joueur introuvable.")
-                    else:
-                        df.loc[mask, "Statut"] = dest_statut
-                        df.loc[mask, "Slot"] = dest_slot
-                        st.session_state["data"] = df
+                except Exception:
+                    pass
 
-                        if "append_history_move" in globals() and callable(globals()["append_history_move"]):
-                            try:
-                                append_history_move(
-                                    proprietaire=proprietaire,
-                                    joueur=joueur,
-                                    from_statut=cur_statut,
-                                    from_slot=cur_slot,
-                                    to_statut=dest_statut,
-                                    to_slot=dest_slot,
-                                    reason=reason,
-                                )
-                            except Exception:
-                                pass
+            st.success("Déplacement appliqué.")
+            st.session_state["mv_open"] = False
+            st.rerun()
 
-                        st.success("Déplacement appliqué.")
-                        st.rerun()
-            else:
-                st.info("Aucune destination valide.")
-        else:
-            st.markdown("<div class='small'>Choisis un joueur pour activer le panneau.</div>", unsafe_allow_html=True)
+    # -----------------------------
+    # Layout rosters (2x2)
+    # -----------------------------
+    st.markdown("### 📋 Roster")
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    topL, topR = st.columns(2, gap="large")
+    with topL:
+        st.markdown("#### 🟢 Actifs (GC)")
+        idx_sel = pick_index_from_df(gc_actif, "tbl_actifs_v34", height=300)
+        if idx_sel is not None:
+            open_move_dialog(idx_sel)
+
+    with topR:
+        st.markdown("#### 🔵 Mineur (CE)")
+        idx_sel = pick_index_from_df(ce_all, "tbl_mineur_v34", height=300)
+        if idx_sel is not None:
+            open_move_dialog(idx_sel)
+
+    botL, botR = st.columns(2, gap="large")
+    with botL:
+        st.markdown("#### 🟡 Banc (GC)")
+        idx_sel = pick_index_from_df(gc_banc, "tbl_banc_v34", height=260)
+        if idx_sel is not None:
+            open_move_dialog(idx_sel)
+
+    with botR:
+        st.markdown("#### 🩹 Blessé (IR)")
+        idx_sel = pick_index_from_df(ir_all, "tbl_ir_v34", height=260)
+        if idx_sel is not None:
+            open_move_dialog(idx_sel)
+
+    if st.session_state.get("mv_open"):
+        _move_dialog()
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
