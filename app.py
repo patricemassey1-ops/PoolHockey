@@ -445,7 +445,7 @@ def do_rerun():
 
 def money(v) -> str:
     try:
-        return f"{int(v):,}".replace(",", " ") + " $"
+        return f"{int(v):,}".replace(",", " ") + "$"
     except Exception:
         return "0 $"
 
@@ -1726,11 +1726,13 @@ def open_move_dialog():
     _set_active_dialog('move')
     ctx = st.session_state.get("move_ctx")
     if not ctx:
+        _clear_active_dialog('move')
         return
 
     if st.session_state.get("LOCKED"):
         st.warning("🔒 Saison verrouillée : aucun changement permis.")
         clear_move_ctx()
+        _clear_active_dialog('move')
         return
 
     owner = str(ctx.get("owner", "")).strip()
@@ -2687,11 +2689,37 @@ if active_tab == "📊 Tableau":
 
         pending = tp[tp["status"].astype(str).eq("pending")].head(10)
         approved = tp[tp["status"].astype(str).eq("approved")].head(10)
-
         if not pending.empty:
             with st.expander("🚨 Échanges en attente d'approbation", expanded=True):
+                cur_owner = str(get_selected_team() or "").strip()
                 for _, r in pending.iterrows():
-                    st.warning(_trade_line(r))
+                    trade_id = str(r.get("id", "")).strip()
+                    oa = str(r.get("owner_a", "")).strip()
+                    ob = str(r.get("owner_b", "")).strip()
+                    a_ok = str(r.get("approved_a", "")).lower() in {"true", "1", "yes"}
+                    b_ok = str(r.get("approved_b", "")).lower() in {"true", "1", "yes"}
+
+                    with st.container(border=True):
+                        st.markdown(_trade_line(r))
+                        c1, c2, c3 = st.columns([1.3, 1.3, 3.4])
+                        with c1:
+                            if cur_owner == oa and not a_ok:
+                                if st.button(f"✅ Approuver ({oa})", key=f"apprA_{trade_id}"):
+                                    approve_trade_proposal(season, trade_id, oa, True)
+                                    st.toast("✅ Approbation envoyée.", icon="✅")
+                                    do_rerun()
+                            elif cur_owner == oa and a_ok:
+                                st.caption("✅ Déjà approuvé (toi)")
+                        with c2:
+                            if cur_owner == ob and not b_ok:
+                                if st.button(f"✅ Approuver ({ob})", key=f"apprB_{trade_id}"):
+                                    approve_trade_proposal(season, trade_id, ob, True)
+                                    st.toast("✅ Approbation envoyée.", icon="✅")
+                                    do_rerun()
+                            elif cur_owner == ob and b_ok:
+                                st.caption("✅ Déjà approuvé (toi)")
+                        with c3:
+                            st.caption(f"Statut: A={'✅' if a_ok else '⏳'} | B={'✅' if b_ok else '⏳'}")
 
         if not approved.empty:
             with st.expander("✅ Échanges approuvés", expanded=False):
@@ -2989,6 +3017,15 @@ elif active_tab == "🧾 Alignement":
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
 
+    # liste des équipes (pour Points / ordre FA)
+    df_roster = st.session_state.get("data")
+    if isinstance(df_roster, pd.DataFrame) and not df_roster.empty and "Propriétaire" in df_roster.columns:
+        teams_list = sorted(df_roster["Propriétaire"].astype(str).str.strip().unique().tolist())
+    else:
+        plaf = st.session_state.get("plafonds")
+        teams_list = sorted(plaf["Propriétaire"].astype(str).str.strip().unique().tolist()) if isinstance(plaf, pd.DataFrame) and not plaf.empty and "Propriétaire" in plaf.columns else []
+
+
     # Marché des échanges (si la fonction existe)
     if "gm_trade_market_ui" in globals() and callable(globals()["gm_trade_market_ui"]):
         gm_trade_market_ui()
@@ -3035,6 +3072,11 @@ elif active_tab == "🧑‍💼 GM":
 elif active_tab == "👤 Joueurs autonomes":
     st.subheader("👤 Joueurs autonomes")
     st.caption("Recherche et embauche de joueurs autonomes (non signés).")
+
+    # reset du tableau (évite des cases déjà cochées via session_state)
+    if "fa_editor_nonce" not in st.session_state:
+        st.session_state["fa_editor_nonce"] = 0
+
 
     # --- data sources
     df_roster = st.session_state.get("data")
@@ -3141,13 +3183,16 @@ elif active_tab == "👤 Joueurs autonomes":
     st.markdown(
         """
         <div style="border:2px solid #16a34a;border-radius:10px;padding:10px;margin:6px 0 14px 0;">
-          <b>⬇️ Clique ici</b> : dans la colonne <b>Destination</b> (à droite), sélectionne <b>GC</b> ou <b>CE</b> pour chaque joueur.
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div><b>Destination</b> : dans la colonne <b>Destination</b> (à droite), sélectionne <b>GC</b> ou <b>CE</b> pour chaque joueur.</div>
+            <div style="font-size:22px;font-weight:900;">&#x2B07;</div>
+          </div>
         </div>
-        """,
+        """
+        ,
         unsafe_allow_html=True,
     )
-
-    # CSS: rendre le texte des dropdowns lisible en dark
+# CSS: rendre le texte des dropdowns lisible en dark
     st.markdown(
         """
         <style>
@@ -3173,7 +3218,7 @@ elif active_tab == "👤 Joueurs autonomes":
                 required=True,
             ),
         },
-        key="fa_editor",
+        key=f"fa_editor_{season}_{st.session_state.get('fa_editor_nonce',0)}",
         num_rows="fixed",
     )
 
