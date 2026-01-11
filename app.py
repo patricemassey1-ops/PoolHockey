@@ -2134,6 +2134,73 @@ def open_move_dialog():
 # =====================================================
 # DIALOG — Preview Alignement Grand Club (GC)
 # =====================================================
+def render_move_inline():
+    """Fallback 100% inline (sans st.dialog). Toujours dispo si move_ctx existe."""
+    ctx = st.session_state.get("move_ctx")
+    if not ctx:
+        return
+    owner = str(ctx.get("owner","")).strip()
+    joueur = str(ctx.get("joueur","")).strip()
+
+    df_all = st.session_state.get("data")
+    if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
+        st.error("Aucune donnée chargée.")
+        return
+    df_all = clean_data(df_all)
+
+    # retrouver la ligne (robuste)
+    mask = (
+        df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+        & df_all["Joueur"].astype(str).fillna("").map(_norm_name).eq(_norm_name(joueur))
+    )
+    if df_all.loc[mask].empty:
+        st.error("Joueur introuvable pour ce déplacement.")
+        return
+
+    row = df_all.loc[mask].iloc[0]
+    cur_statut = str(row.get("Statut","")).strip()
+    cur_slot   = str(row.get("Slot","")).strip()
+
+    with st.container(border=True):
+        st.markdown(f"### 🔁 Déplacement — **{html.escape(joueur)}**")
+        st.caption(f"Propriétaire: **{html.escape(owner)}** • Actuel: **{html.escape(cur_statut)} / {html.escape(cur_slot)}**")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            to_statut = st.selectbox(
+                "Destination — Statut",
+                ["Grand Club", "Club École"],
+                index=0 if "Grand" in cur_statut else 1,
+                key=f"mv_inline_statut_{ctx.get('nonce',0)}",
+            )
+        with c2:
+            slots = ["Actif", "Banc", "Mineur", "IR"]
+            to_slot = st.selectbox(
+                "Destination — Slot",
+                slots,
+                index=(slots.index(cur_slot) if cur_slot in slots else 0),
+                key=f"mv_inline_slot_{ctx.get('nonce',0)}",
+            )
+
+        note = st.text_input("Note (optionnel)", value="", key=f"mv_inline_note_{ctx.get('nonce',0)}")
+
+        b1, b2 = st.columns([1,1])
+        with b1:
+            if st.button("✅ Appliquer", key=f"mv_inline_apply_{ctx.get('nonce',0)}", use_container_width=True):
+                ok = apply_move_with_history(owner, joueur, to_statut, to_slot, note=note)
+                if ok:
+                    st.session_state["just_moved"] = True
+                    clear_move_ctx()
+                    st.session_state["active_dialog"] = ""
+                    do_rerun()
+        with b2:
+            if st.button("✖️ Annuler", key=f"mv_inline_cancel_{ctx.get('nonce',0)}", use_container_width=True):
+                clear_move_ctx()
+                st.session_state["active_dialog"] = ""
+                do_rerun()
+
+
+
 def open_gc_preview_dialog():
     if not _can_open_dialog('gc_preview'):
         return
