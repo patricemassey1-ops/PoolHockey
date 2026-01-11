@@ -366,8 +366,8 @@ def _login_header():
             )
 
         with c2:
-            if os.path.exists(logo_file):
-                st.image(logo_file, use_container_width=True)
+            if safe_image(logo_file, use_container_width=True):
+                pass
             else:
                 st.markdown('<div class="pms-logo"><span class="pms-text">PMS</span></div>', unsafe_allow_html=True)
 
@@ -442,6 +442,22 @@ def do_rerun():
             st.experimental_rerun()
         except Exception:
             pass
+
+# =====================================================
+# SAFE IMAGE (évite l'icône "image brisée" si le fichier est manquant/corrompu)
+# =====================================================
+def safe_image(path: str, **kwargs) -> bool:
+    try:
+        p = str(path or "").strip()
+        if not p or not os.path.exists(p):
+            return False
+        from PIL import Image
+        with Image.open(p) as im:
+            im.load()
+        st.image(p, **kwargs)
+        return True
+    except Exception:
+        return False
 
 
 def _to_int(x) -> int:
@@ -1657,7 +1673,13 @@ def _can_open_dialog(name: str) -> bool:
     return (cur == "") or (cur == str(name or ""))
 
 def _dialog_decorator(title: str, width: str = "small"):
-    """Compat Streamlit: st.dialog (nouveau) / st.experimental_dialog (ancien)."""
+    """Compat Streamlit: st.dialog (nouveau) / st.experimental_dialog (ancien).
+    Forçage inline: si st.session_state['force_inline_dialog'] est True.
+    """
+    if bool(st.session_state.get("force_inline_dialog", False)):
+        def _noop(fn):
+            return fn
+        return _noop
     if hasattr(st, "dialog"):
         return st.dialog(title, width=width)
     if hasattr(st, "experimental_dialog"):
@@ -3078,6 +3100,30 @@ elif active_tab == "🧾 Alignement":
             st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
         clear_move_ctx()
         st.stop()
+
+    # =====================================================
+    # MOVE UI (INLINE FORCÉ) — évite les popups qui ne s'affichent pas
+    # =====================================================
+    if st.session_state.get("move_ctx") is not None:
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.warning("🔒 Sélection désactivée: un déplacement est en cours. Termine-le ci-dessous (inline) ou annule.")
+        with c2:
+            if st.button("🧹 Annuler le déplacement", key="unlock_move_ctx_align"):
+                clear_move_ctx()
+                st.session_state["active_dialog"] = ""
+                st.session_state["move_auto_open"] = False
+                do_rerun()
+
+        st.session_state["force_inline_dialog"] = True
+        try:
+            open_move_dialog()
+        except Exception as e:
+            st.error(f"Impossible d'afficher le panneau de déplacement: {e}")
+        finally:
+            st.session_state["force_inline_dialog"] = False
+
+        st.divider()
 
     # --- Split IR vs non-IR (DOIT être avant les totaux)
     injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
