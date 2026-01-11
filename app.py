@@ -3522,18 +3522,15 @@ elif active_tab == "🧾 Alignement":
 
         st.divider()
 
-    # ---- Layout 2×2
-    colA, colB = st.columns(2, gap="large")
-    with colA:
-        _fantrax_table("🟢 Joueurs Actifs", gc_actif, "gc_actifs", mode="actifs")
-    with colB:
-        _fantrax_table("🔵 Joueurs Mineurs", ce_all, "ce_mineurs", mode="mineur")
+    # ---- Layout (vertical, sans côte-à-côte)
+    _fantrax_table("🟢 Joueurs Actifs", gc_actif, "gc_actifs", mode="actifs")
+    st.divider()
+    _fantrax_table("🔵 Joueurs Mineurs", ce_all, "ce_mineurs", mode="mineur")
+    st.divider()
+    _fantrax_table("🟡 Joueurs de Réserve (Banc)", gc_banc, "gc_banc", mode="banc")
+    st.divider()
+    _fantrax_table("🔴 Joueurs Blessés (IR)", ir_all, "ir", mode="ir")
 
-    colC, colD = st.columns(2, gap="large")
-    with colC:
-        _fantrax_table("🟡 Joueurs de Réserve (Banc)", gc_banc, "gc_banc", mode="banc")
-    with colD:
-        _fantrax_table("🔴 Joueurs Blessés (IR)", ir_all, "ir", mode="ir")
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
