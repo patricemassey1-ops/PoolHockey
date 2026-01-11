@@ -284,6 +284,7 @@ def load_fa_claims(season_lbl: str) -> pd.DataFrame:
         "id", "timestamp", "season",
         "owner", "player", "team", "pos", "level", "gp", "salary",
         "destination", "status", "note",
+        "applied",
     ])
 
 def save_fa_claims(season_lbl: str, dfc: pd.DataFrame) -> None:
@@ -1110,6 +1111,7 @@ def _trade_proposals_cols():
         "approved_a", "approved_b",
         "status",
         "note",
+        "applied",
     ]
 
 def load_trade_proposals(season_lbl: str) -> pd.DataFrame:
@@ -1380,6 +1382,123 @@ def parse_fantrax(upload) -> pd.DataFrame:
     return clean_data(out)
 
 
+def execute_trade(season_lbl: str, r: dict) -> bool:
+    """Applique un échange approuvé (version simple):
+    - échange les joueurs (changement de Propriétaire)
+    - transfère les picks (picks_{season}.json)
+    - ajoute le 'retenu' comme pénalité (BUYOUTS) bucket GC (approximation)
+    """
+    try:
+        df = st.session_state.get("data")
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return False
+
+        oa = str(r.get("owner_a","")).strip()
+        ob = str(r.get("owner_b","")).strip()
+        a_players = _json_load(r.get("a_players","[]"), [])
+        b_players = _json_load(r.get("b_players","[]"), [])
+        a_picks = _json_load(r.get("a_picks","[]"), [])
+        b_picks = _json_load(r.get("b_picks","[]"), [])
+        a_ret = _json_load(r.get("a_retained","{}"), {})
+        b_ret = _json_load(r.get("b_retained","{}"), {})
+        tid = str(r.get("id","")).strip()
+
+        df2 = df.copy()
+
+        # joueurs A -> B
+        for j in a_players:
+            m = df2["Propriétaire"].astype(str).str.strip().eq(oa) & df2["Joueur"].astype(str).str.strip().eq(str(j).strip())
+            if m.any():
+                df2.loc[m, "Propriétaire"] = ob
+
+        # joueurs B -> A
+        for j in b_players:
+            m = df2["Propriétaire"].astype(str).str.strip().eq(ob) & df2["Joueur"].astype(str).str.strip().eq(str(j).strip())
+            if m.any():
+                df2.loc[m, "Propriétaire"] = oa
+
+        st.session_state["data"] = clean_data(df2)
+        persist_data(st.session_state["data"], season_lbl)
+
+        # transferts picks
+        try:
+            picks = load_picks(season_lbl)
+            def _transfer(pick, from_owner, to_owner):
+                year = ""
+                rnd = ""
+                if isinstance(pick, dict):
+                    year = str(pick.get("year","")).strip()
+                    rnd = str(pick.get("round","")).strip()
+                else:
+                    s = str(pick)
+                    if "|" in s:
+                        year, rnd = [x.strip() for x in s.split("|",1)]
+                    else:
+                        # ex: "2026 — Ronde 1"
+                        m = re.search(r"(20\d{2}).*?(\d+)", s)
+                        if m:
+                            year = m.group(1); rnd = m.group(2)
+                if not year or not rnd:
+                    return
+                for team, ymap in picks.items():
+                    if year in ymap and rnd in ymap[year] and str(ymap[year][rnd]).strip() == from_owner:
+                        picks[team][year][rnd] = to_owner
+                        return
+            for p in a_picks:
+                _transfer(p, oa, ob)
+            for p in b_picks:
+                _transfer(p, ob, oa)
+            save_picks(season_lbl, picks)
+        except Exception:
+            pass
+
+        # retenu -> pénalité GC (approx)
+        try:
+            bdf = st.session_state.get("buyouts")
+            if not isinstance(bdf, pd.DataFrame):
+                bdf = pd.DataFrame(columns=_buyouts_cols())
+            def _add_deadcap(owner, amount):
+                amt = int(pd.to_numeric(amount, errors="coerce") or 0)
+                if amt <= 0:
+                    return
+                row = {"id": f"ret_{tid}_{owner}", "owner": owner, "season": season_lbl, "bucket": "GC", "amount": amt, "status": "active", "note": f"Retenu échange {tid}"}
+                nonlocal bdf
+                bdf = pd.concat([bdf, pd.DataFrame([row])], ignore_index=True)
+            _add_deadcap(oa, a_ret.get("retained_total",0))
+            _add_deadcap(ob, b_ret.get("retained_total",0))
+            st.session_state["buyouts"] = bdf
+            save_buyouts(season_lbl, bdf)
+        except Exception:
+            pass
+
+        log_history_row(oa, f"ÉCHANGE APPLIQUÉ → {ob}", "", "", "", "", "", "", f"trade_apply:{tid}")
+        log_history_row(ob, f"ÉCHANGE APPLIQUÉ → {oa}", "", "", "", "", "", "", f"trade_apply:{tid}")
+        return True
+    except Exception:
+        return False
+
+def process_approved_trades(season_lbl: str) -> None:
+    t = load_trade_proposals(season_lbl)
+    if t is None or not isinstance(t, pd.DataFrame) or t.empty:
+        return
+    if "applied" not in t.columns:
+        t["applied"] = False
+    changed = False
+    for i, r in t.iterrows():
+        if str(r.get("status","")) != "approved":
+            continue
+        applied = str(r.get("applied","")).lower() in {"true","1","yes"}
+        if applied:
+            continue
+        ok = execute_trade(season_lbl, dict(r))
+        if ok:
+            t.at[i, "applied"] = True
+            changed = True
+    if changed:
+        save_trade_proposals(season_lbl, t)
+
+
+
 def inject_levels(df: pd.DataFrame, players_db: pd.DataFrame) -> pd.DataFrame:
     """Ajoute Level et NHL GP à df (alignement) à partir de Hockey.Players.csv.
     Matching par nom normalisé (tolère 'Nom, Prénom' et 'Prénom Nom').
@@ -1514,6 +1633,18 @@ def _clear_active_dialog(name: str | None = None):
 def _can_open_dialog(name: str) -> bool:
     cur = str(st.session_state.get("active_dialog") or "")
     return (cur == "") or (cur == str(name or ""))
+
+def _dialog_decorator(title: str, width: str = "small"):
+    """Compat Streamlit: st.dialog (nouveau) / st.experimental_dialog (ancien)."""
+    if hasattr(st, "dialog"):
+        return st.dialog(title, width=width)
+    if hasattr(st, "experimental_dialog"):
+        return st.experimental_dialog(title)
+    def _noop(fn):
+        return fn
+    return _noop
+
+
 
 # =====================================================
 # MOVE DIALOG — auto-remplacement IR + étiquette exacte
@@ -1759,7 +1890,7 @@ def open_move_dialog():
     </style>
     """
 
-    @st.dialog(f"Déplacement — {joueur}", width="small")
+    @_dialog_decorator(f"Déplacement — {joueur}", width="small")
     def _dlg():
         st.markdown(css, unsafe_allow_html=True)
         st.markdown(
@@ -1978,7 +2109,7 @@ def open_gc_preview_dialog():
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
     remain_gc = cap_gc - used_gc
 
-    @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
+    @_dialog_decorator(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
     def _dlg():
         st.caption("Prévisualisation rapide du Grand Club (GC).")
 
@@ -2495,31 +2626,79 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 # =====================================================
 if active_tab == "📊 Tableau":
     st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
-    # Alertes échanges (approbations)
+
+    # Auto-appliquer les échanges approuvés (si 2 approbations)
+    process_approved_trades(season)
+    # Alertes échanges (approbations) — rendu compact + sans doublons
     tprops = load_trade_proposals(season)
     if tprops is not None and not tprops.empty:
         tp = tprops.copy()
         tp["_dt"] = tp["created_at"].apply(to_dt_local)
+
+        # ✅ éviter les doublons: 1 ligne par id (on garde la plus récente)
+        if "id" in tp.columns:
+            tp = tp.sort_values("_dt", ascending=False, na_position="last")
+            tp = tp.drop_duplicates(subset=["id"], keep="first")
+
         tp = tp.sort_values("_dt", ascending=False, na_position="last")
-        pending = tp[tp["status"].astype(str).eq("pending")].head(5)
-        approved = tp[tp["status"].astype(str).eq("approved")].head(5)
+
+        def _trade_line(r) -> str:
+            oa = str(r.get("owner_a","")).strip()
+            ob = str(r.get("owner_b","")).strip()
+            created = format_date_fr(r.get("created_at",""))
+            a_ok = str(r.get("approved_a","")).strip().lower() in ("1","true","yes","y","ok","approved")
+            b_ok = str(r.get("approved_b","")).strip().lower() in ("1","true","yes","y","ok","approved")
+            a_icon = "✅" if a_ok else "⏳"
+            b_icon = "✅" if b_ok else "⏳"
+
+            a_players = _json_load(r.get("a_players","[]"), [])
+            b_players = _json_load(r.get("b_players","[]"), [])
+            a_picks = _json_load(r.get("a_picks","[]"), [])
+            b_picks = _json_load(r.get("b_picks","[]"), [])
+            a_ret = _json_load(r.get("a_retained","{}"), {})
+            b_ret = _json_load(r.get("b_retained","{}"), {})
+
+            def _fmt_list(x):
+                if not x:
+                    return "—"
+                if isinstance(x, (list, tuple)):
+                    return ", ".join([str(i) for i in x]) if x else "—"
+                return str(x)
+
+            def _fmt_ret(d):
+                # d peut être dict {"player": amount} ou {"amount": 1000000}
+                if not d:
+                    return "—"
+                if isinstance(d, dict):
+                    parts=[]
+                    for k,v in d.items():
+                        if k in ("amount","montant","value"):
+                            parts.append(money(parse_money(v)))
+                        else:
+                            parts.append(f"{k}: {money(parse_money(v))}")
+                    return "; ".join(parts) if parts else "—"
+                return money(parse_money(d))
+
+            return (
+                f"**{oa}** {a_icon}  ⇄  {b_icon} **{ob}**  — créé le {created}\\n\\n"
+                f"• {oa} donne: {_fmt_list(a_players)} | Picks: {_fmt_list(a_picks)} | Retenu: {_fmt_ret(a_ret)}\\n"
+                f"• {ob} donne: {_fmt_list(b_players)} | Picks: {_fmt_list(b_picks)} | Retenu: {_fmt_ret(b_ret)}"
+            )
+
+        pending = tp[tp["status"].astype(str).eq("pending")].head(10)
+        approved = tp[tp["status"].astype(str).eq("approved")].head(10)
 
         if not pending.empty:
             with st.expander("🚨 Échanges en attente d'approbation", expanded=True):
                 for _, r in pending.iterrows():
-                    oa = str(r["owner_a"]); ob = str(r["owner_b"])
-                    created = format_date_fr(r["created_at"])
-                    st.warning(f"Échange **{oa}** ⇄ **{ob}** — en attente (créé le {created})")
+                    st.warning(_trade_line(r))
 
         if not approved.empty:
             with st.expander("✅ Échanges approuvés", expanded=False):
                 for _, r in approved.iterrows():
-                    oa = str(r["owner_a"]); ob = str(r["owner_b"])
-                    created = format_date_fr(r["created_at"])
-                    st.success(f"Échange **{oa}** ⇄ **{ob}** — approuvé (créé le {created})")
+                    st.success(_trade_line(r))
 
-
-    # Sous-titre discret (UI)
+# Sous-titre discret (UI)
     st.markdown(
         '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
         unsafe_allow_html=True
@@ -2806,6 +2985,53 @@ elif active_tab == "🧾 Alignement":
 
 
 
+
+elif active_tab == "🧑‍💼 GM":
+    st.subheader("🧑‍💼 GM")
+
+    # Marché des échanges (si la fonction existe)
+    if "gm_trade_market_ui" in globals() and callable(globals()["gm_trade_market_ui"]):
+        gm_trade_market_ui()
+    else:
+        st.caption("Marché des échanges (à venir).")
+
+    st.divider()
+
+    # Ordre (basé sur Points) — affiché seulement si des points ont été saisis
+    pts = load_points(st.session_state.get("season"))
+    if isinstance(pts, pd.DataFrame) and not pts.empty and "Points" in pts.columns:
+        pts2 = pts.copy()
+        pts2["Points"] = pd.to_numeric(pts2["Points"], errors="coerce").fillna(0).astype(int)
+
+        # ✅ afficher seulement si on a au moins 1 point saisi
+        if int(pts2["Points"].sum()) > 0:
+            st.markdown("### 🧾 Ordre de repêchage (Snake)")
+
+            # tri: dernier (moins de points) pige en premier
+            pts2 = pts2.sort_values("Points", ascending=True).reset_index(drop=True)
+
+            rounds = st.number_input("Nombre de rondes à afficher", min_value=1, max_value=20, value=5, step=1)
+            teams = pts2["Propriétaire"].astype(str).tolist()
+
+            rows = []
+            pick_no = 0
+            for rnd in range(1, int(rounds) + 1):
+                order = teams if (rnd % 2 == 1) else list(reversed(teams))
+                for t in order:
+                    pick_no += 1
+                    rows.append({"Ronde": rnd, "Choix": pick_no, "Équipe": t})
+
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            st.caption("Ronde 1: du plus bas total de points au plus haut. Ronde 2: inverse, et ainsi de suite.")
+        else:
+            st.info("Entre des points (onglet 📊 Tableau) pour afficher l’ordre.")
+    else:
+        st.info("Aucun fichier de points. Va dans 📊 Tableau → Points.")
+
+
+
+
 elif active_tab == "👤 Joueurs autonomes":
     st.subheader("👤 Joueurs autonomes")
     st.caption("Recherche et embauche de joueurs autonomes (non signés).")
@@ -2943,7 +3169,7 @@ elif active_tab == "👤 Joueurs autonomes":
             "✅": st.column_config.CheckboxColumn(""),
             "Destination": st.column_config.SelectboxColumn(
                 "Destination",
-                options=["➡️ GC", "⬇️ CE"],
+                options=["GC ➡️", "CE ⬇️"],
                 required=True,
             ),
         },
@@ -2955,6 +3181,15 @@ elif active_tab == "👤 Joueurs autonomes":
     if len(picked_rows) > 5:
         st.warning("Maximum 5 joueurs. Décoche-en quelques-uns.")
         picked_rows = picked_rows.head(5)
+
+    
+    # Bouton pour annuler le choix (si au moins 1 joueur coché)
+    if not picked_rows.empty:
+        if st.button("🧹 Supprimer mon choix (tout décocher)", key="fa_clear_choice", use_container_width=True):
+            base = show.copy()
+            base["✅"] = False
+            st.session_state["fa_editor"] = base
+            do_rerun()
 
     if picked_rows.empty:
         st.info("Aucun joueur sélectionné.")
