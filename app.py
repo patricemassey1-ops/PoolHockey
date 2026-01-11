@@ -2789,7 +2789,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+        c = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
         c[2].write(joueur)
