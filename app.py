@@ -3316,19 +3316,14 @@ elif active_tab == "🧾 Alignement":
     reste_gc = int(cap_gc - total_gc)
     reste_ce = int(cap_ce - total_ce)
 
-    # Pills — ordre "classic" + lisible
-    items = [
-        ("Total GC", money(total_gc), _level_for_cap(total_gc, cap_gc)),
-        ("Reste GC", money(reste_gc), "ok" if reste_gc >= 0 else "danger"),
-        ("Total CE", money(total_ce), _level_for_cap(total_ce, cap_ce)),
-        ("Reste CE", money(reste_ce), "ok" if reste_ce >= 0 else "danger"),
-        ("Actifs", str(len(gc_actif)), "ok"),
-        ("Banc", str(len(gc_banc)), "ok"),
-        ("Mineur", str(len(ce_all)), "ok"),
-        ("IR", str(len(ir_all)), "warn" if len(ir_all) > 0 else "ok"),
-    ]
+    
+    # (Fantrax) Aucun "pills" finances ici — on garde seulement les barres + cartes.
+    nb_actifs = int(len(gc_actif)) if gc_actif is not None else 0
+    nb_banc   = int(len(gc_banc)) if gc_banc is not None else 0
+    nb_mineur = int(len(ce_all)) if ce_all is not None else 0
+    nb_ir     = int(len(ir_all)) if ir_all is not None else 0
 
-    # Barres plafonds (GC / CE)
+# Barres plafonds (GC / CE)
     def _cap_box(title: str, used: int, cap: int) -> str:
         used = int(used or 0)
         cap = int(cap or 0)
@@ -3351,13 +3346,15 @@ elif active_tab == "🧾 Alignement":
         unsafe_allow_html=True
     )
 
-    # Pills (look pro) — on garde seulement: Actifs | Mineur | Banc | IR
-    #   ✅ Actifs à côté de Mineur
-    #   ✅ Banc à côté de IR
+    # Pills (même look qu'avant) — ordre: Total GC, Reste GC, Total CE, Reste CE, Actifs, Banc, Mineur, IR
     items = [
+        ("GC", f"{money(total_gc)} / {money(cap_gc)}", "danger" if total_gc > cap_gc else "ok"),
+        ("Reste GC", money(cap_gc - total_gc), "danger" if (cap_gc - total_gc) < 0 else ("warn" if (cap_gc - total_gc) < int(0.1*cap_gc) else "ok")),
+        ("CE", f"{money(total_ce)} / {money(cap_ce)}", "danger" if total_ce > cap_ce else "ok"),
+        ("Reste CE", money(cap_ce - total_ce), "danger" if (cap_ce - total_ce) < 0 else "ok"),
         ("Actifs", str(len(gc_actif)), "ok"),
-        ("Mineur", str(len(ce_all)), "ok"),
         ("Banc", str(len(gc_banc)), "ok"),
+        ("Mineur", str(len(ce_all)), "ok"),
         ("IR", str(len(ir_all)), "warn" if len(ir_all) > 0 else "ok"),
     ]
     st.markdown(pills_row_html(items), unsafe_allow_html=True)
@@ -3393,128 +3390,150 @@ elif active_tab == "🧾 Alignement":
         return out
 
     
-    # -----------------------------
-    # 📋 Roster (sélection directe) + Popup Déplacement
-    #   ✅ Actifs & Mineur côte à côte
-    #   ✅ Banc & Blessé côte à côte
-    #   ✅ Click ligne → popup: Demi-mois / Blessure / Remplacement
-    # -----------------------------
-
-    def pick_index_from_df(df_src: pd.DataFrame, key: str, height: int = 260) -> int | None:
-        """Retourne l'index ORIGINAL (df_src.index) de la ligne sélectionnée dans st.dataframe."""
-        if df_src is None or df_src.empty:
-            st.info("Aucun joueur.")
-            return None
-
-        display = roster_table(df_src)
-        idx_list = list(df_src.index)
-
-        kwargs = dict(use_container_width=True, hide_index=True, height=height, key=key)
-        try:
-            st.dataframe(display, selection_mode="single-row", on_select="rerun", **kwargs)
-            sel = (st.session_state.get(key, {}) or {}).get("selection", {}) or {}
-            rows = sel.get("rows", []) or []
-            if rows:
-                pos = int(rows[0])
-                if 0 <= pos < len(idx_list):
-                    return idx_list[pos]
-        except TypeError:
-            # Streamlit plus ancien: pas de sélection
-            st.dataframe(display, **kwargs)
-        return None
-
-    def compute_destinations(cur_statut: str, cur_slot: str, move_type: str):
-        cur_statut = str(cur_statut or "").strip()
-        cur_slot = str(cur_slot or "").strip()
-
-        dests = []
-
-        if move_type == "Changement demi-mois":
-            # Actif -> Banc ou Mineur
-            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
-                dests.append(("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)))
-                dests.append(("🔵 Mineur (CE)", (STATUT_CE, "")))
-            # Mineur -> Actif ou Banc
-            if cur_statut == STATUT_CE:
-                dests.append(("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)))
-                dests.append(("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)))
-
-        elif move_type == "Blessure":
-            # Actif/Banc -> Blessé
-            if cur_statut == STATUT_GC and cur_slot in (SLOT_ACTIF, SLOT_BANC):
-                dests.append(("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR)))
-
-        elif move_type == "Remplacement":
-            # Mineur -> Actif
-            if cur_statut == STATUT_CE:
-                dests.append(("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)))
-
-        # retire la destination actuelle
-        current = (cur_statut, cur_slot or "")
-        dests = [(lab, val) for (lab, val) in dests if (val[0], val[1] or "") != current]
-        return dests
-
     
-    def open_move_dialog_local(df_index: int, source_key: str = "actifs"):
-        """Ouvre le popup Déplacement (pixel-perfect) via le move_ctx global."""
-        try:
-            df_index = int(df_index)
-        except Exception:
-            return
-        if df_index not in df.index:
-            return
-
-        row0 = df.loc[df_index].to_dict()
-        joueur0 = str(row0.get("Joueur", "")).strip()
-        if not joueur0:
-            return
-
-        # ✅ utilise le dialog global (même look que ta capture)
-        try:
-            set_move_ctx(proprietaire, joueur0, source_key)
-        except Exception:
-            # fallback minimum
-            st.session_state["move_ctx"] = {"owner": proprietaire, "joueur": joueur0, "nonce": int(st.session_state.get("move_nonce", 0))+1, "ts": datetime.now(TZ_TOR).isoformat()}
-            st.session_state["move_auto_open"] = True
-
-        if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
-            open_move_dialog()
-
     # -----------------------------
-    # 📋 Roster — sélection directe (click ligne) → popup Déplacement
-    #   ✅ Actifs & Mineurs côte à côte
-    #   ✅ Banc & Blessé côte à côte
+    # 📋 Roster — style Fantrax (table + icônes)
+    #   ✅ 2×2 : Actifs | Mineur / Banc | IR
+    #   ✅ Actions par ligne : Modifier ✏️ / Échanger 🔁 / Réserver ⭐ (ou Activer ✅)
+    #   ✅ Modifier ouvre le modal centré (open_move_dialog)
     # -----------------------------
-    st.markdown("## 📋 Roster")
 
-    topA, topB = st.columns(2, gap="large")
-    with topA:
-        st.markdown("### 🟢 Actifs (GC)")
-        idx_sel = pick_index_from_df(gc_actif, key="sel_gc_actifs_v37", height=300)
-        if idx_sel is not None:
-            open_move_dialog_local(idx_sel, source_key="actifs")
+    def _safe(s):
+        return "" if s is None else str(s)
 
-    with topB:
-        st.markdown("### 🔵 Mineurs (CE)")
-        idx_sel = pick_index_from_df(ce_all, key="sel_ce_mineurs_v37", height=300)
-        if idx_sel is not None:
-            open_move_dialog_local(idx_sel, source_key="mineurs")
+    def _row_id(r: pd.Series) -> str:
+        # clé stable (évite collisions)
+        return _norm_name(_safe(r.get("Joueur", ""))) + "|" + _safe(r.get("Pos", "")) + "|" + _safe(r.get("Équipe", ""))
 
-    botA, botB = st.columns(2, gap="large")
-    with botA:
-        st.markdown("### 🟡 Banc (GC)")
-        idx_sel = pick_index_from_df(gc_banc, key="sel_gc_banc_v37", height=260)
-        if idx_sel is not None:
-            open_move_dialog_local(idx_sel, source_key="banc")
+    def _apply_quick_move(owner: str, joueur: str, to_statut: str, to_slot: str, reason: str):
+        owner = str(owner or "").strip()
+        joueur = str(joueur or "").strip()
+        df_all = st.session_state.get("data")
+        if df_all is None or not isinstance(df_all, pd.DataFrame) or df_all.empty:
+            st.error("Aucune donnée chargée.")
+            return
 
-    with botB:
-        st.markdown("### 🟥 Blessés (IR)")
-        idx_sel = pick_index_from_df(ir_all, key="sel_gc_ir_v37", height=260)
-        if idx_sel is not None:
-            open_move_dialog_local(idx_sel, source_key="ir")
+        jn = _norm_name(joueur)
+        mask = (
+            df_all["Propriétaire"].astype(str).str.strip().eq(owner)
+            & df_all["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+        )
+        if df_all.loc[mask].empty:
+            st.error("Joueur introuvable.")
+            return
 
+        from_statut = str(df_all.loc[mask, "Statut"].iloc[0] if "Statut" in df_all.columns else "")
+        from_slot   = str(df_all.loc[mask, "Slot"].iloc[0] if "Slot" in df_all.columns else "")
 
+        df_all.loc[mask, "Statut"] = to_statut
+        df_all.loc[mask, "Slot"] = to_slot
+        st.session_state["data"] = df_all
 
+        # Historique (si dispo)
+        if "append_history_move" in globals() and callable(globals()["append_history_move"]):
+            try:
+                append_history_move(
+                    proprietaire=owner,
+                    joueur=joueur,
+                    from_statut=from_statut,
+                    from_slot=from_slot,
+                    to_statut=to_statut,
+                    to_slot=to_slot,
+                    reason=reason,
+                )
+            except Exception:
+                pass
+
+        st.toast("✅ Déplacement appliqué.", icon="✅")
+        st.rerun()
+
+    def _fantrax_table(title: str, df_src: pd.DataFrame, source_key: str, mode: str):
+        """
+        mode:
+          - 'actifs'  -> propose Réserver (vers Banc GC)
+          - 'banc'    -> propose Activer (vers Actifs GC)
+          - 'mineur'  -> propose Activer (Mineur -> Actifs GC)
+          - 'ir'      -> pas de quick action
+        """
+        st.markdown(f"### {title}")
+
+        if df_src is None or df_src.empty:
+            st.caption("Aucun joueur.")
+            return
+
+        # En-tête table
+        h = st.columns([0.6, 0.8, 2.8, 0.8, 1.2, 0.55, 0.55, 0.75], vertical_alignment="center")
+        h[0].markdown("**Pos**")
+        h[1].markdown("**Éq.**")
+        h[2].markdown("**Nom**")
+        h[3].markdown("**Lev.**")
+        h[4].markdown("**Sal.**")
+        h[5].markdown("**✏️**")
+        h[6].markdown("**🔁**")
+        h[7].markdown("**⭐**")
+
+        # Lignes
+        for _, r in df_src.iterrows():
+            rid = _row_id(r)
+            pos = _safe(r.get("Pos", ""))
+            team = _safe(r.get("Équipe", ""))
+            name = _safe(r.get("Joueur", ""))
+            lev = _safe(r.get("Level", r.get("Lev.", "")))
+            sal = money(r.get("Salaire", 0))
+
+            row = st.columns([0.6, 0.8, 2.8, 0.8, 1.2, 0.55, 0.55, 0.75], vertical_alignment="center")
+
+            row[0].markdown(pos)
+            row[1].markdown(team)
+
+            # Clic sur le nom = Modifier (ouvre modal)
+            if row[2].button(name, key=f"ft_pick_{source_key}_{rid}", use_container_width=True):
+                set_move_ctx(proprietaire, name, source_key)
+                open_move_dialog()
+                st.stop()
+
+            row[3].markdown(lev)
+            row[4].markdown(sal)
+
+            if row[5].button("✏️", key=f"ft_edit_{source_key}_{rid}", help="Modifier (Demi-mois / Blessure / Remplacement)"):
+                set_move_ctx(proprietaire, name, source_key)
+                open_move_dialog()
+                st.stop()
+
+            # Échanger : prépare un contexte et envoie vers Transactions
+            if row[6].button("🔁", key=f"ft_trade_{source_key}_{rid}", help="Échanger (ouvre Transactions)"):
+                st.session_state["trade_seed"] = {"owner": proprietaire, "joueur": name}
+                st.session_state["active_tab"] = "⚖️ Transactions"
+                st.toast("🔁 Joueur pré-sélectionné pour échange.", icon="🔁")
+                st.rerun()
+
+            # Réserver / Activer / (rien)
+            if mode == "actifs":
+                if row[7].button("⭐", key=f"ft_res_{source_key}_{rid}", help="Réserver (Actifs → Banc)"):
+                    _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_BANC, "Réserver")
+            elif mode == "banc":
+                if row[7].button("✅", key=f"ft_act_{source_key}_{rid}", help="Activer (Banc → Actifs)"):
+                    _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_ACTIF, "Activer")
+            elif mode == "mineur":
+                if row[7].button("✅", key=f"ft_call_{source_key}_{rid}", help="Remplacement (Mineur → Actifs)"):
+                    _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_ACTIF, "Remplacement")
+            else:
+                row[7].markdown("")
+
+        st.divider()
+
+    # ---- Layout 2×2
+    colA, colB = st.columns(2, gap="large")
+    with colA:
+        _fantrax_table("🟢 Joueurs Actifs", gc_actif, "gc_actifs", mode="actifs")
+    with colB:
+        _fantrax_table("🔵 Joueurs Mineurs", ce_all, "ce_mineurs", mode="mineur")
+
+    colC, colD = st.columns(2, gap="large")
+    with colC:
+        _fantrax_table("🟡 Joueurs de Réserve (Banc)", gc_banc, "gc_banc", mode="banc")
+    with colD:
+        _fantrax_table("🔴 Joueurs Blessés (IR)", ir_all, "ir", mode="ir")
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
