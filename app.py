@@ -3147,7 +3147,7 @@ elif active_tab == "🧾 Alignement":
             return
 
         cols = []
-        for c in ["Position", "Team", "Joueur", "Level", "Salaire"]:
+        for c in ["Pos", "Position", "Team", "Joueur", "Level", "Salaire"]:
             if c in df_src.columns:
                 cols.append(c)
 
@@ -3162,6 +3162,8 @@ elif active_tab == "🧾 Alignement":
 
         if "Position" in t.columns and "Joueur" in t.columns:
             t = t.sort_values(["Position", "Joueur"], kind="stable")
+        elif "Pos" in t.columns and "Joueur" in t.columns:
+            t = t.sort_values(["Pos", "Joueur"], kind="stable")
 
         st.dataframe(
             t[cols],
@@ -3190,7 +3192,44 @@ elif active_tab == "🧾 Alignement":
     </style>
     """, unsafe_allow_html=True)
 
+    
     # =====================================================
+    # PILLS — plafonds + totaux (style compact)
+    # =====================================================
+    def _sum_salary(df0: pd.DataFrame) -> int:
+        if df0 is None or df0.empty or "Salaire" not in df0.columns:
+            return 0
+        return int(pd.to_numeric(df0["Salaire"], errors="coerce").fillna(0).sum())
+
+    total_gc = _sum_salary(dprop[dprop.get("Statut","") == STATUT_GC])
+    total_ce = _sum_salary(dprop[dprop.get("Statut","") == STATUT_CE])
+
+    reste_gc = int(cap_gc - total_gc)
+    reste_ce = int(cap_ce - total_ce)
+
+    def _pill(label: str, value: str, kind: str = "neutral"):
+        # kind: neutral|good|warn|bad
+        color = {"neutral":"rgba(255,255,255,.10)","good":"rgba(34,197,94,.18)","warn":"rgba(245,158,11,.18)","bad":"rgba(239,68,68,.18)"}.get(kind, "rgba(255,255,255,.10)")
+        border = {"neutral":"rgba(255,255,255,.18)","good":"rgba(34,197,94,.35)","warn":"rgba(245,158,11,.35)","bad":"rgba(239,68,68,.35)"}.get(kind, "rgba(255,255,255,.18)")
+        return f"""
+        <div style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:999px;
+                    background:{color};border:1px solid {border};margin-right:8px;margin-bottom:8px;">
+          <span style="opacity:.9;font-weight:800">{html.escape(label)}</span>
+          <span style="font-weight:900">{html.escape(value)}</span>
+        </div>
+        """
+
+    k_gc = "good" if reste_gc >= 0 else "bad"
+    k_ce = "good" if reste_ce >= 0 else "bad"
+
+    st.markdown(
+        _pill("Total GC", money(total_gc), "neutral")
+        + _pill("Reste GC", money(reste_gc), k_gc)
+        + _pill("Total CE", money(total_ce), "neutral")
+        + _pill("Reste CE", money(reste_ce), k_ce),
+        unsafe_allow_html=True,
+    )
+# =====================================================
     # 1) ROSTERS (lecture)
     # =====================================================
     cL, cR = st.columns(2, vertical_alignment="top")
@@ -3216,7 +3255,7 @@ elif active_tab == "🧾 Alignement":
 
     pool["section"] = pool.apply(lambda r: _slot_label(r.get("Statut",""), r.get("Slot","")), axis=1)
     pool["_label"] = pool.apply(
-        lambda r: f"{r['Joueur']}  —  {r['section']}  —  {str(r.get('Position','')).strip()}  —  {money(_to_int(r.get('Salaire',0)))}",
+        lambda r: f"{r['Joueur']}  —  {r['section']}  —  {str(r.get('Position','') or r.get('Pos','')).strip()}  —  {money(_to_int(r.get('Salaire',0)))}",
         axis=1
     )
 
