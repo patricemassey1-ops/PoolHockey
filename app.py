@@ -60,10 +60,6 @@ st.set_page_config(page_title="PMS", layout="wide")
 st.markdown(
     """
     <style>
-
-              /* roster table: avoid header wrap */
-              .rosterHdr {white-space: nowrap;}
-              .rosterCell {white-space: nowrap;}
     /* =========================================
        ✨ Micro animations (douces)
        ========================================= */
@@ -2141,7 +2137,7 @@ def open_move_dialog():
 
         c1, c2 = st.columns(2)
 
-        if c1.button("✅ Confirmer", type="primary", use_container_width=False, key=f"ok_{owner}_{joueur}_{nonce}"):
+        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
 
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
@@ -2772,11 +2768,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     h = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
-    h[0].markdown("<span class='rosterHdr'><b>Pos</b></span>", unsafe_allow_html=True)
-    h[1].markdown("<span class='rosterHdr'><b>Éq.</b></span>", unsafe_allow_html=True)
-    h[2].markdown("<span class='rosterHdr'><b>Joueur</b></span>", unsafe_allow_html=True)
-    h[3].markdown("<span class='rosterHdr'><b>Lev.</b></span>", unsafe_allow_html=True)
-    h[4].markdown("<span class='rosterHdr'><b>Salaire</b></span>", unsafe_allow_html=True)
+    h[0].markdown("**Pos**")
+    h[1].markdown("**Équipe**")
+    h[2].markdown("**Joueur**")
+    h[3].markdown("**Level**")
+    h[4].markdown("**Salaire**")
     h[5].markdown("")
 
     clicked = None
@@ -2793,14 +2789,14 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.9, 1.2, 4.2, 1.1, 1.6, 1.6], vertical_alignment="center")
+        c = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
         c[2].write(joueur)
 
         # Action explicite (plus clair que cliquer sur la ligne)
         if c[5].button(
-            "➡️ Déplacer",
+            "Déplacer",
             key=f"{source_key}_{owner}_{row_key}_mv",
             use_container_width=True,
             disabled=disabled,
@@ -3101,6 +3097,13 @@ if active_tab == "📊 Tableau":
 
     # (v11) Bloc Alignement retiré du tableau (corrige NameError gc_actif).
 elif active_tab == "🧾 Alignement":
+    # =====================================================
+    # ALIGNEMENT — UI PROPRE + FONCTIONNELLE (SANS POPUP)
+    #   - Affiche rosters (lecture)
+    #   - Sélection via selectbox
+    #   - Déplacement inline (Demi-mois / Blessure / Remplacement)
+    #   - Aucun move_ctx bloquant
+    # =====================================================
     st.subheader("🧾 Alignement")
 
     df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
@@ -3112,221 +3115,212 @@ elif active_tab == "🧾 Alignement":
         st.stop()
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
+    if dprop.empty:
+        st.warning("Aucun joueur pour cette équipe.")
+        st.stop()
 
+    # Plafonds (info seulement ici)
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
-    if dprop.empty:
-        st.warning(f"Aucun alignement importé pour **{proprietaire}** (Admin → Import).")
-        j1, j2 = st.columns(2)
-        with j1:
-            st.markdown(cap_bar_html(0, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-        with j2:
-            st.markdown(cap_bar_html(0, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
-        clear_move_ctx()
-        st.stop()
+    # --- Helpers
+    BAD = {"", "none", "nan", "null"}
 
-    # =====================================================
-    # MOVE UI (INLINE FORCÉ) — évite les popups qui ne s'affichent pas
-    # =====================================================
-    # --- Reset automatique si move_ctx fantôme (ex: crash/rerun avant ouverture)
-    _ctx = st.session_state.get("move_ctx")
-    if _ctx is not None:
-        _player = ""
-        if isinstance(_ctx, dict):
-            _player = str(_ctx.get("player", "") or "").strip()
-        # Si on n'a pas de joueur, on considère que c'est un verrou fantôme.
-        if not _player:
-            clear_move_ctx()
-            st.session_state["active_dialog"] = ""
-            st.session_state["move_auto_open"] = False
-    if st.session_state.get("move_ctx") is not None:
-        with st.container(border=True):
-            c1, c2 = st.columns([4, 1], vertical_alignment="center")
-            with c1:
-                st.warning("🔒 Sélection désactivée: un déplacement est en cours. Choisis **Demi-mois** ou **Blessure** puis une destination, ou annule.")
-            with c2:
-                if st.button("🧹 Annuler", key="unlock_move_ctx_align", use_container_width=True):
-                    clear_move_ctx()
-                    st.session_state["active_dialog"] = ""
-                    st.session_state["move_auto_open"] = False
-                    st.rerun()
+    def _safe(s):
+        return str(s or "").strip()
 
-            # panneau inline (sans popup)
-            st.session_state["force_inline_dialog"] = True
-            try:
-                open_move_dialog()
-            except Exception as e:
-                st.error(f"Impossible d'afficher le panneau de déplacement: {e}")
-            finally:
-                st.session_state["force_inline_dialog"] = False
+    def _slot_label(statut, slot):
+        statut = _safe(statut)
+        slot = _safe(slot)
+        if statut == STATUT_CE:
+            return "🔵 Mineur (CE)"
+        if slot == SLOT_IR:
+            return "🩹 IR"
+        if slot == SLOT_BANC:
+            return "🟡 Banc (GC)"
+        return "🟢 Actifs (GC)"
 
-        st.divider()
+    def _roster_view(df_src: pd.DataFrame, title: str):
+        st.markdown(f"### {title}")
+        if df_src is None or df_src.empty:
+            st.caption("Aucun joueur.")
+            return
 
-        try:
-            open_move_dialog()
-        except Exception as e:
-            st.error(f"Impossible d'afficher le panneau de déplacement: {e}")
-        finally:
-            st.session_state["force_inline_dialog"] = False
+        cols = []
+        for c in ["Position", "Team", "Joueur", "Level", "Salaire"]:
+            if c in df_src.columns:
+                cols.append(c)
 
-        st.divider()
+        t = df_src.copy()
+        # format salaire
+        if "Salaire" in t.columns:
+            t["Salaire"] = t["Salaire"].apply(lambda x: money(_to_int(x)))
+        if "Team" in t.columns:
+            t["Team"] = t["Team"].astype(str).str.strip().replace({"nan": "—", "None": "—"})
+        if "Level" in t.columns:
+            t["Level"] = t["Level"].astype(str).str.strip().replace({"nan": "—", "None": "—"})
 
-    # --- Split IR vs non-IR (DOIT être avant les totaux)
-    injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
-    dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+        if "Position" in t.columns and "Joueur" in t.columns:
+            t = t.sort_values(["Position", "Joueur"], kind="stable")
 
-    gc_all = dprop_ok[dprop_ok["Statut"] == STATUT_GC].copy()
-    ce_all = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
-
-    gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
-    gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
-
-    tmp = gc_actif.copy()
-    tmp["Pos"] = tmp.get("Pos", "F").apply(normalize_pos)
-    nb_F = int((tmp["Pos"] == "F").sum())
-    nb_D = int((tmp["Pos"] == "D").sum())
-    nb_G = int((tmp["Pos"] == "G").sum())
-
-    used_gc = int(gc_all["Salaire"].sum()) if "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
-
-    # --- Barres plafond (tes barres restent)
-    j1, j2 = st.columns(2)
-    with j1:
-        st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {proprietaire}"), unsafe_allow_html=True)
-    with j2:
-        st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
-
-    st.write("")
-
-    # --- ✅ Pills + Alert cards (après calculs)
-    show_status_alerts(
-        total_gc=int(used_gc),
-        cap_gc=int(cap_gc),
-        total_ce=int(used_ce),
-        cap_ce=int(cap_ce),
-        ir_count=int(len(injured_all)),
-        toast=False,
-        context=proprietaire,
-    )
-
-    st.write("")
-
-    st.markdown(
-        f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
-        unsafe_allow_html=True,
-    )
-
-    st.divider()
-
-    popup_open = st.session_state.get("move_ctx") is not None
-    # auto-open move dialog right after a selection
-    if popup_open and st.session_state.get("move_auto_open"):
-        st.session_state["move_auto_open"] = False
-        try:
-            open_move_dialog()
-        except Exception:
-            pass
-
-    if popup_open:
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1:
-            st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
-        with c2:
-            if st.button("➡️ Continuer", key="resume_move_tableau"):
-                try:
-                    open_move_dialog()
-                except Exception:
-                    pass
-        with c3:
-            if st.button("🧹 Débloquer", key="unlock_move_ctx_tableau"):
-                try:
-                    clear_move_ctx()
-                    _clear_active_dialog(None)
-                except Exception:
-                    st.session_state["move_ctx"] = None
-                    st.session_state["active_dialog"] = ""
-
-    mobile_view = bool(st.session_state.get("mobile_view", False))
-
-    def _render_gc_block():
-        with st.container(border=True):
-            st.markdown("### 🟢 Actifs (Grand Club)")
-            if gc_actif.empty:
-                st.info("Aucun joueur.")
-            else:
-                if not popup_open:
-                    p = roster_click_list(gc_actif, proprietaire, "actifs")
-                    if p:
-                        set_move_ctx(proprietaire, p, "actifs"); do_rerun()
-                else:
-                    roster_click_list(gc_actif, proprietaire, "actifs_disabled")
-
-    def _render_ce_block():
-        with st.container(border=True):
-            st.markdown("### 🔵 Mineur (Club École)")
-            if ce_all.empty:
-                st.info("Aucun joueur.")
-            else:
-                if not popup_open:
-                    p = roster_click_list(ce_all, proprietaire, "min")
-                    if p:
-                        set_move_ctx(proprietaire, p, "min"); do_rerun()
-                else:
-                    roster_click_list(ce_all, proprietaire, "min_disabled")
-
-    if mobile_view:
-        _render_gc_block()
-        st.divider()
-        _render_ce_block()
-    else:
-        colA, colB = st.columns(2, gap="small")
-        with colA: _render_gc_block()
-        with colB: _render_ce_block()
-
-    st.divider()
-
-    with st.expander("🟡 Banc", expanded=True):
-        if gc_banc.empty:
-            st.info("Aucun joueur.")
-        else:
-            if not popup_open:
-                p = roster_click_list(gc_banc, proprietaire, "banc")
-                if p:
-                    set_move_ctx(proprietaire, p, "banc"); do_rerun()
-            else:
-                roster_click_list(gc_banc, proprietaire, "banc_disabled")
-
-    with st.expander("🩹 Joueurs Blessés (IR)", expanded=True):
-        if injured_all.empty:
-            st.info("Aucun joueur blessé.")
-        else:
-            if not popup_open:
-                p_ir = roster_click_list(injured_all, proprietaire, "ir")
-                if p_ir:
-                    set_move_ctx(proprietaire, p_ir, "ir"); do_rerun()
-            else:
-                roster_click_list(injured_all, proprietaire, "ir_disabled")
-
-    open_move_dialog()
-
-    if st.session_state.pop("just_moved", False):
-        show_status_alerts(
-            total_gc=int(used_gc),
-            cap_gc=int(cap_gc),
-            total_ce=int(used_ce),
-            cap_ce=int(cap_ce),
-            ir_count=int(len(injured_all)),
-            toast=True,
-            context="Move appliqué",
+        st.dataframe(
+            t[cols],
+            use_container_width=True,
+            hide_index=True,
+            height=min(420, 60 + 35 * len(t)),
         )
 
+    # --- Split rosters
+    gc_actif = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_ACTIF)].copy()
+    gc_banc  = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_BANC)].copy()
+    ir_all   = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_IR)].copy()
+    ce_all   = dprop[(dprop.get("Statut", "") == STATUT_CE)].copy()
 
+    # =====================================================
+    # STYLE LÉGER (lisible)
+    # =====================================================
+    st.markdown("""
+    <style>
+      /* Dataframes plus clean */
+      div[data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; }
+      /* Action card */
+      .actCard { border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; background: rgba(255,255,255,.04); }
+      .actRow  { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+      .actHint { opacity:.85; }
+    </style>
+    """, unsafe_allow_html=True)
 
+    # =====================================================
+    # 1) ROSTERS (lecture)
+    # =====================================================
+    cL, cR = st.columns(2, vertical_alignment="top")
+    with cL:
+        _roster_view(gc_actif, "🟢 Actifs (Grand Club)")
+        _roster_view(gc_banc,  "🟡 Banc (Grand Club)")
+    with cR:
+        _roster_view(ce_all,   "🔵 Mineur (Club École)")
+        _roster_view(ir_all,   "🩹 IR (Blessés)")
 
+    st.divider()
+
+    # =====================================================
+    # 2) ACTIONS (sélection + déplacement)
+    # =====================================================
+    st.markdown("<div class='actCard'>", unsafe_allow_html=True)
+    st.markdown("## 🎯 Déplacer un joueur")
+    st.caption(f"Plafonds: GC {money(cap_gc)} — CE {money(cap_ce)}")
+
+    pool = dprop.copy()
+    pool["Joueur"] = pool["Joueur"].astype(str).str.strip()
+    pool = pool[~pool["Joueur"].str.lower().isin(BAD)].copy()
+
+    pool["section"] = pool.apply(lambda r: _slot_label(r.get("Statut",""), r.get("Slot","")), axis=1)
+    pool["_label"] = pool.apply(
+        lambda r: f"{r['Joueur']}  —  {r['section']}  —  {str(r.get('Position','')).strip()}  —  {money(_to_int(r.get('Salaire',0)))}",
+        axis=1
+    )
+
+    labels = ["— Choisir un joueur —"] + pool["_label"].tolist()
+    choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_label")
+
+    if choice == "— Choisir un joueur —":
+        st.markdown("<div class='actHint'>Choisis un joueur, puis sélectionne le type de changement et la destination.</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.stop()
+
+    row = pool[pool["_label"] == choice].iloc[0].to_dict()
+
+    cur_statut = _safe(row.get("Statut", ""))
+    cur_slot   = _safe(row.get("Slot", ""))
+    is_ce = (cur_statut == STATUT_CE)
+    is_ir = (cur_slot == SLOT_IR)
+    is_banc = (cur_slot == SLOT_BANC)
+
+    # Type de changement
+    if is_ir:
+        reason_opts = ["Retour de blessure"]
+    else:
+        if is_ce:
+            reason_opts = ["Changement demi-mois", "Remplacement"]
+        else:
+            reason_opts = ["Changement demi-mois", "Blessure"]
+        if is_banc:
+            reason_opts = ["Changement demi-mois"]
+
+    reason = st.radio("Type de changement", reason_opts, horizontal=True, key="mv_reason_v27")
+
+    # Destinations selon règles
+    destinations = []
+
+    if is_ir:
+        destinations = [("🟢 Retour Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
+    else:
+        if reason == "Changement demi-mois":
+            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
+                destinations = [("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+            elif cur_statut == STATUT_GC and cur_slot == SLOT_BANC:
+                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+            elif cur_statut == STATUT_CE:
+                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC))]
+            else:
+                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+        else:
+            # Blessure / Remplacement
+            if is_ce:
+                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
+            else:
+                destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
+
+    current = (cur_statut, cur_slot or "")
+    destinations = [(lab, val) for (lab, val) in destinations if (val[0], val[1] or "") != current]
+    if not destinations:
+        st.info("Aucune destination valide (déjà à cet endroit).")
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.stop()
+
+    dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_label_v27")
+    dest_statut, dest_slot = dict(destinations)[dest_label]
+
+    colA, colB = st.columns([1, 1], vertical_alignment="center")
+    with colA:
+        if st.button("✅ Appliquer le déplacement", type="primary", use_container_width=True):
+            joueur = _safe(row.get("Joueur",""))
+            jn = _norm_name(joueur)
+
+            mask = (
+                df["Propriétaire"].astype(str).str.strip().eq(proprietaire)
+                & df["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+            )
+            if df.loc[mask].empty:
+                st.error("Joueur introuvable dans la base (nom/propriétaire).")
+            else:
+                df.loc[mask, "Statut"] = dest_statut
+                df.loc[mask, "Slot"]   = dest_slot
+                st.session_state["data"] = df
+
+                if "append_history_move" in globals() and callable(globals()["append_history_move"]):
+                    try:
+                        append_history_move(
+                            proprietaire=proprietaire,
+                            joueur=joueur,
+                            from_statut=cur_statut,
+                            from_slot=cur_slot,
+                            to_statut=dest_statut,
+                            to_slot=dest_slot,
+                            reason=reason,
+                        )
+                    except Exception:
+                        pass
+
+                st.success(f"Déplacement appliqué: {joueur} → {dest_label}")
+                st.rerun()
+
+    with colB:
+        if st.button("🧹 Annuler", use_container_width=True):
+            st.session_state["mv_pick_label"] = "— Choisir un joueur —"
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
