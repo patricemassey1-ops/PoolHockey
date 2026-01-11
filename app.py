@@ -443,6 +443,19 @@ def do_rerun():
         except Exception:
             pass
 
+
+def _to_int(x) -> int:
+    try:
+        if x is None:
+            return 0
+        s = str(x).strip()
+        if s == "":
+            return 0
+        s = s.replace(" ", "").replace(",", "")
+        return int(float(s))
+    except Exception:
+        return 0
+
 def money(v) -> str:
     """Format: 1 000 000$ (sans espace avant $)."""
     try:
@@ -2387,6 +2400,7 @@ st.session_state["plafonds"] = rebuild_plafonds(df0)
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
 # =====================================================
+st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 st.sidebar.header("📅 Saison")
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
@@ -2434,8 +2448,18 @@ if teams:
     chosen = st.sidebar.selectbox("Choisir une équipe", teams, index=teams.index(cur_team), key="sb_team")
     if chosen and chosen != cur_team:
         pick_team(chosen)
+
+# --- Logo + preview (sous le selectbox équipe)
+team_sel = str(st.session_state.get("selected_team", "") or "").strip()
+if team_sel:
+    logo_path = team_logo_path(team_sel)
+    if logo_path and os.path.exists(logo_path):
+        st.sidebar.image(logo_path, use_container_width=True)
+    if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
+        st.session_state["gc_preview_open"] = True
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
 # Mobile view
-st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 if st.session_state.get("mobile_view", False):
     st.markdown(
         "<style>.block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}</style>",
@@ -2468,24 +2492,6 @@ if st.session_state.get("edit_plafond"):
 st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
 st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
-# Team picker
-st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipe choisie")
-team_sel = str(st.session_state.get("selected_team", "") or "").strip()
-if not team_sel:
-    team_sel = "—"
-st.sidebar.write(f"**{team_sel}**")
-
-logo_path = team_logo_path(team_sel)
-if logo_path:
-    st.sidebar.image(logo_path, use_container_width=True)
-
-# (Sélection de l'équipe = via clic dans le tableau de la page 📊 Tableau)
-
-if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
-    st.session_state["gc_preview_open"] = True
-    st.session_state["active_tab"] = "🧾 Alignement"
-    do_rerun()
 
 # =====================================================
 # NAV
@@ -3163,8 +3169,11 @@ elif active_tab == "🧑‍💼 GM":
     # ---------------------------------------------
     try:
         picks = load_picks(st.session_state.get("season"), teams_list or sorted(list(LOGOS.keys())))
+        my_team = str(get_selected_team() or '').strip()
         rows = []
         for team, years in (picks or {}).items():
+            if my_team and str(team).strip() != my_team:
+                continue
             for year, rounds in (years or {}).items():
                 for rnd, owner in (rounds or {}).items():
                     rows.append({
@@ -3174,7 +3183,8 @@ elif active_tab == "🧑‍💼 GM":
                         "Appartient à": str(owner),
                     })
         if rows:
-            dfp = pd.DataFrame(rows).sort_values(["Équipe", "Année", "Ronde"])
+            dfp = pd.DataFrame(rows).sort_values(["Équipe", "Année", "Ronde"]).copy()
+            dfp["Année"] = dfp["Année"].astype(str).str.replace(",", "", regex=False)
             st.markdown("### 🎯 Choix de repêchage")
             st.dataframe(dfp, use_container_width=True, hide_index=True)
         else:
@@ -3336,11 +3346,11 @@ elif active_tab == "👤 Joueurs autonomes":
     else:
         dff["NHL GP"] = pd.to_numeric(dff.get("GP", 0), errors="coerce").fillna(0).astype(int)
 
-    # admissibilité: Level != ELC et NHL GP < 85
-    dff = dff[(dff["Level"].astype(str).str.upper() != "ELC") & (dff["NHL GP"].astype(int) < 85)].copy()
-    if dff.empty:
-        st.warning("Aucun joueur admissible (Level ≠ ELC et NHL GP < 85).")
-        st.stop()
+    # admissibilité (info + filtre optionnel)
+    dff["Admissible"] = (dff["Level"].astype(str).str.upper() != "ELC") & (dff["NHL GP"].astype(int) < 85)
+    only_adm = st.checkbox("Afficher seulement les joueurs admissibles", value=False, key="fa_only_adm")
+    if only_adm:
+        dff = dff[dff["Admissible"]].copy()
 
     # --- état persistant (ne pas perdre la sélection en cochant un 2e joueur)
     season_key = str(st.session_state.get("season") or "").strip() or "season"
@@ -3355,7 +3365,7 @@ elif active_tab == "👤 Joueurs autonomes":
     dff["✅"] = dff["Player"].astype(str).map(lambda p: bool(fa_sel.get(str(p), False)))
     dff["Destination"] = dff["Player"].astype(str).map(lambda p: str(fa_dest.get(str(p), "GC")).strip() or "GC")
 
-    show_cols = ["✅", "Player", "Team", "Position", "Level", "NHL GP", "Propriétaire", "Destination"]
+    show_cols = ["✅", "Admissible", "Player", "Team", "Position", "Level", "NHL GP", "Propriétaire", "Destination"]
     safe_cols = [c for c in show_cols if c in dff.columns]
     if not safe_cols:
         safe_cols = [c for c in dff.columns if c.lower() in {'player','joueur','team','equipe','position','pos','level','nhl gp','gp','propriétaire','proprietaire'}]
