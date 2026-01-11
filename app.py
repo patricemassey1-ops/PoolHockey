@@ -379,7 +379,7 @@ def format_date_fr(x) -> str:
 # =====================================================
 # PATHS / CONSTANTS
 # =====================================================
-DATA_DIR = "data"
+DATA_DIR = os.path.join("/tmp", "poolhockey_data")
 os.makedirs(DATA_DIR, exist_ok=True)
 # =====================================================
 # PERSISTENCE HELPERS (points / free agents claims / auth)
@@ -1060,19 +1060,24 @@ def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     st.session_state["DATA_FILE"] = path
     try:
         df.to_csv(path, index=False)
-    except Exception:
-        pass
-
+    except Exception as e:
+        # Sur Streamlit Cloud, écrire dans un dossier read-only cause une perte de données au rerun.
+        # Ici DATA_DIR pointe vers /tmp donc devrait être OK; si ça échoue, on l’affiche.
+        try:
+            st.sidebar.error(f"❌ Impossible d’enregistrer les données ({e})")
+        except Exception:
+            pass
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
     path = os.path.join(DATA_DIR, f"history_{season_lbl}.csv")
     st.session_state["HISTORY_FILE"] = path
     try:
         h.to_csv(path, index=False)
-    except Exception:
-        pass
-
-
+    except Exception as e:
+        try:
+            st.sidebar.error(f"❌ Impossible d’enregistrer l’historique ({e})")
+        except Exception:
+            pass
 # =====================================================
 # HISTORY (normalized)
 # =====================================================
