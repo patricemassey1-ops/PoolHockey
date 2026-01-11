@@ -447,7 +447,7 @@ def money(v) -> str:
     try:
         return f"{int(v):,}".replace(",", " ") + "$"
     except Exception:
-        return "0 $"
+        return "0$"
 
 
 def parse_money(v) -> int:
@@ -2364,6 +2364,60 @@ season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto),
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
+# =====================================================
+# SIDEBAR — Équipe (selectbox + logos cliquables)
+# =====================================================
+teams = []
+try:
+    if "LOGOS" in globals() and isinstance(LOGOS, dict) and LOGOS:
+        teams = [str(k).strip() for k in LOGOS.keys() if str(k).strip()]
+except Exception:
+    teams = []
+if not teams:
+    try:
+        _pl = st.session_state.get("plafonds")
+        if isinstance(_pl, pd.DataFrame) and not _pl.empty and "Propriétaire" in _pl.columns:
+            teams = sorted(_pl["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    except Exception:
+        teams = []
+if not teams:
+    try:
+        _df = st.session_state.get("data")
+        if isinstance(_df, pd.DataFrame) and not _df.empty and "Propriétaire" in _df.columns:
+            teams = sorted(_df["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    except Exception:
+        teams = []
+
+st.sidebar.divider()
+st.sidebar.header("🧢 Équipe")
+cur_team = str(get_selected_team() or "").strip()
+if teams and cur_team not in teams:
+    cur_team = teams[0]
+    st.session_state["selected_team"] = cur_team
+    st.session_state["align_owner"] = cur_team
+
+if teams:
+    chosen = st.sidebar.selectbox("Choisir une équipe", teams, index=teams.index(cur_team), key="sb_team")
+    if chosen and chosen != cur_team:
+        pick_team(chosen)
+
+    with st.sidebar.expander("🖱️ Changer par logo", expanded=False):
+        cols = st.columns(3)
+        for i, t in enumerate(teams):
+            with cols[i % 3]:
+                lp = ""
+                try:
+                    if "team_logo_path" in globals() and callable(globals()["team_logo_path"]):
+                        lp = team_logo_path(t)
+                except Exception:
+                    lp = ""
+                if lp and os.path.exists(lp):
+                    st.image(lp, use_container_width=True)
+                if st.button(f"✅ {t}" if t == cur_team else t, key=f"sb_logo_{t}", use_container_width=True):
+                    pick_team(t)
+else:
+    st.sidebar.info("Aucune équipe disponible (importe d’abord une saison).")
+
 # Mobile view
 st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 if st.session_state.get("mobile_view", False):
@@ -3035,7 +3089,22 @@ elif active_tab == "🧑‍💼 GM":
     st.divider()
 
     # Ordre (basé sur Points) — affiché seulement si des points ont été saisis
-    pts = load_points(st.session_state.get("season"))
+    teams_for_points = []
+    try:
+        _pl = st.session_state.get("plafonds")
+        if isinstance(_pl, pd.DataFrame) and not _pl.empty and "Propriétaire" in _pl.columns:
+            teams_for_points = sorted(_pl["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    except Exception:
+        teams_for_points = []
+    if not teams_for_points:
+        try:
+            _df = st.session_state.get("data")
+            if isinstance(_df, pd.DataFrame) and not _df.empty and "Propriétaire" in _df.columns:
+                teams_for_points = sorted(_df["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+        except Exception:
+            teams_for_points = []
+
+    pts = load_points(st.session_state.get("season"), teams_for_points)
     if isinstance(pts, pd.DataFrame) and not pts.empty and "Points" in pts.columns:
         pts2 = pts.copy()
         pts2["Points"] = pd.to_numeric(pts2["Points"], errors="coerce").fillna(0).astype(int)
@@ -3118,90 +3187,69 @@ elif active_tab == "👤 Joueurs autonomes":
         except Exception:
             return 0
 
-    # --- autocomplete simple: query + suggestions
-    q = st.text_input("Tape le nom / prénom (min 2 lettres)", key="fa_query", placeholder="Ex: Benning")
-    sugg = []
-    if str(q).strip():
-        msk = df_db["Player"].astype(str).str.contains(str(q).strip(), case=False, na=False)
-        sugg = df_db.loc[msk, "Player"].astype(str).dropna().unique().tolist()
-        sugg = sorted(sugg)[:25]
+    # --- recherche (sans "Suggestions" pour éviter le dédoublement)
+    c1, c2 = st.columns([8, 2], vertical_alignment="center")
+    with c1:
+        q = st.text_input(
+            "Tape le nom / prénom (min 2 lettres)",
+            key="fa_query",
+            placeholder="Ex: Benning",
+        )
+    with c2:
+        if st.button("🧹 Nouvelle recherche", use_container_width=True, key="fa_clear_query"):
+            st.session_state["fa_query"] = ""
+            do_rerun()
 
-    picked = None
-    if sugg:
-        picked = st.selectbox("Suggestions", [""] + sugg, index=0, key="fa_suggestion")
-    else:
-        st.caption("Aucune suggestion (ou entre au moins 2 lettres).")
-
-    # --- build results (either picked or query)
-    search_name = str(picked).strip() if str(picked).strip() else str(q).strip()
-    if not search_name:
-        st.info("Entre un nom pour afficher des résultats.")
+    search_name = str(q or "").strip()
+    if len(search_name) < 2:
+        st.info("Entre au moins **2 lettres** pour afficher des résultats.")
         st.stop()
 
     dff = df_db[df_db["Player"].astype(str).str.contains(search_name, case=False, na=False)].copy()
     if dff.empty:
-        st.warning("Aucun joueur trouvé.")
+        st.warning("Aucun résultat.")
         st.stop()
 
-    # --- normalize columns we care about
-    for c in ["Team", "Position", "Level", "GP", "Cap Hit"]:
-        if c not in dff.columns:
-            dff[c] = ""
+    # NHL GP (priorité) + fallback sur GP
+    if "NHL GP" in dff.columns:
+        dff["NHL GP"] = pd.to_numeric(dff["NHL GP"], errors="coerce").fillna(0).astype(int)
+    else:
+        dff["NHL GP"] = pd.to_numeric(dff.get("GP", 0), errors="coerce").fillna(0).astype(int)
 
-    dff["Level"] = dff["Level"].astype(str).str.upper().str.strip()
-    dff["GP"] = dff["GP"].apply(_to_int)
-
-    # owner lookup from roster (signed players)
-    owner_map = {}
-    if not df_roster.empty:
-        tmp = df_roster.copy()
-        tmp["Joueur"] = tmp["Joueur"].astype(str).str.strip()
-        tmp["Propriétaire"] = tmp["Propriétaire"].astype(str).str.strip()
-        owner_map = dict(zip(tmp["Joueur"], tmp["Propriétaire"]))
-
-    dff["Propriétaire"] = dff["Player"].astype(str).map(lambda n: owner_map.get(str(n).strip(), ""))
-
-    only_free = st.checkbox("Afficher seulement les joueurs vraiment autonomes (non signés)", value=True, key="fa_only_free")
-    if only_free:
-        dff = dff[dff["Propriétaire"].astype(str).str.strip().eq("")].copy()
-
-    # eligibility: level != ELC and GP < 85
-    dff = dff[(dff["Level"].astype(str).str.upper() != "ELC") & (dff["GP"].astype(int) < 85)].copy()
-
+    # admissibilité: Level != ELC et NHL GP < 85
+    dff = dff[(dff["Level"].astype(str).str.upper() != "ELC") & (dff["NHL GP"].astype(int) < 85)].copy()
     if dff.empty:
-        st.warning("Aucun joueur admissible (Level ≠ ELC et GP < 85).")
+        st.warning("Aucun joueur admissible (Level ≠ ELC et NHL GP < 85).")
         st.stop()
 
-    # --- selection table (single table)
+    # --- état persistant (ne pas perdre la sélection en cochant un 2e joueur)
+    season_key = str(st.session_state.get("season") or "").strip() or "season"
+    state_key = f"fa_state_{season_key}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = {"sel": {}, "dest": {}}
+    fa_state = st.session_state[state_key]
+    fa_sel = fa_state.get("sel", {})
+    fa_dest = fa_state.get("dest", {})
+
     dff = dff.head(200).reset_index(drop=True)
-    dff["✅"] = False
-    dff["Destination"] = "GC"  # default
-    show = dff[["✅", "Player", "Team", "Position", "Level", "GP", "Propriétaire", "Destination"]].copy()
+    dff["✅"] = dff["Player"].astype(str).map(lambda p: bool(fa_sel.get(str(p), False)))
+    dff["Destination"] = dff["Player"].astype(str).map(lambda p: str(fa_dest.get(str(p), "GC")).strip() or "GC")
+
+    show_cols = ["✅", "Player", "Team", "Position", "Level", "NHL GP", "Propriétaire", "Destination"]
+    show = dff[show_cols].copy()
 
     st.markdown("### Liste")
-    st.caption("Coche jusqu'à 5 joueurs, choisis Destination (GC/CE), puis confirme l'embauche.")
+
     st.markdown(
         """
-        <div style="border:2px solid #16a34a;border-radius:10px;padding:10px;margin:6px 0 14px 0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-            <div><b>Destination</b> : dans la colonne <b>Destination</b> (à droite), sélectionne <b>GC</b> ou <b>CE</b> pour chaque joueur.</div>
-            <div style="font-size:22px;font-weight:900;">&#x2B07;</div>
-          </div>
+        <div style="border:2px solid rgba(34,197,94,.85); border-radius:12px; padding:10px 12px; margin:8px 0 14px 0;">
+          <span style="font-weight:800;">⬇️ Clique ici :</span>
+          <span>dans la colonne</span>
+          <span style="display:inline-block; padding:2px 8px; border-radius:10px; border:2px solid rgba(34,197,94,.95); font-weight:900; margin:0 4px;">
+            Destination
+          </span>
+          <span>(à droite), sélectionne GC ou CE pour chaque joueur.</span>
         </div>
-        """
-        ,
-        unsafe_allow_html=True,
-    )
-# CSS: rendre le texte des dropdowns lisible en dark
-    st.markdown(
-        """
-        <style>
-        /* data editor select readability */
-        div[data-testid="stDataFrame"] select, div[data-testid="stDataFrame"] option {
-            color: #ffffff !important;
-            background-color: #111827 !important;
-        }
-        </style>
         """,
         unsafe_allow_html=True,
     )
@@ -3210,37 +3258,60 @@ elif active_tab == "👤 Joueurs autonomes":
         show,
         use_container_width=True,
         hide_index=True,
+        num_rows="fixed",
+        key=f"fa_editor_{season_key}",
         column_config={
             "✅": st.column_config.CheckboxColumn(""),
             "Destination": st.column_config.SelectboxColumn(
                 "Destination",
-                options=["GC ➡️", "CE ⬇️"],
+                help="GC = Grand Club, CE = Club École",
+                options=["GC", "CE"],
                 required=True,
             ),
         },
-        key=f"fa_editor_{season}_{st.session_state.get('fa_editor_nonce',0)}",
-        num_rows="fixed",
     )
 
+    # --- appliquer les changements au state (limite 5)
+    sel_players = edited.loc[edited["✅"] == True, "Player"].astype(str).tolist()
+    if len(sel_players) > 5:
+        st.warning("Max **5** joueurs. Décoche des joueurs pour continuer.")
+    else:
+        sel_set = set(sel_players)
+        for p in edited["Player"].astype(str).tolist():
+            fa_sel[str(p)] = (str(p) in sel_set)
+        for _, r in edited.iterrows():
+            p = str(r["Player"])
+            if fa_sel.get(p):
+                fa_dest[p] = str(r.get("Destination") or "GC").strip() or "GC"
+        fa_state["sel"] = fa_sel
+        fa_state["dest"] = fa_dest
+        st.session_state[state_key] = fa_state
+
     picked_rows = edited[edited["✅"] == True].copy()
-    if len(picked_rows) > 5:
-        st.warning("Maximum 5 joueurs. Décoche-en quelques-uns.")
-        picked_rows = picked_rows.head(5)
 
-    
-    # Bouton pour annuler le choix (si au moins 1 joueur coché)
-    if not picked_rows.empty:
-        if st.button("🧹 Supprimer mon choix (tout décocher)", key="fa_clear_choice", use_container_width=True):
-            base = show.copy()
-            base["✅"] = False
-            st.session_state["fa_editor"] = base
-            do_rerun()
-
+    # --- Sélection (avec suppression individuelle)
+    st.markdown("### Sélection")
     if picked_rows.empty:
         st.info("Aucun joueur sélectionné.")
     else:
-        st.markdown("### Sélection")
-        st.dataframe(picked_rows.drop(columns=["✅"]).reset_index(drop=True), use_container_width=True, hide_index=True)
+        # boutons suppression
+        cols = st.columns([6, 4], vertical_alignment="center")
+        with cols[0]:
+            st.dataframe(picked_rows.drop(columns=["✅"]).reset_index(drop=True), use_container_width=True, hide_index=True)
+        with cols[1]:
+            if st.button("🧹 Supprimer mon choix (tout décocher)", use_container_width=True, key="fa_clear_sel"):
+                fa_state["sel"] = {}
+                fa_state["dest"] = {}
+                st.session_state[state_key] = fa_state
+                do_rerun()
+
+            st.caption("Supprimer un joueur:")
+            for p in picked_rows["Player"].astype(str).tolist():
+                if st.button(f"✖️ {p}", use_container_width=True, key=f"fa_rm_{p}"):
+                    fa_sel[p] = False
+                    fa_state["sel"] = fa_sel
+                    st.session_state[state_key] = fa_state
+                    do_rerun()
 
     st.divider()
 
