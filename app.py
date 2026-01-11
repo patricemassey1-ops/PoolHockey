@@ -775,8 +775,63 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     out["Salaire"] = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
 
-    out["Statut"] = out["Statut"].astype(str).str.strip().replace({"": STATUT_GC})
+    out["Statut"] = out["Statut"].astype(str).str.strip()
+
+    # Normalisation Statut (import Fantrax / variations)
+    _st = out["Statut"].str.lower()
+    _st = (_st.str.replace("é", "e").str.replace("è", "e").str.replace("ê", "e")
+              .str.replace("à", "a").str.replace("î", "i").str.replace("ï", "i"))
+    _st = _st.str.replace(r"\s+", " ", regex=True).str.strip()
+
+    statut_map = {
+        # Grand Club
+        "gc": "GC",
+        "grand club": "GC",
+        "grandclub": "GC",
+        "grand": "GC",
+        "nhl": "GC",
+
+        # Club École / Mineur
+        "ce": "CE",
+        "club ecole": "CE",
+        "club-école": "CE",
+        "club ecole (ce)": "CE",
+        "mineur": "CE",
+        "mineurs": "CE",
+        "minors": "CE",
+        "ahl": "CE",
+
+        # Blessé
+        "ir": "IR",
+        "injured": "IR",
+        "inj": "IR",
+        "blesse": "IR",
+        "blesses": "IR",
+    }
+
+    out["Statut"] = _st.map(statut_map).fillna(out["Statut"].astype(str).str.strip())
+    out["Statut"] = out["Statut"].replace({"": STATUT_GC, "None": STATUT_GC, "nan": STATUT_GC})
     out["Slot"] = out["Slot"].astype(str).str.strip()
+
+    # Normalisation Slot (Actifs/Banc) — variations importées
+    _sl = out["Slot"].str.lower()
+    _sl = (_sl.str.replace("é", "e").str.replace("è", "e").str.replace("ê", "e")
+               .str.replace("à", "a"))
+    _sl = _sl.str.replace(r"\s+", " ", regex=True).str.strip()
+
+    slot_map = {
+        "actifs": "Actifs",
+        "actif": "Actifs",
+        "active": "Actifs",
+        "starter": "Actifs",
+        "start": "Actifs",
+        "banc": "Banc",
+        "reserve": "Banc",
+        "reservé": "Banc",
+        "reserves": "Banc",
+        "bench": "Banc",
+    }
+    out["Slot"] = _sl.map(slot_map).fillna(out["Slot"])
     out["IR Date"] = out["IR Date"].astype(str).str.strip()
 
     bad = {"", "none", "nan", "null"}
@@ -3494,6 +3549,18 @@ elif active_tab == "🧾 Alignement":
     banc = dprop[(dprop["Statut"] == "GC") & (dprop["Slot"] == "Banc")].copy()
     mineur = dprop[(dprop["Statut"] == "CE")].copy()
     ir = dprop[(dprop["Statut"] == "IR")].copy()
+    # -----------------------------
+    # Diagnostic (si import = valeurs inattendues)
+    # -----------------------------
+    if not dprop.empty and actifs.empty and banc.empty and mineur.empty and ir.empty:
+        st.warning("Aucun joueur classé dans Actifs/Banc/Mineurs/IR. Vérifie les valeurs importées dans les colonnes Statut/Slot.")
+        try:
+            st.caption("Valeurs détectées — Statut: " + ", ".join(sorted(dprop["Statut"].astype(str).str.strip().unique().tolist())[:20]))
+            if "Slot" in dprop.columns:
+                st.caption("Valeurs détectées — Slot: " + ", ".join(sorted(dprop["Slot"].astype(str).str.strip().unique().tolist())[:20]))
+        except Exception:
+            pass
+
 
     # -----------------------------
     # Handle actions from query params
