@@ -553,6 +553,27 @@ def money(v) -> str:
     except Exception:
         return "0$"
 
+
+def section_label(row: dict | pd.Series) -> str:
+    """Libellé court de la section actuelle (pixel-perfect Alignement)."""
+    statut = str(row.get("Statut", "")).strip()
+    slot = str(row.get("Slot", "")).strip()
+
+    if statut in ("GC", "Grand Club"):
+        if slot.lower() == "actifs" or slot == "Actifs":
+            return "Actifs (GC)"
+        if slot.lower() == "banc" or slot == "Banc":
+            return "Banc (GC)"
+        return "GC"
+    if statut in ("CE", "Club École", "Club Ecole"):
+        # dans tes fichiers, CE + slot vide = Mineur
+        if not slot or slot.lower() in ("mineur", "mineurs"):
+            return "Mineurs"
+        return f"Mineurs • {slot}" if slot else "Mineurs"
+    if statut in ("IR", "Blessé", "Blesse", "Blessés", "Blessés"):
+        return "IR"
+    return statut or "—"
+
 def parse_money(v) -> int:
     """Parse montants provenant d'inputs (ex: '3 000 000$', '3000000', 3000000)."""
     try:
@@ -3392,104 +3413,67 @@ elif active_tab == "🧾 Alignement":
         dests = [(lab, val) for (lab, val) in dests if (val[0], val[1] or "") != current]
         return dests
 
-    def open_move_dialog(df_index: int):
-        st.session_state["mv_idx"] = int(df_index)
-        st.session_state["mv_open"] = True
-
-    if "mv_open" not in st.session_state:
-        st.session_state["mv_open"] = False
-
-    @st.dialog("Déplacement")
-    def _move_dialog():
-        idx = st.session_state.get("mv_idx", None)
-        if idx is None or idx not in df.index:
-            st.warning("Sélection invalide.")
-            st.session_state["mv_open"] = False
+    
+    def open_move_dialog_local(df_index: int, source_key: str = "actifs"):
+        """Ouvre le popup Déplacement (pixel-perfect) via le move_ctx global."""
+        try:
+            df_index = int(df_index)
+        except Exception:
+            return
+        if df_index not in df.index:
             return
 
-        row = df.loc[idx].to_dict()
-        joueur = str(row.get("Joueur", "")).strip()
-        cur_statut = str(row.get("Statut", "")).strip()
-        cur_slot = str(row.get("Slot", "")).strip()
-
-        st.markdown(f"**Joueur :** {joueur}")
-        st.markdown(f"**Avant :** {section_label(row)}")
-
-        move_type = st.radio(
-            "Type",
-            ["Changement demi-mois", "Blessure", "Remplacement"],
-            horizontal=True,
-            key="mv_type_v34",
-        )
-
-        destinations = compute_destinations(cur_statut, cur_slot, move_type)
-
-        if not destinations:
-            st.info("Aucune destination valide pour ce type.")
+        row0 = df.loc[df_index].to_dict()
+        joueur0 = str(row0.get("Joueur", "")).strip()
+        if not joueur0:
             return
 
-        dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_v34")
-        dest_statut, dest_slot = dict(destinations)[dest_label]
+        # ✅ utilise le dialog global (même look que ta capture)
+        try:
+            set_move_ctx(proprietaire, joueur0, source_key)
+        except Exception:
+            # fallback minimum
+            st.session_state["move_ctx"] = {"owner": proprietaire, "joueur": joueur0, "nonce": int(st.session_state.get("move_nonce", 0))+1, "ts": datetime.now(TZ_TOR).isoformat()}
+            st.session_state["move_auto_open"] = True
 
-        st.markdown(f"**Après :** {dest_label}")
-
-        if st.button("✅ Appliquer", type="primary", use_container_width=True, key="mv_apply_v34"):
-            df.loc[idx, "Statut"] = dest_statut
-            df.loc[idx, "Slot"] = dest_slot
-            st.session_state["data"] = df
-
-            reason = move_type
-            if "append_history_move" in globals() and callable(globals()["append_history_move"]):
-                try:
-                    append_history_move(
-                        proprietaire=proprietaire,
-                        joueur=joueur,
-                        from_statut=cur_statut,
-                        from_slot=cur_slot,
-                        to_statut=dest_statut,
-                        to_slot=dest_slot,
-                        reason=reason,
-                    )
-                except Exception:
-                    pass
-
-            st.success("Déplacement appliqué.")
-            st.session_state["mv_open"] = False
-            st.rerun()
+        if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
+            open_move_dialog()
 
     # -----------------------------
-    # Layout rosters (2x2)
+    # 📋 Roster — sélection directe (click ligne) → popup Déplacement
+    #   ✅ Actifs & Mineurs côte à côte
+    #   ✅ Banc & Blessé côte à côte
     # -----------------------------
-    st.markdown("### 📋 Roster")
+    st.markdown("## 📋 Roster")
 
-    topL, topR = st.columns(2, gap="large")
-    with topL:
-        st.markdown("#### 🟢 Actifs (GC)")
-        idx_sel = pick_index_from_df(gc_actif, "tbl_actifs_v34", height=300)
+    topA, topB = st.columns(2, gap="large")
+    with topA:
+        st.markdown("### 🟢 Actifs (GC)")
+        idx_sel = pick_index_from_df(gc_actif, key="sel_gc_actifs_v35", height=300)
         if idx_sel is not None:
-            open_move_dialog(idx_sel)
+            open_move_dialog_local(idx_sel, source_key="actifs")
 
-    with topR:
-        st.markdown("#### 🔵 Mineur (CE)")
-        idx_sel = pick_index_from_df(ce_all, "tbl_mineur_v34", height=300)
+    with topB:
+        st.markdown("### 🔵 Mineurs (CE)")
+        idx_sel = pick_index_from_df(ce_all, key="sel_ce_mineurs_v35", height=300)
         if idx_sel is not None:
-            open_move_dialog(idx_sel)
+            open_move_dialog_local(idx_sel, source_key="mineurs")
 
-    botL, botR = st.columns(2, gap="large")
-    with botL:
-        st.markdown("#### 🟡 Banc (GC)")
-        idx_sel = pick_index_from_df(gc_banc, "tbl_banc_v34", height=260)
+    botA, botB = st.columns(2, gap="large")
+    with botA:
+        st.markdown("### 🟡 Banc (GC)")
+        idx_sel = pick_index_from_df(gc_banc, key="sel_gc_banc_v35", height=260)
         if idx_sel is not None:
-            open_move_dialog(idx_sel)
+            open_move_dialog_local(idx_sel, source_key="banc")
 
-    with botR:
-        st.markdown("#### 🩹 Blessé (IR)")
-        idx_sel = pick_index_from_df(ir_all, "tbl_ir_v34", height=260)
+    with botB:
+        st.markdown("### 🟥 Blessés (IR)")
+        idx_sel = pick_index_from_df(ir_all, key="sel_gc_ir_v35", height=260)
         if idx_sel is not None:
-            open_move_dialog(idx_sel)
+            open_move_dialog_local(idx_sel, source_key="ir")
 
-    if st.session_state.get("mv_open"):
-        _move_dialog()
+
+
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
@@ -4467,4 +4451,4 @@ elif active_tab == "🧠 Recommandations":
 
 
 else:
-    st.warning("Onglet inconnu")
+    st.warning("Onglet inconnu")v
