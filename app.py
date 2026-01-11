@@ -3098,11 +3098,11 @@ if active_tab == "📊 Tableau":
     # (v11) Bloc Alignement retiré du tableau (corrige NameError gc_actif).
 elif active_tab == "🧾 Alignement":
     # =====================================================
-    # ALIGNEMENT — UI PROPRE + FONCTIONNELLE (SANS POPUP)
+    # ALIGNEMENT — LOOK PRO (pills + barres) + workflow stable
     #   - Affiche rosters (lecture)
-    #   - Sélection via selectbox
+    #   - Sélection via selectbox (fiable)
     #   - Déplacement inline (Demi-mois / Blessure / Remplacement)
-    #   - Aucun move_ctx bloquant
+    #   - Aucun move_ctx bloquant, aucun popup
     # =====================================================
     st.subheader("🧾 Alignement")
 
@@ -3119,247 +3119,260 @@ elif active_tab == "🧾 Alignement":
         st.warning("Aucun joueur pour cette équipe.")
         st.stop()
 
-    # Plafonds (info seulement ici)
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
-    # --- Helpers
     BAD = {"", "none", "nan", "null"}
 
-    def _safe(s):
-        return str(s or "").strip()
-
-    def _slot_label(statut, slot):
-        statut = _safe(statut)
-        slot = _safe(slot)
-        if statut == STATUT_CE:
-            return "🔵 Mineur (CE)"
-        if slot == SLOT_IR:
-            return "🩹 IR"
-        if slot == SLOT_BANC:
-            return "🟡 Banc (GC)"
-        return "🟢 Actifs (GC)"
-
-    def _roster_view(df_src: pd.DataFrame, title: str):
-        st.markdown(f"### {title}")
-        if df_src is None or df_src.empty:
-            st.caption("Aucun joueur.")
-            return
-
-        cols = []
-        for c in ["Pos", "Position", "Team", "Joueur", "Level", "Salaire"]:
-            if c in df_src.columns:
-                cols.append(c)
-
-        t = df_src.copy()
-        # format salaire
-        if "Salaire" in t.columns:
-            t["Salaire"] = t["Salaire"].apply(lambda x: money(_to_int(x)))
-        if "Team" in t.columns:
-            t["Team"] = t["Team"].astype(str).str.strip().replace({"nan": "—", "None": "—"})
-        if "Level" in t.columns:
-            t["Level"] = t["Level"].astype(str).str.strip().replace({"nan": "—", "None": "—"})
-
-        if "Position" in t.columns and "Joueur" in t.columns:
-            t = t.sort_values(["Position", "Joueur"], kind="stable")
-        elif "Pos" in t.columns and "Joueur" in t.columns:
-            t = t.sort_values(["Pos", "Joueur"], kind="stable")
-
-        st.dataframe(
-            t[cols],
-            use_container_width=True,
-            hide_index=True,
-            height=min(420, 60 + 35 * len(t)),
-        )
-
-    # --- Split rosters
-    gc_actif = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_ACTIF)].copy()
-    gc_banc  = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_BANC)].copy()
-    ir_all   = dprop[(dprop.get("Statut", "") == STATUT_GC) & (dprop.get("Slot", "") == SLOT_IR)].copy()
-    ce_all   = dprop[(dprop.get("Statut", "") == STATUT_CE)].copy()
-
-    # =====================================================
-    # STYLE LÉGER (lisible)
-    # =====================================================
-    st.markdown("""
-    <style>
-      /* Dataframes plus clean */
-      div[data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; }
-      /* Action card */
-      .actCard { border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; background: rgba(255,255,255,.04); }
-      .actRow  { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-      .actHint { opacity:.85; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    
-    # =====================================================
-    # PILLS — plafonds + totaux (style compact)
-    # =====================================================
-    def _sum_salary(df0: pd.DataFrame) -> int:
-        if df0 is None or df0.empty or "Salaire" not in df0.columns:
+    def _sum_salary(d0: pd.DataFrame) -> int:
+        if d0 is None or d0.empty or "Salaire" not in d0.columns:
             return 0
-        return int(pd.to_numeric(df0["Salaire"], errors="coerce").fillna(0).sum())
+        return int(pd.to_numeric(d0["Salaire"], errors="coerce").fillna(0).sum())
 
-    total_gc = _sum_salary(dprop[dprop.get("Statut","") == STATUT_GC])
-    total_ce = _sum_salary(dprop[dprop.get("Statut","") == STATUT_CE])
+    def _count(d0: pd.DataFrame) -> int:
+        return 0 if d0 is None else int(len(d0))
 
+    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy()
+    ce_all = dprop[dprop.get("Statut", "") == STATUT_CE].copy()
+
+    gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
+    gc_banc  = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
+    ir_all   = gc_all[gc_all.get("Slot", "") == SLOT_IR].copy()
+
+    total_gc = _sum_salary(gc_all)
+    total_ce = _sum_salary(ce_all)
     reste_gc = int(cap_gc - total_gc)
     reste_ce = int(cap_ce - total_ce)
 
-    def _pill(label: str, value: str, kind: str = "neutral"):
-        # kind: neutral|good|warn|bad
-        color = {"neutral":"rgba(255,255,255,.10)","good":"rgba(34,197,94,.18)","warn":"rgba(245,158,11,.18)","bad":"rgba(239,68,68,.18)"}.get(kind, "rgba(255,255,255,.10)")
-        border = {"neutral":"rgba(255,255,255,.18)","good":"rgba(34,197,94,.35)","warn":"rgba(245,158,11,.35)","bad":"rgba(239,68,68,.35)"}.get(kind, "rgba(255,255,255,.18)")
+    # -----------------------------
+    # CSS "pro" pills + bars + cards
+    # -----------------------------
+    st.markdown("""
+    <style>
+      .capRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 12px 0;}
+      .pill{
+        display:inline-flex; gap:8px; align-items:center;
+        padding:8px 12px; border-radius:999px;
+        border:1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        font-weight:800;
+      }
+      .pill .k{opacity:.82;font-weight:800}
+      .pill .v{font-weight:950}
+      .pill.good{border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12);}
+      .pill.bad{border-color: rgba(239,68,68,.40); background: rgba(239,68,68,.12);}
+      .barWrap{
+        border:1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.04);
+        border-radius:14px; padding:10px 12px; margin: 8px 0 14px 0;
+      }
+      .barTop{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}
+      .barLbl{font-weight:950}
+      .barSub{opacity:.8;font-weight:700}
+      .bar{
+        height:12px; border-radius:999px;
+        background: rgba(255,255,255,.08);
+        overflow:hidden;
+      }
+      .fill{height:100%;border-radius:999px;background: rgba(34,197,94,.65);}
+      .fill.bad{background: rgba(239,68,68,.70);}
+      .card{
+        border:1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.04);
+        border-radius:18px; padding:14px;
+      }
+      .small{opacity:.8}
+      div[data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    def pill(label: str, val: str, kind: str = "") -> str:
+        cls = f"pill {kind}".strip()
+        return f"<div class='{cls}'><span class='k'>{html.escape(label)}</span><span class='v'>{html.escape(val)}</span></div>"
+
+    st.markdown(
+        f"<div class='capRow'>"
+        f"{pill('Total GC', money(total_gc))}"
+        f"{pill('Reste GC', money(reste_gc), 'good' if reste_gc>=0 else 'bad')}"
+        f"{pill('Total CE', money(total_ce))}"
+        f"{pill('Reste CE', money(reste_ce), 'good' if reste_ce>=0 else 'bad')}"
+        f"{pill('Actifs', str(_count(gc_actif)))}"
+        f"{pill('Banc', str(_count(gc_banc)))}"
+        f"{pill('Mineur', str(_count(ce_all)))}"
+        f"{pill('IR', str(_count(ir_all)))}"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+    def cap_bar(title: str, total: int, cap: int, reste: int) -> str:
+        pct = 0.0 if cap <= 0 else min(1.0, max(0.0, float(total) / float(cap)))
+        fill_cls = "fill bad" if total > cap else "fill"
         return f"""
-        <div style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:999px;
-                    background:{color};border:1px solid {border};margin-right:8px;margin-bottom:8px;">
-          <span style="opacity:.9;font-weight:800">{html.escape(label)}</span>
-          <span style="font-weight:900">{html.escape(value)}</span>
+        <div class='barWrap'>
+          <div class='barTop'>
+            <div>
+              <div class='barLbl'>{html.escape(title)}</div>
+              <div class='barSub'>Total {html.escape(money(total))} / Plafond {html.escape(money(cap))}</div>
+            </div>
+            <div class='barLbl'>{html.escape(money(reste))}</div>
+          </div>
+          <div class='bar'><div class='{fill_cls}' style='width:{pct*100:.1f}%'></div></div>
         </div>
         """
 
-    k_gc = "good" if reste_gc >= 0 else "bad"
-    k_ce = "good" if reste_ce >= 0 else "bad"
-
-    st.markdown(
-        _pill("Total GC", money(total_gc), "neutral")
-        + _pill("Reste GC", money(reste_gc), k_gc)
-        + _pill("Total CE", money(total_ce), "neutral")
-        + _pill("Reste CE", money(reste_ce), k_ce),
-        unsafe_allow_html=True,
-    )
-# =====================================================
-    # 1) ROSTERS (lecture)
-    # =====================================================
-    cL, cR = st.columns(2, vertical_alignment="top")
-    with cL:
-        _roster_view(gc_actif, "🟢 Actifs (Grand Club)")
-        _roster_view(gc_banc,  "🟡 Banc (Grand Club)")
-    with cR:
-        _roster_view(ce_all,   "🔵 Mineur (Club École)")
-        _roster_view(ir_all,   "🩹 IR (Blessés)")
-
-    st.divider()
+    st.markdown(cap_bar("🟢 Grand Club", total_gc, cap_gc, reste_gc), unsafe_allow_html=True)
+    st.markdown(cap_bar("🔵 Club École", total_ce, cap_ce, reste_ce), unsafe_allow_html=True)
 
     # =====================================================
-    # 2) ACTIONS (sélection + déplacement)
+    # Layout: rosters + workflow
     # =====================================================
-    st.markdown("<div class='actCard'>", unsafe_allow_html=True)
-    st.markdown("## 🎯 Déplacer un joueur")
-    st.caption(f"Plafonds: GC {money(cap_gc)} — CE {money(cap_ce)}")
+    colL, colR = st.columns([1.35, 1.0], vertical_alignment="top")
 
-    pool = dprop.copy()
-    pool["Joueur"] = pool["Joueur"].astype(str).str.strip()
-    pool = pool[~pool["Joueur"].str.lower().isin(BAD)].copy()
+    def roster_table(d0: pd.DataFrame) -> pd.DataFrame:
+        if d0 is None or d0.empty:
+            return pd.DataFrame(columns=["Pos", "Éq.", "Joueur", "Lev.", "Salaire"])
 
-    pool["section"] = pool.apply(lambda r: _slot_label(r.get("Statut",""), r.get("Slot","")), axis=1)
-    pool["_label"] = pool.apply(
-        lambda r: f"{r['Joueur']}  —  {r['section']}  —  {str(r.get('Position','') or r.get('Pos','')).strip()}  —  {money(_to_int(r.get('Salaire',0)))}",
-        axis=1
-    )
+        t = d0.copy()
+        pos_col = "Position" if "Position" in t.columns else ("Pos" if "Pos" in t.columns else None)
+        team_col = "Team" if "Team" in t.columns else ("Equipe" if "Equipe" in t.columns else None)
+        lvl_col = "Level" if "Level" in t.columns else None
 
-    labels = ["— Choisir un joueur —"] + pool["_label"].tolist()
-    choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_label")
+        out = pd.DataFrame()
+        out["Pos"] = t[pos_col].astype(str).str.strip() if pos_col else ""
+        out["Éq."] = t[team_col].astype(str).str.strip() if team_col else ""
+        out["Joueur"] = t["Joueur"].astype(str).str.strip()
+        out["Lev."] = t[lvl_col].astype(str).str.strip() if lvl_col else ""
+        out["Salaire"] = t["Salaire"].apply(lambda x: money(_to_int(x))) if "Salaire" in t.columns else ""
 
-    if choice == "— Choisir un joueur —":
-        st.markdown("<div class='actHint'>Choisis un joueur, puis sélectionne le type de changement et la destination.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.stop()
+        # tri stable
+        if "Pos" in out.columns and "Joueur" in out.columns:
+            out = out.sort_values(["Pos", "Joueur"], kind="stable")
+        return out
 
-    row = pool[pool["_label"] == choice].iloc[0].to_dict()
+    with colL:
+        st.markdown("### 📋 Roster")
+        st.markdown("#### 🟢 Actifs (GC)")
+        st.dataframe(roster_table(gc_actif), use_container_width=True, hide_index=True, height=260)
+        st.markdown("#### 🟡 Banc (GC)")
+        st.dataframe(roster_table(gc_banc), use_container_width=True, hide_index=True, height=230)
+        st.markdown("#### 🔵 Mineur (CE)")
+        st.dataframe(roster_table(ce_all), use_container_width=True, hide_index=True, height=260)
+        st.markdown("#### 🩹 IR")
+        st.dataframe(roster_table(ir_all), use_container_width=True, hide_index=True, height=200)
 
-    cur_statut = _safe(row.get("Statut", ""))
-    cur_slot   = _safe(row.get("Slot", ""))
-    is_ce = (cur_statut == STATUT_CE)
-    is_ir = (cur_slot == SLOT_IR)
-    is_banc = (cur_slot == SLOT_BANC)
+    with colR:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("### 🎯 Déplacement")
+        st.caption("Sélectionne un joueur → choisis le type → choisis la destination → applique.")
 
-    # Type de changement
-    if is_ir:
-        reason_opts = ["Retour de blessure"]
-    else:
-        if is_ce:
-            reason_opts = ["Changement demi-mois", "Remplacement"]
+        pool = dprop.copy()
+        pool["Joueur"] = pool["Joueur"].astype(str).str.strip()
+        pool = pool[~pool["Joueur"].str.lower().isin(BAD)].copy()
+
+        def section_label(r):
+            stt = str(r.get("Statut", "")).strip()
+            slt = str(r.get("Slot", "")).strip()
+            if stt == STATUT_CE:
+                return "🔵 Mineur"
+            if slt == SLOT_IR:
+                return "🩹 IR"
+            if slt == SLOT_BANC:
+                return "🟡 Banc"
+            return "🟢 Actif"
+
+        pool["_sec"] = pool.apply(section_label, axis=1)
+        pool["_pos"] = pool.apply(lambda r: str(r.get("Position", "") or r.get("Pos", "")).strip(), axis=1)
+        pool["_sal"] = pool["Salaire"].apply(lambda x: money(_to_int(x))) if "Salaire" in pool.columns else ""
+        pool["_label"] = pool.apply(lambda r: f"{r['Joueur']} — {r['_sec']} — {r['_pos']} — {r['_sal']}", axis=1)
+
+        labels = ["— Choisir un joueur —"] + pool["_label"].tolist()
+        choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_pro_v29")
+
+        if choice != "— Choisir un joueur —":
+            row = pool[pool["_label"] == choice].iloc[0].to_dict()
+            cur_statut = str(row.get("Statut", "")).strip()
+            cur_slot = str(row.get("Slot", "")).strip()
+
+            is_ce = (cur_statut == STATUT_CE)
+            is_ir = (cur_slot == SLOT_IR)
+            is_banc = (cur_slot == SLOT_BANC)
+
+            if is_ir:
+                reason_opts = ["Retour de blessure"]
+            else:
+                if is_ce:
+                    reason_opts = ["Changement demi-mois", "Remplacement"]
+                else:
+                    reason_opts = ["Changement demi-mois", "Blessure"]
+                if is_banc:
+                    reason_opts = ["Changement demi-mois"]
+
+            reason = st.radio("Type", reason_opts, horizontal=True, key="mv_reason_pro_v29")
+
+            destinations = []
+            if is_ir:
+                destinations = [("🟢 Retour Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
+            else:
+                if reason == "Changement demi-mois":
+                    if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
+                        destinations = [("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+                    elif cur_statut == STATUT_GC and cur_slot == SLOT_BANC:
+                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+                    elif cur_statut == STATUT_CE:
+                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC))]
+                    else:
+                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
+                else:
+                    if is_ce:
+                        destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
+                    else:
+                        destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
+
+            current = (cur_statut, cur_slot or "")
+            destinations = [(lab, val) for (lab, val) in destinations if (val[0], val[1] or "") != current]
+
+            if destinations:
+                dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_pro_v29")
+                dest_statut, dest_slot = dict(destinations)[dest_label]
+
+                st.markdown(f"**Avant :** {section_label(row)}  
+**Après :** {dest_label}")
+                if st.button("✅ Appliquer", type="primary", use_container_width=True):
+                    joueur = str(row.get("Joueur", "")).strip()
+                    jn = _norm_name(joueur)
+                    mask = (
+                        df["Propriétaire"].astype(str).str.strip().eq(proprietaire)
+                        & df["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+                    )
+                    if df.loc[mask].empty:
+                        st.error("Joueur introuvable.")
+                    else:
+                        df.loc[mask, "Statut"] = dest_statut
+                        df.loc[mask, "Slot"] = dest_slot
+                        st.session_state["data"] = df
+
+                        if "append_history_move" in globals() and callable(globals()["append_history_move"]):
+                            try:
+                                append_history_move(
+                                    proprietaire=proprietaire,
+                                    joueur=joueur,
+                                    from_statut=cur_statut,
+                                    from_slot=cur_slot,
+                                    to_statut=dest_statut,
+                                    to_slot=dest_slot,
+                                    reason=reason,
+                                )
+                            except Exception:
+                                pass
+
+                        st.success("Déplacement appliqué.")
+                        st.rerun()
+            else:
+                st.info("Aucune destination valide.")
         else:
-            reason_opts = ["Changement demi-mois", "Blessure"]
-        if is_banc:
-            reason_opts = ["Changement demi-mois"]
+            st.markdown("<div class='small'>Choisis un joueur pour activer le panneau.</div>", unsafe_allow_html=True)
 
-    reason = st.radio("Type de changement", reason_opts, horizontal=True, key="mv_reason_v27")
-
-    # Destinations selon règles
-    destinations = []
-
-    if is_ir:
-        destinations = [("🟢 Retour Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
-    else:
-        if reason == "Changement demi-mois":
-            if cur_statut == STATUT_GC and cur_slot == SLOT_ACTIF:
-                destinations = [("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-            elif cur_statut == STATUT_GC and cur_slot == SLOT_BANC:
-                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-            elif cur_statut == STATUT_CE:
-                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC))]
-            else:
-                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF)), ("🟡 Banc (GC)", (STATUT_GC, SLOT_BANC)), ("🔵 Mineur (CE)", (STATUT_CE, ""))]
-        else:
-            # Blessure / Remplacement
-            if is_ce:
-                destinations = [("🟢 Actif (GC)", (STATUT_GC, SLOT_ACTIF))]
-            else:
-                destinations = [("🩹 Blessé (IR)", (STATUT_GC, SLOT_IR))]
-
-    current = (cur_statut, cur_slot or "")
-    destinations = [(lab, val) for (lab, val) in destinations if (val[0], val[1] or "") != current]
-    if not destinations:
-        st.info("Aucune destination valide (déjà à cet endroit).")
         st.markdown("</div>", unsafe_allow_html=True)
-        st.stop()
-
-    dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_label_v27")
-    dest_statut, dest_slot = dict(destinations)[dest_label]
-
-    colA, colB = st.columns([1, 1], vertical_alignment="center")
-    with colA:
-        if st.button("✅ Appliquer le déplacement", type="primary", use_container_width=True):
-            joueur = _safe(row.get("Joueur",""))
-            jn = _norm_name(joueur)
-
-            mask = (
-                df["Propriétaire"].astype(str).str.strip().eq(proprietaire)
-                & df["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
-            )
-            if df.loc[mask].empty:
-                st.error("Joueur introuvable dans la base (nom/propriétaire).")
-            else:
-                df.loc[mask, "Statut"] = dest_statut
-                df.loc[mask, "Slot"]   = dest_slot
-                st.session_state["data"] = df
-
-                if "append_history_move" in globals() and callable(globals()["append_history_move"]):
-                    try:
-                        append_history_move(
-                            proprietaire=proprietaire,
-                            joueur=joueur,
-                            from_statut=cur_statut,
-                            from_slot=cur_slot,
-                            to_statut=dest_statut,
-                            to_slot=dest_slot,
-                            reason=reason,
-                        )
-                    except Exception:
-                        pass
-
-                st.success(f"Déplacement appliqué: {joueur} → {dest_label}")
-                st.rerun()
-
-    with colB:
-        if st.button("🧹 Annuler", use_container_width=True):
-            st.session_state["mv_pick_label"] = "— Choisir un joueur —"
-            st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
