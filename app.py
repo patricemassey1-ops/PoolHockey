@@ -2541,6 +2541,8 @@ def set_move_ctx(owner: str, joueur: str, source_key: str):
         "ts": datetime.now(TZ_TOR).isoformat(),
     }
 
+    st.session_state["move_auto_open"] = True
+
 def clear_move_ctx():
     st.session_state["move_ctx"] = None
     st.session_state["move_source"] = ""
@@ -2956,6 +2958,14 @@ if active_tab == "📊 Tableau":
     st.divider()
 
     popup_open = st.session_state.get("move_ctx") is not None
+    # auto-open move dialog right after a selection
+    if popup_open and st.session_state.get("move_auto_open"):
+        st.session_state["move_auto_open"] = False
+        try:
+            open_move_dialog()
+        except Exception:
+            pass
+
     if popup_open:
         c1, c2, c3 = st.columns([3, 1, 1])
         with c1:
@@ -3053,6 +3063,14 @@ elif active_tab == "🧾 Alignement":
     st.divider()
 
     popup_open = st.session_state.get("move_ctx") is not None
+    # auto-open move dialog right after a selection
+    if popup_open and st.session_state.get("move_auto_open"):
+        st.session_state["move_auto_open"] = False
+        try:
+            open_move_dialog()
+        except Exception:
+            pass
+
     if popup_open:
         c1, c2, c3 = st.columns([3, 1, 1])
         with c1:
