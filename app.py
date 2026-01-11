@@ -239,7 +239,46 @@ st.markdown(
         color: #9ca3af !important;
         font-weight: 600;
     }
-    </style>
+    
+    /* =========================================
+       🧾 Fantrax-like section header
+       ========================================= */
+    .fx-sectionbar{
+        background: rgba(229,231,235,0.14);
+        border: 1px solid rgba(148,163,184,0.25);
+        color: #e5e7eb;
+        padding: 0.35rem 0.6rem;
+        border-radius: 8px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        font-size: 0.78rem;
+        margin: 0.55rem 0 0.35rem 0;
+    }
+    .fx-subtle{
+        color:#9ca3af;
+        font-size:0.85rem;
+    }
+
+    /* Fantrax-like blue square action buttons (limited damage: only small emoji buttons) */
+    div[data-testid="stButton"]>button.fx-btn{
+        background: #3b82f6 !important;
+        border: 1px solid #1d4ed8 !important;
+        color: #ffffff !important;
+        border-radius: 4px !important;
+        width: 30px !important;
+        height: 30px !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+        font-weight: 700 !important;
+        min-width: 30px !important;
+    }
+    div[data-testid="stButton"]>button.fx-btn:hover{
+        filter: brightness(1.05);
+        transform: translateY(-1px);
+    }
+
+</style>
     """,
     unsafe_allow_html=True
 )
@@ -3455,22 +3494,23 @@ elif active_tab == "🧾 Alignement":
           - 'mineur'  -> propose Activer (Mineur -> Actifs GC)
           - 'ir'      -> pas de quick action
         """
-        st.markdown(f"### {title}")
+        st.markdown(f'<div class="fx-sectionbar">{title}</div>', unsafe_allow_html=True)
 
         if df_src is None or df_src.empty:
             st.caption("Aucun joueur.")
             return
 
         # En-tête table
-        h = st.columns([0.6, 0.8, 2.8, 0.8, 1.2, 0.55, 0.55, 0.75], vertical_alignment="center")
-        h[0].markdown("**Pos**")
-        h[1].markdown("**Éq.**")
-        h[2].markdown("**Nom**")
+        h = st.columns([0.6, 2.6, 0.9, 0.8, 1.2, 0.7, 0.7, 0.7, 0.9], vertical_alignment="center")
+        h[0].markdown("**T**")
+        h[1].markdown("**Nom**")
+        h[2].markdown("**Éq.**")
         h[3].markdown("**Lev.**")
-        h[4].markdown("**Sal.**")
-        h[5].markdown("**✏️**")
-        h[6].markdown("**🔁**")
-        h[7].markdown("**⭐**")
+        h[4].markdown("**Sal**")
+        h[5].markdown("**Modifier**")
+        h[6].markdown("**Effacer**")
+        h[7].markdown("**Échanger**")
+        h[8].markdown("**Réserver**")
 
         # Lignes
         for _, r in df_src.iterrows():
@@ -3481,16 +3521,11 @@ elif active_tab == "🧾 Alignement":
             lev = _safe(r.get("Level", r.get("Lev.", "")))
             sal = money(r.get("Salaire", 0))
 
-            row = st.columns([0.6, 0.8, 2.8, 0.8, 1.2, 0.55, 0.55, 0.75], vertical_alignment="center")
+            row = st.columns([0.6, 2.6, 0.9, 0.8, 1.2, 0.7, 0.7, 0.7, 0.9], vertical_alignment="center")
 
             row[0].markdown(pos)
-            row[1].markdown(team)
-
-            # Clic sur le nom = Modifier (ouvre modal)
-            if row[2].button(name, key=f"ft_pick_{source_key}_{rid}", use_container_width=True):
-                set_move_ctx(proprietaire, name, source_key)
-                open_move_dialog()
-                st.stop()
+            row[1].markdown(f"**{name}**")
+            row[2].markdown(team)
 
             row[3].markdown(lev)
             row[4].markdown(sal)
@@ -3500,8 +3535,26 @@ elif active_tab == "🧾 Alignement":
                 open_move_dialog()
                 st.stop()
 
+            if row[6].button("🗑️", key=f"ft_del_{source_key}_{rid}", help="Effacer"):
+                df0 = st.session_state.get("data")
+                if not isinstance(df0, pd.DataFrame) or df0.empty:
+                    st.warning("Aucune donnée à modifier.")
+                    st.stop()
+                jn = _norm_name(name)
+                mask = (
+                    df0["Propriétaire"].astype(str).str.strip().eq(proprietaire)
+                    & df0["Joueur"].astype(str).fillna("").map(_norm_name).eq(jn)
+                )
+                if df0.loc[mask].empty:
+                    st.warning("Joueur introuvable.")
+                    st.stop()
+                st.session_state["data"] = df0.loc[~mask].copy()
+                st.toast("🗑️ Joueur effacé.", icon="🗑️")
+                st.rerun()
+
+            
             # Échanger : prépare un contexte et envoie vers Transactions
-            if row[6].button("🔁", key=f"ft_trade_{source_key}_{rid}", help="Échanger (ouvre Transactions)"):
+            if row[7].button("🔁", key=f"ft_trade_{source_key}_{rid}", help="Échanger (ouvre Transactions)"):
                 st.session_state["trade_seed"] = {"owner": proprietaire, "joueur": name}
                 st.session_state["active_tab"] = "⚖️ Transactions"
                 st.toast("🔁 Joueur pré-sélectionné pour échange.", icon="🔁")
@@ -3509,16 +3562,16 @@ elif active_tab == "🧾 Alignement":
 
             # Réserver / Activer / (rien)
             if mode == "actifs":
-                if row[7].button("⭐", key=f"ft_res_{source_key}_{rid}", help="Réserver (Actifs → Banc)"):
+                if row[8].button("⭐", key=f"ft_res_{source_key}_{rid}", help="Réserver (Actifs → Banc)"):
                     _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_BANC, "Réserver")
             elif mode == "banc":
-                if row[7].button("✅", key=f"ft_act_{source_key}_{rid}", help="Activer (Banc → Actifs)"):
+                if row[8].button("✅", key=f"ft_act_{source_key}_{rid}", help="Activer (Banc → Actifs)"):
                     _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_ACTIF, "Activer")
             elif mode == "mineur":
-                if row[7].button("✅", key=f"ft_call_{source_key}_{rid}", help="Remplacement (Mineur → Actifs)"):
+                if row[8].button("✅", key=f"ft_call_{source_key}_{rid}", help="Remplacement (Mineur → Actifs)"):
                     _apply_quick_move(proprietaire, name, STATUT_GC, SLOT_ACTIF, "Remplacement")
             else:
-                row[7].markdown("")
+                row[8].markdown("")
 
         st.divider()
 
