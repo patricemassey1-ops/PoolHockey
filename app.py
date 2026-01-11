@@ -2582,7 +2582,7 @@ if active_tab == "📊 Tableau":
         end_w = now.replace(hour=19, minute=0, second=0, microsecond=0)
         if not (start_w <= now <= end_w):
             st.caption("⏳ Les réclamations s’affichent chaque jour de **00:00 à 19:00** (heure de l’Est).")
-            return
+            st.stop()  # Streamlit: stop rendering this run
         claims2 = claims2[claims2["timestamp_dt"].dt.date == now.date()]
         # Enrichit avec meta joueur (Level / NHL GP / Équipe / Pos) + propriétaire actuel si déjà signé
         try:
