@@ -3272,15 +3272,15 @@ elif active_tab == "🧾 Alignement":
         pct = 0.0 if cap <= 0 else max(0.0, min(1.0, used / cap))
         fill_cls = "capFill bad" if remain < 0 else "capFill"
         sub = f"{money(used)} / {money(cap)}  •  Reste: {money(remain)}"
-        return f'''
-        <div class="capBox">
-          <div class="capTop">
-            <div class="capTitle">{html.escape(title)}</div>
-            <div class="capSub">{html.escape(sub)}</div>
-          </div>
-          <div class="capBar"><div class="{fill_cls}" style="width:{pct*100:.1f}%"></div></div>
-        </div>
-        '''
+        return (
+            f'<div class="capBox">'
+            f'<div class="capTop">'
+            f'<div class="capTitle">{html.escape(title)}</div>'
+            f'<div class="capSub">{html.escape(sub)}</div>'
+            f'</div>'
+            f'<div class="capBar"><div class="{fill_cls}" style="width:{pct*100:.1f}%"></div></div>'
+            f'</div>'
+        )
 
     st.markdown(
         f'<div class="capBars">{_cap_box("Grand Club", total_gc, cap_gc)}{_cap_box("Club École", total_ce, cap_ce)}</div>',
