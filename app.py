@@ -1738,6 +1738,18 @@ def open_move_dialog():
         _clear_active_dialog('move')
         return
 
+    # auto-unlock si ctx trop vieux (évite blocage "déplacement en cours")
+    try:
+        ts = ctx.get("ts")
+        if ts:
+            age = (datetime.now(TZ_TOR) - datetime.fromisoformat(ts)).total_seconds()
+            if age > 90:
+                clear_move_ctx()
+                _clear_active_dialog('move')
+                return
+    except Exception:
+        pass
+
     if st.session_state.get("LOCKED"):
         st.warning("🔒 Saison verrouillée : aucun changement permis.")
         clear_move_ctx()
@@ -2520,6 +2532,7 @@ def set_move_ctx(owner: str, joueur: str, source_key: str):
         "owner": owner,
         "joueur": joueur,
         "nonce": st.session_state["move_nonce"],
+        "ts": datetime.now(TZ_TOR).isoformat(),
     }
 
 def clear_move_ctx():
@@ -2938,7 +2951,23 @@ if active_tab == "📊 Tableau":
 
     popup_open = st.session_state.get("move_ctx") is not None
     if popup_open:
-        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+        c1, c2, c3 = st.columns([3, 1, 1])
+        with c1:
+            st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+        with c2:
+            if st.button("➡️ Continuer", key="resume_move_tableau"):
+                try:
+                    open_move_dialog()
+                except Exception:
+                    pass
+        with c3:
+            if st.button("🧹 Débloquer", key="unlock_move_ctx_tableau"):
+                try:
+                    clear_move_ctx()
+                    _clear_active_dialog(None)
+                except Exception:
+                    st.session_state["move_ctx"] = None
+                    st.session_state["active_dialog"] = ""
 
     # (v11) Bloc Alignement retiré du tableau (corrige NameError gc_actif).
 elif active_tab == "🧾 Alignement":
@@ -3019,7 +3048,23 @@ elif active_tab == "🧾 Alignement":
 
     popup_open = st.session_state.get("move_ctx") is not None
     if popup_open:
-        st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+        c1, c2, c3 = st.columns([3, 1, 1])
+        with c1:
+            st.caption("🔒 Sélection désactivée: un déplacement est en cours.")
+        with c2:
+            if st.button("➡️ Continuer", key="resume_move_tableau"):
+                try:
+                    open_move_dialog()
+                except Exception:
+                    pass
+        with c3:
+            if st.button("🧹 Débloquer", key="unlock_move_ctx_tableau"):
+                try:
+                    clear_move_ctx()
+                    _clear_active_dialog(None)
+                except Exception:
+                    st.session_state["move_ctx"] = None
+                    st.session_state["active_dialog"] = ""
 
     mobile_view = bool(st.session_state.get("mobile_view", False))
 
@@ -3102,6 +3147,7 @@ elif active_tab == "🧾 Alignement":
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
 
+
     # liste des équipes (pour Points / ordre FA)
     df_roster = st.session_state.get("data")
     if isinstance(df_roster, pd.DataFrame) and not df_roster.empty and "Propriétaire" in df_roster.columns:
@@ -3111,7 +3157,35 @@ elif active_tab == "🧑‍💼 GM":
         teams_list = sorted(plaf["Propriétaire"].astype(str).str.strip().unique().tolist()) if isinstance(plaf, pd.DataFrame) and not plaf.empty and "Propriétaire" in plaf.columns else []
 
 
-    # Marché des échanges (si la fonction existe)
+
+    # ---------------------------------------------
+    # 🎯 Choix de repêchage par équipe (R1-R8, 3 années)
+    # ---------------------------------------------
+    try:
+        picks = load_picks(st.session_state.get("season"), teams_list or sorted(list(LOGOS.keys())))
+        rows = []
+        for team, years in (picks or {}).items():
+            for year, rounds in (years or {}).items():
+                for rnd, owner in (rounds or {}).items():
+                    rows.append({
+                        "Équipe": team,
+                        "Année": int(year) if str(year).isdigit() else str(year),
+                        "Ronde": int(rnd) if str(rnd).isdigit() else str(rnd),
+                        "Appartient à": str(owner),
+                    })
+        if rows:
+            dfp = pd.DataFrame(rows).sort_values(["Équipe", "Année", "Ronde"])
+            st.markdown("### 🎯 Choix de repêchage")
+            st.dataframe(dfp, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucun choix de repêchage trouvé.")
+    except Exception as e:
+        st.warning(f"⚠️ Impossible d'afficher les choix de repêchage: {type(e).__name__}: {e}")
+
+    st.divider()
+
+
+    # Marché des échanges \(si la fonction existe\)
     if "gm_trade_market_ui" in globals() and callable(globals()["gm_trade_market_ui"]):
         gm_trade_market_ui()
     else:
@@ -3173,6 +3247,14 @@ elif active_tab == "👤 Joueurs autonomes":
     st.subheader("👤 Joueurs autonomes")
     st.caption("Recherche et embauche de joueurs autonomes (non signés).")
 
+    # reset demandé (doit se faire AVANT les widgets liés)
+    if st.session_state.pop("fa_reset_flag", False):
+        # clear query + sélection
+        st.session_state["fa_query"] = ""
+        st.session_state["fa_selected"] = []
+        st.session_state["fa_destinations"] = {}
+        st.session_state["fa_editor_nonce"] = int(st.session_state.get("fa_editor_nonce", 0)) + 1
+
     # reset du tableau (évite des cases déjà cochées via session_state)
     if "fa_editor_nonce" not in st.session_state:
         st.session_state["fa_editor_nonce"] = 0
@@ -3216,7 +3298,14 @@ elif active_tab == "👤 Joueurs autonomes":
                 s = s.split(".")[0]
             return int(float(s))
         except Exception:
-            return 0
+            # fallback: extraire un nombre dans une string (ex: "retained_total: 0 ; cash: 0")
+            try:
+                s = str(x)
+                m = re.search(r"(\d+)", s.replace(",", "").replace(" ", ""))
+                return int(m.group(1)) if m else 0
+            except Exception:
+                return 0
+
 
     # --- recherche (sans "Suggestions" pour éviter le dédoublement)
     c1, c2 = st.columns([8, 2], vertical_alignment="center")
@@ -3228,7 +3317,7 @@ elif active_tab == "👤 Joueurs autonomes":
         )
     with c2:
         if st.button("🧹 Nouvelle recherche", use_container_width=True, key="fa_clear_query"):
-            st.session_state["fa_query"] = ""
+            st.session_state["fa_reset_flag"] = True
             do_rerun()
 
     search_name = str(q or "").strip()
@@ -3277,12 +3366,17 @@ elif active_tab == "👤 Joueurs autonomes":
     st.markdown(
         """
         <div style="border:2px solid rgba(34,197,94,.85); border-radius:12px; padding:10px 12px; margin:8px 0 14px 0;">
-          <span style="font-weight:800;">⬇️ Clique ici :</span>
-          <span>dans la colonne</span>
-          <span style="display:inline-block; padding:2px 8px; border-radius:10px; border:2px solid rgba(34,197,94,.95); font-weight:900; margin:0 4px;">
-            Destination
-          </span>
-          <span>(à droite), sélectionne GC ou CE pour chaque joueur.</span>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <div style="line-height:1.25;">
+              <span style="font-weight:900;">Clique ici :</span>
+              <span>dans la colonne</span>
+              <span style="display:inline-block; padding:2px 8px; border-radius:10px; border:2px solid rgba(34,197,94,.95); font-weight:900; margin:0 4px;">
+                Destination
+              </span>
+              <span>(à droite), sélectionne GC ou CE pour chaque joueur.</span>
+            </div>
+            <div style="font-weight:900; font-size:18px; color:rgba(34,197,94,.95);">⬇️</div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
