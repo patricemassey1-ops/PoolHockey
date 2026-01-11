@@ -60,6 +60,10 @@ st.set_page_config(page_title="PMS", layout="wide")
 st.markdown(
     """
     <style>
+
+              /* roster table: avoid header wrap */
+              .rosterHdr {white-space: nowrap;}
+              .rosterCell {white-space: nowrap;}
     /* =========================================
        ✨ Micro animations (douces)
        ========================================= */
@@ -2137,7 +2141,7 @@ def open_move_dialog():
 
         c1, c2 = st.columns(2)
 
-        if c1.button("✅ Confirmer", type="primary", use_container_width=True, key=f"ok_{owner}_{joueur}_{nonce}"):
+        if c1.button("✅ Confirmer", type="primary", use_container_width=False, key=f"ok_{owner}_{joueur}_{nonce}"):
 
             note = f"{reason} — {cur_statut}/{cur_slot or '-'} → {to_statut}/{to_slot or '-'}"
 
@@ -2768,11 +2772,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     h = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
-    h[0].markdown("**Pos**")
-    h[1].markdown("**Équipe**")
-    h[2].markdown("**Joueur**")
-    h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
+    h[0].markdown("<span class='rosterHdr'><b>Pos</b></span>", unsafe_allow_html=True)
+    h[1].markdown("<span class='rosterHdr'><b>Éq.</b></span>", unsafe_allow_html=True)
+    h[2].markdown("<span class='rosterHdr'><b>Joueur</b></span>", unsafe_allow_html=True)
+    h[3].markdown("<span class='rosterHdr'><b>Lev.</b></span>", unsafe_allow_html=True)
+    h[4].markdown("<span class='rosterHdr'><b>Salaire</b></span>", unsafe_allow_html=True)
     h[5].markdown("")
 
     clicked = None
@@ -2789,14 +2793,14 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
+        c = st.columns([0.9, 1.2, 4.2, 1.1, 1.6, 1.6], vertical_alignment="center")
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
         c[2].write(joueur)
 
         # Action explicite (plus clair que cliquer sur la ligne)
         if c[5].button(
-            "Déplacer",
+            "➡️ Déplacer",
             key=f"{source_key}_{owner}_{row_key}_mv",
             use_container_width=True,
             disabled=disabled,
@@ -3137,17 +3141,28 @@ elif active_tab == "🧾 Alignement":
             st.session_state["active_dialog"] = ""
             st.session_state["move_auto_open"] = False
     if st.session_state.get("move_ctx") is not None:
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.warning("🔒 Sélection désactivée: un déplacement est en cours. Termine-le ci-dessous (inline) ou annule.")
-        with c2:
-            if st.button("🧹 Annuler le déplacement", key="unlock_move_ctx_align"):
-                clear_move_ctx()
-                st.session_state["active_dialog"] = ""
-                st.session_state["move_auto_open"] = False
-                do_rerun()
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1], vertical_alignment="center")
+            with c1:
+                st.warning("🔒 Sélection désactivée: un déplacement est en cours. Choisis **Demi-mois** ou **Blessure** puis une destination, ou annule.")
+            with c2:
+                if st.button("🧹 Annuler", key="unlock_move_ctx_align", use_container_width=True):
+                    clear_move_ctx()
+                    st.session_state["active_dialog"] = ""
+                    st.session_state["move_auto_open"] = False
+                    st.rerun()
 
-        st.session_state["force_inline_dialog"] = True
+            # panneau inline (sans popup)
+            st.session_state["force_inline_dialog"] = True
+            try:
+                open_move_dialog()
+            except Exception as e:
+                st.error(f"Impossible d'afficher le panneau de déplacement: {e}")
+            finally:
+                st.session_state["force_inline_dialog"] = False
+
+        st.divider()
+
         try:
             open_move_dialog()
         except Exception as e:
