@@ -359,6 +359,23 @@ def normalize_pos(pos: str) -> str:
 def pos_sort_key(pos: str) -> int:
     return {"F": 0, "D": 1, "G": 2}.get(str(pos).upper(), 99)
 
+def normalize_level(x: str) -> str:
+    """Normalise le niveau de contrat: retourne 'STD', 'ELC' ou '' (inconnu)."""
+    v = str(x or "").strip().upper()
+    if not v:
+        return ""
+    # accepte variantes
+    if "ELC" in v:
+        return "ELC"
+    if "STD" in v:
+        return "STD"
+    # parfois: 'E'/'S' ou 'ENTRY'/'STANDARD'
+    if v in {"E", "ENTRY"} or "ENTRY" in v:
+        return "ELC"
+    if v in {"S", "STANDARD"} or "STANDARD" in v:
+        return "STD"
+    return v
+
 def saison_auto() -> str:
     now = datetime.now(TZ_TOR)
     return f"{now.year}-{now.year+1}" if now.month >= 9 else f"{now.year-1}-{now.year}"
@@ -425,6 +442,16 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out["Joueur"] = out["Joueur"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     out["Pos"] = out["Pos"].astype(str).apply(normalize_pos)
     out["Equipe"] = out["Equipe"].astype(str).str.strip()
+
+    # Level (STD/ELC) — tolère plusieurs noms de colonnes à l'import
+    if "Level" not in out.columns:
+        alt = None
+        for c in ["Lev.", "Niveau", "Contrat", "Contract", "ELC/STD", "Type contrat"]:
+            if c in out.columns:
+                alt = c
+                break
+        out["Level"] = out[alt] if alt else ""
+    out["Level"] = out["Level"].astype(str).apply(normalize_level)
 
     out["Salaire"] = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
 
