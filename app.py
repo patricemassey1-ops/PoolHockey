@@ -2054,22 +2054,51 @@ def open_move_dialog():
         return False
 
     css = """
-    <style>
-      /* Modal move dialog — pixel-ish */
-      .mvHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
-      .mvIcon{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;
-              background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-size:20px}
-      .mvTitle{font-weight:1000;font-size:22px;line-height:1.05;margin-top:2px}
-      .mvSub{opacity:.80;font-weight:800;font-size:12px;margin-top:4px}
-      .mvHint{opacity:.80;font-size:12px;margin-top:10px}
-      .mvSep{height:1px;background:rgba(255,255,255,.10);margin:12px 0}
-      .pill-mini{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
-                 background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
-                 font-weight:900;font-size:12px;white-space:nowrap}
-      .dot{width:8px;height:8px;border-radius:999px;background:#6b7280}
-      .dot-ok{background:#22c55e}.dot-warn{background:#f59e0b}.dot-danger{background:#ef4444}
-    </style>
-    """
+<style>
+/* Modal container tweaks */
+div[data-testid="stDialog"] > div[role="dialog"]{
+  border-radius: 16px !important;
+}
+
+/* Header */
+.mvHead{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:14px 14px 10px 14px;
+  border:1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(17,24,39,.92), rgba(15,23,42,.92));
+  border-radius:14px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+}
+.mvIcon{
+  width:44px;height:44px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  background: rgba(34,197,94,.10);
+  border:1px solid rgba(34,197,94,.30);
+  font-size:20px;
+}
+.mvTitle{font-size:20px;font-weight:900;line-height:1.1;color:#e5e7eb;margin-bottom:2px}
+.mvSub{color:#9ca3af;font-size:12.5px;line-height:1.25}
+.mvHint{
+  margin:10px 2px 0 2px;
+  color:#cbd5e1;font-size:13px;
+  padding:10px 12px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background: rgba(15,23,42,.55);
+}
+.mvSep{height:1px;background:rgba(148,163,184,.18);margin:12px 0}
+
+/* Small pills inside modal (optional) */
+.pill-mini{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:3px 10px;border-radius:999px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);
+  font-weight:900;font-size:12px;white-space:nowrap
+}
+.dot{width:8px;height:8px;border-radius:999px;background:#6b7280}
+.dot-ok{background:#22c55e}.dot-warn{background:#f59e0b}.dot-danger{background:#ef4444}
+</style>
+"""
 
     @_dialog_decorator(f"Déplacement — {joueur}", width="small")
     def _dlg():
@@ -3463,26 +3492,26 @@ elif active_tab == "🧾 Alignement":
     topA, topB = st.columns(2, gap="large")
     with topA:
         st.markdown("### 🟢 Actifs (GC)")
-        idx_sel = pick_index_from_df(gc_actif, key="sel_gc_actifs_v35", height=300)
+        idx_sel = pick_index_from_df(gc_actif, key="sel_gc_actifs_v37", height=300)
         if idx_sel is not None:
             open_move_dialog_local(idx_sel, source_key="actifs")
 
     with topB:
         st.markdown("### 🔵 Mineurs (CE)")
-        idx_sel = pick_index_from_df(ce_all, key="sel_ce_mineurs_v35", height=300)
+        idx_sel = pick_index_from_df(ce_all, key="sel_ce_mineurs_v37", height=300)
         if idx_sel is not None:
             open_move_dialog_local(idx_sel, source_key="mineurs")
 
     botA, botB = st.columns(2, gap="large")
     with botA:
         st.markdown("### 🟡 Banc (GC)")
-        idx_sel = pick_index_from_df(gc_banc, key="sel_gc_banc_v35", height=260)
+        idx_sel = pick_index_from_df(gc_banc, key="sel_gc_banc_v37", height=260)
         if idx_sel is not None:
             open_move_dialog_local(idx_sel, source_key="banc")
 
     with botB:
         st.markdown("### 🟥 Blessés (IR)")
-        idx_sel = pick_index_from_df(ir_all, key="sel_gc_ir_v35", height=260)
+        idx_sel = pick_index_from_df(ir_all, key="sel_gc_ir_v37", height=260)
         if idx_sel is not None:
             open_move_dialog_local(idx_sel, source_key="ir")
 
@@ -4416,7 +4445,7 @@ elif active_tab == "🛠️ Gestion Admin":
                     "Date": str(info.get("saved_at", "") or "").strip(),
                 }
             )
- 
+
         df_imports = pd.DataFrame(rows)
         df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
 
