@@ -3286,7 +3286,7 @@ elif active_tab == "🧾 Alignement":
         pool["_label"] = pool.apply(lambda r: f"{r['Joueur']} — {r['_sec']} — {r['_pos']} — {r['_sal']}", axis=1)
 
         labels = ["— Choisir un joueur —"] + pool["_label"].tolist()
-        choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_pro_v29")
+        choice = st.selectbox("Joueur", labels, index=0, key="mv_pick_pro_v30")
 
         if choice != "— Choisir un joueur —":
             row = pool[pool["_label"] == choice].iloc[0].to_dict()
@@ -3307,7 +3307,7 @@ elif active_tab == "🧾 Alignement":
                 if is_banc:
                     reason_opts = ["Changement demi-mois"]
 
-            reason = st.radio("Type", reason_opts, horizontal=True, key="mv_reason_pro_v29")
+            reason = st.radio("Type", reason_opts, horizontal=True, key="mv_reason_pro_v30")
 
             destinations = []
             if is_ir:
@@ -3332,11 +3332,13 @@ elif active_tab == "🧾 Alignement":
             destinations = [(lab, val) for (lab, val) in destinations if (val[0], val[1] or "") != current]
 
             if destinations:
-                dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_pro_v29")
+                dest_label = st.selectbox("Destination", [d[0] for d in destinations], key="mv_dest_pro_v30")
                 dest_statut, dest_slot = dict(destinations)[dest_label]
 
-                st.markdown(f"**Avant :** {section_label(row)}  
-**Après :** {dest_label}")
+                st.markdown(
+    f"""**Avant :** {section_label(row)}  
+**Après :** {dest_label}"""
+)
                 if st.button("✅ Appliquer", type="primary", use_container_width=True):
                     joueur = str(row.get("Joueur", "")).strip()
                     jn = _norm_name(joueur)
