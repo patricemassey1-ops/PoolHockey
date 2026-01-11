@@ -2767,12 +2767,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
 
     # header
-    h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+    h = st.columns([1.0, 1.4, 3.6, 1.2, 1.8, 1.2])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
     h[4].markdown("**Salaire**")
+    h[5].markdown("")
 
     clicked = None
     for _, r in t.iterrows():
@@ -2791,10 +2792,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
+        c[2].write(joueur)
 
-        if c[2].button(
-            joueur,
-            key=f"{source_key}_{owner}_{row_key}",
+        # Action explicite (plus clair que cliquer sur la ligne)
+        if c[5].button(
+            "Déplacer",
+            key=f"{source_key}_{owner}_{row_key}_mv",
             use_container_width=True,
             disabled=disabled,
         ):
