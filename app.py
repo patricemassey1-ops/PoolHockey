@@ -2386,6 +2386,194 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     return clicked
 
 
+
+def render_tab_gm():
+    """Onglet GM — version finale (logo, masses 2 colonnes, picks compacts, rachat désactivé tant que pas de sélection)."""
+    # Data source
+    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+    st.session_state["data"] = df
+
+    owner = str(get_selected_team() or "").strip()
+    if not owner:
+        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
+        st.stop()
+
+    # plafonds
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+
+    # Filtrer l'équipe
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
+    if dprop.empty:
+        st.warning("Aucune donnée d'alignement pour cette équipe.")
+        st.stop()
+
+    # Masse salariale (incl. pénalités)
+    # On utilise STATUT_GC / STATUT_CE si déjà dans ton app
+    try:
+        gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy()
+        ce_all = dprop[dprop.get("Statut", "") == STATUT_CE].copy()
+    except Exception:
+        gc_all = pd.DataFrame()
+        ce_all = pd.DataFrame()
+
+    used_gc = int(gc_all["Salaire"].sum()) if (isinstance(gc_all, pd.DataFrame) and not gc_all.empty and "Salaire" in gc_all.columns) else 0
+    used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
+
+    # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
+    st.markdown(
+        """
+        <style>
+        .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
+        .gm-top img { width:132px; } /* 3x */
+        .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
+        .gm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-top:10px; }
+        .gm-card { border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); border-radius:14px; padding:14px 14px; }
+        .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
+        .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
+        .gm-sub { font-size:12px; opacity:0.75; margin-top:4px; display:flex; justify-content:space-between; }
+        .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+        .pick-pill { padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
+        .pick-pill.mine { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.10); }
+        .pick-pill.other { opacity:0.75; }
+        .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
+        .muted { opacity:0.75; font-size:13px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # =========================
+    # HEADER GM (pas de "GM" texte)
+    # =========================
+    top = st.columns([1, 8], vertical_alignment="center")
+    with top[0]:
+        # gm_logo 3x plus gros, complètement à gauche
+        try:
+            render_gm_logo(active=True, width=132, tooltip="Gestion d’équipe")
+        except Exception:
+            # fallback safe
+            if os.path.exists("gm_logo.png"):
+                st.image("gm_logo.png", width=132)
+    with top[1]:
+        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
+
+    # =========================
+    # MASSES (2 colonnes)
+    # =========================
+    c1, c2 = st.columns(2, gap="large")
+
+    with c1:
+        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-label'>Masse GC</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-value'>{money(used_gc)}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_gc)} / {money(cap_gc)}</span></div>", unsafe_allow_html=True)
+        st.markdown(cap_bar_html(used_gc, cap_gc, "GC"), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with c2:
+        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-label'>Masse CE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-value'>{money(used_ce)}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_ce)} / {money(cap_ce)}</span></div>", unsafe_allow_html=True)
+        st.markdown(cap_bar_html(used_ce, cap_ce, "CE"), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # =========================
+    # PICKS — compact & esthétique (pills)
+    # =========================
+    st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
+
+    teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+    season = str(st.session_state.get("season", "") or "").strip()
+
+    picks = st.session_state.get("picks")
+    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != season:
+        try:
+            picks = load_picks(season, teams)
+        except Exception:
+            picks = {}
+        st.session_state["picks"] = picks
+        st.session_state["_picks_season"] = season
+
+    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
+    rounds = list(range(1, 9))
+
+    # pills
+    pills_html = ["<div class='pick-row'>"]
+    for r in rounds:
+        who = str(my_picks.get(r, owner) or "").strip() or owner
+        cls = "pick-pill mine" if who == owner else "pick-pill other"
+        label = f"R{r} • {html.escape(who)}"
+        pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
+    pills_html.append("</div>")
+    st.markdown("".join(pills_html), unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8.</div>", unsafe_allow_html=True)
+
+    with st.expander("Voir le détail en tableau"):
+        if my_picks:
+            rows = [{"Ronde": int(r), "Appartient à": str(my_picks.get(r, ""))} for r in rounds]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucun choix trouvé pour cette équipe.")
+
+    st.divider()
+
+    # =========================
+    # RACHAT DE CONTRAT — bouton grisé tant qu'aucun joueur sélectionné
+    # =========================
+    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
+
+    # candidats: joueurs de l'équipe avec salaire > 0
+    candidates = dprop.copy()
+    if "Salaire" in candidates.columns:
+        candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
+
+    name_col = "Joueur" if "Joueur" in candidates.columns else ("Player" if "Player" in candidates.columns else None)
+    if not name_col or candidates.empty:
+        st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
+        return
+
+    # liste selection
+    display = []
+    for _, r in candidates.iterrows():
+        nm = str(r.get(name_col, "")).strip()
+        sal = money(int(r.get("Salaire", 0) or 0))
+        pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
+        team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
+        display.append(f"{nm}  —  {pos}  {team}  —  {sal}")
+
+    picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+    can_apply = bool(str(picked).strip())
+
+    r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
+    with r1:
+        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+    with r2:
+        penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
+    with r3:
+        note = st.text_input("Note (optionnel)", key="gm_buyout_note")
+
+    # bouton grisé tant que pas de sélection
+    if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
+        # Log session (tu peux brancher ta persistance si tu veux)
+        buyouts = st.session_state.get("buyouts", [])
+        buyouts.append({
+            "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
+            "owner": owner,
+            "player": picked,
+            "bucket": bucket,
+            "penalite": int(penalite or 0),
+            "note": str(note or ""),
+        })
+        st.session_state["buyouts"] = buyouts
+        st.success("Rachat enregistré (session).")
+
+
+
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
@@ -3404,187 +3592,3 @@ elif active_tab == "🧠 Recommandations":
 else:
     st.warning("Onglet inconnu")
 
-def render_tab_gm():
-    """Onglet GM — version finale (logo, masses 2 colonnes, picks compacts, rachat désactivé tant que pas de sélection)."""
-    # Data source
-    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-    st.session_state["data"] = df
-
-    owner = str(get_selected_team() or "").strip()
-    if not owner:
-        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
-        st.stop()
-
-    # plafonds
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
-
-    # Filtrer l'équipe
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
-    if dprop.empty:
-        st.warning("Aucune donnée d'alignement pour cette équipe.")
-        st.stop()
-
-    # Masse salariale (incl. pénalités)
-    # On utilise STATUT_GC / STATUT_CE si déjà dans ton app
-    try:
-        gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy()
-        ce_all = dprop[dprop.get("Statut", "") == STATUT_CE].copy()
-    except Exception:
-        gc_all = pd.DataFrame()
-        ce_all = pd.DataFrame()
-
-    used_gc = int(gc_all["Salaire"].sum()) if (isinstance(gc_all, pd.DataFrame) and not gc_all.empty and "Salaire" in gc_all.columns) else 0
-    used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
-
-    # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
-    st.markdown(
-        """
-        <style>
-        .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
-        .gm-top img { width:132px; } /* 3x */
-        .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
-        .gm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-top:10px; }
-        .gm-card { border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); border-radius:14px; padding:14px 14px; }
-        .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
-        .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
-        .gm-sub { font-size:12px; opacity:0.75; margin-top:4px; display:flex; justify-content:space-between; }
-        .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-        .pick-pill { padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
-        .pick-pill.mine { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.10); }
-        .pick-pill.other { opacity:0.75; }
-        .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
-        .muted { opacity:0.75; font-size:13px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # =========================
-    # HEADER GM (pas de "GM" texte)
-    # =========================
-    top = st.columns([1, 8], vertical_alignment="center")
-    with top[0]:
-        # gm_logo 3x plus gros, complètement à gauche
-        try:
-            render_gm_logo(active=True, width=132, tooltip="Gestion d’équipe")
-        except Exception:
-            # fallback safe
-            if os.path.exists("gm_logo.png"):
-                st.image("gm_logo.png", width=132)
-    with top[1]:
-        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
-
-    # =========================
-    # MASSES (2 colonnes)
-    # =========================
-    c1, c2 = st.columns(2, gap="large")
-
-    with c1:
-        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='gm-label'>Masse GC</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-value'>{money(used_gc)}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_gc)} / {money(cap_gc)}</span></div>", unsafe_allow_html=True)
-        st.markdown(cap_bar_html(used_gc, cap_gc, "GC"), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with c2:
-        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='gm-label'>Masse CE</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-value'>{money(used_ce)}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_ce)} / {money(cap_ce)}</span></div>", unsafe_allow_html=True)
-        st.markdown(cap_bar_html(used_ce, cap_ce, "CE"), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.divider()
-
-    # =========================
-    # PICKS — compact & esthétique (pills)
-    # =========================
-    st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
-
-    teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
-    season = str(st.session_state.get("season", "") or "").strip()
-
-    picks = st.session_state.get("picks")
-    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != season:
-        try:
-            picks = load_picks(season, teams)
-        except Exception:
-            picks = {}
-        st.session_state["picks"] = picks
-        st.session_state["_picks_season"] = season
-
-    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
-    rounds = list(range(1, 9))
-
-    # pills
-    pills_html = ["<div class='pick-row'>"]
-    for r in rounds:
-        who = str(my_picks.get(r, owner) or "").strip() or owner
-        cls = "pick-pill mine" if who == owner else "pick-pill other"
-        label = f"R{r} • {html.escape(who)}"
-        pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
-    pills_html.append("</div>")
-    st.markdown("".join(pills_html), unsafe_allow_html=True)
-    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8.</div>", unsafe_allow_html=True)
-
-    with st.expander("Voir le détail en tableau"):
-        if my_picks:
-            rows = [{"Ronde": int(r), "Appartient à": str(my_picks.get(r, ""))} for r in rounds]
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucun choix trouvé pour cette équipe.")
-
-    st.divider()
-
-    # =========================
-    # RACHAT DE CONTRAT — bouton grisé tant qu'aucun joueur sélectionné
-    # =========================
-    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
-    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
-
-    # candidats: joueurs de l'équipe avec salaire > 0
-    candidates = dprop.copy()
-    if "Salaire" in candidates.columns:
-        candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
-
-    name_col = "Joueur" if "Joueur" in candidates.columns else ("Player" if "Player" in candidates.columns else None)
-    if not name_col or candidates.empty:
-        st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
-        return
-
-    # liste selection
-    display = []
-    for _, r in candidates.iterrows():
-        nm = str(r.get(name_col, "")).strip()
-        sal = money(int(r.get("Salaire", 0) or 0))
-        pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
-        team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
-        display.append(f"{nm}  —  {pos}  {team}  —  {sal}")
-
-    picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
-    can_apply = bool(str(picked).strip())
-
-    r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
-    with r1:
-        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
-    with r2:
-        penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
-    with r3:
-        note = st.text_input("Note (optionnel)", key="gm_buyout_note")
-
-    # bouton grisé tant que pas de sélection
-    if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
-        # Log session (tu peux brancher ta persistance si tu veux)
-        buyouts = st.session_state.get("buyouts", [])
-        buyouts.append({
-            "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
-            "owner": owner,
-            "player": picked,
-            "bucket": bucket,
-            "penalite": int(penalite or 0),
-            "note": str(note or ""),
-        })
-        st.session_state["buyouts"] = buyouts
-        st.success("Rachat enregistré (session).")
