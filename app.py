@@ -38,10 +38,13 @@ st.set_page_config(page_title="PMS", layout="wide")
 # CSS — Micro-animations + Alertes visuelles + UI polish
 #   ✅ coller UNE seule fois, au top du fichier
 # =====================================================
-st.markdown(
-    """
-    <style>
-    /* =========================================
+# =====================================================
+# THEME — une seule injection CSS (Règles d’or)
+#   ✅ 1 thème, 1 injection
+#   ✅ aucun CSS ailleurs
+# =====================================================
+THEME_CSS = """<style>
+/* =========================================
        ✨ Micro animations (douces)
        ========================================= */
     .fade-in { animation: fadeIn 180ms ease-out both; }
@@ -173,11 +176,63 @@ st.markdown(
         color: #9ca3af !important;
         font-weight: 600;
     }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
+
+
+.dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
+      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+      .pill{display:inline-block;padding:2px 10px;border-radius:999px;
+            background:rgba(255,255,255,.08);
+            border:1px solid rgba(255,255,255,.12);
+            font-weight:900;font-size:12px}
+
+div[data-testid="stButton"] > button{
+                padding: 0.18rem 0.45rem;
+                font-weight: 900;
+                text-align: left;
+                justify-content: flex-start;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .salaryCell{
+                white-space: nowrap;
+                text-align: right;
+                font-weight: 900;
+                display: block;
+              }
+              .levelCell{
+                white-space: nowrap;
+                opacity: .85;
+                font-weight: 800;
+              }
+              .lvlSTD{ color:#60a5fa; font-weight:900; }
+              .lvlELC{ color:#a78bfa; font-weight:900; }
+
+.pms-mobile .block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}
+</style>"""
+
+def apply_theme():
+    st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+def _set_mobile_class(enabled: bool):
+    # Pas de <style> ici (CSS déjà dans THEME_CSS). On ne fait qu'ajouter/retirer une classe.
+    flag = "true" if enabled else "false"
+    js = f"""
+    <script>
+    (function(){
+      const cls = "pms-mobile";
+      const root = window.parent.document.body;
+      if (!root) return;
+      if ({flag}) root.classList.add(cls);
+      else root.classList.remove(cls);
+    })();
+    </script>
+    """.replace("{flag}", flag)
+    st.markdown(js, unsafe_allow_html=True)
+
+# Appel UNIQUE
+apply_theme()
 # =====================================================
 # DATE FORMAT — Français (cloud-proof, no locale)
 # =====================================================
@@ -237,22 +292,6 @@ def _sha256(s: str) -> str:
 
 def _login_header():
     logo_file = os.path.join("data", "Logo_Pool.png")
-
-    st.markdown(
-        """
-        <style>
-          .block-container { padding-top: 1.2rem !important; }
-          .pms-header-wrap{ max-width: 1120px; margin: 0 auto 10px auto; }
-          .pms-emoji{ font-size: 64px; line-height: 1; display:flex; align-items:center; justify-content:center;
-                     opacity: .95; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
-          .pms-text{ font-weight: 1000; letter-spacing: .06em; color: #ff3b30; font-size: 54px; line-height: 1;
-                     margin-left: 10px; text-shadow: 0 10px 20px rgba(0,0,0,.35); display:inline-block;
-                     transform: translateY(-2px); }
-          .pms-logo{ width: 100%; display:flex; justify-content:center; align-items:center; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
@@ -1351,21 +1390,8 @@ def open_move_dialog():
             return bool(ok)
 
         return False
-
-    css = """
-    <style>
-      .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .pill{display:inline-block;padding:2px 10px;border-radius:999px;
-            background:rgba(255,255,255,.08);
-            border:1px solid rgba(255,255,255,.12);
-            font-weight:900;font-size:12px}
-    </style>
-    """
-
     @st.dialog(f"Déplacement — {joueur}", width="small")
     def _dlg():
-        st.markdown(css, unsafe_allow_html=True)
         st.markdown(
             f"<div class='dlg-title'>{html.escape(owner)} • {html.escape(joueur)}</div>"
             f"<div class='dlg-sub'>{html.escape(cur_statut)}"
@@ -1780,12 +1806,9 @@ if auto not in saisons:
 # Mobile view
 st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 if st.session_state.get("mobile_view", False):
-    st.markdown(
-        "<style>.block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}</style>",
-        unsafe_allow_html=True
-    )
-
-
+    _set_mobile_class(True)
+else:
+    _set_mobile_class(False)
 season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
@@ -1870,7 +1893,7 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.radio("", NAV_TABS, horizontal=True, key="active_tab")
+active_tab = st.selectbox("Navigation", NAV_TABS, index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])), key="active_tab")
 st.divider()
 
 
@@ -1946,39 +1969,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         return None
 
     # CSS injecté 1x
-    if not st.session_state.get("_roster_css_injected", False):
-        st.markdown(
-            """
-            <style>
-              div[data-testid="stButton"] > button{
-                padding: 0.18rem 0.45rem;
-                font-weight: 900;
-                text-align: left;
-                justify-content: flex-start;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-              }
-              .salaryCell{
-                white-space: nowrap;
-                text-align: right;
-                font-weight: 900;
-                display: block;
-              }
-              .levelCell{
-                white-space: nowrap;
-                opacity: .85;
-                font-weight: 800;
-              }
-              .lvlSTD{ color:#60a5fa; font-weight:900; }
-              .lvlELC{ color:#a78bfa; font-weight:900; }
-
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.session_state["_roster_css_injected"] = True
-
     t = df_src.copy()
 
     # colonnes minimales
