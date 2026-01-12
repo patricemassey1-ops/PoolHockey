@@ -34,10 +34,46 @@ st.set_page_config(page_title="PMS", layout="wide")
 GM_LOGO_FILE = "gm_logo.png"
 
 
-def _render_gm_logo(width: int = 36):
+def _gm_logo_data_uri() -> str | None:
+    """Return gm_logo.png as a data URI (base64) so we can style it via HTML/CSS."""
     path = str(GM_LOGO_FILE or "").strip()
-    if path and os.path.exists(path):
-        st.image(path, width=width)
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+        # PNG expected; if you switch formats, update mime.
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return None
+
+
+def render_gm_logo(active: bool, width: int = 40, tooltip: str = "Gestion d’équipe"):
+    """
+    GM logo with:
+      - grayscale when inactive
+      - small hover tooltip
+    (Same approach can be reused for Admin later.)
+    """
+    uri = _gm_logo_data_uri()
+    if not uri:
+        return
+
+    cls = "gm-logo active" if active else "gm-logo inactive"
+    # title = native browser tooltip (simple + reliable)
+    st.markdown(
+        f"""
+        <div class="gm-logo-wrap" title="{html.escape(tooltip)}">
+            <img class="{cls}" src="{uri}" width="{int(width)}" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# Backward compatibility (if some older blocks still call it)
+def _render_gm_logo(width: int = 36):
+    render_gm_logo(active=True, width=width)
 
 
 # Anti double rerun (zéro surprise)
@@ -225,6 +261,59 @@ div[data-testid="stButton"] > button{
               .lvlELC{ color:#a78bfa; font-weight:900; }
 
 .pms-mobile .block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}
+/* =========================================
+   🔐 Login header (password page)
+   ========================================= */
+.pms-header-wrap{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.pms-left{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.pms-right{
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+}
+.pms-title{
+  font-weight:800;
+  letter-spacing:0.5px;
+  font-size:2.1rem;
+  line-height:1;
+}
+.pms-emoji-big{
+  font-size:2.4rem; /* bigger sticks + net */
+  line-height:1;
+}
+
+/* =========================================
+   🧑‍💼 GM logo (sidebar): grayscale when inactive
+   ========================================= */
+.gm-logo-wrap{
+  display:flex;
+  justify-content:center;
+  margin: 2px 0 8px 0;
+}
+.gm-logo{
+  border-radius:10px;
+  transition: filter 160ms ease, transform 160ms ease, opacity 160ms ease;
+  cursor: default;
+}
+.gm-logo.inactive{
+  filter: grayscale(100%);
+  opacity: 0.72;
+}
+.gm-logo.active{
+  filter: none;
+  opacity: 1;
+}
+.gm-logo-wrap:hover .gm-logo{
+  transform: translateY(-1px);
+}
 </style>"""
 
 def apply_theme():
@@ -313,11 +402,16 @@ def _login_header():
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([2, 8, 2], vertical_alignment="center")
+
+        # PMS (gauche) | Logo Pool (centre) | Filet (droite)
+        c1, c2, c3 = st.columns([3, 7, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
-                '<div class="pms-emoji">🏒<span class="pms-text">PMS</span></div>',
+                '<div class="pms-left">'
+                '<span class="pms-emoji-big" aria-hidden="true">🏒🏒</span>'
+                '<span class="pms-title">PMS</span>'
+                '</div>',
                 unsafe_allow_html=True,
             )
 
@@ -325,14 +419,15 @@ def _login_header():
             if os.path.exists(logo_file):
                 st.image(logo_file, use_container_width=True)
             else:
-                st.markdown('<div class="pms-logo"><span class="pms-text">PMS</span></div>', unsafe_allow_html=True)
+                st.markdown('<div class="pms-logo"><span class="pms-title">PMS</span></div>', unsafe_allow_html=True)
 
         with c3:
-            st.markdown('<div class="pms-emoji">🥅</div>', unsafe_allow_html=True)
+            st.markdown('<div class="pms-right"><span class="pms-emoji-big" aria-hidden="true">🥅</span></div>', unsafe_allow_html=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
+
 
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
@@ -2045,11 +2140,11 @@ def _nav_label(tab_id: str) -> str:
 
 st.sidebar.markdown("### Navigation")
 
-# --- Cute GM logo in sidebar (visual cue)
+
+# --- GM logo in sidebar (grayscale when inactive + hover tooltip)
 try:
-    if str(st.session_state.get("active_tab","")).strip() == "🧑‍💼 GM":
-        st.sidebar.markdown("")
-        _render_gm_logo(width=40)
+    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "🧑‍💼 GM")
+    render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
 except Exception:
     pass
 active_tab = st.sidebar.radio(
@@ -3423,7 +3518,7 @@ def render_tab_gm():
     # Header with cute logo
     h1, h2 = st.columns([1, 12], vertical_alignment="center")
     with h1:
-        _render_gm_logo(width=40)
+        render_gm_logo(active=True, width=40, tooltip="Gestion d’équipe")
     with h2:
         st.subheader("🧑‍💼 GM")
 
