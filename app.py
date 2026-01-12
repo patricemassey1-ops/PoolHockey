@@ -2923,6 +2923,26 @@ elif active_tab == "🧾 Alignement":
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
+
+# =====================================================
+# GM — Haut ultra compact (GC à gauche / CE à droite)
+# =====================================================
+c1, c2 = st.columns(2, gap="large")
+with c1:
+    st.caption("Masse GC")
+    st.markdown(f"<div style='font-size:32px;font-weight:800'>{money(masse_gc)}</div>", unsafe_allow_html=True)
+with c2:
+    st.caption("Masse CE")
+    st.markdown(f"<div style='font-size:32px;font-weight:800;text-align:right'>{money(masse_ce)}</div>", unsafe_allow_html=True)
+
+# Barres plafond sur la même ligne (desktop) — stack auto sur mobile
+b1, b2 = st.columns(2, gap="large")
+with b1:
+    render_cap_bar(label=f"Plafond GC — {proprietaire}", used=masse_gc, cap=PLAFOND_GC)
+with b2:
+    render_cap_bar(label=f"Plafond CE — {proprietaire}", used=masse_ce, cap=PLAFOND_CE)
+
+st.markdown("---")
     owner = str(get_selected_team() or "").strip()
     if not owner:
         st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
@@ -2991,7 +3011,8 @@ elif active_tab == "🧑‍💼 GM":
                 )
 
         # Détails (optionnel)
-        with st.expander("Détails", expanded=False):
+        show_details = st.toggle("Afficher le détail (tableau)", value=False, key="gm_picks_details")
+        if show_details:
             df_picks = pd.DataFrame(
                 [{"Ronde": int(rr), "Appartient à": str(who)} for rr, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
             )
