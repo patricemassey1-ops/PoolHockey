@@ -1740,8 +1740,7 @@ dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy
 if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
-
+gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
     remain_gc = cap_gc - used_gc
