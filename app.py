@@ -3592,3 +3592,4 @@ elif active_tab == "🧠 Recommandations":
 else:
     st.warning("Onglet inconnu")
 
+
