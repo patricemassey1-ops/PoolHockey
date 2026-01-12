@@ -217,18 +217,20 @@ def apply_theme():
 
 def _set_mobile_class(enabled: bool):
     # Pas de <style> ici (CSS déjà dans THEME_CSS). On ne fait qu'ajouter/retirer une classe.
+    # ⚠️ IMPORTANT: aucun f-string ici, car le JS contient des accolades `{}`.
     flag = "true" if enabled else "false"
-    js = f"""
+    js = """
     <script>
     (function(){
       const cls = "pms-mobile";
       const root = window.parent.document.body;
       if (!root) return;
-      if ({flag}) root.classList.add(cls);
+      if (__FLAG__) root.classList.add(cls);
       else root.classList.remove(cls);
     })();
     </script>
-    """.replace("{flag}", flag)
+    """
+    js = js.replace("__FLAG__", flag)
     st.markdown(js, unsafe_allow_html=True)
 
 # Appel UNIQUE
