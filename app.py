@@ -2644,6 +2644,15 @@ def render_transactions():
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
+
+# =====================================================
+# TAB GM — isolé (zéro surprises d'indentation)
+# =====================================================
+def render_tab_gm():
+    """Rendu complet de l'onglet 🧑‍💼 GM. Isolé pour éviter les erreurs d'indentation."""
+    # NOTE: toutes les variables utilisées ici sont lues depuis le scope global (comme avant).
+    st.subheader("🧑‍💼 GM")
+
 if active_tab == "🏠 Home":
     st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
@@ -2903,9 +2912,9 @@ elif active_tab == "🧾 Alignement":
                 if p_ir:
                     set_move_ctx(proprietaire, p_ir, "ir"); do_rerun()
             else:
-                roster_click_list(injured_all, proprietaire, "ir_disabled")
-
-    open_move_dialog()
+                roster_click_list(injelif active_tab == "🧑‍💼 GM":
+    render_tab_gm()
+alog()
 
     if st.session_state.pop("just_moved", False):
         show_status_alerts(
