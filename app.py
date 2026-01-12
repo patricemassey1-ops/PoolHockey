@@ -1737,7 +1737,7 @@ df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
 df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
     # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
-    if not dprop.empty and "Slot" in dprop.columns:
+if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
     gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
