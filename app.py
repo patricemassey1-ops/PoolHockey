@@ -1741,7 +1741,7 @@ if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
 gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
     remain_gc = cap_gc - used_gc
 
@@ -2650,6 +2650,15 @@ def render_tab_gm():
     # NOTE: toutes les variables utilisées ici sont lues depuis le scope global (comme avant).
     st.subheader("🧑‍💼 GM")
 
+# =====================================================
+# TAB Alignement — isolé (zéro surprises d'indentation)
+# =====================================================
+def render_tab_alignement():
+    """Rendu complet de l'onglet 🧾 Alignement. Isolé pour stabiliser l'indentation."""
+    # NOTE: toutes les fonctions/constantes utilisées ici sont déjà définies plus haut.
+    st.subheader("🧾 Alignement")
+
+
 if active_tab == "🏠 Home":
     st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
@@ -2755,11 +2764,9 @@ if active_tab == "🏠 Home":
                 })
 
         # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
-        out = pd.DataFrame(rows)
-        if out.empty:
-            return out
-
-        out = out.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
+        out = pelif active_tab == "🧾 Alignement":
+    render_tab_alignement()
+    out = out.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
         return out.head(int(limit))
 
     recent = _recent_changes_df(20)
@@ -2782,7 +2789,7 @@ elif active_tab == "🧾 Alignement":
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
 
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
     if dprop.empty:
@@ -2962,7 +2969,7 @@ owner = str(get_selected_team() or "").strip()
         st.stop()
 
     # masse salariale (incl. pénalités)
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
     d_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
