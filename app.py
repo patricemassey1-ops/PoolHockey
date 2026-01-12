@@ -1,8 +1,29 @@
 
+# =====================================================
+# SAFE IMAGE (évite MediaFileHandler: Missing file)
+# =====================================================
+def safe_image(image, *args, **kwargs):
+    try:
+        if isinstance(image, str):
+            p = image.strip()
+            if p and os.path.exists(p):
+                return st.image(p, *args, **kwargs)
+            cap = kwargs.get("caption", "")
+            if cap:
+                st.caption(cap)
+            return None
+        return st.image(image, *args, **kwargs)
+    except Exception:
+        cap = kwargs.get("caption", "")
+        if cap:
+            st.caption(cap)
+        return None
+
+
 def safe_image(path: str, *, width: int | None = None, caption: str | None = None):
     try:
         if path and os.path.exists(path):
-            st.image(path, width=width, caption=caption)
+            safe_image(path, width=width, caption=caption)
         else:
             if caption:
                 st.caption(caption)
@@ -306,7 +327,7 @@ div[data-testid="stButton"] > button{
 
 /* v13: pool logo sizing (pro) */
 .pms-pool-logo { display:flex; justify-content:center; align-items:center; }
-.pms-pool-logo img { max-height:72px; width:auto; }
+.pms-pool-logo img { max-height:144px; width:auto; }
 
 /* =========================================
    🧑‍💼 GM logo (sidebar): grayscale when inactive
@@ -435,7 +456,7 @@ def _login_header():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
 
         # 🏒 + PMS (gauche) | Logo Pool (centre) | 🥅 (droite)
-        c1, c2, c3 = st.columns([4, 4, 2], vertical_alignment="center")
+        c1, c2, c3 = st.columns([4, 6, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
@@ -448,7 +469,7 @@ def _login_header():
 
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
-            safe_image(logo_file, width=220, caption="")
+            safe_image(logo_file, width=440, caption="")
             st.markdown('</div>', unsafe_allow_html=True)
 
 
