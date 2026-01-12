@@ -511,7 +511,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
     if name_col is None:
         return df
     if "Level" not in db.columns and "Expiry Year" not in db.columns:
-        return df
+        return df df
 
     def _n(x: str) -> str:
         """Normalise un nom joueur pour matching robuste (accents, ponctuation, ordre)."""
@@ -555,9 +555,14 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         exp_series = pd.to_numeric(db["Expiry Year"], errors="coerce")
         exp_series = exp_series.where(exp_series.notna(), None)
         for nm, exp in zip(base_names.tolist(), exp_series.tolist()):
-            if exp is None:
+            # exp peut être NaN (float) même après to_numeric -> guard robuste
+            if exp is None or (isinstance(exp, float) and pd.isna(exp)):
                 continue
-            exp = str(int(exp))
+            try:
+                exp_int = int(float(exp))
+            except Exception:
+                continue
+            exp = str(exp_int)
             n0 = _n(nm)
             n1 = _n(_swap_last_first(nm))
             if n0:
