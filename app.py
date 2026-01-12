@@ -282,11 +282,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:2.1rem;
+  font-size:6.3rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:2.4rem; /* bigger sticks + net */
+  font-size:7.2rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -409,7 +409,7 @@ def _login_header():
         with c1:
             st.markdown(
                 '<div class="pms-left">'
-                '<span class="pms-emoji-big" aria-hidden="true">🏒🏒</span>'
+                '<span class="pms-emoji-big" aria-hidden="true">🏒</span>'
                 '<span class="pms-title">PMS</span>'
                 '</div>',
                 unsafe_allow_html=True,
@@ -2082,7 +2082,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
-    "🧑‍💼 GM",
+    "GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2143,7 +2143,7 @@ st.sidebar.markdown("### Navigation")
 
 # --- GM logo in sidebar (grayscale when inactive + hover tooltip)
 try:
-    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "🧑‍💼 GM")
+    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "GM")
     render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
 except Exception:
     pass
@@ -2640,8 +2640,8 @@ elif active_tab == "🧾 Alignement":
 
 
 
-elif active_tab == "🧑‍💼 GM":
-    st.subheader("🧑‍💼 GM")
+elif active_tab == "GM":
+    st.subheader("GM")
     owner = str(get_selected_team() or "").strip()
     if not owner:
         st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
@@ -3514,13 +3514,13 @@ else:
     st.warning("Onglet inconnu")
 
 def render_tab_gm():
-    """Rendu complet de l'onglet 🧑‍💼 GM (compact, collapses, zéro surprise)."""
+    """Rendu complet de l'onglet GM (compact, collapses, zéro surprise)."""
     # Header with cute logo
     h1, h2 = st.columns([1, 12], vertical_alignment="center")
     with h1:
         render_gm_logo(active=True, width=40, tooltip="Gestion d’équipe")
     with h2:
-        st.subheader("🧑‍💼 GM")
+        st.subheader("GM")
 
     # Data source
     df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
@@ -3701,3 +3701,5 @@ def render_tab_gm():
             st.dataframe(market[nice_cols] if nice_cols else market, use_container_width=True, hide_index=True)
         else:
             st.caption("Aucun joueur sur le marché présentement.")
+
+
