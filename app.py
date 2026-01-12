@@ -28,29 +28,6 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
-# =====================================================
-# RUN / DIALOG GUARDS (zéro surprise)
-#   - empêche l'ouverture de 2 dialogs dans le même run
-# =====================================================
-if "_run_id" not in st.session_state:
-    st.session_state["_run_id"] = 0
-st.session_state["_run_id"] += 1
-
-if "_dialog_open_run" not in st.session_state:
-    st.session_state["_dialog_open_run"] = -1
-
-def _open_dialog_once(dialog_fn, *, key: str = "") -> bool:
-    """
-    Streamlit n'autorise qu'un seul dialog ouvert par run.
-    Cette garde empêche un double-open si plusieurs triggers arrivent en même temps.
-    """
-    rid = int(st.session_state.get("_run_id", 0) or 0)
-    if int(st.session_state.get("_dialog_open_run", -1) or -1) == rid:
-        return False
-    st.session_state["_dialog_open_run"] = rid
-    dialog_fn()
-    return True
-
 # Anti double rerun (zéro surprise)
 st.session_state["_rerun_requested"] = False
 
@@ -1721,10 +1698,14 @@ def open_move_dialog():
         if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
             _close()
             do_rerun()
-    # close flag BEFORE opening dialog (évite double-run)
-    if isinstance(st.session_state.get('move_ctx'), dict):
-        st.session_state['move_ctx']['open'] = False
-    _open_dialog_once(_dlg, key='move')
+
+    _dlg()
+
+
+
+
+
+
 # =====================================================
 # DIALOG — Preview Alignement Grand Club (GC)
 # =====================================================
@@ -1733,24 +1714,17 @@ def open_gc_preview_dialog():
         return
 
     owner = str(get_selected_team() or "").strip()
+
     df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 
-    dprop = (
-        df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy()
-        if (not df0.empty and owner)
-        else pd.DataFrame()
-    )
+    dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
 
-    # Enlève IR pour le preview GC
+    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
     if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-    gc_all = (
-        dprop[dprop.get("Statut", "") == STATUT_GC].copy()
-        if not dprop.empty
-        else pd.DataFrame()
-    )
+    gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
 
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
@@ -1758,22 +1732,38 @@ def open_gc_preview_dialog():
 
     @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
     def _dlg():
-        st.markdown(
-            f"**Cap GC:** {money(cap_gc)} &nbsp;&nbsp; | &nbsp;&nbsp; "
-            f"**Utilisé:** {money(used_gc)} &nbsp;&nbsp; | &nbsp;&nbsp; "
-            f"**Reste:** {money(remain_gc)}"
-        )
+        st.caption("Prévisualisation rapide du Grand Club (GC).")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Total GC", money(used_gc))
+        with c2:
+            st.metric("Plafond GC", money(cap_gc))
+        with c3:
+            if used_gc > cap_gc:
+                st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
+            else:
+                st.success(f"Conforme — reste: {money(remain_gc)}")
 
         if gc_all.empty:
-            st.info("Aucun joueur au Grand Club (hors IR).")
-            return
+            st.info("Aucun joueur GC pour cette équipe.")
+        else:
+            # ✅ Pos complètement à gauche
+            show_cols = [c for c in ["Pos", "Joueur", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
+            df_show = gc_all[show_cols].copy()
 
-        cols = [c for c in ["Joueur", "Position", "Team", "Level", "Salaire", "Slot"] if c in gc_all.columns]
-        st.dataframe(gc_all[cols], use_container_width=True, hide_index=True)
+            if "Salaire" in df_show.columns:
+                df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
 
-    # ✅ Ouvre le dialog une seule fois
-    st.session_state["gc_preview_open"] = False
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        if st.button("OK", use_container_width=True, key="gc_preview_ok"):
+            st.session_state["gc_preview_open"] = False
+            do_rerun()
+
     _dlg()
+
+
 
 # =====================================================
 # PLAFONDS builder + Tableau UI
@@ -1986,7 +1976,9 @@ NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
     "🧑‍💼 GM",
+    "👤 Joueurs autonomes",
     "🕘 Historique",
+    "⚖️ Transactions",
 ]
 if is_admin:
     NAV_TABS.append("🛠️ Gestion Admin")
@@ -2005,14 +1997,14 @@ st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 _set_mobile_class(bool(st.session_state.get("mobile_view", False)))
 st.sidebar.divider()
 
-st.sidebar.header("📅 Saisons")
+st.sidebar.header("📅 Saison")
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
 if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-season_pick = st.sidebar.selectbox("Saisons", saisons, index=saisons.index(auto), key="sb_season_select")
+season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
@@ -2034,7 +2026,7 @@ def _tx_pending_from_state() -> bool:
 
 def _nav_label(tab_id: str) -> str:
     # Badge transaction en attente (affichage seulement; tab_id reste stable)
-    if tab_id == "🧑‍💼 GM" and _tx_pending_from_state():
+    if tab_id == "⚖️ Transactions" and _tx_pending_from_state():
         return "🔴 " + tab_id
     return tab_id
 
@@ -2057,7 +2049,7 @@ if "PLAFOND_CE" not in st.session_state:
 
 # Team picker
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipes")
+st.sidebar.markdown("### 🏒 Équipe")
 
 teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
 if not teams:
@@ -2204,12 +2196,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
 
     # header
-    h = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
+    h = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
+    h[4].markdown("**Expiry**")
+    h[5].markdown("**Salaire**")
 
     clicked = None
     for _, r in t.iterrows():
@@ -2225,7 +2218,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
+        c = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -2248,420 +2241,24 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             f"<span class='expiryCell'>{html.escape(exp) if exp and exp.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
-        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
 
-
-
-# =====================================================
-# GM SECTIONS (extraits des onglets)
-#   ✅ st.stop() remplacé par return (safe dans GM)
-# =====================================================
-
-def render_joueurs_autonomes():
-        st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
-
-        players_db = st.session_state.get("players_db")
-        if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
-            st.error("Impossible de charger la base joueurs.")
-            st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
-            return
-
-        df_db = players_db.copy()
-
-        if "Player" not in df_db.columns:
-            found = None
-            for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
-                if cand in df_db.columns:
-                    found = cand
-                    break
-            if found:
-                df_db = df_db.rename(columns={found: "Player"})
-            else:
-                st.error(f"Colonne 'Player' introuvable. Colonnes: {list(df_db.columns)}")
-                return
-
-        def _clean_intlike(x):
-            s = str(x).strip()
-            if s == "" or s.lower() in {"nan", "none"}:
-                return ""
-            if re.match(r"^\d+\.0$", s):
-                return s.split(".")[0]
-            return s
-
-        def _cap_to_int(v) -> int:
-            s = str(v if v is not None else "").strip()
-            if s == "" or s.lower() in {"nan", "none"}:
-                return 0
-            s = s.replace("$", "").replace("€", "").replace("£", "")
-            s = s.replace(",", "").replace(" ", "")
-            s = re.sub(r"\.0+$", "", s)
-            s = re.sub(r"[^\d]", "", s)
-            return int(s) if s.isdigit() else 0
-
-        def _money_space(v: int) -> str:
-            try:
-                return f"{int(v):,}".replace(",", " ") + " $"
-            except Exception:
-                return "0 $"
-
-        def clear_j_name():
-            st.session_state["j_name"] = ""
-
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            a, b = st.columns([12, 1])
-            with a:
-                q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
-            with b:
-                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom",
-                          use_container_width=True, on_click=clear_j_name)
-
-        with c2:
-            if "Team" in df_db.columns:
-                teams_db = sorted(df_db["Team"].dropna().astype(str).unique().tolist())
-                options_team = ["Toutes"] + teams_db
-                cur_team = st.session_state.get("j_team", "Toutes")
-                if cur_team not in options_team:
-                    st.session_state["j_team"] = "Toutes"
-                q_team = st.selectbox("Équipe", options_team, key="j_team")
-            else:
-                q_team = "Toutes"
-                st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
-
-        with c3:
-            level_col = "Level" if "Level" in df_db.columns else None
-            if level_col:
-                levels = sorted(df_db[level_col].dropna().astype(str).unique().tolist())
-                options_level = ["Tous"] + levels
-                cur_level = st.session_state.get("j_level", "Tous")
-                if cur_level not in options_level:
-                    st.session_state["j_level"] = "Tous"
-                q_level = st.selectbox("Level (Contrat)", options_level, key="j_level")
-            else:
-                q_level = "Tous"
-                st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
-
-        st.divider()
-        st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
-
-        cap_col = None
-        for cand in ["Cap Hit", "CapHit", "AAV"]:
-            if cand in df_db.columns:
-                cap_col = cand
-                break
-
-        if not cap_col:
-            st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée → filtre salaire désactivé.")
-            cap_apply = False
-            cap_min = cap_max = 0
-        else:
-            df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
-            cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
-            cap_min, cap_max = st.slider(
-                "Plage Cap Hit",
-                min_value=0,
-                max_value=30_000_000,
-                value=(0, 30_000_000),
-                step=250_000,
-                disabled=(not cap_apply),
-                key="cap_slider",
-            )
-            st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
-
-        has_filter = bool(str(q_name).strip()) or q_team != "Toutes" or q_level != "Tous" or cap_apply
-        if not has_filter:
-            st.info("Entre au moins un filtre pour afficher les résultats.")
-        else:
-            dff = df_db.copy()
-            if str(q_name).strip():
-                dff = dff[dff["Player"].astype(str).str.contains(q_name, case=False, na=False)]
-            if q_team != "Toutes" and "Team" in dff.columns:
-                dff = dff[dff["Team"].astype(str) == q_team]
-            if q_level != "Tous" and level_col:
-                dff = dff[dff[level_col].astype(str) == q_level]
-            if cap_col and cap_apply:
-                dff = dff[(dff["_cap_int"] >= cap_min) & (dff["_cap_int"] <= cap_max)]
-
-            if dff.empty:
-                st.warning("Aucun joueur trouvé avec ces critères.")
-            else:
-                dff = dff.head(250).reset_index(drop=True)
-                st.markdown("### Résultats")
-                show_cols = [c for c in ["Player", "Team", "Position", cap_col, "Level"] if c and c in dff.columns]
-                df_show = dff[show_cols].copy()
-
-                if cap_col in df_show.columns:
-                    df_show[cap_col] = df_show[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-                    df_show = df_show.rename(columns={cap_col: "Cap Hit"})
-
-                for c in df_show.columns:
-                    df_show[c] = df_show[c].apply(_clean_intlike)
-
-                st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-
-def render_transactions():
-        st.caption("Construis une transaction (joueurs + choix + salaire retenu) et vois l’impact sur les masses salariales.")
-
-        plafonds = st.session_state.get("plafonds")
-        df = st.session_state.get("data")
-        if df is None or df.empty or plafonds is None or plafonds.empty:
-            st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-            return
-
-        owners = sorted(plafonds["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
-        if len(owners) < 2:
-            st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
-            return
-
-        # ✅ Picks (choix repêchage) — signature: load_picks(season_lbl, teams)
-        try:
-            picks = load_picks(season, owners) if "load_picks" in globals() else {}
-        except TypeError:
-            # fallback si ancienne signature
-            picks = load_picks(season, owners) if "load_picks" in globals() else {}
-        market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
-        def _roster(owner: str) -> pd.DataFrame:
-            d = df[df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())].copy()
-            d = clean_data(d)
-            # on exclut IR du marché par défaut
-            if "Slot" in d.columns:
-                d = d[d["Slot"].astype(str).str.strip() != SLOT_IR].copy()
-            return d
-
-        def _player_label(r) -> str:
-            j = str(r.get("Joueur","")).strip()
-            pos = str(r.get("Pos","")).strip()
-            team = str(r.get("Equipe","")).strip()
-            lvl = str(r.get("Level","")).strip()
-            sal = int(pd.to_numeric(r.get("Salaire",0), errors="coerce") or 0)
-            flag = "🔁 " if is_on_trade_market(market, str(r.get("Propriétaire","")), j) else ""
-            exp = str(r.get('Expiry Year','')).strip()
-            exp_txt = exp if exp else '—'
-            return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · Exp {exp_txt} · {money(sal)}"
-
-        def _owner_picks(owner: str):
-            """Retourne les choix détenus par owner sous forme 'R{round} — {orig}' (rondes 1-7 seulement)."""
-            out = []
-            if isinstance(picks, dict) and picks:
-                for orig_team, rounds in (picks or {}).items():
-                    if not isinstance(rounds, dict):
-                        continue
-                    for rd, holder in rounds.items():
-                        try:
-                            rdi = int(rd)
-                        except Exception:
-                            continue
-                        if rdi >= 8:  # 8e ronde non échangeable
-                            continue
-                        if str(holder).strip() == str(owner).strip():
-                            out.append(f"R{rdi} — {orig_team}")
-            return sorted(out, key=lambda x: (int(re.search(r'R(\d+)', x).group(1)), x))
-
-        # --- Choix des 2 propriétaires côte à côte
-        cA, cB = st.columns(2, vertical_alignment="top")
-        with cA:
-            owner_a = st.selectbox("Propriétaire A", owners, index=0, key="tx_owner_a")
-        with cB:
-            owner_b = st.selectbox("Propriétaire B", owners, index=1 if len(owners)>1 else 0, key="tx_owner_b")
-
-        if owner_a == owner_b:
-            st.warning("Choisis deux propriétaires différents.")
-            return
-
-        st.divider()
-
-        # --- Options marché
-        mc1, mc2 = st.columns([1, 2], vertical_alignment="center")
-        with mc1:
-            market_only = st.checkbox("Afficher seulement joueurs sur le marché", value=False, key="tx_market_only")
-        with mc2:
-            st.caption("🔁 = joueur annoncé disponible sur le marché des échanges.")
-
-        dfa = _roster(owner_a)
-        dfb = _roster(owner_b)
-
-        # --- Sélection multi joueurs + picks
-        left, right = st.columns(2, vertical_alignment="top")
-
-        def _multiselect_players(owner: str, dfo: pd.DataFrame, side_key: str):
-            if dfo.empty:
-                st.info("Aucun joueur.")
-                return [], {}
-
-            # options
-            rows = dfo.to_dict("records")
-            opts = []
-            map_lbl_to_name = {}
-            for r in rows:
-                j = str(r.get("Joueur","")).strip()
-                if not j:
-                    continue
-                if market_only and (not is_on_trade_market(market, owner, j)):
-                    continue
-                lbl = _player_label(r)
-                opts.append(lbl)
-                map_lbl_to_name[lbl] = j
-
-            picked_lbl = st.multiselect("Joueurs inclus", opts, key=f"tx_players_{side_key}")
-            picked_names = [map_lbl_to_name[x] for x in picked_lbl if x in map_lbl_to_name]
-
-            # retenue salaire (par joueur)
-            retained = {}
-            confirmed_tx = bool(st.session_state.get('tx_confirmed', False))
-            if picked_names:
-                st.markdown("**Salaire retenu (optionnel)**")
-                for j in picked_names:
-                    sal = int(pd.to_numeric(dfo.loc[dfo["Joueur"].astype(str).str.strip().eq(j), "Salaire"].iloc[0], errors="coerce") or 0)
-                    retained[j] = st.number_input(
-                        f"Retenu sur {j}",
-                        min_value=0,
-                        max_value=int(sal),
-                        step=50_000,
-                        value=0,
-                        disabled=confirmed_tx,
-                        key=f"tx_ret_{side_key}_{re.sub(r'[^a-zA-Z0-9_]', '_', j)[:40]}",
-                    )
-
-            # picks
-            owner_picks = _owner_picks(owner)
-            picked_picks = st.multiselect("Choix de repêchage (R1–R7)", owner_picks, key=f"tx_picks_{side_key}")
-
-            # montants retenus global (cash) — optionnel
-            cash = st.number_input("Montant retenu (cash) — optionnel", min_value=0, step=50_000, value=0, disabled=confirmed_tx, key=f"tx_cash_{side_key}")
-
-            return picked_names, {"retained": retained, "picks": picked_picks, "cash": int(cash)}
-
-        with left:
-            st.markdown(f"### {owner_a} ➜ envoie")
-            a_players, a_meta = _multiselect_players(owner_a, dfa, "A")
-
-        with right:
-            st.markdown(f"### {owner_b} ➜ envoie")
-            b_players, b_meta = _multiselect_players(owner_b, dfb, "B")
-
-        # ✅ Confirmer (verrouille les champs retenus/cash)
-        cA, cB, cC = st.columns([1, 2, 1])
-        with cB:
-            if st.button("✅ Confirmer", type="primary", use_container_width=True, key="tx_confirm_btn"):
-                st.session_state["tx_confirmed"] = True
-                st.toast("✅ Transaction confirmée (champs verrouillés).", icon="✅")
-                do_rerun()
-
-        st.divider()
-
-        # --- Affichage détails (salaire, pos, level, années restantes si dispo)
-        def _detail_df(owner: str, dfo: pd.DataFrame, picked: list[str]) -> pd.DataFrame:
-            if not picked:
-                return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"])
-            tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])].copy()
-            tmp["Salaire"] = tmp["Salaire"].apply(lambda x: money(int(pd.to_numeric(x, errors="coerce") or 0)))
-            tmp["Marché"] = tmp["Joueur"].apply(lambda j: "Oui" if is_on_trade_market(market, owner, str(j)) else "Non")
-
-
-            # Expiry Year (si dispo)
-            if "Expiry Year" not in tmp.columns:
-                tmp["Expiry Year"] = ""
-            else:
-                tmp["Expiry Year"] = tmp["Expiry Year"].astype(str).str.strip()
-
-            keep = [c for c in ["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"] if c in tmp.columns]
-            return tmp[keep].reset_index(drop=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"#### Détails — {owner_a} envoie")
-            st.dataframe(_detail_df(owner_a, dfa, a_players), use_container_width=True, hide_index=True)
-        with c2:
-            st.markdown(f"#### Détails — {owner_b} envoie")
-            st.dataframe(_detail_df(owner_b, dfb, b_players), use_container_width=True, hide_index=True)
-
-        # --- Résumé + Impact (approximation simple)
-        def _sum_salary(dfo: pd.DataFrame, picked: list[str]) -> int:
-            if not picked or dfo.empty:
-                return 0
-            m = dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])
-            return int(pd.to_numeric(dfo.loc[m, "Salaire"], errors="coerce").fillna(0).sum())
-
-        sal_a = _sum_salary(dfa, a_players)
-        sal_b = _sum_salary(dfb, b_players)
-
-        ret_a = int(sum((a_meta.get("retained") or {}).values()))
-        ret_b = int(sum((b_meta.get("retained") or {}).values()))
-
-        # Impact net (simplifié): l'équipe qui envoie garde la retenue (elle paie), l'équipe qui reçoit ajoute salaire - retenue
-        # A reçoit: sal_b - ret_b ; A enlève: sal_a ; A paie: ret_a ; +cash optionnel
-        # Net cap A = (sal_b - ret_b) - sal_a + ret_a + cash_A (si tu utilises cash comme pénalité)
-        net_a = (sal_b - ret_b) - sal_a + ret_a + int(a_meta.get("cash",0))
-        net_b = (sal_a - ret_a) - sal_b + ret_b + int(b_meta.get("cash",0))
-
-        st.markdown("### Résumé")
-        s1, s2 = st.columns(2)
-        with s1:
-            st.markdown(f"**{owner_a}** reçoit: {len(b_players)} joueur(s), {len(b_meta.get('picks',[]))} pick(s)")
-            st.caption(f"Variation cap (approx): {money(net_a)} (positif = augmente)")
-        with s2:
-            st.markdown(f"**{owner_b}** reçoit: {len(a_players)} joueur(s), {len(a_meta.get('picks',[]))} pick(s)")
-            st.caption(f"Variation cap (approx): {money(net_b)} (positif = augmente)")
-
-        st.divider()
-
-        # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
-
-        with st.expander("🔁 Marché des échanges (optionnel)", expanded=False):
-            st.markdown("### Marché des échanges (optionnel)")
-            st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
-
-            mm1, mm2 = st.columns(2)
-            with mm1:
-                if not dfa.empty:
-                    opts = sorted(dfa["Joueur"].dropna().astype(str).str.strip().unique().tolist())
-                    cur_on = [j for j in opts if is_on_trade_market(market, owner_a, j)]
-                    new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, default=cur_on, key="tx_market_a")
-                    market = set_owner_market(market, season, owner_a, new_on)
-            with mm2:
-                if not dfb.empty:
-                    opts = sorted(dfb["Joueur"].dropna().astype(str).str.strip().unique().tolist())
-                    cur_on = [j for j in opts if is_on_trade_market(market, owner_b, j)]
-                    new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, default=cur_on, key="tx_market_b")
-                    market = set_owner_market(market, season, owner_b, new_on)
-
-            if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
-                save_trade_market(season, market)
-                st.toast("✅ Marché sauvegardé", icon="✅")
-                do_rerun()
-
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
-
-# =====================================================
-# TAB GM — isolé
-# =====================================================
-def render_tab_gm():
-    """Rendu complet de l'onglet 🧑‍💼 GM."""
-    st.subheader("🧑‍💼 GM")
-    # ... contenu GM ...
-
-
-# =====================================================
-# TAB Home — isolé
-# =====================================================
-def render_tab_home():
-    """Rendu complet de l'onglet 🏠 Home."""
+if active_tab == "🏠 Home":
     st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
+    # Sous-titre discret (UI)
     st.markdown(
         '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
         unsafe_allow_html=True
     )
 
-    build_tableau_ui(st.session_state.get("plafonds"))
-
+    st.write("")  # spacing léger
 
     # =====================================================
     # 🔔 Transactions en cours (Marché) — aperçu rapide
@@ -2784,7 +2381,7 @@ elif active_tab == "🧾 Alignement":
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
 
-cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
     if dprop.empty:
@@ -2911,9 +2508,9 @@ cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
                 if p_ir:
                     set_move_ctx(proprietaire, p_ir, "ir"); do_rerun()
             else:
-                roster_click_list(injelif active_tab == "🧑‍💼 GM":
-    render_tab_gm()
-alog()
+                roster_click_list(injured_all, proprietaire, "ir_disabled")
+
+    open_move_dialog()
 
     if st.session_state.pop("just_moved", False):
         show_status_alerts(
@@ -2930,27 +2527,7 @@ alog()
 
 elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
-
-# =====================================================
-# GM — Haut ultra compact (GC à gauche / CE à droite)
-# =====================================================
-c1, c2 = st.columns(2, gap="large")
-with c1:
-    st.caption("Masse GC")
-    st.markdown(f"<div style='font-size:32px;font-weight:800'>{money(masse_gc)}</div>", unsafe_allow_html=True)
-with c2:
-    st.caption("Masse CE")
-    st.markdown(f"<div style='font-size:32px;font-weight:800;text-align:right'>{money(masse_ce)}</div>", unsafe_allow_html=True)
-
-# Barres plafond sur la même ligne (desktop) — stack auto sur mobile
-b1, b2 = st.columns(2, gap="large")
-with b1:
-    render_cap_bar(label=f"Plafond GC — {proprietaire}", used=masse_gc, cap=PLAFOND_GC)
-with b2:
-    render_cap_bar(label=f"Plafond CE — {proprietaire}", used=masse_ce, cap=PLAFOND_CE)
-
-st.markdown("---")
-owner = str(get_selected_team() or "").strip()
+    owner = str(get_selected_team() or "").strip()
     if not owner:
         st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
         st.stop()
@@ -2964,7 +2541,7 @@ owner = str(get_selected_team() or "").strip()
         st.stop()
 
     # masse salariale (incl. pénalités)
-cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
     d_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
@@ -2975,16 +2552,17 @@ cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     total_gc_incl = total_gc + pen_gc
     total_ce_incl = total_ce + pen_ce
 
-        # --- Résumé masses (compact)
-    colL, colR = st.columns(2, gap="large")
-    with colL:
-        st.caption("Masse GC" + (f"  • pénalité {money(pen_gc)}" if pen_gc else ""))
-        st.markdown(f"<div style='font-size:34px;font-weight:800'>{money(total_gc_incl if pen_gc else total_gc)}</div>", unsafe_allow_html=True)
-
-    with colR:
-        st.caption("Masse CE" + (f"  • pénalité {money(pen_ce)}" if pen_ce else ""))
-        st.markdown(f"<div style='font-size:34px;font-weight:800;text-align:right'>{money(total_ce_incl if pen_ce else total_ce)}</div>", unsafe_allow_html=True)
-
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Masse GC", money(total_gc))
+    if pen_gc:
+        c2.metric("Pénalités rachat GC (50%)", money(pen_gc))
+    if pen_gc:
+        c3.metric("GC (incl. pénalités)", money(total_gc_incl))
+    c4, c5, _c6 = st.columns(3)
+    c4.metric("Masse CE", money(total_ce))
+    if pen_ce:
+        c5.metric("Pénalités rachat CE (50%)", money(pen_ce))
+        _c6.metric("CE (incl. pénalités)", money(total_ce_incl))
     st.markdown(cap_bar_html((total_gc_incl if pen_gc else total_gc), cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
     st.markdown(cap_bar_html((total_ce_incl if pen_ce else total_ce), cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
 
@@ -3000,57 +2578,41 @@ cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
 
     my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
     owned_rounds = [r for r, who in my_picks.items() if str(who).strip() == owner]
-    with st.expander("🎯 Choix de repêchage", expanded=False):
-        st.write(f"Choix (rondes 1 à 8) — **{owner}**.")
-        st.caption("Aperçu compact : chaque case = propriétaire du choix.")
+    st.markdown("### 🎯 Choix de repêchage")
+    st.write(f"Choix appartenant à **{owner}** : **{len(my_picks)}** (rondes 1 à 8).")
+    st.caption("Note: la ronde 8 n'est pas échangeable (règle), mais ici on affiche seulement la possession.")
 
-        # Affichage compact (8 colonnes)
-        cols = st.columns(8)
-        for i, r in enumerate(range(1, 9)):
-            who = str(my_picks.get(str(r), my_picks.get(r, owner)) or "").strip() or "—"
-            with cols[i]:
-                st.markdown(
-                    f"""<div style="padding:10px 8px;border:1px solid rgba(255,255,255,.12);border-radius:10px;text-align:center">
-                    <div style="font-size:12px;opacity:.85">R{r}</div>
-                    <div style="font-size:14px;font-weight:700">{who}</div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
-
-        # Détails (optionnel)
-        show_details = st.toggle("Afficher le détail (tableau)", value=False, key="gm_picks_details")
-        if show_details:
-            df_picks = pd.DataFrame(
-                [{"Ronde": int(rr), "Appartient à": str(who)} for rr, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
-            )
-            st.dataframe(df_picks, use_container_width=True, hide_index=True)
+    df_picks = pd.DataFrame(
+        [{"Ronde": int(r), "Appartient à": str(who)} for r, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
+    )
+    st.dataframe(df_picks, use_container_width=True, hide_index=True)
 
     st.divider()
 
     # Buyout
-    with st.expander("💥 Rachat de contrat (pénalité 50%)", expanded=False):
-        left, right = st.columns([2.2, 1], vertical_alignment="top")
-        with left:
-            opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
-            choices = [""] + opts
-            joueur = st.selectbox("Sélectionner un joueur", choices, key="gm_buyout_player", format_func=lambda x: x if x else "—")
-        with right:
-            bucket = st.radio("Appliquer sur", ["Rachat GC", "Rachat CE"], horizontal=False, key="gm_buyout_bucket")
+    st.markdown("### 💥 Rachat de contrat (pénalité 50%)")
 
-        if joueur:
-            row = dprop[dprop["Joueur"].astype(str).eq(joueur)].iloc[0]
-            salaire = int(row.get("Salaire", 0) or 0)
-            penalite = int(round(salaire * 0.5))
-            bucket_code = "GC" if bucket == "Rachat GC" else "CE"
-            st.info(
-                f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** "
-                f"(ajoutée à la masse **{bucket_code}**)"
-            )
-        else:
-            st.caption("Choisis un joueur pour activer le rachat.")
+    # UI compact (sélection moins large)
+    left, right = st.columns([2.2, 1], vertical_alignment="top")
+    with left:
+        opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
+        joueur = st.selectbox("Joueur", opts, key="gm_buyout_player") if opts else ""
+    with right:
+        bucket = st.radio("Appliquer sur", ["Rachat GC", "Rachat CE"], horizontal=False, key="gm_buyout_bucket")
 
-        do_buyout = st.button("✅ Confirmer le rachat", type="primary", use_container_width=True, key="gm_buyout_ok", disabled=not bool(joueur))
-        if do_buyout and joueur:
+    if joueur:
+        row = dprop[dprop["Joueur"].astype(str).eq(joueur)].iloc[0]
+        salaire = int(row.get("Salaire", 0) or 0)
+        penalite = int(round(salaire * 0.5))
+        bucket_code = "GC" if bucket == "Rachat GC" else "CE"
+
+        st.info(
+            f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** "
+            f"(ajoutée à la masse **{bucket_code}**)"
+        )
+
+        # bouton dédié sous le choix (comme demandé)
+        if st.button("✅ Confirmer le rachat", type="primary", use_container_width=True, key="gm_buyout_ok"):
             # Charger buyouts
             b = st.session_state.get("buyouts")
             if b is None or not isinstance(b, pd.DataFrame) or st.session_state.get("_buyouts_season") != str(st.session_state.get("season")):
@@ -3099,16 +2661,150 @@ cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
             st.toast(f"✅ Rachat appliqué. Pénalité ajoutée à la masse {bucket_code}.", icon="✅")
             do_rerun()
 
-    
+
+elif active_tab == "👤 Joueurs autonomes":
+    st.subheader("👤 Joueurs autonomes")
+    st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
+
+    players_db = st.session_state.get("players_db")
+    if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
+        st.stop()
+
+    df_db = players_db.copy()
+
+    if "Player" not in df_db.columns:
+        found = None
+        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
+            if cand in df_db.columns:
+                found = cand
+                break
+        if found:
+            df_db = df_db.rename(columns={found: "Player"})
+        else:
+            st.error(f"Colonne 'Player' introuvable. Colonnes: {list(df_db.columns)}")
+            st.stop()
+
+    def _clean_intlike(x):
+        s = str(x).strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return ""
+        if re.match(r"^\d+\.0$", s):
+            return s.split(".")[0]
+        return s
+
+    def _cap_to_int(v) -> int:
+        s = str(v if v is not None else "").strip()
+        if s == "" or s.lower() in {"nan", "none"}:
+            return 0
+        s = s.replace("$", "").replace("€", "").replace("£", "")
+        s = s.replace(",", "").replace(" ", "")
+        s = re.sub(r"\.0+$", "", s)
+        s = re.sub(r"[^\d]", "", s)
+        return int(s) if s.isdigit() else 0
+
+    def _money_space(v: int) -> str:
+        try:
+            return f"{int(v):,}".replace(",", " ") + " $"
+        except Exception:
+            return "0 $"
+
+    def clear_j_name():
+        st.session_state["j_name"] = ""
+
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        a, b = st.columns([12, 1])
+        with a:
+            q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
+        with b:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom",
+                      use_container_width=True, on_click=clear_j_name)
+
+    with c2:
+        if "Team" in df_db.columns:
+            teams_db = sorted(df_db["Team"].dropna().astype(str).unique().tolist())
+            options_team = ["Toutes"] + teams_db
+            cur_team = st.session_state.get("j_team", "Toutes")
+            if cur_team not in options_team:
+                st.session_state["j_team"] = "Toutes"
+            q_team = st.selectbox("Équipe", options_team, key="j_team")
+        else:
+            q_team = "Toutes"
+            st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
+
+    with c3:
+        level_col = "Level" if "Level" in df_db.columns else None
+        if level_col:
+            levels = sorted(df_db[level_col].dropna().astype(str).unique().tolist())
+            options_level = ["Tous"] + levels
+            cur_level = st.session_state.get("j_level", "Tous")
+            if cur_level not in options_level:
+                st.session_state["j_level"] = "Tous"
+            q_level = st.selectbox("Level (Contrat)", options_level, key="j_level")
+        else:
+            q_level = "Tous"
+            st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
 
     st.divider()
-    with st.expander("👤 Joueurs autonomes", expanded=False):
-        render_joueurs_autonomes()
+    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
 
-    st.divider()
-    with st.expander("⚖️ Transactions", expanded=False):
-        render_transactions()
+    cap_col = None
+    for cand in ["Cap Hit", "CapHit", "AAV"]:
+        if cand in df_db.columns:
+            cap_col = cand
+            break
 
+    if not cap_col:
+        st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée → filtre salaire désactivé.")
+        cap_apply = False
+        cap_min = cap_max = 0
+    else:
+        df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
+        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
+        cap_min, cap_max = st.slider(
+            "Plage Cap Hit",
+            min_value=0,
+            max_value=30_000_000,
+            value=(0, 30_000_000),
+            step=250_000,
+            disabled=(not cap_apply),
+            key="cap_slider",
+        )
+        st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
+
+    has_filter = bool(str(q_name).strip()) or q_team != "Toutes" or q_level != "Tous" or cap_apply
+    if not has_filter:
+        st.info("Entre au moins un filtre pour afficher les résultats.")
+    else:
+        dff = df_db.copy()
+        if str(q_name).strip():
+            dff = dff[dff["Player"].astype(str).str.contains(q_name, case=False, na=False)]
+        if q_team != "Toutes" and "Team" in dff.columns:
+            dff = dff[dff["Team"].astype(str) == q_team]
+        if q_level != "Tous" and level_col:
+            dff = dff[dff[level_col].astype(str) == q_level]
+        if cap_col and cap_apply:
+            dff = dff[(dff["_cap_int"] >= cap_min) & (dff["_cap_int"] <= cap_max)]
+
+        if dff.empty:
+            st.warning("Aucun joueur trouvé avec ces critères.")
+        else:
+            dff = dff.head(250).reset_index(drop=True)
+            st.markdown("### Résultats")
+            show_cols = [c for c in ["Player", "Team", "Position", cap_col, "Level"] if c and c in dff.columns]
+            df_show = dff[show_cols].copy()
+
+            if cap_col in df_show.columns:
+                df_show[cap_col] = df_show[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+                df_show = df_show.rename(columns={cap_col: "Cap Hit"})
+
+            for c in df_show.columns:
+                df_show[c] = df_show[c].apply(_clean_intlike)
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
@@ -3137,6 +2833,227 @@ elif active_tab == "🕘 Historique":
     h_show = h_show.drop(columns=["timestamp_dt"])
 
     st.dataframe(h_show.head(500), use_container_width=True, hide_index=True)
+
+elif active_tab == "⚖️ Transactions":
+    st.subheader("⚖️ Transactions")
+    st.caption("Construis une transaction (joueurs + choix + salaire retenu) et vois l’impact sur les masses salariales.")
+
+    plafonds = st.session_state.get("plafonds")
+    df = st.session_state.get("data")
+    if df is None or df.empty or plafonds is None or plafonds.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    owners = sorted(plafonds["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    if len(owners) < 2:
+        st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
+        st.stop()
+
+    # ✅ Picks (choix repêchage) — signature: load_picks(season_lbl, teams)
+    try:
+        picks = load_picks(season, owners) if "load_picks" in globals() else {}
+    except TypeError:
+        # fallback si ancienne signature
+        picks = load_picks(season, owners) if "load_picks" in globals() else {}
+    market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
+    def _roster(owner: str) -> pd.DataFrame:
+        d = df[df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())].copy()
+        d = clean_data(d)
+        # on exclut IR du marché par défaut
+        if "Slot" in d.columns:
+            d = d[d["Slot"].astype(str).str.strip() != SLOT_IR].copy()
+        return d
+
+    def _player_label(r) -> str:
+        j = str(r.get("Joueur","")).strip()
+        pos = str(r.get("Pos","")).strip()
+        team = str(r.get("Equipe","")).strip()
+        lvl = str(r.get("Level","")).strip()
+        sal = int(pd.to_numeric(r.get("Salaire",0), errors="coerce") or 0)
+        flag = "🔁 " if is_on_trade_market(market, str(r.get("Propriétaire","")), j) else ""
+        exp = str(r.get('Expiry Year','')).strip()
+        exp_txt = exp if exp else '—'
+        return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · Exp {exp_txt} · {money(sal)}"
+
+    def _owner_picks(owner: str):
+        """Retourne les choix détenus par owner sous forme 'R{round} — {orig}' (rondes 1-7 seulement)."""
+        out = []
+        if isinstance(picks, dict) and picks:
+            for orig_team, rounds in (picks or {}).items():
+                if not isinstance(rounds, dict):
+                    continue
+                for rd, holder in rounds.items():
+                    try:
+                        rdi = int(rd)
+                    except Exception:
+                        continue
+                    if rdi >= 8:  # 8e ronde non échangeable
+                        continue
+                    if str(holder).strip() == str(owner).strip():
+                        out.append(f"R{rdi} — {orig_team}")
+        return sorted(out, key=lambda x: (int(re.search(r'R(\d+)', x).group(1)), x))
+
+    # --- Choix des 2 propriétaires côte à côte
+    cA, cB = st.columns(2, vertical_alignment="top")
+    with cA:
+        owner_a = st.selectbox("Propriétaire A", owners, index=0, key="tx_owner_a")
+    with cB:
+        owner_b = st.selectbox("Propriétaire B", owners, index=1 if len(owners)>1 else 0, key="tx_owner_b")
+
+    if owner_a == owner_b:
+        st.warning("Choisis deux propriétaires différents.")
+        st.stop()
+
+    st.divider()
+
+    # --- Options marché
+    mc1, mc2 = st.columns([1, 2], vertical_alignment="center")
+    with mc1:
+        market_only = st.checkbox("Afficher seulement joueurs sur le marché", value=False, key="tx_market_only")
+    with mc2:
+        st.caption("🔁 = joueur annoncé disponible sur le marché des échanges.")
+
+    dfa = _roster(owner_a)
+    dfb = _roster(owner_b)
+
+    # --- Sélection multi joueurs + picks
+    left, right = st.columns(2, vertical_alignment="top")
+
+    def _multiselect_players(owner: str, dfo: pd.DataFrame, side_key: str):
+        if dfo.empty:
+            st.info("Aucun joueur.")
+            return [], {}
+
+        # options
+        rows = dfo.to_dict("records")
+        opts = []
+        map_lbl_to_name = {}
+        for r in rows:
+            j = str(r.get("Joueur","")).strip()
+            if not j:
+                continue
+            if market_only and (not is_on_trade_market(market, owner, j)):
+                continue
+            lbl = _player_label(r)
+            opts.append(lbl)
+            map_lbl_to_name[lbl] = j
+
+        picked_lbl = st.multiselect("Joueurs inclus", opts, key=f"tx_players_{side_key}")
+        picked_names = [map_lbl_to_name[x] for x in picked_lbl if x in map_lbl_to_name]
+
+        # retenue salaire (par joueur)
+        retained = {}
+        if picked_names:
+            st.markdown("**Salaire retenu (optionnel)**")
+            for j in picked_names:
+                sal = int(pd.to_numeric(dfo.loc[dfo["Joueur"].astype(str).str.strip().eq(j), "Salaire"].iloc[0], errors="coerce") or 0)
+                retained[j] = st.number_input(
+                    f"Retenu sur {j}",
+                    min_value=0,
+                    max_value=int(sal),
+                    step=50_000,
+                    value=0,
+                    key=f"tx_ret_{side_key}_{re.sub(r'[^a-zA-Z0-9_]', '_', j)[:40]}",
+                )
+
+        # picks
+        owner_picks = _owner_picks(owner)
+        picked_picks = st.multiselect("Choix de repêchage (R1–R7)", owner_picks, key=f"tx_picks_{side_key}")
+
+        # montants retenus global (cash) — optionnel
+        cash = st.number_input("Montant retenu (cash) — optionnel", min_value=0, step=50_000, value=0, key=f"tx_cash_{side_key}")
+
+        return picked_names, {"retained": retained, "picks": picked_picks, "cash": int(cash)}
+
+    with left:
+        st.markdown(f"### {owner_a} ➜ envoie")
+        a_players, a_meta = _multiselect_players(owner_a, dfa, "A")
+
+    with right:
+        st.markdown(f"### {owner_b} ➜ envoie")
+        b_players, b_meta = _multiselect_players(owner_b, dfb, "B")
+
+    st.divider()
+
+    # --- Affichage détails (salaire, pos, level, années restantes si dispo)
+    def _detail_df(owner: str, dfo: pd.DataFrame, picked: list[str]) -> pd.DataFrame:
+        if not picked:
+            return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"])
+        tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])].copy()
+        tmp["Salaire"] = tmp["Salaire"].apply(lambda x: money(int(pd.to_numeric(x, errors="coerce") or 0)))
+        tmp["Marché"] = tmp["Joueur"].apply(lambda j: "Oui" if is_on_trade_market(market, owner, str(j)) else "Non")
+
+
+        # Expiry Year (si dispo)
+        if "Expiry Year" not in tmp.columns:
+            tmp["Expiry Year"] = ""
+        else:
+            tmp["Expiry Year"] = tmp["Expiry Year"].astype(str).str.strip()
+
+        keep = [c for c in ["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"] if c in tmp.columns]
+        return tmp[keep].reset_index(drop=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"#### Détails — {owner_a} envoie")
+        st.dataframe(_detail_df(owner_a, dfa, a_players), use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown(f"#### Détails — {owner_b} envoie")
+        st.dataframe(_detail_df(owner_b, dfb, b_players), use_container_width=True, hide_index=True)
+
+    # --- Résumé + Impact (approximation simple)
+    def _sum_salary(dfo: pd.DataFrame, picked: list[str]) -> int:
+        if not picked or dfo.empty:
+            return 0
+        m = dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])
+        return int(pd.to_numeric(dfo.loc[m, "Salaire"], errors="coerce").fillna(0).sum())
+
+    sal_a = _sum_salary(dfa, a_players)
+    sal_b = _sum_salary(dfb, b_players)
+
+    ret_a = int(sum((a_meta.get("retained") or {}).values()))
+    ret_b = int(sum((b_meta.get("retained") or {}).values()))
+
+    # Impact net (simplifié): l'équipe qui envoie garde la retenue (elle paie), l'équipe qui reçoit ajoute salaire - retenue
+    # A reçoit: sal_b - ret_b ; A enlève: sal_a ; A paie: ret_a ; +cash optionnel
+    # Net cap A = (sal_b - ret_b) - sal_a + ret_a + cash_A (si tu utilises cash comme pénalité)
+    net_a = (sal_b - ret_b) - sal_a + ret_a + int(a_meta.get("cash",0))
+    net_b = (sal_a - ret_a) - sal_b + ret_b + int(b_meta.get("cash",0))
+
+    st.markdown("### Résumé")
+    s1, s2 = st.columns(2)
+    with s1:
+        st.markdown(f"**{owner_a}** reçoit: {len(b_players)} joueur(s), {len(b_meta.get('picks',[]))} pick(s)")
+        st.caption(f"Variation cap (approx): {money(net_a)} (positif = augmente)")
+    with s2:
+        st.markdown(f"**{owner_b}** reçoit: {len(a_players)} joueur(s), {len(a_meta.get('picks',[]))} pick(s)")
+        st.caption(f"Variation cap (approx): {money(net_b)} (positif = augmente)")
+
+    st.divider()
+
+    # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
+
+    st.markdown("### Marché des échanges (optionnel)")
+    st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
+
+    mm1, mm2 = st.columns(2)
+    with mm1:
+        if not dfa.empty:
+            opts = sorted(dfa["Joueur"].dropna().astype(str).str.strip().unique().tolist())
+            cur_on = [j for j in opts if is_on_trade_market(market, owner_a, j)]
+            new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, default=cur_on, key="tx_market_a")
+            market = set_owner_market(market, season, owner_a, new_on)
+    with mm2:
+        if not dfb.empty:
+            opts = sorted(dfb["Joueur"].dropna().astype(str).str.strip().unique().tolist())
+            cur_on = [j for j in opts if is_on_trade_market(market, owner_b, j)]
+            new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, default=cur_on, key="tx_market_b")
+            market = set_owner_market(market, season, owner_b, new_on)
+
+    if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
+        save_trade_market(season, market)
+        st.toast("✅ Marché sauvegardé", icon="✅")
+        do_rerun()
 
 
 elif active_tab == "🛠️ Gestion Admin":
