@@ -1736,16 +1736,21 @@ owner = str(get_selected_team() or "").strip()
 df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
 df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
-    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
+
+# Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
 if not dprop.empty and "Slot" in dprop.columns:
-        dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+    dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
 gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
 cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
-    remain_gc = cap_gc - used_gc
+used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
+remain_gc = cap_gc - used_gc
 
-    @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
+@st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
+def _dlg_preview_gc():
+    # ... ton contenu de dialog ici ...
+    pass
+
     def _dlg():
         st.caption("Prévisualisation rapide du Grand Club (GC).")
 
@@ -3485,4 +3490,3 @@ elif active_tab == "🧠 Recommandations":
 
 else:
     st.warning("Onglet inconnu")
-    
