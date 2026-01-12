@@ -1732,52 +1732,49 @@ def open_gc_preview_dialog():
     if not st.session_state.get("gc_preview_open"):
         return
 
-owner = str(get_selected_team() or "").strip()
-df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
-    # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
-if not dprop.empty and "Slot" in dprop.columns:
+    owner = str(get_selected_team() or "").strip()
+    df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+
+    dprop = (
+        df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy()
+        if (not df0.empty and owner)
+        else pd.DataFrame()
+    )
+
+    # Enlève IR pour le preview GC
+    if not dprop.empty and "Slot" in dprop.columns:
         dprop = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
-cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    gc_all = (
+        dprop[dprop.get("Statut", "") == STATUT_GC].copy()
+        if not dprop.empty
+        else pd.DataFrame()
+    )
+
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
     remain_gc = cap_gc - used_gc
 
     @st.dialog(f"👀 Alignement GC — {owner or 'Équipe'}", width="large")
     def _dlg():
-        st.caption("Prévisualisation rapide du Grand Club (GC).")
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Total GC", money(used_gc))
-        with c2:
-            st.metric("Plafond GC", money(cap_gc))
-        with c3:
-            if used_gc > cap_gc:
-                st.error(f"Non conforme — dépassement: {money(used_gc - cap_gc)}")
-            else:
-                st.success(f"Conforme — reste: {money(remain_gc)}")
+        st.markdown(
+            f"**Cap GC:** {money(cap_gc)} &nbsp;&nbsp; | &nbsp;&nbsp; "
+            f"**Utilisé:** {money(used_gc)} &nbsp;&nbsp; | &nbsp;&nbsp; "
+            f"**Reste:** {money(remain_gc)}"
+        )
 
         if gc_all.empty:
-            st.info("Aucun joueur GC pour cette équipe.")
-        else:
-            # ✅ Pos complètement à gauche
-            show_cols = [c for c in ["Pos", "Joueur", "Equipe", "Slot", "Salaire"] if c in gc_all.columns]
-            df_show = gc_all[show_cols].copy()
+            st.info("Aucun joueur au Grand Club (hors IR).")
+            return
 
-            if "Salaire" in df_show.columns:
-                df_show["Salaire"] = df_show["Salaire"].apply(lambda x: money(int(x) if str(x).strip() else 0))
+        cols = [c for c in ["Joueur", "Position", "Team", "Level", "Salaire", "Slot"] if c in gc_all.columns]
+        st.dataframe(gc_all[cols], use_container_width=True, hide_index=True)
 
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+    # ✅ Ouvre le dialog une seule fois
+    st.session_state["gc_preview_open"] = False
+    _dlg()
 
-        if st.button("OK", use_container_width=True, key="gc_preview_ok"):
-            st.session_state["gc_preview_open"] = False
-            do_rerun()
-    # close flag BEFORE opening dialog (évite double-run)
-    st.session_state['gc_preview_open'] = False
-    _open_dialog_once(_dlg, key='gc_preview')
 # =====================================================
 # PLAFONDS builder + Tableau UI
 # =====================================================
@@ -3488,4 +3485,3 @@ elif active_tab == "🧠 Recommandations":
 
 else:
     st.warning("Onglet inconnu")
-    
