@@ -1732,8 +1732,7 @@ def open_gc_preview_dialog():
     if not st.session_state.get("gc_preview_open"):
         return
 
-    owner = str(get_selected_team() or "").strip()
-
+owner = str(get_selected_team() or "").strip()
     df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
     df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
 
@@ -2943,7 +2942,7 @@ with b2:
     render_cap_bar(label=f"Plafond CE — {proprietaire}", used=masse_ce, cap=PLAFOND_CE)
 
 st.markdown("---")
-    owner = str(get_selected_team() or "").strip()
+owner = str(get_selected_team() or "").strip()
     if not owner:
         st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
         st.stop()
