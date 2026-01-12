@@ -282,11 +282,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:6.3rem;
+  font-size:5.2rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:7.2rem; /* bigger sticks + net */
+  font-size:6.0rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -423,7 +423,7 @@ def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def _login_header():
-    logo_file = os.path.join("data", "Logo_Pool.png")
+    logo_file = globals().get("LOGO_POOL_FILE") or os.path.join("data", "Logo_Pool.png")
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
@@ -442,7 +442,10 @@ def _login_header():
 
         with c2:
             if os.path.exists(logo_file):
-                st.image(logo_file, use_container_width=True)
+                # Logo pool: taille contrôlée + centré (évite le grand carré)
+                cc = st.columns([1, 2, 1])
+                with cc[1]:
+                    st.image(logo_file, width=220)
             else:
                 st.markdown('<div class="pms-logo"><span class="pms-title">PMS</span></div>', unsafe_allow_html=True)
 
@@ -3591,5 +3594,4 @@ elif active_tab == "🧠 Recommandations":
 
 else:
     st.warning("Onglet inconnu")
-
 
