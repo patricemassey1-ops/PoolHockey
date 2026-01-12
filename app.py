@@ -492,7 +492,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 # ENRICH — Level depuis hockey.players.csv (players_db)
 # =====================================================
 def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
-    """Complète df['Level'] (STD/ELC) en utilisant la base players_db si manquant."""
+    """Complète df['Level'] (STD/ELC) et df['Expiry Year'] à partir de la base Hockey.Players.csv (players_db)."""
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
 
@@ -508,17 +508,17 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         if cand in db.columns:
             name_col = cand
             break
-    if name_col is None or "Level" not in db.columns:
+    if name_col is None:
+        return df
+    if "Level" not in db.columns and "Expiry Year" not in db.columns:
         return df
 
     def _n(x: str) -> str:
         """Normalise un nom joueur pour matching robuste (accents, ponctuation, ordre)."""
         s = str(x or "").strip().lower()
-        # normaliser apostrophes/points/virgules
         s = s.replace("’", "'")
         s = re.sub(r"[\.]", "", s)
-        s = re.sub(r"\s+", " ", s)
-        s = s.strip()
+        s = re.sub(r"\s+", " ", s).strip()
         return s
 
     def _swap_last_first(s: str) -> str:
@@ -529,41 +529,81 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
                 return f"{parts[1]} {parts[0]}".strip()
         return s
 
-    # Construire une map Level avec variantes (Last, First) et (First Last)
-    db["Level"] = db["Level"].astype(str).str.strip()
     base_names = db[name_col].astype(str).fillna("")
-    keys = []
-    vals = []
-    for nm, lvl in zip(base_names.tolist(), db["Level"].tolist()):
-        if not str(lvl).strip():
-            continue
-        n0 = _n(nm)
-        n1 = _n(_swap_last_first(nm))
-        if n0:
-            keys.append(n0); vals.append(lvl)
-        if n1 and n1 != n0:
-            keys.append(n1); vals.append(lvl)
-    mp = dict(zip(keys, vals))
+
+    # --- map Level
+    mp_level = {}
+    if "Level" in db.columns:
+        db["Level"] = db["Level"].astype(str).str.strip()
+        lvl_keys, lvl_vals = [], []
+        for nm, lvl in zip(base_names.tolist(), db["Level"].tolist()):
+            lvl = str(lvl).strip()
+            if not lvl or lvl.lower() in {"none", "nan", "null"}:
+                continue
+            n0 = _n(nm)
+            n1 = _n(_swap_last_first(nm))
+            if n0:
+                lvl_keys.append(n0); lvl_vals.append(lvl)
+            if n1 and n1 != n0:
+                lvl_keys.append(n1); lvl_vals.append(lvl)
+        mp_level = dict(zip(lvl_keys, lvl_vals))
+
+    # --- map Expiry Year
+    mp_exp = {}
+    if "Expiry Year" in db.columns:
+        exp_keys, exp_vals = [], []
+        exp_series = pd.to_numeric(db["Expiry Year"], errors="coerce")
+        exp_series = exp_series.where(exp_series.notna(), None)
+        for nm, exp in zip(base_names.tolist(), exp_series.tolist()):
+            if exp is None:
+                continue
+            exp = str(int(exp))
+            n0 = _n(nm)
+            n1 = _n(_swap_last_first(nm))
+            if n0:
+                exp_keys.append(n0); exp_vals.append(exp)
+            if n1 and n1 != n0:
+                exp_keys.append(n1); exp_vals.append(exp)
+        mp_exp = dict(zip(exp_keys, exp_vals))
 
     out = df.copy()
+
+    # Ensure cols exist
     if "Level" not in out.columns:
         out["Level"] = ""
+    if "Expiry Year" not in out.columns:
+        out["Expiry Year"] = ""
 
     bad = {"", "none", "nan", "null"}
-    cur = out["Level"].astype(str).str.strip()
-    need = cur.eq("") | cur.str.lower().isin(bad)
 
-    if need.any():
+    # Fill Level
+    cur_lvl = out["Level"].astype(str).str.strip()
+    need_lvl = cur_lvl.eq("") | cur_lvl.str.lower().isin(bad)
+    if need_lvl.any() and mp_level:
         def _lvl_lookup(name: str) -> str:
             n0 = _n(name)
-            if n0 in mp:
-                return mp.get(n0, "")
+            if n0 in mp_level:
+                return mp_level.get(n0, "")
             n1 = _n(_swap_last_first(name))
-            return mp.get(n1, "")
-        out.loc[need, "Level"] = out.loc[need, "Joueur"].astype(str).map(_lvl_lookup)
+            return mp_level.get(n1, "")
+        out.loc[need_lvl, "Level"] = out.loc[need_lvl, "Joueur"].astype(str).map(_lvl_lookup)
+
+    # Fill Expiry Year
+    cur_exp = out["Expiry Year"].astype(str).str.strip()
+    need_exp = cur_exp.eq("") | cur_exp.str.lower().isin(bad)
+    if need_exp.any() and mp_exp:
+        def _exp_lookup(name: str) -> str:
+            n0 = _n(name)
+            if n0 in mp_exp:
+                return mp_exp.get(n0, "")
+            n1 = _n(_swap_last_first(name))
+            return mp_exp.get(n1, "")
+        out.loc[need_exp, "Expiry Year"] = out.loc[need_exp, "Joueur"].astype(str).map(_exp_lookup)
 
     out["Level"] = out["Level"].astype(str).str.strip()
+    out["Expiry Year"] = out["Expiry Year"].astype(str).str.strip()
     return out
+
 
 # =====================================================
 # HELPERS UI — Pills + Alert cards (1 seule fois)
@@ -1013,6 +1053,45 @@ def buyout_penalty_sum(owner: str, bucket: str | None = None) -> int:
 def _trade_market_path(season_lbl: str) -> str:
     season_lbl = str(season_lbl or "").strip() or "season"
     return os.path.join(DATA_DIR, f"trade_market_{season_lbl}.csv")
+
+def _transactions_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or "").strip() or "season"
+    return os.path.join(DATA_DIR, f"transactions_{season_lbl}.csv")
+
+def load_transactions(season_lbl: str) -> pd.DataFrame:
+    """Charge les transactions sauvegardées (proposées) pour une saison."""
+    path = _transactions_path(season_lbl)
+    cols = ["timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status"]
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=cols)
+    try:
+        t = pd.read_csv(path)
+        for c in cols:
+            if c not in t.columns:
+                t[c] = ""
+        return t[cols].copy()
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+def save_transactions(season_lbl: str, t: pd.DataFrame) -> None:
+    """Persist transactions to local CSV (Cloud-safe)."""
+    path = _transactions_path(season_lbl)
+    cols = ["timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status"]
+    try:
+        if t is None or not isinstance(t, pd.DataFrame):
+            t = pd.DataFrame(columns=cols)
+        for c in cols:
+            if c not in t.columns:
+                t[c] = ""
+        t = t[cols].copy()
+        t.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def append_transaction(season_lbl: str, row: dict) -> None:
+    t = load_transactions(season_lbl)
+    t = pd.concat([t, pd.DataFrame([row])], ignore_index=True)
+    save_transactions(season_lbl, t)
 
 def load_trade_market(season_lbl: str) -> pd.DataFrame:
     path = _trade_market_path(season_lbl)
@@ -1924,14 +2003,38 @@ season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto),
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
+
+def _tx_pending_from_state() -> bool:
+    """Detecte une transaction en cours (sélections joueurs/picks/cash) via session_state."""
+    ss = st.session_state
+    for k, v in ss.items():
+        if k.startswith(("tx_players_", "tx_picks_")):
+            if isinstance(v, (list, tuple, set)) and len(v) > 0:
+                return True
+        if k.startswith(("tx_cash_", "tx_ret_")):
+            try:
+                if int(v or 0) > 0:
+                    return True
+            except Exception:
+                pass
+    return False
+
+def _nav_label(tab_id: str) -> str:
+    # Badge transaction en attente (affichage seulement; tab_id reste stable)
+    if tab_id == "⚖️ Transactions" and _tx_pending_from_state():
+        return "🔴 " + tab_id
+    return tab_id
+
+
 st.sidebar.markdown("### Navigation")
 active_tab = st.sidebar.radio(
     "",
     NAV_TABS,
     index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])),
     key="active_tab",
+    format_func=_nav_label,
 )
-st.sidebar.divider()
+
 
 # Default caps
 if "PLAFOND_GC" not in st.session_state:
@@ -2054,13 +2157,14 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t = df_src.copy()
 
     # colonnes minimales
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": ""}.items():
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": "", "Expiry Year": ""}.items():
         if c not in t.columns:
             t[c] = d
 
     t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Level"]  = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Expiry Year"] = t["Expiry Year"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
 
     bad = {"", "none", "nan", "null"}
@@ -2087,12 +2191,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
 
     # header
-    h = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+    h = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
+    h[4].markdown("**Expiry**")
+    h[5].markdown("**Salaire**")
 
     clicked = None
     for _, r in t.iterrows():
@@ -2108,7 +2213,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.0, 1.4, 3.6, 1.2, 2.0])
+        c = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -2126,7 +2231,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             f"<span class='levelCell {lvl_cls}'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
-        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        exp = str(r.get('Expiry Year','')).strip()
+        c[4].markdown(
+            f"<span class='expiryCell'>{html.escape(exp) if exp and exp.lower() not in bad else '—'}</span>",
+            unsafe_allow_html=True,
+        )
+        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -2756,7 +2866,9 @@ elif active_tab == "⚖️ Transactions":
         lvl = str(r.get("Level","")).strip()
         sal = int(pd.to_numeric(r.get("Salaire",0), errors="coerce") or 0)
         flag = "🔁 " if is_on_trade_market(market, str(r.get("Propriétaire","")), j) else ""
-        return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · {money(sal)}"
+        exp = str(r.get('Expiry Year','')).strip()
+        exp_txt = exp if exp else '—'
+        return f"{flag}{j} · {pos} · {team} · {lvl or '—'} · Exp {exp_txt} · {money(sal)}"
 
     def _owner_picks(owner: str):
         """Retourne les choix détenus par owner sous forme 'R{round} — {orig}' (rondes 1-7 seulement)."""
@@ -2861,23 +2973,19 @@ elif active_tab == "⚖️ Transactions":
     # --- Affichage détails (salaire, pos, level, années restantes si dispo)
     def _detail_df(owner: str, dfo: pd.DataFrame, picked: list[str]) -> pd.DataFrame:
         if not picked:
-            return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Années (si dispo)","Marché"])
+            return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"])
         tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])].copy()
         tmp["Salaire"] = tmp["Salaire"].apply(lambda x: money(int(pd.to_numeric(x, errors="coerce") or 0)))
         tmp["Marché"] = tmp["Joueur"].apply(lambda j: "Oui" if is_on_trade_market(market, owner, str(j)) else "Non")
 
-        # années restantes (si dispo)
-        yrs = ""
-        for cand in ["Years Left","Years","Yrs","Term","Contract Years Remaining","YearsRemaining"]:
-            if cand in tmp.columns:
-                yrs = cand
-                break
-        if yrs:
-            tmp["Années (si dispo)"] = tmp[yrs].astype(str)
-        else:
-            tmp["Années (si dispo)"] = ""
 
-        keep = [c for c in ["Joueur","Pos","Equipe","Salaire","Level","Années (si dispo)","Marché"] if c in tmp.columns]
+        # Expiry Year (si dispo)
+        if "Expiry Year" not in tmp.columns:
+            tmp["Expiry Year"] = ""
+        else:
+            tmp["Expiry Year"] = tmp["Expiry Year"].astype(str).str.strip()
+
+        keep = [c for c in ["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"] if c in tmp.columns]
         return tmp[keep].reset_index(drop=True)
 
     c1, c2 = st.columns(2)
@@ -2919,6 +3027,7 @@ elif active_tab == "⚖️ Transactions":
     st.divider()
 
     # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
+
     st.markdown("### Marché des échanges (optionnel)")
     st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
 
@@ -2972,6 +3081,107 @@ elif active_tab == "🛠️ Gestion Admin":
             key="admin_plafond_ce",
             disabled=locked,
         )
+
+    # -----------------------------
+    # 📦 Transactions (Admin) — sauvegarde proposition
+    # -----------------------------
+    with st.expander("📦 Transactions (Admin)", expanded=False):
+        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
+
+        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
+        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
+
+        a_players = st.session_state.get("tx_players_A", []) or []
+        b_players = st.session_state.get("tx_players_B", []) or []
+        a_picks = st.session_state.get("tx_picks_A", []) or []
+        b_picks = st.session_state.get("tx_picks_B", []) or []
+        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
+        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
+
+        # Retenues (si présentes)
+        def _collect_ret(side: str) -> dict:
+            out = {}
+            for k, v in st.session_state.items():
+                if k.startswith(f"tx_ret_{side}_"):
+                    try:
+                        amt = int(v or 0)
+                    except Exception:
+                        amt = 0
+                    if amt > 0:
+                        # clé contient déjà le nom "safe", on le garde
+                        out[k] = amt
+            return out
+
+        a_retained = _collect_ret("A")
+        b_retained = _collect_ret("B")
+
+        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
+        if not has_any:
+            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
+        else:
+            # Validations : Level (STD/ELC) et Expiry Year doivent exister pour les joueurs sélectionnés
+            df_all = st.session_state.get("data", pd.DataFrame()).copy()
+
+            missing = []
+            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
+                for j in plist:
+                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
+                    if d.empty:
+                        missing.append(f"{owner or side} — {j} (introuvable)")
+                        continue
+                    lvl = str(d.iloc[0].get("Level", "")).strip()
+                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
+                    if not lvl or lvl.upper() not in ("STD", "ELC"):
+                        missing.append(f"{owner or side} — {j} (Level manquant)")
+                    if not exp:
+                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
+
+            if missing:
+                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
+                st.write("• " + "\n• ".join(missing[:12]))
+                if len(missing) > 12:
+                    st.caption(f"+ {len(missing)-12} autres…")
+                can_save = False
+            else:
+                can_save = True
+
+            # Preview compact
+            st.markdown("**Résumé**")
+            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
+            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
+
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
+                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
+                    row = {
+                        "timestamp": ts,
+                        "owner_a": owner_a,
+                        "owner_b": owner_b,
+                        "a_players": " | ".join([str(x).strip() for x in a_players]),
+                        "b_players": " | ".join([str(x).strip() for x in b_players]),
+                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
+                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
+                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
+                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
+                        "a_cash": int(a_cash or 0),
+                        "b_cash": int(b_cash or 0),
+                        "status": "Proposée",
+                    }
+                    append_transaction(season, row)
+                    st.toast("✅ Transaction sauvegardée", icon="✅")
+
+            with col_s2:
+                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
+                            try:
+                                del st.session_state[k]
+                            except Exception:
+                                pass
+                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
+                    do_rerun()
+
 
     manifest = load_init_manifest() or {}
     if "fantrax_by_team" not in manifest:
