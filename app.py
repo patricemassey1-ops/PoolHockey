@@ -2659,13 +2659,13 @@ def render_tab_alignement():
     st.subheader("🧾 Alignement")
 
 
-if active_tab == "🏠 Home":
+    if active_tab == "🏠 Home":
     st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
     # Sous-titre discret (UI)
     st.markdown(
-        '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
-        unsafe_allow_html=True
+    '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
+    unsafe_allow_html=True
     )
 
     st.write("")  # spacing léger
@@ -2675,52 +2675,52 @@ if active_tab == "🏠 Home":
     #   Affiche un encart s'il y a des joueurs "disponibles" sur le marché.
     # =====================================================
     if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
-        try:
-            market = load_trade_market(season)
+    try:
+    market = load_trade_market(season)
 
-        except Exception:
-            market = pd.DataFrame()
+    except Exception:
+    market = pd.DataFrame()
 
-        if isinstance(market, pd.DataFrame) and not market.empty:
-            mkt = market.copy()
-            # normalise la colonne is_available
-            if "is_available" in mkt.columns:
-                mkt["is_available_str"] = mkt["is_available"].astype(str).str.strip().str.lower()
-                on = mkt[mkt["is_available_str"].isin(["1", "true", "yes", "y", "oui"])]
-            else:
-                on = pd.DataFrame()
+    if isinstance(market, pd.DataFrame) and not market.empty:
+    mkt = market.copy()
+    # normalise la colonne is_available
+    if "is_available" in mkt.columns:
+    mkt["is_available_str"] = mkt["is_available"].astype(str).str.strip().str.lower()
+    on = mkt[mkt["is_available_str"].isin(["1", "true", "yes", "y", "oui"])]
+    else:
+    on = pd.DataFrame()
 
-            if not on.empty:
-                # Dernière MAJ (best effort)
-                last_upd = ""
-                if "updated_at" in on.columns:
-                    try:
-                        dt = pd.to_datetime(on["updated_at"], errors="coerce")
-                        if dt.notna().any():
-                            last_upd = dt.max().strftime("%Y-%m-%d %H:%M")
-                    except Exception:
-                        pass
+    if not on.empty:
+    # Dernière MAJ (best effort)
+    last_upd = ""
+    if "updated_at" in on.columns:
+    try:
+    dt = pd.to_datetime(on["updated_at"], errors="coerce")
+    if dt.notna().any():
+    last_upd = dt.max().strftime("%Y-%m-%d %H:%M")
+    except Exception:
+    pass
 
-                by_owner = on["proprietaire"].astype(str).str.strip().value_counts().to_dict() if "proprietaire" in on.columns else {}
-                total = int(len(on))
-                owners_txt = ", ".join([f"{k} ({v})" for k, v in list(by_owner.items())[:6]])
-                msg = f"📣 **Transactions / marché actif** : **{total}** joueur(s) disponible(s)"
-                if owners_txt:
-                    msg += f" — {owners_txt}"
-                if last_upd:
-                    msg += f" _(MAJ: {last_upd})_"
+    by_owner = on["proprietaire"].astype(str).str.strip().value_counts().to_dict() if "proprietaire" in on.columns else {}
+    total = int(len(on))
+    owners_txt = ", ".join([f"{k} ({v})" for k, v in list(by_owner.items())[:6]])
+    msg = f"📣 **Transactions / marché actif** : **{total}** joueur(s) disponible(s)"
+    if owners_txt:
+    msg += f" — {owners_txt}"
+    if last_upd:
+    msg += f" _(MAJ: {last_upd})_"
 
-                c1, c2 = st.columns([4, 1], vertical_alignment="center")
-                with c1:
-                    st.info(msg)
-                with c2:
-                    if st.button("Voir", use_container_width=True, key="home_go_tx"):
-                        st.session_state["active_tab"] = "⚖️ Transactions"
-                        do_rerun()
-            else:
-                st.caption("🔕 Aucune transaction affichée pour l’instant.")
-        else:
-            st.caption("🔕 Aucune transaction affichée pour l’instant.")
+    c1, c2 = st.columns([4, 1], vertical_alignment="center")
+    with c1:
+    st.info(msg)
+    with c2:
+    if st.button("Voir", use_container_width=True, key="home_go_tx"):
+    st.session_state["active_tab"] = "⚖️ Transactions"
+    do_rerun()
+    else:
+    st.caption("🔕 Aucune transaction affichée pour l’instant.")
+    else:
+    st.caption("🔕 Aucune transaction affichée pour l’instant.")
     # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
 
@@ -2728,52 +2728,52 @@ if active_tab == "🏠 Home":
     st.markdown("### 🕒 Derniers changements (moves / rachats / échanges)")
 
     def _recent_changes_df(limit: int = 15) -> pd.DataFrame:
-        rows = []
+    rows = []
 
-        # Moves / actions via history
-        h = st.session_state.get("history")
-        if isinstance(h, pd.DataFrame) and not h.empty:
-            hh = h.copy()
-            # normaliser colonnes
-            if "timestamp" in hh.columns:
-                hh["_dt"] = hh["timestamp"].apply(to_dt_local)
-            else:
-                hh["_dt"] = pd.NaT
-            for _, r in hh.iterrows():
-                rows.append({
-                    "Date": format_date_fr(r.get("timestamp")),
-                    "_dt": r.get("_dt", pd.NaT),
-                    "Type": str(r.get("action", "") or "MOVE"),
-                    "Équipe": str(r.get("proprietaire", "") or ""),
-                    "Détail": f"{str(r.get('joueur','') or '')} — {str(r.get('from_statut','') or '')}/{str(r.get('from_slot','') or '')} → {str(r.get('to_statut','') or '')}/{str(r.get('to_slot','') or '')}".strip(),
-                })
+    # Moves / actions via history
+    h = st.session_state.get("history")
+    if isinstance(h, pd.DataFrame) and not h.empty:
+    hh = h.copy()
+    # normaliser colonnes
+    if "timestamp" in hh.columns:
+    hh["_dt"] = hh["timestamp"].apply(to_dt_local)
+    else:
+    hh["_dt"] = pd.NaT
+    for _, r in hh.iterrows():
+    rows.append({
+    "Date": format_date_fr(r.get("timestamp")),
+    "_dt": r.get("_dt", pd.NaT),
+    "Type": str(r.get("action", "") or "MOVE"),
+    "Équipe": str(r.get("proprietaire", "") or ""),
+    "Détail": f"{str(r.get('joueur','') or '')} — {str(r.get('from_statut','') or '')}/{str(r.get('from_slot','') or '')} → {str(r.get('to_statut','') or '')}/{str(r.get('to_slot','') or '')}".strip(),
+    })
 
-        # Rachats
-        b = st.session_state.get("buyouts")
-        if isinstance(b, pd.DataFrame) and not b.empty:
-            bb = b.copy()
-            bb["_dt"] = bb["timestamp"].apply(to_dt_local) if "timestamp" in bb.columns else pd.NaT
-            for _, r in bb.iterrows():
-                bucket = str(r.get("bucket", "GC") or "GC").strip().upper()
-                rows.append({
-                    "Date": format_date_fr(r.get("timestamp")),
-                    "_dt": r.get("_dt", pd.NaT),
-                    "Type": f"RACHAT {bucket}",
-                    "Équipe": str(r.get("proprietaire", "") or ""),
-                    "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
-                })
+    # Rachats
+    b = st.session_state.get("buyouts")
+    if isinstance(b, pd.DataFrame) and not b.empty:
+    bb = b.copy()
+    bb["_dt"] = bb["timestamp"].apply(to_dt_local) if "timestamp" in bb.columns else pd.NaT
+    for _, r in bb.iterrows():
+    bucket = str(r.get("bucket", "GC") or "GC").strip().upper()
+    rows.append({
+    "Date": format_date_fr(r.get("timestamp")),
+    "_dt": r.get("_dt", pd.NaT),
+    "Type": f"RACHAT {bucket}",
+    "Équipe": str(r.get("proprietaire", "") or ""),
+    "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
+    })
 
-        # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
-        out = pelif active_tab == "🧾 Alignement":
+    # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
+    out = pelif active_tab == "🧾 Alignement":
     render_tab_alignement()
     out = out.sort_values(by="_dt", ascending=False, na_position="last").drop(columns=["_dt"])
-        return out.head(int(limit))
+    return out.head(int(limit))
 
     recent = _recent_changes_df(20)
     if recent.empty:
-        st.caption("Aucun changement enregistré pour l’instant.")
+    st.caption("Aucun changement enregistré pour l’instant.")
     else:
-        st.dataframe(recent, use_container_width=True, hide_index=True)
+    st.dataframe(recent, use_container_width=True, hide_index=True)
 
 
 elif active_tab == "🧾 Alignement":
