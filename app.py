@@ -2640,33 +2640,28 @@ def render_transactions():
 # =====================================================
 
 # =====================================================
-# TAB GM — isolé (zéro surprises d'indentation)
+# TAB GM — isolé
 # =====================================================
 def render_tab_gm():
-    """Rendu complet de l'onglet 🧑‍💼 GM. Isolé pour éviter les erreurs d'indentation."""
-    # NOTE: toutes les variables utilisées ici sont lues depuis le scope global (comme avant).
+    """Rendu complet de l'onglet 🧑‍💼 GM."""
     st.subheader("🧑‍💼 GM")
+    # ... contenu GM ...
 
-if active_tab == "🏠 Home":
-    render_tab_home()
-dentation)
+
+# =====================================================
+# TAB Home — isolé
 # =====================================================
 def render_tab_home():
     """Rendu complet de l'onglet 🏠 Home."""
-    # NOTE: fonctions/constantes utilisées ici sont définies plus haut.
     st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
-
-if active_tab == "🏠 Home":
-    st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
-
-    # Sous-titre discret (UI)
     st.markdown(
         '<div class="muted">Vue d’ensemble des équipes pour la saison active</div>',
         unsafe_allow_html=True
     )
 
-    st.write("")  # spacing léger
+    build_tableau_ui(st.session_state.get("plafonds"))
+
 
     # =====================================================
     # 🔔 Transactions en cours (Marché) — aperçu rapide
