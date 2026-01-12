@@ -2449,6 +2449,93 @@ def render_joueurs_autonomes():
                 if st.button("✅ Confirmer", type="primary", use_container_width=True, disabled=(len(sel_list) == 0), key="fa_confirm_btn"):
                     st.session_state["fa_confirmed_players"] = list(sel_list)
                     st.toast("✅ Joueurs autonomes confirmés", icon="✅")
+                # --- Après confirmation: préparer des signatures (proposition)
+                confirmed = st.session_state.get("fa_confirmed_players", [])
+                if confirmed:
+                    with st.expander("✍️ Signatures / Transactions (suite à confirmation)", expanded=True):
+                        plafonds = st.session_state.get("plafonds")
+                        owners = sorted(plafonds["Propriétaire"].dropna().astype(str).str.strip().unique().tolist()) if plafonds is not None and not plafonds.empty else []
+                        df_all = st.session_state.get("data")
+
+                        # init storage
+                        if "fa_signatures" not in st.session_state or not isinstance(st.session_state["fa_signatures"], dict):
+                            st.session_state["fa_signatures"] = {}
+                        sig = st.session_state["fa_signatures"]
+
+                        # helper to read current row info
+                        def _row_info(player_name: str):
+                            if df_all is None or df_all.empty:
+                                return {}
+                            d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(player_name).strip())]
+                            if d.empty:
+                                return {}
+                            r = d.iloc[0].to_dict()
+                            return r
+
+                        st.caption("Remplis la destination et le statut (GC/CE). Rien n'est appliqué tant que tu n'appuies pas sur **Appliquer**.")
+                        for p in confirmed:
+                            info = _row_info(p)
+                            default_owner = str(info.get("Propriétaire", "") or "").strip()
+                            default_statut = str(info.get("Statut", "") or "").strip()
+
+                            # init per player
+                            if p not in sig:
+                                sig[p] = {
+                                    "dest_owner": default_owner if default_owner else (owners[0] if owners else ""),
+                                    "statut": default_statut if default_statut else STATUT_GC,
+                                    "slot": str(info.get("Slot", "") or "").strip(),
+                                }
+
+                            c1, c2, c3, c4 = st.columns([5, 3, 3, 3], vertical_alignment="center")
+                            with c1:
+                                st.markdown(f"**{p}**")
+                                lv = str(info.get("Level", "") or "").strip().upper()
+                                ex = str(info.get("Expiry Year", "") or "").strip()
+                                meta = []
+                                if lv:
+                                    meta.append(f"Level: {lv}")
+                                if ex:
+                                    meta.append(f"Expiry: {ex}")
+                                if meta:
+                                    st.caption(" • ".join(meta))
+                            with c2:
+                                sig[p]["dest_owner"] = st.selectbox("Équipe", owners if owners else [""], index=(owners.index(sig[p]["dest_owner"]) if owners and sig[p]["dest_owner"] in owners else 0), key=f"fa_sig_owner_{p}")
+                            with c3:
+                                sig[p]["statut"] = st.selectbox("Statut", [STATUT_GC, STATUT_CE], index=0 if sig[p]["statut"] == STATUT_GC else 1, key=f"fa_sig_statut_{p}")
+                            with c4:
+                                # slot auto selon statut
+                                slot_default = SLOT_ACTIF if sig[p]["statut"] == STATUT_GC else ""
+                                sig[p]["slot"] = st.selectbox("Slot", [slot_default, SLOT_BANC, SLOT_IR, ""], index=0, key=f"fa_sig_slot_{p}")
+
+                        st.divider()
+
+                        can_apply = bool(confirmed) and (df_all is not None) and (not df_all.empty) and owners
+                        apply_clicked = st.button("🟢 Appliquer signatures", type="primary", use_container_width=True, disabled=not can_apply, key="fa_apply_signatures_btn")
+
+                        if apply_clicked:
+                            df_new = df_all.copy()
+                            applied = 0
+                            for p in confirmed:
+                                dest = str(st.session_state.get(f"fa_sig_owner_{p}", sig.get(p, {}).get("dest_owner","")) or "").strip()
+                                statut = str(st.session_state.get(f"fa_sig_statut_{p}", sig.get(p, {}).get("statut", STATUT_GC)) or "").strip()
+                                slot = str(st.session_state.get(f"fa_sig_slot_{p}", sig.get(p, {}).get("slot","")) or "").strip()
+
+                                if not dest:
+                                    continue
+
+                                m = df_new["Joueur"].astype(str).str.strip().eq(str(p).strip())
+                                # seulement si le joueur est "autonome" (pas déjà assigné)
+                                is_free = df_new["Propriétaire"].astype(str).str.strip().eq("") | df_new["Propriétaire"].astype(str).str.lower().str.contains("autonome|fa", na=False)
+                                mask = m & is_free
+                                if mask.any():
+                                    df_new.loc[mask, "Propriétaire"] = dest
+                                    df_new.loc[mask, "Statut"] = statut
+                                    df_new.loc[mask, "Slot"] = slot
+                                    applied += int(mask.sum())
+
+                            st.session_state["data"] = df_new
+                            st.toast(f"✅ Signatures appliquées ({applied} ligne(s) mises à jour)", icon="✅")
+                            do_rerun()
 
 
 def render_transactions():
@@ -2651,7 +2738,7 @@ def render_transactions():
 
         # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
 
-                with st.expander("🔁 Marché des échanges (optionnel)", expanded=False):
+        with st.expander("🔁 Marché des échanges (optionnel)", expanded=False):
             st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
 
             mm1, mm2 = st.columns(2)
