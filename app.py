@@ -1777,10 +1777,6 @@ if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
-st.session_state["season"] = season_pick
-st.session_state["LOCKED"] = saison_verrouillee(season_pick)
-
 # Mobile view
 st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 if st.session_state.get("mobile_view", False):
@@ -1788,6 +1784,11 @@ if st.session_state.get("mobile_view", False):
         "<style>.block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}</style>",
         unsafe_allow_html=True
     )
+
+
+season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
+st.session_state["season"] = season_pick
+st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
 # Default caps
 if "PLAFOND_GC" not in st.session_state:
@@ -1817,17 +1818,30 @@ st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE
 
 # Team picker
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipe choisie")
-team_sel = str(st.session_state.get("selected_team", "") or "").strip()
-if not team_sel:
-    team_sel = "—"
-st.sidebar.write(f"**{team_sel}**")
+st.sidebar.markdown("### 🏒 Équipe")
 
-logo_path = team_logo_path(team_sel)
+teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+if not teams:
+    teams = ["Whalers"]
+
+cur_team = get_selected_team().strip() or teams[0]
+if cur_team not in teams:
+    cur_team = teams[0]
+
+chosen_team = st.sidebar.selectbox(
+    "Choisir une équipe",
+    teams,
+    index=teams.index(cur_team),
+    key="sb_team_select",
+)
+
+if chosen_team and chosen_team != cur_team:
+    pick_team(chosen_team)
+
+logo_path = team_logo_path(get_selected_team())
 if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
-# (Sélection de l'équipe = via clic dans le tableau de la page 📊 Tableau)
 
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
     st.session_state["gc_preview_open"] = True
@@ -1840,7 +1854,7 @@ if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_widt
 is_admin = _is_admin_whalers()
 
 NAV_TABS = [
-    "📊 Tableau",
+    "🏠 Home",
     "🧾 Alignement",
     "🧑‍💼 GM",
     "👤 Joueurs autonomes",
@@ -1852,7 +1866,7 @@ if is_admin:
 NAV_TABS.append("🧠 Recommandations")
 
 if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = "📊 Tableau"
+    st.session_state["active_tab"] = "🏠 Home"
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
@@ -2048,8 +2062,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
-if active_tab == "📊 Tableau":
-    st.subheader("📊 Tableau — Masses salariales (toutes les équipes)")
+if active_tab == "🏠 Home":
+    st.subheader("🏠 Home — Masses salariales (toutes les équipes)")
 
     # Sous-titre discret (UI)
     st.markdown(
@@ -2059,6 +2073,56 @@ if active_tab == "📊 Tableau":
 
     st.write("")  # spacing léger
 
+    # =====================================================
+    # 🔔 Transactions en cours (Marché) — aperçu rapide
+    #   Affiche un encart s'il y a des joueurs "disponibles" sur le marché.
+    # =====================================================
+    if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
+        try:
+            market = load_trade_market(season)
+        except Exception:
+            market = pd.DataFrame()
+
+        if isinstance(market, pd.DataFrame) and not market.empty:
+            mkt = market.copy()
+            # normalise la colonne is_available
+            if "is_available" in mkt.columns:
+                mkt["is_available_str"] = mkt["is_available"].astype(str).str.strip().str.lower()
+                on = mkt[mkt["is_available_str"].isin(["1", "true", "yes", "y", "oui"])]
+            else:
+                on = pd.DataFrame()
+
+            if not on.empty:
+                # Dernière MAJ (best effort)
+                last_upd = ""
+                if "updated_at" in on.columns:
+                    try:
+                        dt = pd.to_datetime(on["updated_at"], errors="coerce")
+                        if dt.notna().any():
+                            last_upd = dt.max().strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        pass
+
+                by_owner = on["proprietaire"].astype(str).str.strip().value_counts().to_dict() if "proprietaire" in on.columns else {}
+                total = int(len(on))
+                owners_txt = ", ".join([f"{k} ({v})" for k, v in list(by_owner.items())[:6]])
+                msg = f"📣 **Transactions / marché actif** : **{total}** joueur(s) disponible(s)"
+                if owners_txt:
+                    msg += f" — {owners_txt}"
+                if last_upd:
+                    msg += f" _(MAJ: {last_upd})_"
+
+                c1, c2 = st.columns([4, 1], vertical_alignment="center")
+                with c1:
+                    st.info(msg)
+                with c2:
+                    if st.button("Voir", use_container_width=True, key="home_go_tx"):
+                        st.session_state["active_tab"] = "⚖️ Transactions"
+                        do_rerun()
+            else:
+                st.caption("🔕 Aucune transaction affichée pour l’instant.")
+        else:
+            st.caption("🔕 Aucune transaction affichée pour l’instant.")
     # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
 
@@ -2277,7 +2341,7 @@ elif active_tab == "🧑‍💼 GM":
     st.subheader("🧑‍💼 GM")
     owner = str(get_selected_team() or "").strip()
     if not owner:
-        st.info("Sélectionne une équipe en cliquant son nom dans 📊 Tableau.")
+        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
         st.stop()
 
     df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
