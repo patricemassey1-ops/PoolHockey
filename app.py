@@ -1734,8 +1734,7 @@ def open_gc_preview_dialog():
 
 owner = str(get_selected_team() or "").strip()
 df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-    df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-
+df0 = clean_data(df0) if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
     dprop = df0[df0.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (not df0.empty and owner) else pd.DataFrame()
 
     # Enlève IR pour le preview GC (tu peux enlever ce filtre si tu veux inclure IR)
