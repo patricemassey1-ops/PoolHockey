@@ -56,6 +56,16 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
+
+# =====================================================
+# PATHS — repo local (Streamlit Cloud safe)
+#   ✅ Place tes logos à côté de app.py:
+#      - logo_pool.png
+#      - gm_logo.png
+# =====================================================
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGO_POOL_FILE = os.path.join(APP_DIR, "logo_pool.png")
+GM_LOGO_FILE   = os.path.join(APP_DIR, GM_LOGO_FILE)
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
@@ -64,7 +74,7 @@ st.set_page_config(page_title="PMS", layout="wide")
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
 # =====================================================
-GM_LOGO_FILE = "gm_logo.png"
+GM_LOGO_FILE = GM_LOGO_FILE
 
 
 def _gm_logo_data_uri() -> str | None:
@@ -423,7 +433,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
-LOGO_POOL_FILE = next((os.path.join(DATA_DIR, n) for n in ["Logo_Pool.png","logo_pool.png","LOGO_POOL.png"] if os.path.exists(os.path.join(DATA_DIR, n))), os.path.join(DATA_DIR, "Logo_Pool.png"))
+LEGACY_LOGO_POOL_FILE = None  # v16: logos now next to app.py
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
 REQUIRED_COLS = [
@@ -449,8 +459,8 @@ def _sha256(s: str) -> str:
 
 
 def _login_header():
-    # Logo pool (robuste): essaie LOGO_POOL_FILE puis fallback data/Logo_Pool.png
-    logo_file = globals().get("LOGO_POOL_FILE") or os.path.join("data", "Logo_Pool.png")
+    # Logo pool (local, stable)
+    logo_file = LOGO_POOL_FILE
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
@@ -469,7 +479,7 @@ def _login_header():
 
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
-            safe_image(logo_file, width=440, caption="")
+            safe_image(logo_file, width=440, caption="(logo_pool.png introuvable à côté de app.py)")
             st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -2483,8 +2493,8 @@ def render_tab_gm():
             render_gm_logo(active=True, width=132, tooltip="Gestion d’équipe")
         except Exception:
             # fallback safe
-            if os.path.exists("gm_logo.png"):
-                safe_image("gm_logo.png", width=132, caption="")
+            if os.path.exists(GM_LOGO_FILE):
+                safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
         st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
 
