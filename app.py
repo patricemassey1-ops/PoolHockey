@@ -325,11 +325,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:4.8rem;
+  font-size:4.4rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:5.2rem; /* bigger sticks + net */
+  font-size:4.8rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -337,7 +337,7 @@ div[data-testid="stButton"] > button{
 
 /* v13: pool logo sizing (pro) */
 .pms-pool-logo { display:flex; justify-content:center; align-items:center; }
-.pms-pool-logo img { max-height:144px; width:auto; }
+.pms-pool-logo img { max-height:120px; width:auto; }
 
 /* =========================================
    🧑‍💼 GM logo (sidebar): grayscale when inactive
@@ -433,7 +433,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
-LEGACY_LOGO_POOL_FILE = None  # v16: logos now next to app.py
+# (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
 REQUIRED_COLS = [
@@ -466,7 +466,7 @@ def _login_header():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
 
         # 🏒 + PMS (gauche) | Logo Pool (centre) | 🥅 (droite)
-        c1, c2, c3 = st.columns([4, 6, 2], vertical_alignment="center")
+        c1, c2, c3 = st.columns([4, 7, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
@@ -479,7 +479,7 @@ def _login_header():
 
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
-            safe_image(logo_file, width=440, caption="(logo_pool.png introuvable à côté de app.py)")
+            safe_image(logo_file, width=380, caption="")
             st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -3631,4 +3631,3 @@ elif active_tab == "🧠 Recommandations":
 
 else:
     st.warning("Onglet inconnu")
-
