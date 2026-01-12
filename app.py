@@ -28,6 +28,18 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# =====================================================
+# GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
+# =====================================================
+GM_LOGO_FILE = "gm_logo.png"
+
+
+def _render_gm_logo(width: int = 36):
+    path = str(GM_LOGO_FILE or "").strip()
+    if path and os.path.exists(path):
+        st.image(path, width=width)
+
+
 # Anti double rerun (zéro surprise)
 st.session_state["_rerun_requested"] = False
 
@@ -2032,6 +2044,14 @@ def _nav_label(tab_id: str) -> str:
 
 
 st.sidebar.markdown("### Navigation")
+
+# --- Cute GM logo in sidebar (visual cue)
+try:
+    if str(st.session_state.get("active_tab","")).strip() == "🧑‍💼 GM":
+        st.sidebar.markdown("")
+        _render_gm_logo(width=40)
+except Exception:
+    pass
 active_tab = st.sidebar.radio(
     "",
     NAV_TABS,
@@ -3397,3 +3417,192 @@ elif active_tab == "🧠 Recommandations":
 
 else:
     st.warning("Onglet inconnu")
+
+def render_tab_gm():
+    """Rendu complet de l'onglet 🧑‍💼 GM (compact, collapses, zéro surprise)."""
+    # Header with cute logo
+    h1, h2 = st.columns([1, 12], vertical_alignment="center")
+    with h1:
+        _render_gm_logo(width=40)
+    with h2:
+        st.subheader("🧑‍💼 GM")
+
+    # Data source
+    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+    st.session_state["data"] = df
+
+    owner = str(get_selected_team() or "").strip()
+    if not owner:
+        st.info("Sélectionne une équipe dans la sidebar.")
+        st.stop()
+
+    dprop = df[df.get("Propriétaire", "").astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty) else pd.DataFrame()
+
+    # Caps
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+
+    # Split IR out for totals (same rule as Alignement)
+    if not dprop.empty and "Slot" in dprop.columns:
+        dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
+    else:
+        dprop_ok = dprop.copy()
+
+    gc_all = dprop_ok[dprop_ok.get("Statut", "") == STATUT_GC].copy() if not dprop_ok.empty else pd.DataFrame()
+    ce_all = dprop_ok[dprop_ok.get("Statut", "") == STATUT_CE].copy() if not dprop_ok.empty else pd.DataFrame()
+
+    used_gc = int(gc_all["Salaire"].sum()) if (isinstance(gc_all, pd.DataFrame) and not gc_all.empty and "Salaire" in gc_all.columns) else 0
+    used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
+    remain_gc = cap_gc - used_gc
+    remain_ce = cap_ce - used_ce
+
+    # =====================================================
+    # Haut GM — ultra compact (GC à gauche / CE à droite)
+    # =====================================================
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        st.caption("Masse GC")
+        st.markdown(f"<div style='font-size:32px;font-weight:800'>{money(used_gc)}</div>", unsafe_allow_html=True)
+    with c2:
+        st.caption("Masse CE")
+        st.markdown(f"<div style='font-size:32px;font-weight:800;text-align:right'>{money(used_ce)}</div>", unsafe_allow_html=True)
+
+    b1, b2 = st.columns(2, gap="large")
+    with b1:
+        st.markdown(cap_bar_html(used_gc, cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
+    with b2:
+        st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # =====================================================
+    # 🎯 Choix de repêchage — compact + visuel + collapse
+    # =====================================================
+    with st.expander("🎯 Choix de repêchage", expanded=False):
+        picks = {}
+        if "load_picks" in globals() and callable(globals()["load_picks"]):
+            try:
+                picks = load_picks(season)
+            except Exception:
+                picks = {}
+        # expected: dict round->owner
+        rows = []
+        if isinstance(picks, dict) and picks:
+            for r in range(1, 9):
+                rows.append({"Ronde": r, "Appartient à": str(picks.get(str(r), picks.get(r, owner)) or owner)})
+        else:
+            for r in range(1, 9):
+                rows.append({"Ronde": r, "Appartient à": owner})
+
+        # Visual compact cards (4 per row)
+        cols = st.columns(4)
+        for i, rr in enumerate(rows):
+            with cols[i % 4]:
+                with st.container(border=True):
+                    st.markdown(f"**R{rr['Ronde']}**")
+                    st.caption(rr["Appartient à"])
+
+        show_details = st.toggle("Afficher le détail (tableau)", value=False, key="gm_picks_details")
+        if show_details:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # =====================================================
+    # 💸 Rachat de contrat — collapse + bouton grisé
+    # =====================================================
+    with st.expander("💸 Rachat de contrat", expanded=False):
+        # candidates: roster players (GC/CE) - adapt to your columns
+        candidates = []
+        if not dprop.empty and "Joueur" in dprop.columns:
+            candidates = sorted(dprop["Joueur"].dropna().astype(str).unique().tolist())
+        chosen = st.selectbox("Sélectionner un joueur", [""] + candidates, key="gm_buyout_player")
+        can_apply = bool(str(chosen).strip())
+        # Optional: bucket
+        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+        colA, colB = st.columns([1, 1])
+        with colA:
+            penalite = st.number_input("Pénalité ( $ )", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
+        with colB:
+            note = st.text_input("Note (optionnel)", key="gm_buyout_note")
+
+        if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
+            # If a save function exists, use it; else just log in session
+            if "apply_buyout" in globals() and callable(globals()["apply_buyout"]):
+                try:
+                    apply_buyout(owner=owner, joueur=chosen, bucket=bucket, penalite=int(penalite), note=note)
+                    st.success("Rachat enregistré.")
+                except Exception as e:
+                    st.error("Impossible d'appliquer le rachat.")
+            else:
+                # fallback: append to session_state.buyouts
+                b = st.session_state.get("buyouts", pd.DataFrame())
+                row = {"timestamp": now_local_str(), "proprietaire": owner, "joueur": chosen, "bucket": bucket, "penalite": int(penalite), "note": note}
+                st.session_state["buyouts"] = pd.concat([b, pd.DataFrame([row])], ignore_index=True) if isinstance(b, pd.DataFrame) else pd.DataFrame([row])
+                st.success("Rachat enregistré (session).")
+
+    # =====================================================
+    # ⚖️ Transactions — collapse + bouton confirmer au centre
+    # =====================================================
+    with st.expander("⚖️ Transactions", expanded=False):
+        st.caption("Sélectionne les équipes et les actifs. Utilise ✅ Confirmer pour valider les paramètres (retenue/cash).")
+
+        all_owners = sorted(df.get("Propriétaire", pd.Series([], dtype=str)).dropna().astype(str).str.strip().unique().tolist()) if isinstance(df, pd.DataFrame) and not df.empty else [owner]
+        if owner not in all_owners:
+            all_owners = [owner] + all_owners
+
+        left, right = st.columns(2, gap="large")
+        with left:
+            team_a = st.selectbox("Équipe A", all_owners, index=all_owners.index(owner), key="tx_team_a")
+            retention_a = st.number_input("Montant retenu A (cash optionnel)", min_value=0, value=0, step=250000, key="tx_ret_a")
+        with right:
+            team_b = st.selectbox("Équipe B", all_owners, index=(1 if len(all_owners) > 1 else 0), key="tx_team_b")
+            retention_b = st.number_input("Montant retenu B (cash optionnel)", min_value=0, value=0, step=250000, key="tx_ret_b")
+
+        # Center confirm button
+        cL, cM, cR = st.columns([1, 1, 1])
+        with cM:
+            if st.button("✅ Confirmer", type="primary", use_container_width=True, key="tx_confirm_params"):
+                st.session_state["tx_params_confirmed"] = True
+                st.toast("Paramètres confirmés.", icon="✅")
+
+        confirmed = bool(st.session_state.get("tx_params_confirmed"))
+        if confirmed:
+            st.success("Paramètres confirmés — tu peux poursuivre la sélection des joueurs / picks.")
+        else:
+            st.info("Confirme les paramètres avant de finaliser.")
+
+        # Optional collapsible market section
+        with st.expander("🔁 Marché des échanges (optionnel)", expanded=False):
+            # Keep it compact; if a loader exists, show list
+            market = pd.DataFrame()
+            if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
+                try:
+                    market = load_trade_market(season)
+                except Exception:
+                    market = pd.DataFrame()
+
+            if isinstance(market, pd.DataFrame) and not market.empty:
+                cols = [c for c in ["joueur", "Joueur", "proprietaire", "Propriétaire", "updated_at"] if c in market.columns]
+                st.dataframe(market[cols] if cols else market, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Aucun joueur sur le marché présentement.")
+
+    # =====================================================
+    # 🔁 Marché des échanges — collapse (standalone)
+    # =====================================================
+    with st.expander("🔁 Marché des échanges", expanded=False):
+        market = pd.DataFrame()
+        if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
+            try:
+                market = load_trade_market(season)
+            except Exception:
+                market = pd.DataFrame()
+
+        if isinstance(market, pd.DataFrame) and not market.empty:
+            # compact columns
+            nice_cols = []
+            for c in ["proprietaire", "Propriétaire", "joueur", "Joueur", "position", "Pos", "updated_at"]:
+                if c in market.columns and c not in nice_cols:
+                    nice_cols.append(c)
+            st.dataframe(market[nice_cols] if nice_cols else market, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Aucun joueur sur le marché présentement.")
