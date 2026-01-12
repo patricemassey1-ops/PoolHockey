@@ -282,11 +282,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:5.2rem;
+  font-size:4.8rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:6.0rem; /* bigger sticks + net */
+  font-size:5.2rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -345,22 +345,8 @@ def apply_theme():
     st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 def _set_mobile_class(enabled: bool):
-    # Pas de <style> ici (CSS déjà dans THEME_CSS). On ne fait qu'ajouter/retirer une classe.
-    # ⚠️ IMPORTANT: aucun f-string ici, car le JS contient des accolades `{}`.
-    flag = "true" if enabled else "false"
-    js = """
-    <script>
-    (function(){
-      const cls = "pms-mobile";
-      const root = window.parent.document.body;
-      if (!root) return;
-      if (__FLAG__) root.classList.add(cls);
-      else root.classList.remove(cls);
-    })();
-    </script>
-    """
-    js = js.replace("__FLAG__", flag)
-    st.markdown(js, unsafe_allow_html=True)
+    """No-op: désactivé pour éviter les erreurs frontend (module script)."""
+    return
 
 # Appel UNIQUE
 apply_theme()
@@ -422,14 +408,16 @@ STATUT_CE = "Club École"
 def _sha256(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
+
 def _login_header():
+    # Logo pool (robuste): essaie LOGO_POOL_FILE puis fallback data/Logo_Pool.png
     logo_file = globals().get("LOGO_POOL_FILE") or os.path.join("data", "Logo_Pool.png")
 
     with st.container():
         st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
 
-        # PMS (gauche) | Logo Pool (centre) | Filet (droite)
-        c1, c2, c3 = st.columns([3, 7, 2], vertical_alignment="center")
+        # 🏒 + PMS (gauche) | Logo Pool (centre) | 🥅 (droite)
+        c1, c2, c3 = st.columns([4, 4, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
@@ -441,16 +429,17 @@ def _login_header():
             )
 
         with c2:
-            if os.path.exists(logo_file):
-                # Logo pool: taille contrôlée + centré (évite le grand carré)
-                cc = st.columns([1, 2, 1])
-                with cc[1]:
-                    st.image(logo_file, width=220)
+            if logo_file and os.path.exists(logo_file):
+                # Taille contrôlée + centré (évite le "gros carré")
+                st.image(logo_file, width=140)
             else:
-                st.markdown('<div class="pms-logo"><span class="pms-title">PMS</span></div>', unsafe_allow_html=True)
+                st.caption("Logo_Pool.png introuvable")
 
         with c3:
-            st.markdown('<div class="pms-right"><span class="pms-emoji-big" aria-hidden="true">🥅</span></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="pms-right"><span class="pms-emoji-big" aria-hidden="true">🥅</span></div>',
+                unsafe_allow_html=True,
+            )
 
         st.markdown("</div>", unsafe_allow_html=True)
 
