@@ -2666,141 +2666,7 @@ elif active_tab == "🧾 Alignement":
 
 
 elif active_tab == "GM":
-    st.subheader("GM")
-    owner = str(get_selected_team() or "").strip()
-    if not owner:
-        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
-        st.stop()
-
-    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-    st.session_state["data"] = df
-
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
-    if dprop.empty:
-        st.warning("Aucune donnée d'alignement pour cette équipe.")
-        st.stop()
-
-    # masse salariale (incl. pénalités)
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
-
-    d_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
-    total_gc = int(d_ok[(d_ok["Statut"] == STATUT_GC)]["Salaire"].sum())
-    total_ce = int(d_ok[(d_ok["Statut"] == STATUT_CE)]["Salaire"].sum())
-    pen_gc = int(buyout_penalty_sum(owner, "GC"))
-    pen_ce = int(buyout_penalty_sum(owner, "CE"))
-    total_gc_incl = total_gc + pen_gc
-    total_ce_incl = total_ce + pen_ce
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Masse GC", money(total_gc))
-    if pen_gc:
-        c2.metric("Pénalités rachat GC (50%)", money(pen_gc))
-    if pen_gc:
-        c3.metric("GC (incl. pénalités)", money(total_gc_incl))
-    c4, c5, _c6 = st.columns(3)
-    c4.metric("Masse CE", money(total_ce))
-    if pen_ce:
-        c5.metric("Pénalités rachat CE (50%)", money(pen_ce))
-        _c6.metric("CE (incl. pénalités)", money(total_ce_incl))
-    st.markdown(cap_bar_html((total_gc_incl if pen_gc else total_gc), cap_gc, f"📊 Plafond GC — {owner}"), unsafe_allow_html=True)
-    st.markdown(cap_bar_html((total_ce_incl if pen_ce else total_ce), cap_ce, f"📊 Plafond CE — {owner}"), unsafe_allow_html=True)
-
-    st.divider()
-
-    # Picks
-    teams = sorted(list(LOGOS.keys()))
-    picks = st.session_state.get("picks")
-    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != str(st.session_state.get("season")):
-        picks = load_picks(str(st.session_state.get("season")), teams)
-        st.session_state["picks"] = picks
-        st.session_state["_picks_season"] = str(st.session_state.get("season"))
-
-    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
-    owned_rounds = [r for r, who in my_picks.items() if str(who).strip() == owner]
-    st.markdown("### 🎯 Choix de repêchage")
-    st.write(f"Choix appartenant à **{owner}** : **{len(my_picks)}** (rondes 1 à 8).")
-    st.caption("Note: la ronde 8 n'est pas échangeable (règle), mais ici on affiche seulement la possession.")
-
-    df_picks = pd.DataFrame(
-        [{"Ronde": int(r), "Appartient à": str(who)} for r, who in sorted(my_picks.items(), key=lambda x: int(x[0]))]
-    )
-    st.dataframe(df_picks, use_container_width=True, hide_index=True)
-
-    st.divider()
-
-    # Buyout
-    st.markdown("### 💥 Rachat de contrat (pénalité 50%)")
-
-    # UI compact (sélection moins large)
-    left, right = st.columns([2.2, 1], vertical_alignment="top")
-    with left:
-        opts = sorted(dprop["Joueur"].astype(str).dropna().unique().tolist())
-        joueur = st.selectbox("Joueur", opts, key="gm_buyout_player") if opts else ""
-    with right:
-        bucket = st.radio("Appliquer sur", ["Rachat GC", "Rachat CE"], horizontal=False, key="gm_buyout_bucket")
-
-    if joueur:
-        row = dprop[dprop["Joueur"].astype(str).eq(joueur)].iloc[0]
-        salaire = int(row.get("Salaire", 0) or 0)
-        penalite = int(round(salaire * 0.5))
-        bucket_code = "GC" if bucket == "Rachat GC" else "CE"
-
-        st.info(
-            f"Salaire: **{money(salaire)}** → Pénalité: **{money(penalite)}** "
-            f"(ajoutée à la masse **{bucket_code}**)"
-        )
-
-        # bouton dédié sous le choix (comme demandé)
-        if st.button("✅ Confirmer le rachat", type="primary", use_container_width=True, key="gm_buyout_ok"):
-            # Charger buyouts
-            b = st.session_state.get("buyouts")
-            if b is None or not isinstance(b, pd.DataFrame) or st.session_state.get("_buyouts_season") != str(st.session_state.get("season")):
-                b = load_buyouts(str(st.session_state.get("season")))
-
-            rec = {
-                "timestamp": datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S"),
-                "season": str(st.session_state.get("season")),
-                "proprietaire": owner,
-                "joueur": joueur,
-                "salaire": salaire,
-                "penalite": penalite,
-                "bucket": bucket_code,
-            }
-            b = pd.concat([b, pd.DataFrame([rec])], ignore_index=True)
-            st.session_state["buyouts"] = b
-            st.session_state["_buyouts_season"] = str(st.session_state.get("season"))
-            save_buyouts(str(st.session_state.get("season")), b)
-
-            # Historique: une entrée claire
-            try:
-                log_history_row(
-                    proprietaire=owner,
-                    joueur=joueur,
-                    pos=str(row.get("Pos", "") or ""),
-                    equipe=str(row.get("Equipe", "") or ""),
-                    from_statut=str(row.get("Statut", "") or ""),
-                    from_slot=str(row.get("Slot", "") or ""),
-                    to_statut="",
-                    to_slot="",
-                    action=f"RACHAT {bucket_code} (50%)",
-                )
-            except Exception:
-                pass
-
-            # Retirer le joueur du roster
-            df2 = st.session_state.get("data", df).copy()
-            m = df2["Propriétaire"].astype(str).str.strip().eq(owner) & df2["Joueur"].astype(str).str.strip().eq(joueur)
-            df2 = df2.loc[~m].copy()
-            st.session_state["data"] = clean_data(df2)
-            st.session_state["data"] = enrich_level_from_players_db(st.session_state["data"])
-            persist_data(st.session_state["data"], str(st.session_state.get("season")))
-
-            # Rebuild plafonds (avec pénalité dans GC/CE)
-            st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
-            st.toast(f"✅ Rachat appliqué. Pénalité ajoutée à la masse {bucket_code}.", icon="✅")
-            do_rerun()
-
+    render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
     st.subheader("👤 Joueurs autonomes")
@@ -3539,145 +3405,186 @@ else:
     st.warning("Onglet inconnu")
 
 def render_tab_gm():
-    """Rendu complet de l'onglet GM (esthétique + compact)."""
+    """Onglet GM — version finale (logo, masses 2 colonnes, picks compacts, rachat désactivé tant que pas de sélection)."""
     # Data source
     df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
     st.session_state["data"] = df
 
     owner = str(get_selected_team() or "").strip()
     if not owner:
-        st.info("Sélectionne une équipe dans la sidebar.")
+        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
         st.stop()
 
-    season = str(st.session_state.get("season", "") or "").strip()
-
-    # Filtrer l'équipe
-    if isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns:
-        dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
-    else:
-        dprop = pd.DataFrame()
-
-    # Plafonds
+    # plafonds
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
-    # Exclure IR des masses (même règle qu'Alignement)
-    if not dprop.empty and "Slot" in dprop.columns:
-        dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
-    else:
-        dprop_ok = dprop.copy()
+    # Filtrer l'équipe
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
+    if dprop.empty:
+        st.warning("Aucune donnée d'alignement pour cette équipe.")
+        st.stop()
 
-    gc_all = dprop_ok[dprop_ok.get("Statut", "") == STATUT_GC].copy() if not dprop_ok.empty else pd.DataFrame()
-    ce_all = dprop_ok[dprop_ok.get("Statut", "") == STATUT_CE].copy() if not dprop_ok.empty else pd.DataFrame()
+    # Masse salariale (incl. pénalités)
+    # On utilise STATUT_GC / STATUT_CE si déjà dans ton app
+    try:
+        gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy()
+        ce_all = dprop[dprop.get("Statut", "") == STATUT_CE].copy()
+    except Exception:
+        gc_all = pd.DataFrame()
+        ce_all = pd.DataFrame()
 
     used_gc = int(gc_all["Salaire"].sum()) if (isinstance(gc_all, pd.DataFrame) and not gc_all.empty and "Salaire" in gc_all.columns) else 0
     used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
 
-    # =========================
-    # Header GM (logo seulement, gros, à gauche)
-    # =========================
-    h1, h2 = st.columns([1, 12], vertical_alignment="center")
-    with h1:
-        # 3x plus gros + complètement à gauche
-        render_gm_logo(active=True, width=120, tooltip="Gestion d’équipe")
-    with h2:
-        # PAS de "GM" au-dessus des masses
-        st.markdown(f"<div class='gm-header'><div class='gm-title'>Gestion d’équipe — <b>{html.escape(owner)}</b></div></div>", unsafe_allow_html=True)
+    # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
+    st.markdown(
+        """
+        <style>
+        .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
+        .gm-top img { width:132px; } /* 3x */
+        .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
+        .gm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-top:10px; }
+        .gm-card { border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); border-radius:14px; padding:14px 14px; }
+        .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
+        .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
+        .gm-sub { font-size:12px; opacity:0.75; margin-top:4px; display:flex; justify-content:space-between; }
+        .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+        .pick-pill { padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
+        .pick-pill.mine { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.10); }
+        .pick-pill.other { opacity:0.75; }
+        .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
+        .muted { opacity:0.75; font-size:13px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # =========================
-    # Masses GC / CE (2 colonnes)
+    # HEADER GM (pas de "GM" texte)
+    # =========================
+    top = st.columns([1, 8], vertical_alignment="center")
+    with top[0]:
+        # gm_logo 3x plus gros, complètement à gauche
+        try:
+            render_gm_logo(active=True, width=132, tooltip="Gestion d’équipe")
+        except Exception:
+            # fallback safe
+            if os.path.exists("gm_logo.png"):
+                st.image("gm_logo.png", width=132)
+    with top[1]:
+        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
+
+    # =========================
+    # MASSES (2 colonnes)
     # =========================
     c1, c2 = st.columns(2, gap="large")
+
     with c1:
-        st.caption("Masse GC")
-        st.markdown(f"<div class='gm-mass'>{money(used_gc)}</div><div class='gm-sub'>Plafond: {money(cap_gc)}</div>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-label'>Masse GC</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-value'>{money(used_gc)}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_gc)} / {money(cap_gc)}</span></div>", unsafe_allow_html=True)
         st.markdown(cap_bar_html(used_gc, cap_gc, "GC"), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     with c2:
-        st.caption("Masse CE")
-        st.markdown(f"<div class='gm-mass'>{money(used_ce)}</div><div class='gm-sub' style='text-align:right'>Plafond: {money(cap_ce)}</div>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='gm-label'>Masse CE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-value'>{money(used_ce)}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_ce)} / {money(cap_ce)}</span></div>", unsafe_allow_html=True)
         st.markdown(cap_bar_html(used_ce, cap_ce, "CE"), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
 
     # =========================
-    # 🎯 Choix de repêchage — compact (moins large)
+    # PICKS — compact & esthétique (pills)
     # =========================
-    with st.expander("🎯 Choix de repêchage", expanded=False):
-        picks = {}
-        if "load_picks" in globals() and callable(globals()["load_picks"]):
-            try:
-                picks = load_picks(season)
-            except Exception:
-                picks = {}
+    st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
-        rows = []
-        for r in range(1, 9):
-            who = owner
-            if isinstance(picks, dict) and picks:
-                who = str(picks.get(str(r), picks.get(r, owner)) or owner)
-            rows.append({"Ronde": r, "Appartient à": who})
+    teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+    season = str(st.session_state.get("season", "") or "").strip()
 
-        # 8 mini cartes (une par ronde)
-        cols = st.columns(8, gap="small")
-        for i, rr in enumerate(rows):
-            with cols[i]:
-                st.markdown(
-                    f"<div class='pick-mini' title='{html.escape(rr['Appartient à'])}'>"
-                    f"<b>R{rr['Ronde']}</b><br/>{html.escape(rr['Appartient à'])}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+    picks = st.session_state.get("picks")
+    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != season:
+        try:
+            picks = load_picks(season, teams)
+        except Exception:
+            picks = {}
+        st.session_state["picks"] = picks
+        st.session_state["_picks_season"] = season
 
-        show_details = st.toggle("Afficher le détail (tableau)", value=False, key="gm_picks_details")
-        if show_details:
+    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
+    rounds = list(range(1, 9))
+
+    # pills
+    pills_html = ["<div class='pick-row'>"]
+    for r in rounds:
+        who = str(my_picks.get(r, owner) or "").strip() or owner
+        cls = "pick-pill mine" if who == owner else "pick-pill other"
+        label = f"R{r} • {html.escape(who)}"
+        pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
+    pills_html.append("</div>")
+    st.markdown("".join(pills_html), unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8.</div>", unsafe_allow_html=True)
+
+    with st.expander("Voir le détail en tableau"):
+        if my_picks:
+            rows = [{"Ronde": int(r), "Appartient à": str(my_picks.get(r, ""))} for r in rounds]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucun choix trouvé pour cette équipe.")
+
+    st.divider()
 
     # =========================
-    # 💸 Rachat de contrat — bouton grisé tant qu'aucun joueur
+    # RACHAT DE CONTRAT — bouton grisé tant qu'aucun joueur sélectionné
     # =========================
-    with st.expander("💸 Rachat de contrat", expanded=False):
-        candidates = []
-        if not dprop.empty and "Joueur" in dprop.columns:
-            candidates = sorted(dprop["Joueur"].dropna().astype(str).unique().tolist())
+    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
-        chosen = st.selectbox("Sélectionner un joueur", [""] + candidates, key="gm_buyout_player")
-        can_apply = bool(str(chosen).strip())
+    # candidats: joueurs de l'équipe avec salaire > 0
+    candidates = dprop.copy()
+    if "Salaire" in candidates.columns:
+        candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
 
-        # UI plus compact (moins large)
-        r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
-        with r1:
-            bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
-        with r2:
-            penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
-        with r3:
-            note = st.text_input("Note (optionnel)", key="gm_buyout_note")
+    name_col = "Joueur" if "Joueur" in candidates.columns else ("Player" if "Player" in candidates.columns else None)
+    if not name_col or candidates.empty:
+        st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
+        return
 
-        if st.button(
-            "✅ Confirmer le rachat",
-            type="primary",
-            disabled=not can_apply,
-            use_container_width=True,
-            key="gm_buyout_confirm",
-        ):
-            if "apply_buyout" in globals() and callable(globals()["apply_buyout"]):
-                try:
-                    apply_buyout(owner=owner, joueur=chosen, bucket=bucket, penalite=int(penalite), note=note)
-                    st.success("Rachat enregistré.")
-                except Exception:
-                    st.error("Impossible d'appliquer le rachat.")
-            else:
-                # fallback minimal: journal en session
-                b = st.session_state.get("buyouts", pd.DataFrame())
-                if b is None or not isinstance(b, pd.DataFrame):
-                    b = pd.DataFrame(columns=["timestamp", "owner", "joueur", "bucket", "penalite", "note"])
-                b.loc[len(b)] = [
-                    datetime.now(ZoneInfo("America/Toronto")).isoformat(),
-                    owner,
-                    chosen,
-                    bucket,
-                    int(penalite),
-                    note,
-                ]
-                st.session_state["buyouts"] = b
-                st.success("Rachat enregistré (session).")
+    # liste selection
+    display = []
+    for _, r in candidates.iterrows():
+        nm = str(r.get(name_col, "")).strip()
+        sal = money(int(r.get("Salaire", 0) or 0))
+        pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
+        team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
+        display.append(f"{nm}  —  {pos}  {team}  —  {sal}")
 
+    picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+    can_apply = bool(str(picked).strip())
+
+    r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
+    with r1:
+        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+    with r2:
+        penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
+    with r3:
+        note = st.text_input("Note (optionnel)", key="gm_buyout_note")
+
+    # bouton grisé tant que pas de sélection
+    if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
+        # Log session (tu peux brancher ta persistance si tu veux)
+        buyouts = st.session_state.get("buyouts", [])
+        buyouts.append({
+            "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
+            "owner": owner,
+            "player": picked,
+            "bucket": bucket,
+            "penalite": int(penalite or 0),
+            "note": str(note or ""),
+        })
+        st.session_state["buyouts"] = buyouts
+        st.success("Rachat enregistré (session).")
