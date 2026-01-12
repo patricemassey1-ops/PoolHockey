@@ -64,8 +64,18 @@ import streamlit.components.v1 as components
 #      - gm_logo.png
 # =====================================================
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-LOGO_POOL_FILE = os.path.join(APP_DIR, "logo_pool.png")
-GM_LOGO_FILE = os.path.join(APP_DIR, "gm_logo.png")
+
+def _resolve_local_logo(candidates: list[str]) -> str:
+    """Retourne le 1er fichier existant dans APP_DIR parmi `candidates`."""
+    for name in candidates:
+        p = os.path.join(APP_DIR, name)
+        if os.path.exists(p):
+            return p
+    return os.path.join(APP_DIR, candidates[0])  # chemin attendu (même si absent)
+
+# Logos critiques (local, stable) — mets-les à côté de app.py
+LOGO_POOL_FILE = _resolve_local_logo(["logo_pool.png","Logo_Pool.png","LOGO_POOL.png","logo_pool.jpg","Logo_Pool.jpg"])
+GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
@@ -74,7 +84,7 @@ st.set_page_config(page_title="PMS", layout="wide")
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
 # =====================================================
-GM_LOGO_FILE = GM_LOGO_FILE
+LEGACY_GM_LOGO_FILE = None  # v20: removed duplicate
 
 
 def _gm_logo_data_uri() -> str | None:
@@ -325,11 +335,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:4.4rem;
+  font-size:4.6rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:4.8rem; /* bigger sticks + net */
+  font-size:4.9rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -394,7 +404,7 @@ def apply_theme():
     st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 def _set_mobile_class(enabled: bool):
-    """No-op: désactivé pour éviter les erreurs frontend (module script)."""
+    """No-op (v20): évite les erreurs frontend liées aux <script> inline."""
     return
 
 # Appel UNIQUE
@@ -479,7 +489,13 @@ def _login_header():
 
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
+            st.markdown(\'<div class="pms-pool-logo">\', unsafe_allow_html=True)
+
             safe_image(logo_file, width=380, caption="")
+
+            st.markdown(\'</div>\', unsafe_allow_html=True)
+if isinstance(logo_file, str) and logo_file and (not os.path.exists(logo_file)):
+                st.caption("⚠️ Mets logo_pool.png (ou Logo_Pool.png) à côté de app.py")
             st.markdown('</div>', unsafe_allow_html=True)
 
 
