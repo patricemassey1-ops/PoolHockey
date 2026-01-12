@@ -511,7 +511,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
     if name_col is None:
         return df
     if "Level" not in db.columns and "Expiry Year" not in db.columns:
-        return df df
+        return df
 
     def _n(x: str) -> str:
         """Normalise un nom joueur pour matching robuste (accents, ponctuation, ordre)."""
