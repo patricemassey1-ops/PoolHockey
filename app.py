@@ -28,6 +28,29 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# =====================================================
+# RUN / DIALOG GUARDS (zéro surprise)
+#   - empêche l'ouverture de 2 dialogs dans le même run
+# =====================================================
+if "_run_id" not in st.session_state:
+    st.session_state["_run_id"] = 0
+st.session_state["_run_id"] += 1
+
+if "_dialog_open_run" not in st.session_state:
+    st.session_state["_dialog_open_run"] = -1
+
+def _open_dialog_once(dialog_fn, *, key: str = "") -> bool:
+    """
+    Streamlit n'autorise qu'un seul dialog ouvert par run.
+    Cette garde empêche un double-open si plusieurs triggers arrivent en même temps.
+    """
+    rid = int(st.session_state.get("_run_id", 0) or 0)
+    if int(st.session_state.get("_dialog_open_run", -1) or -1) == rid:
+        return False
+    st.session_state["_dialog_open_run"] = rid
+    dialog_fn()
+    return True
+
 # Anti double rerun (zéro surprise)
 st.session_state["_rerun_requested"] = False
 
@@ -1698,14 +1721,10 @@ def open_move_dialog():
         if c2.button("✖️ Annuler", use_container_width=True, key=f"cancel_{owner}_{joueur}_{nonce}"):
             _close()
             do_rerun()
-
-    _dlg()
-
-
-
-
-
-
+    # close flag BEFORE opening dialog (évite double-run)
+    if isinstance(st.session_state.get('move_ctx'), dict):
+        st.session_state['move_ctx']['open'] = False
+    _open_dialog_once(_dlg, key='move')
 # =====================================================
 # DIALOG — Preview Alignement Grand Club (GC)
 # =====================================================
@@ -1760,11 +1779,9 @@ def open_gc_preview_dialog():
         if st.button("OK", use_container_width=True, key="gc_preview_ok"):
             st.session_state["gc_preview_open"] = False
             do_rerun()
-
-    _dlg()
-
-
-
+    # close flag BEFORE opening dialog (évite double-run)
+    st.session_state['gc_preview_open'] = False
+    _open_dialog_once(_dlg, key='gc_preview')
 # =====================================================
 # PLAFONDS builder + Tableau UI
 # =====================================================
