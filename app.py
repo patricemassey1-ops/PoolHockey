@@ -1,3 +1,15 @@
+
+def safe_image(path: str, *, width: int | None = None, caption: str | None = None):
+    try:
+        if path and os.path.exists(path):
+            st.image(path, width=width, caption=caption)
+        else:
+            if caption:
+                st.caption(caption)
+    except Exception:
+        if caption:
+            st.caption(caption)
+
 # =====================================================
 # app.py — PMS Pool (version propre + corrections + Admin complet)
 #   ✅ 1 seule section Alignement (dans le routing)
@@ -290,6 +302,12 @@ div[data-testid="stButton"] > button{
   line-height:1;
 }
 
+
+
+/* v13: pool logo sizing (pro) */
+.pms-pool-logo { display:flex; justify-content:center; align-items:center; }
+.pms-pool-logo img { max-height:72px; width:auto; }
+
 /* =========================================
    🧑‍💼 GM logo (sidebar): grayscale when inactive
    ========================================= */
@@ -429,11 +447,10 @@ def _login_header():
             )
 
         with c2:
-            if logo_file and os.path.exists(logo_file):
-                # Taille contrôlée + centré (évite le "gros carré")
-                st.image(logo_file, width=140)
-            else:
-                st.caption("Logo_Pool.png introuvable")
+            st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
+            safe_image(logo_file, width=220, caption="")
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
         with c3:
             st.markdown(
@@ -2446,7 +2463,7 @@ def render_tab_gm():
         except Exception:
             # fallback safe
             if os.path.exists("gm_logo.png"):
-                st.image("gm_logo.png", width=132)
+                safe_image("gm_logo.png", width=132, caption="")
     with top[1]:
         st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
 
