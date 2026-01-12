@@ -65,7 +65,7 @@ import streamlit.components.v1 as components
 # =====================================================
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGO_POOL_FILE = os.path.join(APP_DIR, "logo_pool.png")
-GM_LOGO_FILE   = os.path.join(APP_DIR, GM_LOGO_FILE)
+GM_LOGO_FILE = os.path.join(APP_DIR, "gm_logo.png")
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
