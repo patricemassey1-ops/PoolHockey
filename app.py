@@ -512,14 +512,38 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     def _n(x: str) -> str:
-        return re.sub(r"\s+", " ", str(x or "").strip()).lower()
+        """Normalise un nom joueur pour matching robuste (accents, ponctuation, ordre)."""
+        s = str(x or "").strip().lower()
+        # normaliser apostrophes/points/virgules
+        s = s.replace("’", "'")
+        s = re.sub(r"[\.]", "", s)
+        s = re.sub(r"\s+", " ", s)
+        s = s.strip()
+        return s
 
-    db["_n"] = db[name_col].astype(str).map(_n)
-    # garder le dernier non-vide si doublons
+    def _swap_last_first(s: str) -> str:
+        # 'Last, First' -> 'First Last'
+        if "," in s:
+            parts = [p.strip() for p in s.split(",", 1)]
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return f"{parts[1]} {parts[0]}".strip()
+        return s
+
+    # Construire une map Level avec variantes (Last, First) et (First Last)
     db["Level"] = db["Level"].astype(str).str.strip()
-    db = db[db["_n"] != ""].copy()
-    db = db.sort_index()
-    mp = dict(zip(db["_n"], db["Level"]))
+    base_names = db[name_col].astype(str).fillna("")
+    keys = []
+    vals = []
+    for nm, lvl in zip(base_names.tolist(), db["Level"].tolist()):
+        if not str(lvl).strip():
+            continue
+        n0 = _n(nm)
+        n1 = _n(_swap_last_first(nm))
+        if n0:
+            keys.append(n0); vals.append(lvl)
+        if n1 and n1 != n0:
+            keys.append(n1); vals.append(lvl)
+    mp = dict(zip(keys, vals))
 
     out = df.copy()
     if "Level" not in out.columns:
@@ -530,7 +554,13 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
     need = cur.eq("") | cur.str.lower().isin(bad)
 
     if need.any():
-        out.loc[need, "Level"] = out.loc[need, "Joueur"].astype(str).map(lambda x: mp.get(_n(x), ""))
+        def _lvl_lookup(name: str) -> str:
+            n0 = _n(name)
+            if n0 in mp:
+                return mp.get(n0, "")
+            n1 = _n(_swap_last_first(name))
+            return mp.get(n1, "")
+        out.loc[need, "Level"] = out.loc[need, "Joueur"].astype(str).map(_lvl_lookup)
 
     out["Level"] = out["Level"].astype(str).str.strip()
     return out
@@ -1856,6 +1886,26 @@ st.session_state["plafonds"] = rebuild_plafonds(df0)
 
 
 
+is_admin = _is_admin_whalers()
+
+NAV_TABS = [
+    "🏠 Home",
+    "🧾 Alignement",
+    "🧑‍💼 GM",
+    "👤 Joueurs autonomes",
+    "🕘 Historique",
+    "⚖️ Transactions",
+]
+if is_admin:
+    NAV_TABS.append("🛠️ Gestion Admin")
+NAV_TABS.append("🧠 Recommandations")
+
+# init + fallback (safe)
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "🏠 Home"
+if st.session_state["active_tab"] not in NAV_TABS:
+    st.session_state["active_tab"] = NAV_TABS[0]
+
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
 # =====================================================
@@ -1874,31 +1924,20 @@ season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto),
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
+st.sidebar.markdown("### Navigation")
+active_tab = st.sidebar.radio(
+    "",
+    NAV_TABS,
+    index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])),
+    key="active_tab",
+)
+st.sidebar.divider()
+
 # Default caps
 if "PLAFOND_GC" not in st.session_state:
     st.session_state["PLAFOND_GC"] = 95_500_000
 if "PLAFOND_CE" not in st.session_state:
     st.session_state["PLAFOND_CE"] = 47_750_000
-
-st.sidebar.divider()
-st.sidebar.header("💰 Plafonds")
-if st.sidebar.button("✏️ Modifier les plafonds"):
-    st.session_state["edit_plafond"] = True
-
-if st.session_state.get("edit_plafond"):
-    st.session_state["PLAFOND_GC"] = st.sidebar.number_input(
-        "Plafond Grand Club",
-        value=int(st.session_state["PLAFOND_GC"]),
-        step=500_000,
-    )
-    st.session_state["PLAFOND_CE"] = st.sidebar.number_input(
-        "Plafond Club École",
-        value=int(st.session_state["PLAFOND_CE"]),
-        step=250_000,
-    )
-
-st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state["PLAFOND_GC"]))
-st.sidebar.metric("🏫 Plafond Club École", money(st.session_state["PLAFOND_CE"]))
 
 # Team picker
 st.sidebar.divider()
@@ -1932,40 +1971,10 @@ if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_widt
     st.session_state["active_tab"] = "🧾 Alignement"
     do_rerun()
 
-# =====================================================
-# NAV — sidebar radio (logique pure, zéro surprise)
-#   ✅ un seul widget
-#   ✅ mobile-friendly
-#   ✅ aucun CSS / HTML ici
-# =====================================================
-is_admin = _is_admin_whalers()
-
-NAV_TABS = [
-    "🏠 Home",
-    "🧾 Alignement",
-    "🧑‍💼 GM",
-    "👤 Joueurs autonomes",
-    "🕘 Historique",
-    "⚖️ Transactions",
-]
-if is_admin:
-    NAV_TABS.append("🛠️ Gestion Admin")
-NAV_TABS.append("🧠 Recommandations")
-
-# init + fallback (safe)
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = "🏠 Home"
-if st.session_state["active_tab"] not in NAV_TABS:
-    st.session_state["active_tab"] = NAV_TABS[0]
-
-with st.sidebar:
-    st.markdown("### Navigation")
-    active_tab = st.radio(
-        "",
-        NAV_TABS,
-        index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])),
-        key="active_tab",
-    )
+st.sidebar.divider()
+st.sidebar.header("💰 Plafonds")
+st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state.get("PLAFOND_GC", 0)))
+st.sidebar.metric("🏫 Plafond Club École", money(st.session_state.get("PLAFOND_CE", 0)))
 
 st.divider()
 
@@ -2143,6 +2152,7 @@ if active_tab == "🏠 Home":
     if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
         try:
             market = load_trade_market(season)
+
         except Exception:
             market = pd.DataFrame()
 
@@ -2724,9 +2734,13 @@ elif active_tab == "⚖️ Transactions":
         st.info("Il faut au moins 2 équipes pour bâtir une transaction.")
         st.stop()
 
-    picks = load_picks(season) if "load_picks" in globals() else {}
+    # ✅ Picks (choix repêchage) — signature: load_picks(season_lbl, teams)
+    try:
+        picks = load_picks(season, owners) if "load_picks" in globals() else {}
+    except TypeError:
+        # fallback si ancienne signature
+        picks = load_picks(season, owners) if "load_picks" in globals() else {}
     market = load_trade_market(season) if "load_trade_market" in globals() else pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
-
     def _roster(owner: str) -> pd.DataFrame:
         d = df[df["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())].copy()
         d = clean_data(d)
@@ -2934,7 +2948,30 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
-    st.markdown("### 📥 Import (multi-équipes)")
+
+    # -----------------------------
+    # 💰 Plafonds (édition admin)
+    # -----------------------------
+    with st.expander("💰 Plafonds (Admin)", expanded=False):
+        locked = bool(st.session_state.get("LOCKED", False))
+        if locked:
+            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
+
+        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
+        st.session_state["PLAFOND_GC"] = st.number_input(
+            "Plafond Grand Club",
+            value=int(st.session_state.get("PLAFOND_GC", 0) or 0),
+            step=500_000,
+            key="admin_plafond_gc",
+            disabled=locked,
+        )
+        st.session_state["PLAFOND_CE"] = st.number_input(
+            "Plafond Club École",
+            value=int(st.session_state.get("PLAFOND_CE", 0) or 0),
+            step=250_000,
+            key="admin_plafond_ce",
+            disabled=locked,
+        )
 
     manifest = load_init_manifest() or {}
     if "fantrax_by_team" not in manifest:
