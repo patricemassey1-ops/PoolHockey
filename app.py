@@ -28,6 +28,9 @@ import streamlit.components.v1 as components
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 
+# Anti double rerun (zéro surprise)
+st.session_state["_rerun_requested"] = False
+
 # =====================================================
 # THEME
 #   (retiré: pas de Dark/Light)
@@ -274,6 +277,7 @@ INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
 REQUIRED_COLS = [
     "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire",
+    "Level",
     "Statut", "Slot", "IR Date"
 ]
 
@@ -375,6 +379,10 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
 # BASIC HELPERS
 # =====================================================
 def do_rerun():
+    # Guard: éviter plusieurs rerun dans le même run
+    if st.session_state.get("_rerun_requested", False):
+        return
+    st.session_state["_rerun_requested"] = True
     try:
         st.rerun()
     except Exception:
@@ -466,8 +474,10 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out["Joueur"] = out["Joueur"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     out["Pos"] = out["Pos"].astype(str).apply(normalize_pos)
     out["Equipe"] = out["Equipe"].astype(str).str.strip()
-
     out["Salaire"] = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
+
+    # Level (STD / ELC) — peut être ajouté depuis hockey.players.csv
+    out["Level"] = out["Level"].astype(str).str.strip()
 
     out["Statut"] = out["Statut"].astype(str).str.strip().replace({"": STATUT_GC})
     out["Slot"] = out["Slot"].astype(str).str.strip()
@@ -476,6 +486,54 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     bad = {"", "none", "nan", "null"}
     out = out[~out["Joueur"].str.lower().isin(bad)].copy()
     return out.reset_index(drop=True)
+
+
+# =====================================================
+# ENRICH — Level depuis hockey.players.csv (players_db)
+# =====================================================
+def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
+    """Complète df['Level'] (STD/ELC) en utilisant la base players_db si manquant."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+
+    players_db = st.session_state.get("players_db")
+    if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
+        return df
+
+    db = players_db.copy()
+
+    # Trouver la colonne nom joueur
+    name_col = None
+    for cand in ["Player", "Joueur", "Name", "Full Name", "fullname", "player"]:
+        if cand in db.columns:
+            name_col = cand
+            break
+    if name_col is None or "Level" not in db.columns:
+        return df
+
+    def _n(x: str) -> str:
+        return re.sub(r"\s+", " ", str(x or "").strip()).lower()
+
+    db["_n"] = db[name_col].astype(str).map(_n)
+    # garder le dernier non-vide si doublons
+    db["Level"] = db["Level"].astype(str).str.strip()
+    db = db[db["_n"] != ""].copy()
+    db = db.sort_index()
+    mp = dict(zip(db["_n"], db["Level"]))
+
+    out = df.copy()
+    if "Level" not in out.columns:
+        out["Level"] = ""
+
+    bad = {"", "none", "nan", "null"}
+    cur = out["Level"].astype(str).str.strip()
+    need = cur.eq("") | cur.str.lower().isin(bad)
+
+    if need.any():
+        out.loc[need, "Level"] = out.loc[need, "Joueur"].astype(str).map(lambda x: mp.get(_n(x), ""))
+
+    out["Level"] = out["Level"].astype(str).str.strip()
+    return out
 
 # =====================================================
 # HELPERS UI — Pills + Alert cards (1 seule fois)
@@ -1476,6 +1534,7 @@ def open_move_dialog():
                 df_x.at[idx2, "Statut"] = to_statut_x
                 df_x.at[idx2, "Slot"] = to_slot_x
                 st.session_state["data"] = clean_data(df_x)
+                st.session_state["data"] = enrich_level_from_players_db(st.session_state["data"])
                 persist_data(st.session_state["data"], str(st.session_state.get("season") or season))
                 # log minimal
                 try:
@@ -1753,6 +1812,7 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
             pass
 
     st.session_state["data"] = clean_data(df_loaded)
+    st.session_state["data"] = enrich_level_from_players_db(st.session_state["data"])
     st.session_state["data_season"] = season
 else:
     # sécurité: s'assurer que data est propre
@@ -1789,6 +1849,7 @@ st.session_state["players_db"] = players_db
 # 5) BUILD PLAFONDS (si tu l'utilises globalement)
 # -----------------------------------------------------
 df0 = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+df0 = enrich_level_from_players_db(df0)
 st.session_state["data"] = df0
 st.session_state["plafonds"] = rebuild_plafonds(df0)
 
@@ -1798,6 +1859,10 @@ st.session_state["plafonds"] = rebuild_plafonds(df0)
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
 # =====================================================
+st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
+_set_mobile_class(bool(st.session_state.get("mobile_view", False)))
+st.sidebar.divider()
+
 st.sidebar.header("📅 Saison")
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
@@ -1805,12 +1870,6 @@ if auto not in saisons:
     saisons.append(auto)
     saisons.sort()
 
-# Mobile view
-st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
-if st.session_state.get("mobile_view", False):
-    _set_mobile_class(True)
-else:
-    _set_mobile_class(False)
 season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto), key="sb_season_select")
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
@@ -1874,7 +1933,10 @@ if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_widt
     do_rerun()
 
 # =====================================================
-# NAV
+# NAV — sidebar radio (logique pure, zéro surprise)
+#   ✅ un seul widget
+#   ✅ mobile-friendly
+#   ✅ aucun CSS / HTML ici
 # =====================================================
 is_admin = _is_admin_whalers()
 
@@ -1890,12 +1952,21 @@ if is_admin:
     NAV_TABS.append("🛠️ Gestion Admin")
 NAV_TABS.append("🧠 Recommandations")
 
+# init + fallback (safe)
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "🏠 Home"
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-active_tab = st.selectbox("Navigation", NAV_TABS, index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])), key="active_tab")
+with st.sidebar:
+    st.markdown("### Navigation")
+    active_tab = st.radio(
+        "",
+        NAV_TABS,
+        index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])),
+        key="active_tab",
+    )
+
 st.divider()
 
 
@@ -2457,6 +2528,7 @@ elif active_tab == "🧑‍💼 GM":
             m = df2["Propriétaire"].astype(str).str.strip().eq(owner) & df2["Joueur"].astype(str).str.strip().eq(joueur)
             df2 = df2.loc[~m].copy()
             st.session_state["data"] = clean_data(df2)
+            st.session_state["data"] = enrich_level_from_players_db(st.session_state["data"])
             persist_data(st.session_state["data"], str(st.session_state.get("season")))
 
             # Rebuild plafonds (avec pénalité dans GC/CE)
