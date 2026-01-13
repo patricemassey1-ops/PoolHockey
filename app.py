@@ -2860,6 +2860,81 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         st.success("Rachat enregistré (session).")
 
 
+
+# =====================================================
+# OVERRIDE — render_tab_gm (clean, stable)
+#   ✅ Affiche dashboard GC/CE + appelle picks/rachat
+# =====================================================
+def render_tab_gm() -> None:
+    st.subheader("🧊 GM")
+
+    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df = clean_data(df)
+    st.session_state["data"] = df
+
+    owner = str(get_selected_team() or "").strip()
+    if not owner:
+        st.info("Sélectionne une équipe dans le menu à gauche.")
+        st.stop()
+
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
+
+    # --- Caps
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0)
+
+    try:
+        gc_all = dprop[dprop.get("Statut", "").astype(str).eq(STATUT_GC)].copy()
+        ce_all = dprop[dprop.get("Statut", "").astype(str).eq(STATUT_CE)].copy()
+    except Exception:
+        gc_all = pd.DataFrame(columns=dprop.columns)
+        ce_all = pd.DataFrame(columns=dprop.columns)
+
+    used_gc = int(gc_all["Salaire"].sum()) if isinstance(gc_all, pd.DataFrame) and "Salaire" in gc_all.columns else 0
+    used_ce = int(ce_all["Salaire"].sum()) if isinstance(ce_all, pd.DataFrame) and "Salaire" in ce_all.columns else 0
+    remain_gc = cap_gc - used_gc
+    remain_ce = cap_ce - used_ce
+
+    # --- Top row: logo + team
+    cA, cB = st.columns([1, 5], vertical_alignment="center")
+    with cA:
+        gm_logo = os.path.join(DATA_DIR, "gm_logo.png")
+        if os.path.exists(gm_logo):
+            st.image(gm_logo, width=86)
+    with cB:
+        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
+
+    # --- Cards GC/CE
+    cards = []
+    cards.append("<div class='gm-grid'>")
+
+    cards.append("<div class='gm-card'>")
+    cards.append("<div class='gm-label'>Masse GC</div>")
+    cards.append(f"<div class='gm-value'>{money(used_gc)}</div>")
+    cards.append("<div class='gm-sub'><span>Utilisé</span>"
+                 f"<span>{money(used_gc)} / {money(cap_gc)}</span></div>")
+    cards.append(f"<div class='gm-sub'><span>Reste</span>"
+                 f"<span>{money(remain_gc)}</span></div>")
+    cards.append("</div>")
+
+    cards.append("<div class='gm-card'>")
+    cards.append("<div class='gm-label'>Masse CE</div>")
+    cards.append(f"<div class='gm-value'>{money(used_ce)}</div>")
+    cards.append("<div class='gm-sub'><span>Utilisé</span>"
+                 f"<span>{money(used_ce)} / {money(cap_ce)}</span></div>")
+    cards.append(f"<div class='gm-sub'><span>Reste</span>"
+                 f"<span>{money(remain_ce)}</span></div>")
+    cards.append("</div>")
+
+    cards.append("</div>")
+    st.markdown("".join(cards), unsafe_allow_html=True)
+
+    st.divider()
+
+    # Picks + Rachat
+    render_tab_gm_picks_buyout(owner, dprop)
+
+
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
