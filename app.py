@@ -489,11 +489,11 @@ def _login_header():
 
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
-            st.markdown(\'<div class="pms-pool-logo">\', unsafe_allow_html=True)
+            st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
 
             safe_image(logo_file, width=380, caption="")
 
-            st.markdown(\'</div>\', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 if isinstance(logo_file, str) and logo_file and (not os.path.exists(logo_file)):
                 st.caption("⚠️ Mets logo_pool.png (ou Logo_Pool.png) à côté de app.py")
             st.markdown('</div>', unsafe_allow_html=True)
