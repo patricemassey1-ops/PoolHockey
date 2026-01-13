@@ -2705,39 +2705,46 @@ def render_tab_gm():
 
     st.divider()
 
+    
+
+# =====================================================
+# TAB GM — Picks + Rachat de contrat (helpers)
+#   ⚠️ Doit rester au niveau GLOBAL (pas dans un if/with)
+# =====================================================
+def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
+    """
+    Rendu GM:
+    - Choix de repêchage en pills par année (2026/2027/2028)
+    - Tableau détail avec "Appartenant à" + "Reçu le" (placeholder si pas log)
+    - Rachat de contrat: pénalité 50% automatique, bucket -> "Appliqué à"
+    """
     # =========================
     # PICKS — compact & esthétique (pills) + années
-    #   ✅ Affiche 3 années: fin de saison (ex 2026) + 2027 + 2028
-    #   ✅ Année à gauche + nb de choix détenus
     # =========================
     st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
 
-    # Déterminer l'année de base (fin de saison) -> ex "2025-2026" => 2026
+    # Base year = fin de saison (ex: "2025-2026" => 2026)
     nums = re.findall(r"\d{4}", season)
     base_year = None
     if len(nums) >= 2:
-        base_year = int(nums[-1])
+        try:
+            base_year = int(nums[-1])
+        except Exception:
+            base_year = None
     elif len(nums) == 1:
         try:
             base_year = int(nums[0])
         except Exception:
             base_year = None
 
-    # 3 années à afficher (2026, 2027, 2028)
-    years = []
-    if base_year:
-        years = [str(base_year + i) for i in range(0, 3)]
-    else:
-        years = [season]  # fallback
+    years = [str(base_year + i) for i in range(0, 3)] if base_year else [season]
 
-    # Cache picks par année pour éviter relecture
     if "_picks_cache" not in st.session_state or not isinstance(st.session_state.get("_picks_cache"), dict):
         st.session_state["_picks_cache"] = {}
 
-    # Lignes pills (1 ligne par année)
     for ylbl in years:
         cache = st.session_state["_picks_cache"]
         if ylbl not in cache:
@@ -2750,7 +2757,6 @@ def render_tab_gm():
         p_all = cache.get(ylbl, {}) or {}
         my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
 
-        # nb de choix détenus par l'équipe (rondes 1-8)
         nb = 0
         for rr in range(1, 9):
             who = str(my_p.get(str(rr), owner) or "").strip() or owner
@@ -2767,7 +2773,6 @@ def render_tab_gm():
         for rr in range(1, 9):
             who = str(my_p.get(str(rr), owner) or "").strip() or owner
             cls = "pick-pill mine" if who == owner else "pick-pill other"
-            icon = " 🔁" if who == owner and who != owner else ""  # placeholder (détecté via historique plus tard)
             label = f"R{rr} • {html.escape(who)}"
             pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
         pills_html.append("</div>")  # pick-row
@@ -2797,10 +2802,13 @@ def render_tab_gm():
 
     st.divider()
 
-st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
-st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
+    # =========================
+    # RACHAT DE CONTRAT — 50% auto
+    # =========================
+    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
-# candidats: joueurs de l'équipe avec salaire > 0
+    # candidats: joueurs de l'équipe avec salaire > 0
     candidates = dprop.copy()
     if "Salaire" in candidates.columns:
         candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
@@ -2810,20 +2818,17 @@ st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton
         st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
         return
 
-    # liste selection
     display = []
     disp_meta = {}
     for _, r in candidates.iterrows():
         nm = str(r.get(name_col, "")).strip()
-        sal = money(int(r.get("Salaire", 0) or 0))
+        sal_raw = float(r.get("Salaire", 0) or 0)
+        sal = money(int(sal_raw))
         pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
         team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
         disp = f"{nm}  —  {pos}  {team}  —  {sal}"
         display.append(disp)
-        try:
-            disp_meta[disp] = float(r.get("Salaire", 0) or 0)
-        except Exception:
-            disp_meta[disp] = 0.0
+        disp_meta[disp] = sal_raw
 
     picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
     sel_salary = float(disp_meta.get(picked, 0) or 0)
@@ -2835,26 +2840,24 @@ st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton
     with r1:
         bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
     with r2:
-        # Pénalité toujours 50% (calculée automatiquement quand un joueur est choisi)
-        st.caption("Pénalité: 50% (auto)")
+        st.caption(f"Pénalité: 50% (auto) → {money(penalite)}" if penalite else "Pénalité: 50% (auto)")
     with r3:
         note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
-    # bouton grisé tant que pas de sélection
     if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
-        # Log session (tu peux brancher ta persistance si tu veux)
         buyouts = st.session_state.get("buyouts", [])
+        if not isinstance(buyouts, list):
+            buyouts = []
         buyouts.append({
             "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
-            "owner": owner,
-            "player": picked,
+            "proprietaire": owner,
+            "joueur": picked,
             "bucket": bucket,
             "penalite": int(penalite or 0),
             "note": str(note or ""),
         })
         st.session_state["buyouts"] = buyouts
         st.success("Rachat enregistré (session).")
-
 
 
 # =====================================================
