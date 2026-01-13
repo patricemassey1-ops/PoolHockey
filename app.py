@@ -2820,6 +2820,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
     display = []
     disp_meta = {}
+    disp_key = {}
     for _, r in candidates.iterrows():
         nm = str(r.get(name_col, "")).strip()
         sal_raw = float(r.get("Salaire", 0) or 0)
@@ -2829,8 +2830,10 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         disp = f"{nm}  —  {pos}  {team}  —  {sal}"
         display.append(disp)
         disp_meta[disp] = sal_raw
+        disp_key[disp] = _norm_name(nm)
 
     picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+    sel_key = disp_key.get(picked, "")
     sel_salary = float(disp_meta.get(picked, 0) or 0)
     penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
 
@@ -2848,6 +2851,9 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
         # --- Identifier le joueur
         player_name = str(picked).split("—")[0].strip()
+        # (best-effort) si le nom exact diffère, on garde la version affichée
+        if not player_name and picked:
+            player_name = str(picked).strip()
         if not player_name:
             st.warning("Impossible d'identifier le joueur sélectionné.")
             st.stop()
@@ -2859,7 +2865,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         # --- Retirer le joueur du roster
         mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-        mask_player = df_all["Joueur"].astype(str).str.strip().eq(player_name)
+        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(sel_key) if sel_key else df_all["Joueur"].astype(str).str.strip().eq(player_name)
         removed = int((mask_owner & mask_player).sum())
         df_all = df_all[~(mask_owner & mask_player)].copy()
 
@@ -2889,6 +2895,41 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         try:
             st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
+
+        # --- RACHAT → autonome (marché)
+        try:
+            season_lbl = str(st.session_state.get("season","") or "").strip()
+            tm = load_trade_market(season_lbl)
+            if not isinstance(tm, pd.DataFrame):
+                tm = pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
+            # upsert (joueur)
+            now_s = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+            joueur_key = str(player_name).strip()
+            if "joueur" not in tm.columns:
+                tm["joueur"] = ""
+            if "proprietaire" not in tm.columns:
+                tm["proprietaire"] = ""
+            if "is_available" not in tm.columns:
+                tm["is_available"] = ""
+            if "updated_at" not in tm.columns:
+                tm["updated_at"] = ""
+            mask = tm["joueur"].astype(str).str.strip().eq(joueur_key)
+            if mask.any():
+                tm.loc[mask, "season"] = season_lbl
+                tm.loc[mask, "proprietaire"] = "Autonome"
+                tm.loc[mask, "is_available"] = True
+                tm.loc[mask, "updated_at"] = now_s
+            else:
+                tm = pd.concat([tm, pd.DataFrame([{
+                    "season": season_lbl,
+                    "proprietaire": "Autonome",
+                    "joueur": joueur_key,
+                    "is_available": True,
+                    "updated_at": now_s,
+                }])], ignore_index=True)
+            save_trade_market(season_lbl, tm)
+        except Exception:
+            pass
         except Exception:
             pass
 
@@ -2905,6 +2946,28 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             "removed_rows": removed,
         })
         st.session_state["buyouts"] = buyouts
+
+        
+        # --- Historique (persist best effort)
+        try:
+            h = st.session_state.get("history", pd.DataFrame())
+            if not isinstance(h, pd.DataFrame):
+                h = pd.DataFrame()
+            row = {
+                "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
+                "action": "RACHAT",
+                "proprietaire": owner,
+                "joueur": player_name,
+                "detail": f"{bucket} — pénalité {money(int(penalite or 0))}",
+            }
+            h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+            st.session_state["history"] = h
+            # sauver si possible
+            hf = str(st.session_state.get("HISTORY_FILE","") or "").strip()
+            if hf:
+                h.to_csv(hf, index=False)
+        except Exception:
+            pass
 
         st.success(f"Rachat appliqué ✅ ({removed} joueur retiré)")
         do_rerun()
@@ -3091,6 +3154,19 @@ if active_tab == "🏠 Home":
                     "Équipe": str(r.get("proprietaire", "") or ""),
                     "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
                 })
+        elif isinstance(b, list) and len(b) > 0:
+            for r in b:
+                try:
+                    bucket = str(r.get("bucket", "GC") or "GC").strip().upper()
+                    rows.append({
+                        "Date": format_date_fr(r.get("timestamp")),
+                        "_dt": to_dt_local(r.get("timestamp")),
+                        "Type": f"RACHAT {bucket}",
+                        "Équipe": str(r.get("proprietaire", "") or ""),
+                        "Détail": f"{str(r.get('joueur','') or '')} — pénalité {money(int(float(r.get('penalite',0) or 0)))}",
+                    })
+                except Exception:
+                    pass
 
         # (placeholder) Échanges: si tu ajoutes un log plus tard, on l’intègre ici
         out = pd.DataFrame(rows)
