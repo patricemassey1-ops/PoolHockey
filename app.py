@@ -158,13 +158,20 @@ st.session_state["_rerun_requested"] = False
 # =====================================================
 THEME_CSS = """<style>
 
+/* v27: blend the Streamlit top bar line */
+section.main > div { padding-top: 0.5rem; }
+
+
+
 /* v26 broadcast header */
 .pms-broadcast-bar{
   border-radius: 18px;
-  padding: 10px 12px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02), rgba(255,255,255,0.04));
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  padding: 18px 16px;
+  margin-top: -6px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02), rgba(255,255,255,0.05));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.30);
+
 }
 .pms-title{
   text-shadow: 0 10px 28px rgba(0,0,0,0.35);
@@ -359,11 +366,11 @@ div[data-testid="stButton"] > button{
 .pms-title{
   font-weight:800;
   letter-spacing:0.5px;
-  font-size:4.0rem;
+  font-size:3.6rem;
   line-height:1;
 }
 .pms-emoji-big{
-  font-size:4.2rem; /* bigger sticks + net */
+  font-size:3.9rem; /* bigger sticks + net */
   line-height:1;
 }
 
@@ -502,7 +509,7 @@ def _login_header():
     with st.container():
         st.markdown('<div class="pms-broadcast-bar">', unsafe_allow_html=True)
         # PMS (gauche) | Logo Pool (centre) | Filet (droite)
-        c1, c2, c3 = st.columns([4, 11, 2], vertical_alignment="center")
+        c1, c2, c3 = st.columns([4, 14, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
@@ -519,7 +526,7 @@ def _login_header():
             with cc[1]:
                 if isinstance(logo_file, str) and os.path.exists(logo_file):
                     # IMPORTANT: st.image direct ici (évite tout wrapper/capture silencieuse)
-                    st.image(logo_file, width=720)
+                    st.image(logo_file, width=960)
                 else:
                     st.caption("⚠️ logo_pool introuvable. Assure-toi que logo_pool.png est à côté de app.py (même dossier).")
                     try:
