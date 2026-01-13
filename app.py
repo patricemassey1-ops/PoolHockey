@@ -2844,20 +2844,70 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     with r3:
         note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
+    
     if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
+        # --- Identifier le joueur
+        player_name = str(picked).split("—")[0].strip()
+        if not player_name:
+            st.warning("Impossible d'identifier le joueur sélectionné.")
+            st.stop()
+
+        # --- Charger les données
+        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+        df_all = df_all if isinstance(df_all, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+        df_all = clean_data(df_all)
+
+        # --- Retirer le joueur du roster
+        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+        mask_player = df_all["Joueur"].astype(str).str.strip().eq(player_name)
+        removed = int((mask_owner & mask_player).sum())
+        df_all = df_all[~(mask_owner & mask_player)].copy()
+
+        # --- Ajouter la ligne de pénalité (50%)
+        statut_bucket = STATUT_GC if str(bucket).upper() == "GC" else STATUT_CE
+        dead_row = {
+            "Propriétaire": owner,
+            "Joueur": f"RACHAT — {player_name}",
+            "Salaire": int(penalite or 0),
+            "Statut": statut_bucket,
+            "Slot": "RACHAT",
+        }
+        for k in list(dead_row.keys()):
+            if k not in df_all.columns:
+                dead_row.pop(k, None)
+
+        df_all = pd.concat([df_all, pd.DataFrame([dead_row])], ignore_index=True)
+
+        # --- Sauvegarde + recalcul
+        st.session_state["data"] = clean_data(df_all)
+        try:
+            data_file = str(st.session_state.get("DATA_FILE", "") or "").strip()
+            if data_file:
+                st.session_state["data"].to_csv(data_file, index=False)
+        except Exception:
+            pass
+
+        try:
+            st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
+        except Exception:
+            pass
+
+        # --- Log session
         buyouts = st.session_state.get("buyouts", [])
         if not isinstance(buyouts, list):
             buyouts = []
         buyouts.append({
             "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
             "proprietaire": owner,
-            "joueur": picked,
+            "joueur": player_name,
             "bucket": bucket,
             "penalite": int(penalite or 0),
-            "note": str(note or ""),
+            "removed_rows": removed,
         })
         st.session_state["buyouts"] = buyouts
-        st.success("Rachat enregistré (session).")
+
+        st.success(f"Rachat appliqué ✅ ({removed} joueur retiré)")
+        do_rerun()
 
 
 
