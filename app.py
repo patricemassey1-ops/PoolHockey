@@ -486,7 +486,7 @@ def _login_header():
 
     with st.container():
         # PMS (gauche) | Logo Pool (centre) | Filet (droite)
-        c1, c2, c3 = st.columns([4, 7, 2], vertical_alignment="center")
+        c1, c2, c3 = st.columns([4, 9, 2], vertical_alignment="center")
 
         with c1:
             st.markdown(
@@ -503,7 +503,7 @@ def _login_header():
             with cc[1]:
                 if isinstance(logo_file, str) and os.path.exists(logo_file):
                     # IMPORTANT: st.image direct ici (évite tout wrapper/capture silencieuse)
-                    st.image(logo_file, width=380)
+                    st.image(logo_file, width=520)
                 else:
                     st.caption("⚠️ logo_pool introuvable. Assure-toi que logo_pool.png est à côté de app.py (même dossier).")
                     try:
