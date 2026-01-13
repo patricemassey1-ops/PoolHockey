@@ -355,9 +355,6 @@ div[data-testid="stButton"] > button{
 
 
 /* v13: pool logo sizing (pro) */
-.pms-pool-logo { display:flex; justify-content:center; align-items:center; }
-.pms-pool-logo img { max-height:120px; width:auto; }
-
 /* =========================================
    🧑‍💼 GM logo (sidebar): grayscale when inactive
    ========================================= */
@@ -478,16 +475,17 @@ def _sha256(s: str) -> str:
 
 
 
+
 def _login_header():
     # =========================
-    # LOGIN HEADER — v20 POLISH
+    # LOGIN HEADER — v22 (Streamlit-safe)
+    #   ✅ pas de <div> "ouvert" autour de st.image
+    #   ✅ logo pool centré via colonnes Streamlit
     # =========================
     logo_file = LOGO_POOL_FILE
 
     with st.container():
-        st.markdown('<div class="pms-header-wrap">', unsafe_allow_html=True)
-
-        # 🏒 + PMS (gauche) | Logo Pool (centre) | 🥅 (droite)
+        # PMS (gauche) | Logo Pool (centre) | Filet (droite)
         c1, c2, c3 = st.columns([4, 7, 2], vertical_alignment="center")
 
         with c1:
@@ -500,11 +498,12 @@ def _login_header():
             )
 
         with c2:
-            st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
-            safe_image(logo_file, width=380, caption="")
-            if isinstance(logo_file, str) and (not os.path.exists(logo_file)):
-                st.caption("⚠️ logo_pool introuvable. Mets logo_pool.png (ou Logo_Pool.png) à côté de app.py ou dans /data.")
-            st.markdown('</div>', unsafe_allow_html=True)
+            # Centrage pro (pas de HTML wrapper)
+            cc = st.columns([1, 2, 1])
+            with cc[1]:
+                safe_image(logo_file, width=380, caption="")
+                if isinstance(logo_file, str) and (not os.path.exists(logo_file)):
+                    st.caption("⚠️ logo_pool introuvable (logo_pool.png à côté de app.py).")
 
         with c3:
             st.markdown(
@@ -513,8 +512,6 @@ def _login_header():
                 '</div>',
                 unsafe_allow_html=True,
             )
-
-        st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
