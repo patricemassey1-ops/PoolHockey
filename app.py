@@ -641,6 +641,29 @@ div[data-testid="stButton"] > button{
   padding: 7px 9px;
 }
 
+
+/* ===============================
+   GM — petits styles pro
+   =============================== */
+.gm-card-head{
+  margin: 2px 0 12px 0;
+}
+.gm-card-title{
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.gm-card-sub{
+  margin-top: 4px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+.gm-metric{
+  font-size: 18px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
 """
 
 def apply_theme():
@@ -2784,10 +2807,10 @@ def render_tab_gm():
 #   ⚠️ Doit rester au niveau GLOBAL (pas dans un if/with)
 # =====================================================
 
+
 def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     """
-    Section GM: Choix de repêchage + Rachat de contrat (avec collapses complets).
-    Requiert: load_picks, apply_buyout, push_buyout_to_market, money, _norm_name, rebuild_plafonds, do_rerun
+    Section GM: Choix de repêchage + Rachat de contrat (collapses complets, look pro).
     """
     owner = str(owner or "").strip()
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
@@ -2797,7 +2820,14 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # 🎯 PICKS — collapse complet
     # -------------------------
     with st.expander("🎯 Choix de repêchage", expanded=True):
-        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
+        # Header compact (évite doublon avec le titre de l'expander)
+        st.markdown(
+            "<div class='gm-card-head'>"
+            "<div class='gm-card-title'>🎯 Choix de repêchage</div>"
+            "<div class='gm-card-sub'>Possession des rondes 1 à 8, par année</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         # base year = fin de saison (ex "2025-2026" => 2026)
         nums = re.findall(r"\d{4}", season)
@@ -2855,9 +2885,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
             st.markdown("".join(pills_html), unsafe_allow_html=True)
 
-        st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
-
-
+        # Détail (toggle) — pas d'expander imbriqué
         show_detail = st.checkbox("Voir le détail en tableau", value=False, key=f"gm_picks_detail_{owner}")
         if show_detail:
             rows = []
@@ -2877,7 +2905,6 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             else:
                 st.info("Aucun choix trouvé pour cette équipe.")
 
-
     st.write("")
     st.divider()
     st.write("")
@@ -2886,8 +2913,13 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # 🧾 RACHAT — collapse complet
     # -------------------------
     with st.expander("🧾 Rachat de contrat", expanded=False):
-        st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
-        st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='gm-card-head'>"
+            "<div class='gm-card-title'>🧾 Rachat de contrat</div>"
+            "<div class='gm-card-sub'>Pénalité automatique : 50% du salaire. Le joueur devient Autonome.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         # candidats: joueurs de l'équipe avec salaire > 0, exclure déjà "RACHAT — ..."
         candidates = dprop.copy()
@@ -2924,9 +2956,8 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         with r1:
             bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
         with r2:
-            st.caption("Pénalité: 50% (auto)")
-            if can_apply:
-                st.caption(f"≈ {money(int(penalite))}")
+            st.caption("Pénalité (50%)")
+            st.markdown(f"<div class='gm-metric'>{money(int(penalite)) if can_apply else '—'}</div>", unsafe_allow_html=True)
         with r3:
             note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
