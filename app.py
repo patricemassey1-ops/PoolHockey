@@ -2808,26 +2808,22 @@ def render_tab_gm():
 # =====================================================
 
 
+
 def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     """
-    Section GM: Choix de repêchage + Rachat de contrat (collapses complets, look pro).
+    GM: Choix de repêchage + Rachat de contrat
+    - Collapses complets (pas de nested expander)
+    - HTML avec styles INLINE (donc rendu pro même si le CSS est cassé / non injecté)
     """
     owner = str(owner or "").strip()
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
 
     # -------------------------
-    # 🎯 PICKS — collapse complet
+    # 🎯 PICKS
     # -------------------------
     with st.expander("🎯 Choix de repêchage", expanded=True):
-        # Header compact (évite doublon avec le titre de l'expander)
-        st.markdown(
-            "<div class='gm-card-head'>"
-            "<div class='gm-card-title'>🎯 Choix de repêchage</div>"
-            "<div class='gm-card-sub'>Possession des rondes 1 à 8, par année</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        st.caption("Possession des rondes 1 à 8, par année")
 
         # base year = fin de saison (ex "2025-2026" => 2026)
         nums = re.findall(r"\d{4}", season)
@@ -2851,6 +2847,29 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             cache = {}
             st.session_state["_picks_cache"] = cache
 
+        # styles inline (fallback robuste)
+        row_style = (
+            "display:flex;gap:10px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;"
+            "white-space:nowrap;padding:6px 0 10px 0;-webkit-overflow-scrolling:touch;"
+        )
+        pill_mine = (
+            "display:inline-flex;align-items:center;justify-content:center;"
+            "padding:7px 10px;border-radius:999px;font-weight:700;font-size:13px;"
+            "border:1px solid rgba(34,197,94,.55);background:rgba(34,197,94,.10);"
+        )
+        pill_other = (
+            "display:inline-flex;align-items:center;justify-content:center;"
+            "padding:7px 10px;border-radius:999px;font-weight:700;font-size:13px;"
+            "border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);"
+            "opacity:.92;"
+        )
+        year_badge = (
+            "display:inline-flex;align-items:center;justify-content:center;"
+            "padding:8px 10px;border-radius:999px;font-weight:900;font-size:13px;"
+            "border:1px solid rgba(34,197,94,.55);background:rgba(34,197,94,.10);"
+            "width:70px;"
+        )
+
         for ylbl in years:
             if ylbl not in cache:
                 try:
@@ -2868,24 +2887,24 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                 if who == owner:
                     nb += 1
 
-            pills_html = ["<div class='pick-line'>"]
-            pills_html.append("<div class='pick-year'>")
-            pills_html.append(f"<div class='pick-year-badge'>{html.escape(str(ylbl))}</div>")
-            pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
-            pills_html.append("</div>")
+            # line container (grid-like using columns)
+            cY, cR = st.columns([1, 8], vertical_alignment="top")
+            with cY:
+                st.markdown(
+                    f"<div style='{year_badge}'>{html.escape(str(ylbl))}</div>"
+                    f"<div style='font-size:12px;opacity:.75;padding-left:6px;margin-top:6px;'>{nb} choix</div>",
+                    unsafe_allow_html=True,
+                )
+            with cR:
+                pills = [f"<div style='{row_style}'>"]
+                for rr in range(1, 9):
+                    who = str(my_p.get(str(rr), owner) or "").strip() or owner
+                    style = pill_mine if who == owner else pill_other
+                    label = f"R{rr} • {html.escape(who)}"
+                    pills.append(f"<span style='{style}' title='{html.escape(who)}'>{label}</span>")
+                pills.append("</div>")
+                st.markdown("".join(pills), unsafe_allow_html=True)
 
-            pills_html.append("<div class='pick-row'>")
-            for rr in range(1, 9):
-                who = str(my_p.get(str(rr), owner) or "").strip() or owner
-                cls = "pick-pill mine" if who == owner else "pick-pill other"
-                label = f"R{rr} • {html.escape(who)}"
-                pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
-            pills_html.append("</div>")
-            pills_html.append("</div>")
-
-            st.markdown("".join(pills_html), unsafe_allow_html=True)
-
-        # Détail (toggle) — pas d'expander imbriqué
         show_detail = st.checkbox("Voir le détail en tableau", value=False, key=f"gm_picks_detail_{owner}")
         if show_detail:
             rows = []
@@ -2905,23 +2924,14 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             else:
                 st.info("Aucun choix trouvé pour cette équipe.")
 
-    st.write("")
     st.divider()
-    st.write("")
 
     # -------------------------
-    # 🧾 RACHAT — collapse complet
+    # 🧾 RACHAT
     # -------------------------
     with st.expander("🧾 Rachat de contrat", expanded=False):
-        st.markdown(
-            "<div class='gm-card-head'>"
-            "<div class='gm-card-title'>🧾 Rachat de contrat</div>"
-            "<div class='gm-card-sub'>Pénalité automatique : 50% du salaire. Le joueur devient Autonome.</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        st.caption("Pénalité automatique : 50% du salaire • Le joueur devient Autonome")
 
-        # candidats: joueurs de l'équipe avec salaire > 0, exclure déjà "RACHAT — ..."
         candidates = dprop.copy()
         if "Joueur" in candidates.columns:
             candidates = candidates[~candidates["Joueur"].astype(str).str.startswith("RACHAT —", na=False)].copy()
@@ -2935,6 +2945,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         display = []
         disp_salary = {}
+        disp_name = {}
         for _, r in candidates.iterrows():
             nm = str(r.get(name_col, "")).strip()
             if not nm:
@@ -2946,19 +2957,19 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             disp = f"{nm}  —  {pos}  {team}  —  {sal}"
             display.append(disp)
             disp_salary[disp] = sal_raw
+            disp_name[disp] = nm
 
         picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
         sel_salary = float(disp_salary.get(picked, 0) or 0)
         penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
         can_apply = bool(str(picked).strip())
 
-        r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
-        with r1:
+        c1, c2, c3 = st.columns([1, 1, 2], vertical_alignment="center")
+        with c1:
             bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
-        with r2:
-            st.caption("Pénalité (50%)")
-            st.markdown(f"<div class='gm-metric'>{money(int(penalite)) if can_apply else '—'}</div>", unsafe_allow_html=True)
-        with r3:
+        with c2:
+            st.metric("Pénalité (50%)", money(int(penalite)) if can_apply else "—")
+        with c3:
             note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
         if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
