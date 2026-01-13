@@ -498,12 +498,18 @@ def _login_header():
             )
 
         with c2:
-            # Centrage pro (pas de HTML wrapper)
+            # Centrage pro (Streamlit natif)
             cc = st.columns([1, 2, 1])
             with cc[1]:
-                safe_image(logo_file, width=380, caption="")
-                if isinstance(logo_file, str) and (not os.path.exists(logo_file)):
-                    st.caption("⚠️ logo_pool introuvable (logo_pool.png à côté de app.py).")
+                if isinstance(logo_file, str) and os.path.exists(logo_file):
+                    # IMPORTANT: st.image direct ici (évite tout wrapper/capture silencieuse)
+                    st.image(logo_file, width=380)
+                else:
+                    st.caption("⚠️ logo_pool introuvable. Assure-toi que logo_pool.png est à côté de app.py (même dossier).")
+                    try:
+                        st.caption("Fichiers détectés: " + ", ".join(sorted(os.listdir(APP_DIR))[:25]))
+                    except Exception:
+                        pass
 
         with c3:
             st.markdown(
