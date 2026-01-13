@@ -158,6 +158,32 @@ st.session_state["_rerun_requested"] = False
 # =====================================================
 THEME_CSS = """<style>
 
+/* v28 centered broadcast */
+.pms-center-stack { padding: 18px 16px; }
+.pms-center-stack img { max-height: 260px; width: auto; }
+.pms-under{
+  text-align:center;
+  font-weight: 800;
+  font-size: 3.2rem;
+  letter-spacing: 2px;
+  margin-top: 6px;
+  text-shadow: 0 10px 28px rgba(0,0,0,0.35);
+}
+.pms-side-emoji{
+  font-size: 3.6rem;
+  line-height: 1;
+  opacity: 0.95;
+  filter: drop-shadow(0 12px 24px rgba(0,0,0,0.35));
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height: 100%;
+}
+/* réduire l’espace au-dessus (blend avec toolbar streamlit) */
+section.main > div { padding-top: 0.25rem; }
+
+
+
 /* v27: blend the Streamlit top bar line */
 section.main > div { padding-top: 0.5rem; }
 
@@ -498,49 +524,36 @@ def _sha256(s: str) -> str:
 
 
 
+
 def _login_header():
     # =========================
-    # LOGIN HEADER — v22 (Streamlit-safe)
-    #   ✅ pas de <div> "ouvert" autour de st.image
-    #   ✅ logo pool centré via colonnes Streamlit
+    # LOGIN HEADER — v28 (Broadcast centered)
+    #   ✅ Logo pool énorme centré
+    #   ✅ PMS en dessous (centré)
+    #   ✅ Icônes en support gauche/droite
     # =========================
     logo_file = LOGO_POOL_FILE
 
     with st.container():
-        st.markdown('<div class="pms-broadcast-bar">', unsafe_allow_html=True)
-        # PMS (gauche) | Logo Pool (centre) | Filet (droite)
-        c1, c2, c3 = st.columns([4, 14, 2], vertical_alignment="center")
+        st.markdown('<div class="pms-broadcast-bar pms-center-stack">', unsafe_allow_html=True)
 
-        with c1:
-            st.markdown(
-                '<div class="pms-left">'
-                '<span class="pms-emoji-big" aria-hidden="true">🏒</span>'
-                '<span class="pms-title">PMS</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+        left, center, right = st.columns([2, 10, 2], vertical_alignment="center")
 
-        with c2:
-            # Centrage pro (Streamlit natif)
-            cc = st.columns([1, 2, 1])
-            with cc[1]:
-                if isinstance(logo_file, str) and os.path.exists(logo_file):
-                    # IMPORTANT: st.image direct ici (évite tout wrapper/capture silencieuse)
-                    st.image(logo_file, width=960)
-                else:
-                    st.caption("⚠️ logo_pool introuvable. Assure-toi que logo_pool.png est à côté de app.py (même dossier).")
-                    try:
-                        st.caption("Fichiers détectés: " + ", ".join(sorted(os.listdir(APP_DIR))[:25]))
-                    except Exception:
-                        pass
+        with left:
+            st.markdown('<div class="pms-side-emoji">🏒</div>', unsafe_allow_html=True)
 
-        with c3:
-            st.markdown(
-                '<div class="pms-right">'
-                '<span class="pms-emoji-big" aria-hidden="true">🥅</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+        with center:
+            # Logo pool (plein espace disponible) — plus "broadcast"
+            if isinstance(logo_file, str) and os.path.exists(logo_file):
+                st.image(logo_file, use_container_width=True)
+            else:
+                st.caption("⚠️ logo_pool introuvable. Mets logo_pool.png à côté de app.py.")
+
+            # PMS sous le logo (centré)
+            st.markdown('<div class="pms-under">PMS</div>', unsafe_allow_html=True)
+
+        with right:
+            st.markdown('<div class="pms-side-emoji">🥅</div>', unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
