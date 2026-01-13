@@ -506,7 +506,6 @@ div[data-testid="stButton"] > button{
 .pick-mini b { font-size: 13px; }
 
 
-
 /* =====================================================
    GM TAB (migré depuis st.markdown <style> inline)
    ===================================================== */
@@ -540,7 +539,9 @@ div[data-testid="stButton"] > button{
   justify-content:space-between;
 }
 
-.pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.pick-line { display:flex; gap:12px; align-items:flex-start; margin-top:8px; }
+.pick-year { min-width:110px; }
+.pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:0px; }
 
 .pick-pill {
   padding:6px 10px;
@@ -556,12 +557,6 @@ div[data-testid="stButton"] > button{
 }
 
 .pick-pill.other { opacity:0.75; }
-
-/* Picks — lignes par année */
-.pick-line{display:flex; align-items:flex-start; gap:12px; margin-top:8px;}
-.pick-year{min-width:92px;}
-.pick-year .pick-pill{display:inline-block; width:100%; text-align:center; font-weight:900;}
-.pick-year .pick-sub{font-size:12px; opacity:0.75; margin-top:6px;}
 
 .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
 .muted { opacity:0.75; font-size:13px; }
@@ -1370,6 +1365,75 @@ def save_picks(season_lbl: str, data: dict) -> None:
 
 
 # =====================================================
+# PICKS HISTORY — "Reçu le" (journal persistant)
+#   Stocke la date quand un choix change d'équipe.
+#   Clé pick_key recommandée: "{YEAR}-R{ROUND}" ex: "2026-R3"
+# =====================================================
+PICKS_HISTORY_FILE = os.path.join(DATA_DIR, "picks_history.json")
+
+def load_picks_history() -> dict:
+    if not os.path.exists(PICKS_HISTORY_FILE):
+        return {}
+    try:
+        with open(PICKS_HISTORY_FILE, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+def save_picks_history(hist: dict) -> None:
+    try:
+        with open(PICKS_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(hist or {}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def log_pick_received(pick_key: str, from_team: str, to_team: str, date_str: str | None = None) -> None:
+    """Enregistre (ou met à jour) l'historique d'un pick."""
+    if not pick_key:
+        return
+    hist = load_picks_history()
+    if not isinstance(hist, dict):
+        hist = {}
+    if not date_str:
+        # now_local_str existe déjà dans ton app; fallback si absent
+        if "now_local_str" in globals() and callable(globals()["now_local_str"]):
+            date_str = now_local_str()
+        else:
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    hist[pick_key] = {"from": str(from_team or "").strip(), "to": str(to_team or "").strip(), "date": str(date_str)}
+    save_picks_history(hist)
+
+def season_years(lbl: str) -> list[str]:
+    """Ex: '2025-2026' -> ['2025','2026'] (fallback: liste vide)."""
+    nums = re.findall(r"\d{4}", str(lbl or ""))
+    if len(nums) >= 2:
+        return [nums[0], nums[1]]
+    if len(nums) == 1:
+        try:
+            y = int(nums[0])
+            return [str(y), str(y + 1)]
+        except Exception:
+            return [nums[0]]
+    return []
+
+def load_picks_cached(season_lbl: str, teams: list[str]) -> dict:
+    """Cache session_state pour éviter de relire picks_*.json à chaque rerun."""
+    key = "_picks_cache"
+    cache = st.session_state.get(key)
+    if not isinstance(cache, dict):
+        cache = {}
+    season_lbl = str(season_lbl or "").strip()
+    if season_lbl not in cache:
+        try:
+            cache[season_lbl] = load_picks(season_lbl, teams)
+        except Exception:
+            cache[season_lbl] = {}
+        st.session_state[key] = cache
+    return cache.get(season_lbl, {}) or {}
+
+
+# =====================================================
 # BUYOUTS — pénalité 50% salaire (affichée dans la masse)
 # =====================================================
 def _buyouts_path(season_lbl: str) -> str:
@@ -1545,31 +1609,30 @@ def _norm_name(s: str) -> str:
 
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
-    """
-    Charge Hockey.Players.csv (ou équivalent) avec cache Streamlit.
-    Le param `mtime` sert uniquement à invalider le cache quand le fichier change.
+    """Charge Hockey.Players.csv (ou équivalent) avec cache.
+    `mtime` sert uniquement à invalider le cache quand le fichier change.
     """
     if not path or not os.path.exists(path):
         return pd.DataFrame()
-
     try:
         dfp = pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
 
-    # colonne nom joueur (flex)
     name_col = None
     for c in dfp.columns:
-        cl = str(c).strip().lower()
+        cl = c.strip().lower()
         if cl in {"player", "joueur", "name", "full name", "fullname"}:
             name_col = c
             break
-
     if name_col is not None:
         dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
-
     return dfp
 
+
+# =====================================================
+# FANTRAX PARSER
+# =====================================================
 def parse_fantrax(upload) -> pd.DataFrame:
     """Parse un export Fantrax (format variable).
     ✅ supporte colonnes: Player/Name/Joueur + Salary/Cap Hit/AAV/Salaire
@@ -2232,12 +2295,13 @@ def build_tableau_ui(plafonds: pd.DataFrame):
 
 
 # =====================================================
-# BOOTSTRAP GLOBAL (ordre propre)
-#   0) players_db
-#   1) data (load → clean → enrich Level)
-#   2) history
-#   3) pending moves
-#   4) plafonds
+# LOAD DATA + HISTORY + PENDING MOVES (ORDER IS CRITICAL)
+#   Ordre propre:
+#     0) players_db
+#     1) data (load → clean → enrich Level)
+#     2) history
+#     3) pending moves
+#     4) plafonds
 # =====================================================
 
 # --- Saison (fallback sécurisé)
@@ -2249,6 +2313,7 @@ if not season:
 # --- Paths
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
+
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 
@@ -2267,7 +2332,7 @@ players_db = load_players_db(pdb_path, pdb_mtime) if pdb_path else pd.DataFrame(
 st.session_state["players_db"] = players_db
 
 # -----------------------------------------------------
-# 1) LOAD DATA (CSV → session_state) puis enrich Level
+# 1) LOAD ALIGNEMENT DATA (CSV → session_state) + enrich Level
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
     if os.path.exists(DATA_FILE):
@@ -2283,11 +2348,10 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
             pass
 
     df_loaded = clean_data(df_loaded)
-    df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db est déjà prêt
+    df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db déjà prêt
     st.session_state["data"] = df_loaded
     st.session_state["data_season"] = season
 else:
-    # sécurité: s'assurer que data est un DF + clean/enrich léger
     d0 = st.session_state.get("data")
     d0 = d0 if isinstance(d0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
     d0 = clean_data(d0)
@@ -2322,26 +2386,6 @@ df0 = clean_data(df0)
 df0 = enrich_level_from_players_db(df0)
 st.session_state["data"] = df0
 st.session_state["plafonds"] = rebuild_plafonds(df0)
-
-is_admin = _is_admin_whalers()
-
-NAV_TABS = [
-    "🏠 Home",
-    "🧾 Alignement",
-    "🧊 GM",
-    "👤 Joueurs autonomes",
-    "🕘 Historique",
-    "⚖️ Transactions",
-]
-if is_admin:
-    NAV_TABS.append("🛠️ Gestion Admin")
-NAV_TABS.append("🧠 Recommandations")
-
-# init + fallback (safe)
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = "🏠 Home"
-if st.session_state["active_tab"] not in NAV_TABS:
-    st.session_state["active_tab"] = NAV_TABS[0]
 
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
@@ -2659,8 +2703,27 @@ def render_tab_gm():
     used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
 
     # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
-    # (CSS GM déplacé dans THEME_CSS)
-
+    st.markdown(
+        """
+        <style>
+        .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
+        .gm-top img { width:132px; } /* 3x */
+        .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
+        .gm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-top:10px; }
+        .gm-card { border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); border-radius:14px; padding:14px 14px; }
+        .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
+        .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
+        .gm-sub { font-size:12px; opacity:0.75; margin-top:4px; display:flex; justify-content:space-between; }
+        .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+        .pick-pill { padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
+        .pick-pill.mine { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.10); }
+        .pick-pill.other { opacity:0.75; }
+        .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
+        .muted { opacity:0.75; font-size:13px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # =========================
     # HEADER GM (pas de "🧊 GM" texte)
@@ -2711,6 +2774,7 @@ def render_tab_gm():
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
 
+    # cache picks par saison
     picks = st.session_state.get("picks")
     if not isinstance(picks, dict) or st.session_state.get("_picks_season") != season:
         try:
@@ -2720,86 +2784,166 @@ def render_tab_gm():
         st.session_state["picks"] = picks
         st.session_state["_picks_season"] = season
 
-    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
-    rounds = list(range(1, 9))
+    years = season_years(season) or [season]
+    picks_hist = load_picks_history()
 
-        # -------------------------------------------------
-        # Picks — affichage par année (ex: 2025, 2026)
-        # -------------------------------------------------
-        def _season_years(lbl: str) -> list[str]:
-            nums = re.findall(r"\d{4}", str(lbl or ""))
-            if len(nums) >= 2:
-                return [nums[0], nums[1]]
-            if len(nums) == 1:
-                try:
-                    y = int(nums[0])
-                    return [str(y), str(y + 1)]
-                except Exception:
-                    return [nums[0]]
-            return []
+    # ✅ Filtre "Picks acquis"
+    show_acquired_only = st.checkbox("Filtre : Picks acquis (🔁)", value=False, key="gm_pick_filter_acquired")
 
-        def _load_picks_cached(lbl: str) -> dict:
-            cache = st.session_state.get("_picks_cache")
-            if not isinstance(cache, dict):
-                cache = {}
-            if lbl not in cache:
-                try:
-                    cache[lbl] = load_picks(lbl, teams)
-                except Exception:
-                    cache[lbl] = {}
-                st.session_state["_picks_cache"] = cache
-            return cache.get(lbl, {}) or {}
+    # -------------------------------------------------
+    # Vue 1 (par défaut): tes picks (rondes 1-8) par année
+    # Vue 2 (filtre): tes picks acquis (provenant d'autres équipes)
+    # -------------------------------------------------
+    for ylbl in years:
+        p_all = load_picks_cached(str(ylbl), teams)
 
-        years = _season_years(season) or [season]
-
-        # lignes pills (1 ligne par année)
-        for ylbl in years:
-            p_all = _load_picks_cached(str(ylbl))
+        if not show_acquired_only:
             my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
-            # nb de choix appartenant à l'équipe
             nb = 0
             for rr in range(1, 9):
-                if str(my_p.get(str(rr), owner)).strip() == owner:
+                who_now = str(my_p.get(str(rr), owner) or "").strip() or owner
+                if who_now == owner:
                     nb += 1
 
             pills_html = ["<div class='pick-line'>"]
             pills_html.append("<div class='pick-year'>")
             pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
             pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
-            pills_html.append("</div>")  # pick-year
+            pills_html.append("</div>")
 
             pills_html.append("<div class='pick-row'>")
             for rr in range(1, 9):
-                who = str(my_p.get(str(rr), owner) or "").strip() or owner
-                cls = "pick-pill mine" if who == owner else "pick-pill other"
-                label = f"R{rr} • {html.escape(who)}"
-                pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
-            pills_html.append("</div>")  # pick-row
-            pills_html.append("</div>")  # pick-line
+                who_now = str(my_p.get(str(rr), owner) or "").strip() or owner
+                pick_key = f"{str(ylbl)}:{owner}:R{rr}"
+                hx = picks_hist.get(pick_key, {}) if isinstance(picks_hist, dict) else {}
+                exchanged = bool(hx) and str(hx.get("to","")).strip() == owner and str(hx.get("from","")).strip() and str(hx.get("from","")).strip() != owner
+                icon = "🔁 " if exchanged else ""
+                title = f"🔁 Reçu de {hx.get('from','')} le {hx.get('date','')}" if exchanged else who_now
 
+                cls = "pick-pill mine" if who_now == owner else "pick-pill other"
+                label = f"{icon}R{rr} • {html.escape(who_now)}"
+                pills_html.append(f"<span class='{cls}' title='{html.escape(title)}'>{label}</span>")
+            pills_html.append("</div></div>")
             st.markdown("".join(pills_html), unsafe_allow_html=True)
 
-        st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
+        else:
+            # picks acquis: on liste tous les choix (toutes équipes) où owner possède le pick
+            owned = []
+            if isinstance(p_all, dict):
+                for src_team, mp in p_all.items():
+                    if not isinstance(mp, dict):
+                        continue
+                    for rr in range(1, 9):
+                        who_now = str(mp.get(str(rr), "") or "").strip()
+                        if who_now == owner and str(src_team).strip() != owner:
+                            owned.append((str(src_team).strip(), rr))
 
-        with st.expander("Voir le détail en tableau"):
-            rows = []
-            for ylbl in years:
-                p_all = _load_picks_cached(str(ylbl))
+            pills_html = ["<div class='pick-line'>"]
+            pills_html.append("<div class='pick-year'>")
+            pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
+            pills_html.append(f"<div class='pick-sub'>{len(owned)} acquis</div>")
+            pills_html.append("</div>")
+
+            pills_html.append("<div class='pick-row'>")
+            for src_team, rr in owned:
+                pick_key = f"{str(ylbl)}:{src_team}:R{rr}"
+                hx = picks_hist.get(pick_key, {}) if isinstance(picks_hist, dict) else {}
+                exchanged = True  # acquis = forcément provenant d'ailleurs
+                title = f"🔁 Reçu de {hx.get('from', src_team)} le {hx.get('date','—')}"
+                cls = "pick-pill mine"
+                label = f"🔁 {html.escape(src_team)} • R{rr}"
+                pills_html.append(f"<span class='{cls}' title='{html.escape(title)}'>{label}</span>")
+            pills_html.append("</div></div>")
+            st.markdown("".join(pills_html), unsafe_allow_html=True)
+
+    st.markdown("<div class='muted'>Survole 🔁 pour voir la timeline (reçu de / date).</div>", unsafe_allow_html=True)
+
+    with st.expander("Voir le détail en tableau"):
+        rows = []
+        for ylbl in years:
+            p_all = load_picks_cached(str(ylbl), teams)
+            if not isinstance(p_all, dict):
+                continue
+
+            if not show_acquired_only:
                 my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
                 for rr in range(1, 9):
-                    who = str(my_p.get(str(rr), owner) or "").strip() or owner
+                    who_now = str(my_p.get(str(rr), owner) or "").strip() or owner
+                    pick_key = f"{str(ylbl)}:{owner}:R{rr}"
+                    hx = picks_hist.get(pick_key, {}) if isinstance(picks_hist, dict) else {}
+                    recu_le = str(hx.get("date", "—") or "—")
+                    appartenant_a = who_now
+                    exchanged = bool(hx) and str(hx.get("to","")).strip() == owner and str(hx.get("from","")).strip() and str(hx.get("from","")).strip() != owner
+
                     rows.append({
                         "Année": str(ylbl),
-                        "Ronde": int(rr),
-                        "Appartenant à": who,
-                        "Reçu le": "—",   # (optionnel) à brancher si tu ajoutes un log de transactions de picks
+                        "Pick": f"{owner} R{rr}",
+                        "Appartenant à": appartenant_a,
+                        "Reçu le": recu_le,
+                        "🔁": "🔁" if exchanged else "",
                     })
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else:
-                st.info("Aucun choix trouvé pour cette équipe.")
+                for src_team, mp in p_all.items():
+                    if not isinstance(mp, dict):
+                        continue
+                    for rr in range(1, 9):
+                        who_now = str(mp.get(str(rr), "") or "").strip()
+                        if who_now == owner and str(src_team).strip() != owner:
+                            pick_key = f"{str(ylbl)}:{str(src_team).strip()}:R{rr}"
+                            hx = picks_hist.get(pick_key, {}) if isinstance(picks_hist, dict) else {}
+                            recu_le = str(hx.get("date", "—") or "—")
+                            rows.append({
+                                "Année": str(ylbl),
+                                "Pick": f"{str(src_team).strip()} R{rr}",
+                                "Appartenant à": owner,
+                                "Reçu le": recu_le,
+                                "🔁": "🔁",
+                            })
 
-        st.divider()
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucun choix trouvé (selon le filtre).")
+
+    # -------------------------------------------------
+    # Admin / GM: enregistrer un échange de pick (met à jour le JSON + journal)
+    # -------------------------------------------------
+    with st.expander("✍️ Enregistrer un échange de pick (met à jour 'Appartenant à' + 'Reçu le')"):
+        colA, colB, colC, colD = st.columns([2, 2, 3, 2], vertical_alignment="center")
+        ylbl = colA.selectbox("Année", [str(y) for y in years], key="pick_log_year")
+        src_team = colB.selectbox("Pick de l'équipe", teams if teams else [owner], index=(teams.index(owner) if owner in teams else 0), key="pick_log_src")
+        rr = colC.selectbox("Ronde", list(range(1, 9)), key="pick_log_round")
+        to_team = colD.selectbox("Nouveau propriétaire", teams if teams else [owner], index=(teams.index(owner) if owner in teams else 0), key="pick_log_to")
+
+        if st.button("Enregistrer l'échange", key="pick_log_btn", use_container_width=True):
+            p_all = load_picks_cached(str(ylbl), teams)
+            if not isinstance(p_all, dict):
+                p_all = {}
+            mp = p_all.get(src_team, {})
+            if not isinstance(mp, dict):
+                mp = {str(r): src_team for r in range(1, 9)}
+            prev_owner = str(mp.get(str(rr), src_team) or "").strip() or src_team
+            mp[str(rr)] = str(to_team).strip()
+            p_all[str(src_team).strip()] = mp
+            save_picks(str(ylbl), p_all)
+
+            # journal (clé unique année:team:Rround)
+            pick_key = f"{str(ylbl)}:{str(src_team).strip()}:R{int(rr)}"
+            log_pick_received(pick_key, prev_owner, str(to_team).strip())
+
+            # refresh caches
+            cache = st.session_state.get("_picks_cache")
+            if isinstance(cache, dict) and str(ylbl) in cache:
+                try:
+                    del cache[str(ylbl)]
+                except Exception:
+                    pass
+                st.session_state["_picks_cache"] = cache
+
+            st.success(f"✅ {src_team} R{rr} → {to_team} (ancien: {prev_owner})")
+
+    st.divider()
+
 
     # =========================
     # RACHAT DE CONTRAT — bouton grisé tant qu'aucun joueur sélectionné
@@ -2817,37 +2961,25 @@ def render_tab_gm():
         st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
         return
 
-    
-    # liste selection + map salaire (pour pénalité auto 50%)
+    # liste selection
     display = []
-    salary_map = {}
     for _, r in candidates.iterrows():
         nm = str(r.get(name_col, "")).strip()
-        sal_int = int(r.get("Salaire", 0) or 0)
-        sal = money(sal_int)
+        sal = money(int(r.get("Salaire", 0) or 0))
         pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
         team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
-        label = f"{nm}  —  {pos}  {team}  —  {sal}"
-        display.append(label)
-        salary_map[label] = sal_int
+        display.append(f"{nm}  —  {pos}  {team}  —  {sal}")
 
     picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
     can_apply = bool(str(picked).strip())
 
-    picked_salary = int(salary_map.get(picked, 0) or 0)
-    penalite = int(round(picked_salary * 0.50))  # ✅ toujours 50%
-
     r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
     with r1:
-        bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
     with r2:
-        if can_apply:
-            st.markdown(f"**Pénalité (50%)**<br>{money(penalite)}", unsafe_allow_html=True)
-        else:
-            st.markdown("**Pénalité (50%)**<br>—", unsafe_allow_html=True)
+        penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
     with r3:
         note = st.text_input("Note (optionnel)", key="gm_buyout_note")
-
 
     # bouton grisé tant que pas de sélection
     if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
@@ -3020,7 +3152,7 @@ elif active_tab == "🧾 Alignement":
 
     # v29: enrich Level depuis data/hockey.players.csv (players DB)
     try:
-        players_db = st.session_state.get("players_db", pd.DataFrame())
+        players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
         if 'fill_level_and_expiry_from_players_db' in globals() and callable(globals()['fill_level_and_expiry_from_players_db']):
             dprop = fill_level_and_expiry_from_players_db(dprop, players_db)
     except Exception:
@@ -4038,4 +4170,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
-    
