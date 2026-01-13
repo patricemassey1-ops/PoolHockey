@@ -2727,10 +2727,19 @@ def render_tab_gm():
     colL, colR = st.columns([1.2, 3], vertical_alignment="center")
 
     with colL:
-        logo = team_logo_path(owner)
-        if logo:
-            st.image(logo, width=110)
-        st.markdown("<div style='font-size:22px;font-weight:900;margin-top:6px;'>🧊 GM</div>", unsafe_allow_html=True)
+        # GM logo (priorité) puis logo d'équipe
+        gm_logo = "gm_logo.png"
+        if os.path.exists(gm_logo):
+            st.image(gm_logo, width=110)
+        else:
+            logo = team_logo_path(owner)
+            if logo:
+                st.image(logo, width=110)
+
+        st.markdown(
+            f"<div style='font-size:22px;font-weight:900;margin-top:6px;'>🧊 GM — {html.escape(owner)}</div>",
+            unsafe_allow_html=True,
+        )
 
     with colR:
         cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000))
@@ -2995,139 +3004,8 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             do_rerun()
 
 
-def render_tab_gm() -> None:
-    st.subheader("🧊 GM")
-
-    df = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-    df = clean_data(df)
-    st.session_state["data"] = df
-
-    owner = str(get_selected_team() or "").strip()
-    if not owner:
-        st.info("Sélectionne une équipe dans le menu à gauche.")
-        st.stop()
-
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
-
-    # --- Caps
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0)
-
-    try:
-        gc_all = dprop[dprop.get("Statut", "").astype(str).eq(STATUT_GC)].copy()
-        ce_all = dprop[dprop.get("Statut", "").astype(str).eq(STATUT_CE)].copy()
-    except Exception:
-        gc_all = pd.DataFrame(columns=dprop.columns)
-        ce_all = pd.DataFrame(columns=dprop.columns)
-
-    used_gc = int(gc_all["Salaire"].sum()) if isinstance(gc_all, pd.DataFrame) and "Salaire" in gc_all.columns else 0
-    used_ce = int(ce_all["Salaire"].sum()) if isinstance(ce_all, pd.DataFrame) and "Salaire" in ce_all.columns else 0
-    remain_gc = cap_gc - used_gc
-    remain_ce = cap_ce - used_ce
-
-    # --- Top row: logo + team
-    cA, cB = st.columns([1, 5], vertical_alignment="center")
-    with cA:
-        gm_logo = os.path.join(DATA_DIR, "gm_logo.png")
-        if os.path.exists(gm_logo):
-            st.image(gm_logo, width=86)
-    with cB:
-        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
-
-    # --- Cards GC/CE
-    cards = []
-    cards.append("<div class='gm-grid'>")
-
-    cards.append("<div class='gm-card'>")
-    cards.append("<div class='gm-label'>Masse GC</div>")
-    cards.append(f"<div class='gm-value'>{money(used_gc)}</div>")
-    cards.append("<div class='gm-sub'><span>Utilisé</span>"
-                 f"<span>{money(used_gc)} / {money(cap_gc)}</span></div>")
-    cards.append(f"<div class='gm-sub'><span>Reste</span>"
-                 f"<span>{money(remain_gc)}</span></div>")
-    cards.append("</div>")
-
-    cards.append("<div class='gm-card'>")
-    cards.append("<div class='gm-label'>Masse CE</div>")
-    cards.append(f"<div class='gm-value'>{money(used_ce)}</div>")
-    cards.append("<div class='gm-sub'><span>Utilisé</span>"
-                 f"<span>{money(used_ce)} / {money(cap_ce)}</span></div>")
-    cards.append(f"<div class='gm-sub'><span>Reste</span>"
-                 f"<span>{money(remain_ce)}</span></div>")
-    cards.append("</div>")
-
-    cards.append("</div>")
-    st.markdown("".join(cards), unsafe_allow_html=True)
-
-    st.divider()
-
-    # Picks + Rachat
-    render_tab_gm_picks_buyout(owner, dprop)
 
 
-
-# =====================================================
-# BUYOUT HELPERS (pure-ish, isolés)
-#   ✅ apply_buyout(df, owner, picked_label, bucket): retire le joueur + ajoute cap mort (Slot=RACHAT)
-#   ✅ push_buyout_to_market(season, player): rend le joueur AUTONOME sur le marché
-# =====================================================
-def apply_buyout(df_all: "pd.DataFrame", owner: str, picked_label: str, bucket: str, *, penalty_ratio: float = 0.50) -> tuple["pd.DataFrame", str, int, int]:
-    df_all = df_all if isinstance(df_all, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-    df_all = clean_data(df_all)
-
-    # Nom joueur depuis libellé "Nom  —  Pos  Team  —  $"
-    player_name = str(picked_label).split("—")[0].strip()
-    player_key = _norm_name(player_name)
-
-    # Salaire (best effort) à partir de la première ligne matchant le joueur chez owner
-    sal = 0.0
-    try:
-        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(player_key)
-        m = df_all[mask_owner & mask_player]
-        if not m.empty and "Salaire" in m.columns:
-            sal = float(m.iloc[0].get("Salaire", 0) or 0)
-    except Exception:
-        sal = 0.0
-
-    penalite = int(round(max(sal, 0) * float(penalty_ratio)))
-
-    # Retirer le joueur (toutes les lignes) — robuste
-    removed_rows = 0
-    try:
-        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(player_key)
-        removed_rows = int((mask_owner & mask_player).sum())
-        df_all = df_all[~(mask_owner & mask_player)].copy()
-    except Exception:
-        pass
-
-    # Fallback si aucun match exact: contains (au cas où le libellé diffère)
-    if removed_rows == 0 and player_name:
-        try:
-            mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-            mask_player2 = df_all["Joueur"].astype(str).str.contains(re.escape(player_name), case=False, na=False)
-            removed_rows = int((mask_owner & mask_player2).sum())
-            df_all = df_all[~(mask_owner & mask_player2)].copy()
-        except Exception:
-            pass
-
-    # Ajouter cap mort (ne doit pas apparaître dans Actifs/Mineur)
-    statut_bucket = STATUT_GC if str(bucket).upper() == "GC" else STATUT_CE
-    dead_row = {
-        "Propriétaire": str(owner).strip(),
-        "Joueur": f"RACHAT — {player_name}",
-        "Salaire": int(penalite or 0),
-        "Statut": statut_bucket,
-        "Slot": "RACHAT",
-    }
-    for k in list(dead_row.keys()):
-        if k not in df_all.columns:
-            dead_row.pop(k, None)
-
-    df_all = pd.concat([df_all, pd.DataFrame([dead_row])], ignore_index=True)
-    df_all = clean_data(df_all)
-    return df_all, player_name, int(penalite or 0), int(removed_rows or 0)
 
 
 def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
