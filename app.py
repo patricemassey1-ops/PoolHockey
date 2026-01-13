@@ -2711,102 +2711,73 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
 
 
-def render_tab_gm():
-    """Onglet GM — version finale (logo, masses 2 colonnes, picks compacts, rachat désactivé tant que pas de sélection)."""
-    # v36: assure Level (STD/ELC) partout via Hockey.Players.csv
-    try:
-        df_src = apply_players_level(df_src)
-    except Exception:
-        pass
-    # Data source
-    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-    st.session_state["data"] = df
 
+def render_tab_gm():
     owner = str(get_selected_team() or "").strip()
     if not owner:
-        st.info("Sélectionne une équipe en cliquant son nom dans 🏠 Home.")
-        st.stop()
+        st.info("Sélectionne une équipe.")
+        return
 
-    # plafonds
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0)
-
-    # Filtrer l'équipe
-    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
-
-    # v33: Level autoritaire depuis Hockey.Players.csv
-    try:
-        dprop = force_level_from_players(dprop)
-    except Exception:
-        pass
-    if dprop.empty:
-        st.warning("Aucune donnée d'alignement pour cette équipe.")
-        st.stop()
-
-    # Masse salariale (incl. pénalités)
-    # On utilise STATUT_GC / STATUT_CE si déjà dans ton app
-    try:
-        gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy()
-        ce_all = dprop[dprop.get("Statut", "") == STATUT_CE].copy()
-    except Exception:
-        gc_all = pd.DataFrame()
-        ce_all = pd.DataFrame()
-
-    used_gc = int(gc_all["Salaire"].sum()) if (isinstance(gc_all, pd.DataFrame) and not gc_all.empty and "Salaire" in gc_all.columns) else 0
-    used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
-
-    # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
-    # (CSS GM déplacé dans THEME_CSS)
-
+    df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+    dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy()
 
     # =========================
-    # HEADER GM (pas de "🧊 GM" texte)
+    # HEADER GM — logo + masses
     # =========================
-    top = st.columns([1, 8], vertical_alignment="center")
-    with top[0]:
-        # gm_logo 3x plus gros, complètement à gauche
-        try:
-            render_gm_logo(active=True, width=132, tooltip="Gestion d’équipe")
-        except Exception:
-            # fallback safe
-            if os.path.exists(GM_LOGO_FILE):
-                if active_tab == "🧊 GM":
-                    if active_tab == "🧊 GM":
+    colL, colR = st.columns([1.2, 3], vertical_alignment="center")
 
-                        safe_image(GM_LOGO_FILE, width=132, caption="")
-    with top[1]:
-        st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
+    with colL:
+        logo = team_logo_path(owner)
+        if logo:
+            st.image(logo, width=110)
+        st.markdown("<div style='font-size:22px;font-weight:900;margin-top:6px;'>🧊 GM</div>", unsafe_allow_html=True)
 
-    # =========================
-    # MASSES (2 colonnes)
-    # =========================
-    c1, c2 = st.columns(2, gap="large")
+    with colR:
+        cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000))
+        cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000))
 
-    with c1:
-        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='gm-label'>Masse GC</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-value'>{money(used_gc)}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_gc)} / {money(cap_gc)}</span></div>", unsafe_allow_html=True)
-        st.markdown(cap_bar_html(used_gc, cap_gc, "GC"), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        used_gc = int(dprop[dprop["Statut"] == STATUT_GC]["Salaire"].sum()) if not dprop.empty else 0
+        used_ce = int(dprop[dprop["Statut"] == STATUT_CE]["Salaire"].sum()) if not dprop.empty else 0
 
-    with c2:
-        st.markdown("<div class='gm-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='gm-label'>Masse CE</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-value'>{money(used_ce)}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gm-sub'><span>Utilisé</span><span>{money(used_ce)} / {money(cap_ce)}</span></div>", unsafe_allow_html=True)
-        st.markdown(cap_bar_html(used_ce, cap_ce, "CE"), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        r_gc = cap_gc - used_gc
+        r_ce = cap_ce - used_ce
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(
+                f"""
+                <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.05)">
+                  <div style="font-size:13px;opacity:.8">Masse Grand Club</div>
+                  <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_gc)}</div>
+                  <div style="font-size:13px;opacity:.75">Plafond {money(cap_gc)}</div>
+                  <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_gc < 0 else '#22c55e'}">
+                    Reste {money(r_gc)}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with c2:
+            st.markdown(
+                f"""
+                <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.05)">
+                  <div style="font-size:13px;opacity:.8">Masse Club École</div>
+                  <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_ce)}</div>
+                  <div style="font-size:13px;opacity:.75">Plafond {money(cap_ce)}</div>
+                  <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_ce < 0 else '#22c55e'}">
+                    Reste {money(r_ce)}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
-    
-
-# =====================================================
-# TAB GM — Picks + Rachat de contrat (helpers)
-#   ⚠️ Doit rester au niveau GLOBAL (pas dans un if/with)
-# =====================================================
-
+    # =========================
+    # GM — picks & buyouts
+    # =========================
+    render_tab_gm_picks_buyout(owner, dprop)
 
 
 def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
