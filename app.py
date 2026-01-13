@@ -4290,14 +4290,6 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     return out
 
 
-/* --- PICKS layout fixes (no overflow) --- */
-.pick-line{
-  display:grid;
-  grid-template-columns: 84px 1fr;
-  gap:12px;
-  align-items:start;
-  margin: 10px 0;
-}
 .pick-year{ display:flex; flex-direction:column; gap:6px; }
 .pick-year-badge{
   display:inline-flex;
