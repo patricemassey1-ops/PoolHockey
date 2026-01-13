@@ -505,6 +505,61 @@ div[data-testid="stButton"] > button{
 }
 .pick-mini b { font-size: 13px; }
 
+
+
+/* =====================================================
+   GM TAB (migré depuis st.markdown <style> inline)
+   ===================================================== */
+.gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
+.gm-top img { width:132px; } /* 3x */
+
+.gm-team { font-weight:800; font-size:22px; opacity:0.92; }
+
+.gm-grid {
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:22px;
+  margin-top:10px;
+}
+
+.gm-card {
+  border:1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  border-radius:14px;
+  padding:14px 14px;
+}
+
+.gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
+.gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
+
+.gm-sub {
+  font-size:12px;
+  opacity:0.75;
+  margin-top:4px;
+  display:flex;
+  justify-content:space-between;
+}
+
+.pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+
+.pick-pill {
+  padding:6px 10px;
+  border-radius:999px;
+  font-weight:700;
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.04);
+}
+
+.pick-pill.mine {
+  border-color: rgba(34,197,94,0.55);
+  background: rgba(34,197,94,0.10);
+}
+
+.pick-pill.other { opacity:0.75; }
+
+.section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
+.muted { opacity:0.75; font-size:13px; }
+
 </style>"""
 
 def apply_theme():
@@ -1483,28 +1538,32 @@ def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
 
 @st.cache_data(show_spinner=False)
-def load_players_db(path: str) -> pd.DataFrame:
+def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
+    """
+    Charge Hockey.Players.csv (ou équivalent) avec cache Streamlit.
+    Le param `mtime` sert uniquement à invalider le cache quand le fichier change.
+    """
     if not path or not os.path.exists(path):
         return pd.DataFrame()
+
     try:
         dfp = pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
 
+    # colonne nom joueur (flex)
     name_col = None
     for c in dfp.columns:
-        cl = c.strip().lower()
+        cl = str(c).strip().lower()
         if cl in {"player", "joueur", "name", "full name", "fullname"}:
             name_col = c
             break
+
     if name_col is not None:
         dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
+
     return dfp
 
-
-# =====================================================
-# FANTRAX PARSER
-# =====================================================
 def parse_fantrax(upload) -> pd.DataFrame:
     """Parse un export Fantrax (format variable).
     ✅ supporte colonnes: Player/Name/Joueur + Salary/Cap Hit/AAV/Salaire
@@ -2167,7 +2226,12 @@ def build_tableau_ui(plafonds: pd.DataFrame):
 
 
 # =====================================================
-# LOAD DATA + HISTORY + PENDING MOVES (ORDER IS CRITICAL)
+# BOOTSTRAP GLOBAL (ordre propre)
+#   0) players_db
+#   1) data (load → clean → enrich Level)
+#   2) history
+#   3) pending moves
+#   4) plafonds
 # =====================================================
 
 # --- Saison (fallback sécurisé)
@@ -2179,15 +2243,27 @@ if not season:
 # --- Paths
 DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
-
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
 
 # -----------------------------------------------------
-# 1) LOAD ALIGNEMENT DATA (CSV → session_state)
+# 0) PLAYERS DATABASE (AVANT enrich)
+# -----------------------------------------------------
+pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+pdb_mtime = 0.0
+if pdb_path and os.path.exists(pdb_path):
+    try:
+        pdb_mtime = float(os.path.getmtime(pdb_path))
+    except Exception:
+        pdb_mtime = 0.0
+
+players_db = load_players_db(pdb_path, pdb_mtime) if pdb_path else pd.DataFrame()
+st.session_state["players_db"] = players_db
+
+# -----------------------------------------------------
+# 1) LOAD DATA (CSV → session_state) puis enrich Level
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-
     if os.path.exists(DATA_FILE):
         try:
             df_loaded = pd.read_csv(DATA_FILE)
@@ -2201,48 +2277,16 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
             pass
 
     df_loaded = clean_data(df_loaded)
+    df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db est déjà prêt
     st.session_state["data"] = df_loaded
     st.session_state["data_season"] = season
-
-# =====================================================
-# LOAD DATA + HISTORY + PENDING MOVES (ORDER IS CRITICAL)
-# =====================================================
-
-# --- Saison (fallback sécurisé)
-season = str(st.session_state.get("season") or "").strip()
-if not season:
-    season = saison_auto()
-    st.session_state["season"] = season
-
-# --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
-
-st.session_state["DATA_FILE"] = DATA_FILE
-st.session_state["HISTORY_FILE"] = HISTORY_FILE
-
-# -----------------------------------------------------
-# 1) LOAD DATA (CSV → session_state)
-# -----------------------------------------------------
-if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-    if os.path.exists(DATA_FILE):
-        try:
-            df_loaded = pd.read_csv(DATA_FILE)
-        except Exception:
-            df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-    else:
-        df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
-        try:
-            df_loaded.to_csv(DATA_FILE, index=False)
-        except Exception:
-            pass
-
-    st.session_state["data"] = clean_data(df_loaded)
-    st.session_state["data"] = enrich_level_from_players_db(st.session_state["data"])
-    st.session_state["data_season"] = season
 else:
-    # sécurité: s'assurer que data est propre
-    st.session_state["data"] = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+    # sécurité: s'assurer que data est un DF + clean/enrich léger
+    d0 = st.session_state.get("data")
+    d0 = d0 if isinstance(d0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+    d0 = clean_data(d0)
+    d0 = enrich_level_from_players_db(d0)
+    st.session_state["data"] = d0
 
 # -----------------------------------------------------
 # 2) LOAD HISTORY (CSV → session_state)
@@ -2251,13 +2295,11 @@ if "history_season" not in st.session_state or st.session_state["history_season"
     st.session_state["history"] = load_history_file(HISTORY_FILE)
     st.session_state["history_season"] = season
 else:
-    # sécurité: s'assurer que history est un DF
     h0 = st.session_state.get("history")
     st.session_state["history"] = h0 if isinstance(h0, pd.DataFrame) else _history_empty_df()
 
 # -----------------------------------------------------
-# 3) PROCESS PENDING MOVES  ⬅️ IMPORTANT
-#    (doit être appelé APRÈS data + history chargés)
+# 3) PROCESS PENDING MOVES (APRÈS data + history)
 # -----------------------------------------------------
 if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
     try:
@@ -2266,21 +2308,14 @@ if "process_pending_moves" in globals() and callable(globals()["process_pending_
         st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
 # -----------------------------------------------------
-# 4) PLAYERS DATABASE (read-only)
+# 4) BUILD PLAFONDS (sur data enrichie)
 # -----------------------------------------------------
-players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
-st.session_state["players_db"] = players_db
-
-# -----------------------------------------------------
-# 5) BUILD PLAFONDS (si tu l'utilises globalement)
-# -----------------------------------------------------
-df0 = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+df0 = df0 if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+df0 = clean_data(df0)
 df0 = enrich_level_from_players_db(df0)
 st.session_state["data"] = df0
 st.session_state["plafonds"] = rebuild_plafonds(df0)
-
-
-
 
 is_admin = _is_admin_whalers()
 
@@ -2618,27 +2653,8 @@ def render_tab_gm():
     used_ce = int(ce_all["Salaire"].sum()) if (isinstance(ce_all, pd.DataFrame) and not ce_all.empty and "Salaire" in ce_all.columns) else 0
 
     # ---- CSS (UNE SEULE injection ici: réutilise ta règle "un seul thème")
-    st.markdown(
-        """
-        <style>
-        .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
-        .gm-top img { width:132px; } /* 3x */
-        .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
-        .gm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-top:10px; }
-        .gm-card { border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); border-radius:14px; padding:14px 14px; }
-        .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
-        .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
-        .gm-sub { font-size:12px; opacity:0.75; margin-top:4px; display:flex; justify-content:space-between; }
-        .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-        .pick-pill { padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
-        .pick-pill.mine { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.10); }
-        .pick-pill.other { opacity:0.75; }
-        .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
-        .muted { opacity:0.75; font-size:13px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    # (CSS GM déplacé dans THEME_CSS)
+
 
     # =========================
     # HEADER GM (pas de "🧊 GM" texte)
@@ -2928,7 +2944,7 @@ elif active_tab == "🧾 Alignement":
 
     # v29: enrich Level depuis data/hockey.players.csv (players DB)
     try:
-        players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
+        players_db = st.session_state.get("players_db", pd.DataFrame())
         if 'fill_level_and_expiry_from_players_db' in globals() and callable(globals()['fill_level_and_expiry_from_players_db']):
             dprop = fill_level_and_expiry_from_players_db(dprop, players_db)
     except Exception:
@@ -3945,4 +3961,4 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mapped = out["Joueur"].astype(str).apply(_resolve)
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
-    return out
+    return outv
