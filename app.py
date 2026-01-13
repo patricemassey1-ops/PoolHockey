@@ -3913,3 +3913,4 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
     df["Level"] = df.apply(_resolve, axis=1)
     return df
 
+
