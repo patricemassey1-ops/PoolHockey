@@ -90,6 +90,11 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
+# --- plafonds par défaut (évite cap=0)
+if "PLAFOND_GC" not in st.session_state or int(st.session_state.get("PLAFOND_GC") or 0) <= 0:
+    st.session_state["PLAFOND_GC"] = 95_500_000
+if "PLAFOND_CE" not in st.session_state or int(st.session_state.get("PLAFOND_CE") or 0) <= 0:
+    st.session_state["PLAFOND_CE"] = 47_750_000
 
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
@@ -527,16 +532,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.players.csv")  # source: /data/Hockey.players.csv
 PLAYERS_DB_FALLBACKS = [
-    PLAYERS_DB_FILE,
-    os.path.join(APP_DIR, "data", "Hockey.players.csv"),
-    os.path.join(APP_DIR, "data", "hockey.players.csv"),
-    os.path.join(APP_DIR, "data", "Hockey.Players.csv"),
-    os.path.join(APP_DIR, "data", "hockey.players.csv"),
-    os.path.join(APP_DIR, "data", "Hockey_Players.csv"),
+    "data/hockey.players.csv",
+    "/data/hockey.players.csv",
+    "data/Hockey.players.csv",
+    "/data/Hockey.players.csv",
+    "data/Hockey.Players.csv",
+    "/data/Hockey.Players.csv",
     "Hockey.players.csv",
     "Hockey.Players.csv",
-    "Hockey_Players.csv",
 ]
+
 # (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
 
@@ -2014,7 +2019,7 @@ def open_gc_preview_dialog():
 
     gc_all = dprop[dprop.get("Statut", "") == STATUT_GC].copy() if not dprop.empty else pd.DataFrame()
 
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
     used_gc = int(gc_all["Salaire"].sum()) if (not gc_all.empty and "Salaire" in gc_all.columns) else 0
     remain_gc = cap_gc - used_gc
 
@@ -2384,8 +2389,8 @@ if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_widt
 
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
-st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state.get("PLAFOND_GC", 0)))
-st.sidebar.metric("🏫 Plafond Club École", money(st.session_state.get("PLAFOND_CE", 0)))
+st.sidebar.metric("🏒 Plafond Grand Club", money(st.session_state.get("PLAFOND_GC", 95_500_000)))
+st.sidebar.metric("🏫 Plafond Club École", money(st.session_state.get("PLAFOND_CE", 47_750_000)))
 
 st.divider()
 
@@ -2566,8 +2571,8 @@ def render_tab_gm():
         st.stop()
 
     # plafonds
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0)
 
     # Filtrer l'équipe
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
@@ -2910,8 +2915,8 @@ elif active_tab == "🧾 Alignement":
     except Exception:
         pass
 
-    cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
-    cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
+    cap_gc = int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0)
+    cap_ce = int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0)
 
     if dprop.empty:
         st.warning(f"Aucun alignement importé pour **{proprietaire}** (Admin → Import).")
@@ -3469,14 +3474,14 @@ elif active_tab == "🛠️ Gestion Admin":
         st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
         st.session_state["PLAFOND_GC"] = st.number_input(
             "Plafond Grand Club",
-            value=int(st.session_state.get("PLAFOND_GC", 0) or 0),
+            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
             step=500_000,
             key="admin_plafond_gc",
             disabled=locked,
         )
         st.session_state["PLAFOND_CE"] = st.number_input(
             "Plafond Club École",
-            value=int(st.session_state.get("PLAFOND_CE", 0) or 0),
+            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
             step=250_000,
             key="admin_plafond_ce",
             disabled=locked,
