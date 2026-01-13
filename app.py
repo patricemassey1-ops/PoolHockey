@@ -2930,8 +2930,6 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             save_trade_market(season_lbl, tm)
         except Exception:
             pass
-        except Exception:
-            pass
 
         # --- Log session
         buyouts = st.session_state.get("buyouts", [])
