@@ -3640,6 +3640,7 @@ elif active_tab == "🛠️ Gestion Admin":
                     df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
                     df_import["Propriétaire"] = str(chosen_owner).strip()
                     df_import = clean_data(df_import)
+                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
 
                     st.session_state["init_preview_df"] = df_import
                     st.session_state["init_preview_owner"] = str(chosen_owner).strip()
@@ -3800,55 +3801,89 @@ elif active_tab == "🧠 Recommandations":
 # =====================================================
 # v33 — Level autoritaire depuis Hockey.Players.csv
 # =====================================================
+def _strip_accents(s: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+
 def _norm_player_key(s: str) -> str:
-    s = str(s or "").strip()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
-    s = re.sub(r"\s+", " ", s).strip().lower()
+    """Normalise un nom pour matching robuste (accents, ponctuation, espaces)."""
+    s = _strip_accents(str(s or "")).lower().strip()
+    # garde lettres/chiffres/espaces seulement
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
     return s
+
+def _player_key_variants(name: str) -> set[str]:
+    """Retourne plusieurs variantes de clé (prenom nom / nom prenom / avec virgule)."""
+    raw = str(name or "").strip()
+    base = _norm_player_key(raw)
+    out = set()
+    if base:
+        out.add(base)
+
+    # Variante si format "Nom, Prenom ..."
+    if "," in raw:
+        parts = [p.strip() for p in raw.split(",", 1)]
+        if len(parts) == 2:
+            last = _norm_player_key(parts[0])
+            first = _norm_player_key(parts[1])
+            if last and first:
+                out.add(f"{last} {first}".strip())
+                out.add(f"{first} {last}".strip())
+
+    # Variante inverse si format "Prenom ... Nom"
+    toks = base.split()
+    if len(toks) >= 2:
+        first = " ".join(toks[:-1])
+        last = toks[-1]
+        out.add(f"{first} {last}".strip())
+        out.add(f"{last} {first}".strip())
+
+    return {k for k in out if k}
 
 
 @st.cache_data(show_spinner=False)
-def _players_level_map(pdb_path: str) -> dict:
+def _players_level_map(pdb_path: str) -> dict[str, str]:
+    """Construit un mapping {clé_normalisée -> Level (STD/ELC)} depuis Hockey.players.csv."""
     try:
         players = pd.read_csv(pdb_path)
     except Exception:
         return {}
-    cols = {c.lower().strip(): c for c in players.columns}
-    name_col = (
-        cols.get("player") or cols.get("joueur") or cols.get("name")
-        or cols.get("player name") or cols.get("full name")
-    )
+
+    if players is None or players.empty:
+        return {}
+
+    # Colonne nom joueur
+    name_col = None
+    for c in ["Player", "Joueur", "Name", "Nom", "player", "joueur", "name", "nom"]:
+        if c in players.columns:
+            name_col = c
+            break
     if not name_col:
-        return {}
-    if "Level" not in players.columns:
-        return {}
-    players["_key"] = players[name_col].apply(_norm_player_key)
-    # garder seulement Level non vide
-    out = {}
+        # fallback: première colonne qui ressemble à un nom
+        name_col = players.columns[0]
 
-    def _swap_key(k: str) -> str:
-        parts = [p for p in str(k or "").split() if p]
-        if len(parts) == 2:
-            return f"{parts[1]} {parts[0]}".strip()
-        return str(k or "").strip()
+    # Colonne Level
+    level_col = None
+    for c in ["Level", "level", "LEVEL"]:
+        if c in players.columns:
+            level_col = c
+            break
+    if not level_col:
+        return {}
 
-    for _, r in dfp.iterrows():
-        name = str(r.get(name_col, "") or "")
-        lvl = str(r.get(level_col, "") or "").strip()
-        if not name or not lvl:
+    m: dict[str, str] = {}
+    for _, r in players.iterrows():
+        nm = str(r.get(name_col, "") or "").strip()
+        lvl = str(r.get(level_col, "") or "").strip().upper()
+
+        if lvl not in ("STD", "ELC"):
             continue
-        k1 = _norm_player_key(name)
-        if k1:
-            out.setdefault(k1, lvl)
-        k2 = _swap_key(k1)
-        if k2 and k2 != k1:
-            out.setdefault(k2, lvl)
 
-    return out
+        for k in _player_key_variants(nm):
+            if k and k not in m:
+                m[k] = lvl
 
-
+    return m
 def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     """Compat helper (v38→v39): applique l'enrichissement Level (STD/ELC) depuis /data/Hockey.players.csv."""
     try:
@@ -3868,45 +3903,27 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 #     - Level_found (bool) : trouvé dans DB
 #     - Level_src (str)    : 'Hockey.Players.csv' si trouvé sinon ''
 # =====================================================
-def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
-    """Force df['Level'] (STD/ELC) via /data/Hockey.players.csv (source de vérité).
-
-    - Crée une clé normalisée à partir de la colonne 'Joueur'
-    - Mappe vers la colonne 'Level' du fichier Hockey.players.csv
-    - Écrase df['Level'] dès qu'un mapping existe (même si df['Level'] vaut 0)
-    """
-    if df is None or df.empty:
-        return df
-    if "Joueur" not in df.columns:
-        return df
-
-    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-    if not pdb_path:
-        return df
-
-    level_map = _players_level_map(pdb_path)
-    if not level_map:
+def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
+    """Force df['Level'] à partir de Hockey.players.csv (STD/ELC)."""
+    if df is None or df.empty or "Joueur" not in df.columns:
         return df
 
     out = df.copy()
+    if "Level" not in out.columns:
+        out["Level"] = ""
 
-    # clé joueur
-    out["Joueur_key"] = out["Joueur"].astype(str).map(_norm_player_key)
+    level_map = _players_level_map(pdb_path)
+    if not level_map:
+        return out
 
-    # mapping STD/ELC
-    mapped = out["Joueur_key"].map(level_map).fillna("").astype(str).str.strip()
+    def _resolve(name: str) -> str:
+        for k in _player_key_variants(name):
+            v = level_map.get(k, "")
+            if v:
+                return v
+        return ""
 
-    # Si mapping existe -> on écrase (corrige les '0')
-    mask = mapped.ne("")
-    if mask.any():
-        out.loc[mask, "Level"] = mapped[mask]
-
-    # nettoyage final
-    if "Level" in out.columns:
-        out["Level"] = out["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
-
-    # ménage
-    if "Joueur_key" in out.columns:
-        out.drop(columns=["Joueur_key"], inplace=True, errors="ignore")
-
+    mapped = out["Joueur"].astype(str).apply(_resolve)
+    mask = mapped.astype(str).str.strip().ne("")
+    out.loc[mask, "Level"] = mapped[mask]
     return out
