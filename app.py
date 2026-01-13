@@ -525,22 +525,17 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PLAYERS_DB_FILE = os.path.join(DATA_DIR, "hockey.players.csv")  # v29: source demandé
+PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.players.csv")  # source: /data/Hockey.players.csv
 PLAYERS_DB_FALLBACKS = [
-    # même dossier que app.py
-    os.path.join(APP_DIR, "Hockey.players.csv"),
-    os.path.join(APP_DIR, "Hockey.Players.csv"),
-    os.path.join(APP_DIR, "hockey.players.csv"),
-    # sous ./data
+    PLAYERS_DB_FILE,
     os.path.join(APP_DIR, "data", "Hockey.players.csv"),
+    os.path.join(APP_DIR, "data", "hockey.players.csv"),
     os.path.join(APP_DIR, "data", "Hockey.Players.csv"),
     os.path.join(APP_DIR, "data", "hockey.players.csv"),
     os.path.join(APP_DIR, "data", "Hockey_Players.csv"),
-    os.path.join(APP_DIR, "data", "hockey_players.csv"),
-    # chemins absolus possibles (Streamlit Cloud / conteneur)
-    os.path.join(os.sep, "data", "Hockey.players.csv"),
-    os.path.join(os.sep, "data", "Hockey.Players.csv"),
-    os.path.join(os.sep, "data", "hockey.players.csv"),
+    "Hockey.players.csv",
+    "Hockey.Players.csv",
+    "Hockey_Players.csv",
 ]
 # (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
@@ -2268,7 +2263,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
-    "🧊 GM",
+    "🧠 GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2321,11 +2316,16 @@ def _nav_label(tab_id: str) -> str:
     # Badge transaction en attente (affichage seulement; tab_id reste stable)
     if tab_id == "⚖️ Transactions" and _tx_pending_from_state():
         return "🔴 " + tab_id
+    # Emoji ICE à côté de GM (affichage seulement; tab_id reste stable)
+    if tab_id == "🧠 GM":
+        return "🧊 GM"
     return tab_id
 
 
 st.sidebar.markdown("### Navigation")
 
+
+    # (Sidebar) GM logo retiré comme demandé — on garde seulement l’entrée de navigation "🧊 GM".
 
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
@@ -2593,7 +2593,7 @@ def render_tab_gm():
     )
 
     # =========================
-    # HEADER GM (pas de "🧊 GM" texte)
+    # HEADER GM (pas de "🧠 GM" texte)
     # =========================
     top = st.columns([1, 8], vertical_alignment="center")
     with top[0]:
@@ -2603,8 +2603,8 @@ def render_tab_gm():
         except Exception:
             # fallback safe
             if os.path.exists(GM_LOGO_FILE):
-                if active_tab == "🧊 GM":
-                    if active_tab == "🧊 GM":
+                if active_tab == "🧠 GM":
+                    if active_tab == "🧠 GM":
 
                         safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
@@ -3030,7 +3030,7 @@ elif active_tab == "🧾 Alignement":
 
 
 
-elif active_tab == "🧊 GM":
+elif active_tab == "🧠 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
@@ -3798,13 +3798,25 @@ def _players_level_map(pdb_path: str) -> dict:
     players["_key"] = players[name_col].apply(_norm_player_key)
     # garder seulement Level non vide
     out = {}
-    for _, r in players.iterrows():
-        k = str(r.get("_key","") or "").strip()
-        if not k:
+
+    def _swap_key(k: str) -> str:
+        parts = [p for p in str(k or "").split() if p]
+        if len(parts) == 2:
+            return f"{parts[1]} {parts[0]}".strip()
+        return str(k or "").strip()
+
+    for _, r in dfp.iterrows():
+        name = str(r.get(name_col, "") or "")
+        lvl = str(r.get(level_col, "") or "").strip()
+        if not name or not lvl:
             continue
-        v = str(r.get("Level","") or "").strip()
-        if v:
-            out[k] = v
+        k1 = _norm_player_key(name)
+        if k1:
+            out.setdefault(k1, lvl)
+        k2 = _swap_key(k1)
+        if k2 and k2 != k1:
+            out.setdefault(k2, lvl)
+
     return out
 
 
@@ -3824,72 +3836,51 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 #     - Level_src (str)    : 'Hockey.Players.csv' si trouvé sinon ''
 # =====================================================
 def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ajoute/rafraîchit df["Level"] (STD/ELC) en utilisant Hockey.players.csv comme source de vérité.
+    - Robustesse: gère "Nom, Prénom" vs "Prénom Nom" en essayant une clé inversée si nécessaire.
+    - Si aucune correspondance: conserve la valeur existante sauf si elle vaut 0/"0" (alors on met vide).
+    """
     if df is None or df.empty:
         return df
-    # Colonne joueur (Alignement peut utiliser Joueur ou Player)
-    player_col_candidates = ["Joueur","Player","Nom","Name","Joueur Nom","Player Name"]
-    player_col = next((c for c in player_col_candidates if c in df.columns), None)
-    if not player_col:
-        return df
-
-    try:
-        pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-        level_map = _players_level_map(pdb_path) if pdb_path else {}
-    except Exception:
-        level_map = {}
-
-    if not level_map:
-        df = df.copy()
-        if "Level_found" not in df.columns:
-            df["Level_found"] = False
-        if "Level_src" not in df.columns:
-            df["Level_src"] = ""
-        return df
-
-    def _resolve(row):
-        key = _norm_player_key(row.get(player_col,""))
-        mapped = level_map.get(key, "")
-        if mapped:
-            return mapped, True
-        parts = key.split(" ")
-        if len(parts) >= 2:
-            mapped2 = level_map.get(" ".join(parts[::-1]), "")
-            if mapped2:
-                return mapped2, True
-        return str(row.get("Level","") or "").strip(), False
-
-    df = df.copy()
-    out = df.apply(_resolve, axis=1, result_type="expand")
-    df["Level"] = out[0].astype(str)
-    df["Level_found"] = out[1].astype(bool)
-    df["Level_src"] = df["Level_found"].apply(lambda x: "Hockey.Players.csv" if x else "")
-    return df
-
     if "Joueur" not in df.columns:
         return df
 
     pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
     if not pdb_path:
+        # fallback doux: si Level est 0/NaN, on vide
+        if "Level" in df.columns:
+            df2 = df.copy()
+            df2["Level"] = df2["Level"].astype(str).replace({"0": "", "nan": ""})
+            return df2
         return df
 
     level_map = _players_level_map(pdb_path)
     if not level_map:
         return df
 
-    def _resolve(row):
-        key = _norm_player_key(row.get(player_col,""))
-        mapped = level_map.get(key, "")
-        if mapped:
-            return mapped
-        # fallback: essayer inversion prenom/nom
-        parts = key.split(" ")
-        if len(parts) >= 2:
-            mapped2 = level_map.get(" ".join(parts[::-1]), "")
-            if mapped2:
-                return mapped2
-        # sinon garder valeur existante
-        return str(row.get("Level","") or "").strip()
+    def _swap_key(k: str) -> str:
+        parts = [p for p in str(k or "").split() if p]
+        if len(parts) == 2:
+            return f"{parts[1]} {parts[0]}".strip()
+        return str(k or "").strip()
 
-    df = df.copy()
-    df["Level"] = df.apply(_resolve, axis=1)
-    return df
+    out = df.copy()
+    out["__pk__"] = out["Joueur"].map(_norm_player_key)
+    out["__pk2__"] = out["__pk__"].map(_swap_key)
+
+    # map direct + fallback swapped
+    out["__lvl1__"] = out["__pk__"].map(level_map)
+    out["__lvl2__"] = out["__pk2__"].map(level_map)
+
+    # choisir: lvl1 > lvl2 > existing (si non 0)
+    existing = out["Level"] if "Level" in out.columns else ""
+    existing_s = existing.astype(str) if hasattr(existing, "astype") else out["Joueur"].map(lambda _: "")
+    existing_s = existing_s.replace({"0": "", "nan": ""})
+
+    out["Level"] = out["__lvl1__"].fillna("").astype(str)
+    out.loc[out["Level"].eq("") & out["__lvl2__"].notna(), "Level"] = out.loc[out["Level"].eq("") & out["__lvl2__"].notna(), "__lvl2__"].astype(str)
+    out.loc[out["Level"].eq("") & existing_s.ne(""), "Level"] = existing_s[out["Level"].eq("") & existing_s.ne("")]
+
+    out.drop(columns=[c for c in ["__pk__", "__pk2__", "__lvl1__", "__lvl2__"] if c in out.columns], inplace=True)
+    return out
