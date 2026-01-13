@@ -52,6 +52,20 @@ import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+# =====================================================
+# Level override helper (alias) — must exist before Admin import preview
+# =====================================================
+def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
+    """Compat wrapper: Admin import calls this; delegates to apply_players_level when available."""
+    try:
+        fn = globals().get("apply_players_level")
+        if callable(fn):
+            return fn(df)
+    except Exception:
+        pass
+    return df
+
+
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
