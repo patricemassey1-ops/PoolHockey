@@ -2324,8 +2324,32 @@ def _nav_label(tab_id: str) -> str:
 
 st.sidebar.markdown("### Navigation")
 
+# -----------------------------------------------------
+# SIDEBAR NAV (radio) — sans logo, avec 🧊 pour GM
+#   ⚠️ IMPORTANT: définit la variable `active_tab` utilisée par le routing.
+# -----------------------------------------------------
 
-    # (Sidebar) GM logo retiré comme demandé — on garde seulement l’entrée de navigation "🧊 GM".
+# Labels affichés (on remplace l’icône de GM par 🧊)
+NAV_LABELS = []
+for t in NAV_TABS:
+    if t == "👤 GM":
+        NAV_LABELS.append("🧊 GM")
+    else:
+        NAV_LABELS.append(t)
+
+# Index courant
+_cur = st.session_state.get("active_tab", NAV_TABS[0])
+_cur_idx = NAV_TABS.index(_cur) if _cur in NAV_TABS else 0
+
+# Widget
+_picked_label = st.sidebar.radio("", NAV_LABELS, index=_cur_idx, key="sb_nav_radio")
+_picked_tab = NAV_TABS[NAV_LABELS.index(_picked_label)]
+
+if _picked_tab != st.session_state.get("active_tab"):
+    st.session_state["active_tab"] = _picked_tab
+
+# ✅ Variable utilisée par le routing plus bas
+active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
@@ -3821,9 +3845,13 @@ def _players_level_map(pdb_path: str) -> dict:
 
 
 def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
-    """Override df['Level'] en se basant sur Hockey.Players.csv (source de vérité)."""
-    if df is None or df.empty:
-        return df
+    """Compat helper (v38→v39): applique l'enrichissement Level (STD/ELC) depuis /data/Hockey.players.csv."""
+    try:
+        if "apply_players_level" in globals() and callable(globals()["apply_players_level"]):
+            return apply_players_level(df)
+    except Exception:
+        pass
+    return df
 
 
 
