@@ -66,11 +66,20 @@ import streamlit.components.v1 as components
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _resolve_local_logo(candidates: list[str]) -> str:
-    """Retourne le 1er fichier existant dans APP_DIR parmi `candidates`."""
+    """Retourne le 1er fichier existant (recherche robuste).
+
+    Ordre de recherche:
+      1) APP_DIR (dossier de app.py)
+      2) CWD (working dir Streamlit)
+      3) data/ (si présent)
+    """
+    search_dirs = [APP_DIR, os.getcwd(), os.path.join(os.getcwd(), "data"), os.path.join(APP_DIR, "data")]
     for name in candidates:
-        p = os.path.join(APP_DIR, name)
-        if os.path.exists(p):
-            return p
+        for d in search_dirs:
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                return p
+    # chemin attendu (même si absent) pour diagnostic
     return os.path.join(APP_DIR, candidates[0])  # chemin attendu (même si absent)
 
 # Logos critiques (local, stable) — mets-les à côté de app.py
@@ -493,6 +502,8 @@ def _login_header():
         with c2:
             st.markdown('<div class="pms-pool-logo">', unsafe_allow_html=True)
             safe_image(logo_file, width=380, caption="")
+            if isinstance(logo_file, str) and (not os.path.exists(logo_file)):
+                st.caption("⚠️ logo_pool introuvable. Mets logo_pool.png (ou Logo_Pool.png) à côté de app.py ou dans /data.")
             st.markdown('</div>', unsafe_allow_html=True)
 
         with c3:
