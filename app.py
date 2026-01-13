@@ -148,6 +148,7 @@ def render_gm_logo(active: bool, width: int = 40, tooltip: str = "Gestion d’é
 
     cls = "gm-logo active" if active else "gm-logo inactive"
     # title = native browser tooltip (simple + reliable)
+    st.session_state['_theme_css_injected'] = True
     st.markdown(
         f"""
         <div class="gm-logo-wrap" title="{html.escape(tooltip)}">
@@ -540,7 +541,7 @@ div[data-testid="stButton"] > button{
   justify-content:space-between;
 }
 
-.pick-row { display:flex; gap:8px; flex-wrap: nowrap; margin-top:8px; }
+.pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 
 .pick-pill {
   padding:6px 10px;
@@ -548,10 +549,6 @@ div[data-testid="stButton"] > button{
   font-weight:700;
   border:1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.04);
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
 }
 
 .pick-pill.mine {
@@ -572,9 +569,83 @@ div[data-testid="stButton"] > button{
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
 
-</style>"""
+</style>
+
+
+/* ===============================
+   PICKS — layout fixe & responsive
+   =============================== */
+.pick-line{
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 12px;
+  align-items: start;
+  margin: 10px 0;
+}
+
+.pick-year{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pick-year-badge{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  border: 1px solid rgba(34,197,94,.55);
+  background: rgba(34,197,94,.10);
+}
+
+.pick-sub{
+  font-size: 12px;
+  opacity: .8;
+  padding-left: 6px;
+}
+
+.pick-row{
+  display: flex;
+  gap: 10px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+
+.pick-row::-webkit-scrollbar{ height: 8px; }
+.pick-row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.15); border-radius: 999px; }
+.pick-row::-webkit-scrollbar-track{ background: transparent; }
+
+.pick-pill{
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+/* Mobile */
+.mobile .pick-line{
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+}
+.mobile .pick-pill{
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.mobile .pick-year-badge{
+  padding: 7px 9px;
+}
+
+"""
 
 def apply_theme():
+    if st.session_state.get('_theme_css_injected', False):
+        return
     st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 def _set_mobile_class(enabled: bool):
@@ -582,7 +653,6 @@ def _set_mobile_class(enabled: bool):
     return
 
 # Appel UNIQUE
-apply_theme()
 # =====================================================
 # DATE FORMAT — Français (cloud-proof, no locale)
 # =====================================================
@@ -1678,10 +1748,6 @@ def parse_fantrax(upload) -> pd.DataFrame:
 
     sal = (
         df[salary_col].astype(str)
-        .str.replace(",", "", regex=False)
-        .str.replace(" ", "", regex=False)
-        .str.replace("$", "", regex=False)
-        .replace(["None", "nan", "NaN", ""], "0")
     )
     # Fantrax: souvent en milliers -> si petit nombre, multiplier par 1000
     sal_num = pd.to_numeric(sal, errors="coerce").fillna(0)
@@ -2572,8 +2638,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             ascending=[True, False, True, True],
             kind="mergesort",
         )
-        .drop(columns=["_pos", "_initial"])
-        .reset_index(drop=True)
     )
 
     disabled = str(source_key or "").endswith("_disabled")
@@ -2733,7 +2797,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # 🎯 PICKS — collapse complet
     # -------------------------
     with st.expander("🎯 Choix de repêchage", expanded=True):
-        st.markdown("", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
         # base year = fin de saison (ex "2025-2026" => 2026)
         nums = re.findall(r"\d{4}", season)
@@ -4288,37 +4352,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
-
-
-.pick-year{ display:flex; flex-direction:column; gap:6px; }
-.pick-year-badge{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:8px 10px;
-  border-radius:999px;
-  font-weight:800;
-  letter-spacing:0.3px;
-  border:1px solid rgba(34,197,94,0.55);
-  background: rgba(34,197,94,0.10);
-}
-.pick-sub{ font-size:12px; opacity:0.8; padding-left:6px; }
-
-.pick-row{
-  max-width:100%;
-  overflow-x:auto;
-  overflow-y:hidden;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 6px;
-}
-.pick-row::-webkit-scrollbar{ height:8px; }
-.pick-row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius: 999px; }
-.pick-row::-webkit-scrollbar-track{ background: transparent; }
-
-.pick-pill{
-  font-size: 13px;
-  padding: 7px 10px;
-}
-
