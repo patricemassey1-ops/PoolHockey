@@ -3796,5 +3796,3 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     df["Level"] = df.apply(_resolve, axis=1)
     return df
 
-else:
-    st.warning("Onglet inconnu")
