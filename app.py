@@ -2520,6 +2520,22 @@ def render_tab_gm():
 
     # Filtrer l'équipe
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
+
+    # v30: force Level depuis players DB (data/hockey.players.csv) si Level vide/0
+    try:
+        _pdb = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else PLAYERS_DB_FILE
+        _level_map0 = _build_players_level_map(_pdb) if _pdb else {}
+        if _level_map0 and ("Joueur" in dprop.columns):
+            _lv = dprop.get("Level", "")
+            def _fix_level(row):
+                cur = str(row.get("Level","") or "").strip()
+                if (not cur) or cur in ("0","0.0"):
+                    alt = _level_from_players_db(row.get("Joueur",""), _level_map0)
+                    return alt if alt else cur
+                return cur
+            dprop["Level"] = dprop.apply(_fix_level, axis=1)
+    except Exception:
+        pass
     if dprop.empty:
         st.warning("Aucune donnée d'alignement pour cette équipe.")
         st.stop()
