@@ -1,3 +1,19 @@
+from __future__ import annotations
+
+import os
+import io
+import re
+import unicodedata
+import json
+import html
+import base64
+import hashlib
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
@@ -40,17 +56,9 @@ def safe_image(path: str, *, width: int | None = None, caption: str | None = Non
 
 # =====================================================
 # IMPORTS
+
+
 # =====================================================
-import os
-import io
-import re
-import unicodedata
-import json
-import html
-import base64
-import hashlib
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # =====================================================
 # Level override helper (alias) — must exist before Admin import preview
@@ -66,9 +74,6 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-import pandas as pd
-import streamlit as st
-import streamlit.components.v1 as components
 
 
 
