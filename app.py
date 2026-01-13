@@ -527,10 +527,14 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "hockey.players.csv")  # v29: source demandé
 PLAYERS_DB_FALLBACKS = [
-    PLAYERS_DB_FILE,
-    os.path.join(DATA_DIR, "Hockey.Players.csv"),
-    os.path.join(DATA_DIR, "Hockey_Players.csv"),
-    os.path.join(DATA_DIR, "hockey_players.csv"),
+    # même dossier que app.py
+    os.path.join(APP_DIR, "Hockey.Players.csv"),
+    os.path.join(APP_DIR, "hockey.players.csv"),
+    # sous /data
+    os.path.join(APP_DIR, "data", "Hockey.Players.csv"),
+    os.path.join(APP_DIR, "data", "hockey.players.csv"),
+    os.path.join(APP_DIR, "data", "Hockey_Players.csv"),
+    os.path.join(APP_DIR, "data", "hockey_players.csv"),
 ]
 # (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
@@ -2611,7 +2615,9 @@ def render_tab_gm():
             # fallback safe
             if os.path.exists(GM_LOGO_FILE):
                 if active_tab == "🧠 GM":
-                    safe_image(GM_LOGO_FILE, width=132, caption="")
+                    if active_tab == "🧠 GM":
+
+                        safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
         st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
 
