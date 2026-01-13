@@ -159,6 +159,34 @@ st.session_state["_rerun_requested"] = False
 # =====================================================
 THEME_CSS = """<style>
 
+/* v35 Level badges */
+.levelBadge{
+  display:inline-block;
+  padding:2px 10px;
+  border-radius:999px;
+  font-weight:800;
+  font-size:0.82rem;
+  letter-spacing:0.4px;
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+}
+.levelBadge.std{ }
+.levelBadge.elc{ }
+.levelBadge.unk{
+  opacity:0.85;
+}
+.levelWarn{
+  display:inline-block;
+  padding:2px 10px;
+  border-radius:999px;
+  font-weight:800;
+  font-size:0.82rem;
+  border:1px solid rgba(255,166,0,0.35);
+  background: rgba(255,166,0,0.10);
+}
+
+
+
 /* v28 centered broadcast */
 .pms-center-stack { padding: 18px 16px; }
 .pms-center-stack img { max-height: 260px; width: auto; }
@@ -2833,6 +2861,54 @@ elif active_tab == "🧾 Alignement":
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
 
+    # v35: Level autoritaire + indicateur "trouvé"
+    try:
+        dprop = apply_players_level(dprop)
+    except Exception:
+        pass
+
+    # v35: UI filtre Level + tri
+    try:
+        levels_all = sorted([x for x in dprop.get("Level", pd.Series(dtype=str)).astype(str).unique().tolist() if str(x).strip()])
+        if "level_filter" not in st.session_state:
+            st.session_state["level_filter"] = levels_all
+        if "level_sort" not in st.session_state:
+            st.session_state["level_sort"] = "Aucun"
+        with st.container():
+            a1, a2 = st.columns([3, 1], vertical_alignment="center")
+            with a1:
+                st.session_state["level_filter"] = st.multiselect("Filtrer par Level", levels_all, default=st.session_state["level_filter"], key="align_level_filter")
+            with a2:
+                st.session_state["level_sort"] = st.selectbox("Tri Level", ["Aucun","STD→ELC","ELC→STD"], index=["Aucun","STD→ELC","ELC→STD"].index(st.session_state["level_sort"]), key="align_level_sort")
+    except Exception:
+        pass
+
+    # v35: appliquer filtre/tri avant affichage
+    try:
+        flt = st.session_state.get("level_filter", None)
+        if flt is not None and len(flt) > 0 and "Level" in dprop.columns:
+            dprop = dprop[dprop["Level"].astype(str).isin([str(x) for x in flt])].copy()
+        sort_mode = st.session_state.get("level_sort","Aucun")
+        if sort_mode != "Aucun" and "Level" in dprop.columns:
+            order = {"STD": 0, "ELC": 1}
+            if sort_mode == "ELC→STD":
+                order = {"ELC": 0, "STD": 1}
+            dprop["_lvl_sort"] = dprop["Level"].astype(str).map(order).fillna(9)
+            dprop = dprop.sort_values(["_lvl_sort","Salaire"], ascending=[True, False], kind="mergesort").drop(columns=["_lvl_sort"], errors="ignore")
+    except Exception:
+        pass
+
+    # v35: alert joueurs non trouvés dans Hockey.Players.csv
+    try:
+        if "Level_found" in dprop.columns:
+            missing = dprop[~dprop["Level_found"]].copy()
+            if not missing.empty:
+                st.warning(f"⚠️ {len(missing)} joueur(s) sans match dans Hockey.Players.csv (Level peut être incomplet).")
+                with st.expander("Voir les joueurs non trouvés"):
+                    st.dataframe(missing[["Joueur","Équipe","Pos","Level"]].head(200), use_container_width=True)
+    except Exception:
+        pass
+
     # v29: enrich Level depuis data/hockey.players.csv (players DB)
     try:
         players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
@@ -3767,6 +3843,56 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     """Override df['Level'] en se basant sur Hockey.Players.csv (source de vérité)."""
     if df is None or df.empty:
         return df
+
+
+
+# =====================================================
+# v35 — LEVEL ENRICH (central helper)
+#   Source de vérité: Hockey.Players.csv
+#   Ajoute:
+#     - Level (override)
+#     - Level_found (bool) : trouvé dans DB
+#     - Level_src (str)    : 'Hockey.Players.csv' si trouvé sinon ''
+# =====================================================
+def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    if "Joueur" not in df.columns:
+        return df
+
+    try:
+        pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+        level_map = _players_level_map(pdb_path) if pdb_path else {}
+    except Exception:
+        level_map = {}
+
+    if not level_map:
+        df = df.copy()
+        if "Level_found" not in df.columns:
+            df["Level_found"] = False
+        if "Level_src" not in df.columns:
+            df["Level_src"] = ""
+        return df
+
+    def _resolve(row):
+        key = _norm_player_key(row.get("Joueur",""))
+        mapped = level_map.get(key, "")
+        if mapped:
+            return mapped, True
+        parts = key.split(" ")
+        if len(parts) >= 2:
+            mapped2 = level_map.get(" ".join(parts[::-1]), "")
+            if mapped2:
+                return mapped2, True
+        return str(row.get("Level","") or "").strip(), False
+
+    df = df.copy()
+    out = df.apply(_resolve, axis=1, result_type="expand")
+    df["Level"] = out[0].astype(str)
+    df["Level_found"] = out[1].astype(bool)
+    df["Level_src"] = df["Level_found"].apply(lambda x: "Hockey.Players.csv" if x else "")
+    return df
+
     if "Joueur" not in df.columns:
         return df
 
