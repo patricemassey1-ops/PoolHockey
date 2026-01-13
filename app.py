@@ -2317,7 +2317,11 @@ df0 = enrich_level_from_players_db(df0)
 st.session_state["data"] = df0
 st.session_state["plafonds"] = rebuild_plafonds(df0)
 
+
+# Init onglet actif (safe)
+if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "🏠 Home"
+
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
