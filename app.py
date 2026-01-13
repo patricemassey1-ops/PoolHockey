@@ -540,7 +540,7 @@ div[data-testid="stButton"] > button{
   justify-content:space-between;
 }
 
-.pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.pick-row { display:flex; gap:8px; flex-wrap: nowrap; margin-top:8px; }
 
 .pick-pill {
   padding:6px 10px;
@@ -548,6 +548,10 @@ div[data-testid="stButton"] > button{
   font-weight:700;
   border:1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.04);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pick-pill.mine {
@@ -2789,7 +2793,9 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
 
-        with st.expander("Voir le détail en tableau", expanded=False):
+
+        show_detail = st.checkbox("Voir le détail en tableau", value=False, key=f"gm_picks_detail_{owner}")
+        if show_detail:
             rows = []
             for ylbl in years:
                 p_all = st.session_state.get("_picks_cache", {}).get(ylbl, {}) or {}
@@ -2806,6 +2812,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else:
                 st.info("Aucun choix trouvé pour cette équipe.")
+
 
     st.write("")
     st.divider()
