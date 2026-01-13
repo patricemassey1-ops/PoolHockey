@@ -2263,7 +2263,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
-    "🧠 GM",
+    "🧊 GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2317,7 +2317,7 @@ def _nav_label(tab_id: str) -> str:
     if tab_id == "⚖️ Transactions" and _tx_pending_from_state():
         return "🔴 " + tab_id
     # Emoji ICE à côté de GM (affichage seulement; tab_id reste stable)
-    if tab_id == "🧠 GM":
+    if tab_id == "🧊 GM":
         return "🧊 GM"
     return tab_id
 
@@ -2617,7 +2617,7 @@ def render_tab_gm():
     )
 
     # =========================
-    # HEADER GM (pas de "🧠 GM" texte)
+    # HEADER GM (pas de "🧊 GM" texte)
     # =========================
     top = st.columns([1, 8], vertical_alignment="center")
     with top[0]:
@@ -2627,8 +2627,8 @@ def render_tab_gm():
         except Exception:
             # fallback safe
             if os.path.exists(GM_LOGO_FILE):
-                if active_tab == "🧠 GM":
-                    if active_tab == "🧠 GM":
+                if active_tab == "🧊 GM":
+                    if active_tab == "🧊 GM":
 
                         safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
@@ -3054,7 +3054,7 @@ elif active_tab == "🧾 Alignement":
 
 
 
-elif active_tab == "🧠 GM":
+elif active_tab == "🧊 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
@@ -3864,10 +3864,11 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 #     - Level_src (str)    : 'Hockey.Players.csv' si trouvé sinon ''
 # =====================================================
 def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ajoute/rafraîchit df["Level"] (STD/ELC) en utilisant Hockey.players.csv comme source de vérité.
-    - Robustesse: gère "Nom, Prénom" vs "Prénom Nom" en essayant une clé inversée si nécessaire.
-    - Si aucune correspondance: conserve la valeur existante sauf si elle vaut 0/"0" (alors on met vide).
+    """Force df['Level'] (STD/ELC) via /data/Hockey.players.csv (source de vérité).
+
+    - Crée une clé normalisée à partir de la colonne 'Joueur'
+    - Mappe vers la colonne 'Level' du fichier Hockey.players.csv
+    - Écrase df['Level'] dès qu'un mapping existe (même si df['Level'] vaut 0)
     """
     if df is None or df.empty:
         return df
@@ -3876,39 +3877,31 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
 
     pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
     if not pdb_path:
-        # fallback doux: si Level est 0/NaN, on vide
-        if "Level" in df.columns:
-            df2 = df.copy()
-            df2["Level"] = df2["Level"].astype(str).replace({"0": "", "nan": ""})
-            return df2
         return df
 
     level_map = _players_level_map(pdb_path)
     if not level_map:
         return df
 
-    def _swap_key(k: str) -> str:
-        parts = [p for p in str(k or "").split() if p]
-        if len(parts) == 2:
-            return f"{parts[1]} {parts[0]}".strip()
-        return str(k or "").strip()
-
     out = df.copy()
-    out["__pk__"] = out["Joueur"].map(_norm_player_key)
-    out["__pk2__"] = out["__pk__"].map(_swap_key)
 
-    # map direct + fallback swapped
-    out["__lvl1__"] = out["__pk__"].map(level_map)
-    out["__lvl2__"] = out["__pk2__"].map(level_map)
+    # clé joueur
+    out["Joueur_key"] = out["Joueur"].astype(str).map(_norm_player_key)
 
-    # choisir: lvl1 > lvl2 > existing (si non 0)
-    existing = out["Level"] if "Level" in out.columns else ""
-    existing_s = existing.astype(str) if hasattr(existing, "astype") else out["Joueur"].map(lambda _: "")
-    existing_s = existing_s.replace({"0": "", "nan": ""})
+    # mapping STD/ELC
+    mapped = out["Joueur_key"].map(level_map).fillna("").astype(str).str.strip()
 
-    out["Level"] = out["__lvl1__"].fillna("").astype(str)
-    out.loc[out["Level"].eq("") & out["__lvl2__"].notna(), "Level"] = out.loc[out["Level"].eq("") & out["__lvl2__"].notna(), "__lvl2__"].astype(str)
-    out.loc[out["Level"].eq("") & existing_s.ne(""), "Level"] = existing_s[out["Level"].eq("") & existing_s.ne("")]
+    # Si mapping existe -> on écrase (corrige les '0')
+    mask = mapped.ne("")
+    if mask.any():
+        out.loc[mask, "Level"] = mapped[mask]
 
-    out.drop(columns=[c for c in ["__pk__", "__pk2__", "__lvl1__", "__lvl2__"] if c in out.columns], inplace=True)
+    # nettoyage final
+    if "Level" in out.columns:
+        out["Level"] = out["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+
+    # ménage
+    if "Joueur_key" in out.columns:
+        out.drop(columns=["Joueur_key"], inplace=True, errors="ignore")
+
     return out
