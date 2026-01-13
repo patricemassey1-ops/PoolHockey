@@ -1,51 +1,4 @@
 
-
-# =====================================================
-# v32 — FORCE LEVEL FROM Hockey.Players.csv (exact + robust)
-# =====================================================
-def _norm_player_key(s: str) -> str:
-    s = str(s or "").strip()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
-    s = re.sub(r"\s+", " ", s).strip().lower()
-    return s
-
-
-def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
-    """Override df['Level'] using data/hockey.players.csv (authoritative source)."""
-    try:
-        pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
-        players = pd.read_csv(pdb_path)
-    except Exception:
-        return df
-
-    # detect name column in players db
-    cols = {c.lower(): c for c in players.columns}
-    name_col = (
-        cols.get("player")
-        or cols.get("joueur")
-        or cols.get("name")
-        or cols.get("player name")
-        or cols.get("full name")
-    )
-    if not name_col or "Level" not in players.columns:
-        return df
-
-    players["_key"] = players[name_col].apply(_norm_player_key)
-    level_map = dict(zip(players["_key"], players["Level"].astype(str)))
-
-    if "Joueur" not in df.columns:
-        return df
-
-    def _resolve(row):
-        cur = str(row.get("Level", "") or "").strip()
-        key = _norm_player_key(row.get("Joueur", ""))
-        return level_map.get(key, cur)
-
-    df["Level"] = df.apply(_resolve, axis=1)
-    return df
-
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
 # =====================================================
@@ -2569,19 +2522,9 @@ def render_tab_gm():
     # Filtrer l'équipe
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(owner)].copy() if (isinstance(df, pd.DataFrame) and not df.empty and "Propriétaire" in df.columns) else pd.DataFrame()
 
-    # v30: force Level depuis players DB (data/hockey.players.csv) si Level vide/0
+    # v33: Level autoritaire depuis Hockey.Players.csv
     try:
-        _pdb = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else PLAYERS_DB_FILE
-        _level_map0 = _build_players_level_map(_pdb) if _pdb else {}
-        if _level_map0 and ("Joueur" in dprop.columns):
-            _lv = dprop.get("Level", "")
-            def _fix_level(row):
-                cur = str(row.get("Level","") or "").strip()
-                if (not cur) or cur in ("0","0.0"):
-                    alt = _level_from_players_db(row.get("Joueur",""), _level_map0)
-                    return alt if alt else cur
-                return cur
-            dprop["Level"] = dprop.apply(_fix_level, axis=1)
+        dprop = force_level_from_players(dprop)
     except Exception:
         pass
     if dprop.empty:
@@ -2624,7 +2567,7 @@ def render_tab_gm():
     )
 
     # =========================
-    # HEADER GM (pas de "GM" texte)
+    # HEADER GM (pas de "🧠 GM" texte)
     # =========================
     top = st.columns([1, 8], vertical_alignment="center")
     with top[0]:
@@ -2634,7 +2577,8 @@ def render_tab_gm():
         except Exception:
             # fallback safe
             if os.path.exists(GM_LOGO_FILE):
-                safe_image(GM_LOGO_FILE, width=132, caption="")
+                if active_tab == "🧠 GM":
+                    safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
         st.markdown(f"<div class='gm-team'>{html.escape(owner)}</div>", unsafe_allow_html=True)
 
@@ -2888,11 +2832,6 @@ elif active_tab == "🧾 Alignement":
         st.stop()
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
-    # v32: authoritative Level from Hockey.Players.csv
-    try:
-        dprop = force_level_from_players(dprop)
-    except Exception:
-        pass
 
     # v29: enrich Level depuis data/hockey.players.csv (players DB)
     try:
@@ -3783,64 +3722,79 @@ elif active_tab == "🧠 Recommandations":
 
 
 
+
 # =====================================================
-# LEVEL RESOLVE — from players DB (data/hockey.players.csv)
-#   v31: matching robuste (accents / ponctuation / ordre nom-prénom)
+# v33 — Level autoritaire depuis Hockey.Players.csv
 # =====================================================
+def _norm_player_key(s: str) -> str:
+    s = str(s or "").strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
+
+
 @st.cache_data(show_spinner=False)
-def _build_players_level_map(path: str) -> dict:
+def _players_level_map(pdb_path: str) -> dict:
     try:
-        db = pd.read_csv(path)
+        players = pd.read_csv(pdb_path)
     except Exception:
         return {}
-    cols = {c.lower().strip(): c for c in db.columns}
+    cols = {c.lower().strip(): c for c in players.columns}
     name_col = (
         cols.get("player") or cols.get("joueur") or cols.get("name")
         or cols.get("player name") or cols.get("full name")
     )
-    level_col = cols.get("level")
-    if not name_col or not level_col:
+    if not name_col:
         return {}
-
-    def _norm(s: str) -> str:
-        s = str(s or "").strip()
-        s = unicodedata.normalize("NFKD", s)
-        s = "".join(ch for ch in s if not unicodedata.combining(ch))
-        s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
-        s = re.sub(r"\s+", " ", s).strip().lower()
-        return s
-
+    if "Level" not in players.columns:
+        return {}
+    players["_key"] = players[name_col].apply(_norm_player_key)
+    # garder seulement Level non vide
     out = {}
-    for _, r in db.iterrows():
-        k = _norm(r.get(name_col, ""))
+    for _, r in players.iterrows():
+        k = str(r.get("_key","") or "").strip()
         if not k:
             continue
-        out[k] = str(r.get(level_col, "") or "").strip()
+        v = str(r.get("Level","") or "").strip()
+        if v:
+            out[k] = v
     return out
 
 
-def _level_from_players_db(player_name: str, level_map: dict) -> str:
-    def _norm(s: str) -> str:
-        s = str(s or "").strip()
-        s = unicodedata.normalize("NFKD", s)
-        s = "".join(ch for ch in s if not unicodedata.combining(ch))
-        s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
-        s = re.sub(r"\s+", " ", s).strip().lower()
-        return s
+def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
+    """Override df['Level'] en se basant sur Hockey.Players.csv (source de vérité)."""
+    if df is None or df.empty:
+        return df
+    if "Joueur" not in df.columns:
+        return df
 
-    k = _norm(player_name)
-    if not k:
-        return ""
-    v = str(level_map.get(k, "") or "").strip()
-    if v:
-        return v
+    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+    if not pdb_path:
+        return df
 
-    # essai inversion "prenom nom" <-> "nom prenom"
-    parts = k.split(" ")
-    if len(parts) >= 2:
-        k2 = " ".join(parts[::-1])
-        return str(level_map.get(k2, "") or "").strip()
-    return ""
+    level_map = _players_level_map(pdb_path)
+    if not level_map:
+        return df
+
+    def _resolve(row):
+        key = _norm_player_key(row.get("Joueur",""))
+        mapped = level_map.get(key, "")
+        if mapped:
+            return mapped
+        # fallback: essayer inversion prenom/nom
+        parts = key.split(" ")
+        if len(parts) >= 2:
+            mapped2 = level_map.get(" ".join(parts[::-1]), "")
+            if mapped2:
+                return mapped2
+        # sinon garder valeur existante
+        return str(row.get("Level","") or "").strip()
+
+    df = df.copy()
+    df["Level"] = df.apply(_resolve, axis=1)
+    return df
 
 else:
     st.warning("Onglet inconnu")
