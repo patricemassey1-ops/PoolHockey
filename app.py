@@ -2798,9 +2798,9 @@ def render_tab_gm():
     st.divider()
 
 st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
-    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
+st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
-    # candidats: joueurs de l'équipe avec salaire > 0
+# candidats: joueurs de l'équipe avec salaire > 0
     candidates = dprop.copy()
     if "Salaire" in candidates.columns:
         candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
