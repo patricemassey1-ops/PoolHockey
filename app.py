@@ -2534,6 +2534,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
 def render_tab_gm():
     """Onglet GM — version finale (logo, masses 2 colonnes, picks compacts, rachat désactivé tant que pas de sélection)."""
+    # v36: assure Level (STD/ELC) partout via Hockey.Players.csv
+    try:
+        df_src = apply_players_level(df_src)
+    except Exception:
+        pass
     # Data source
     df = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
     st.session_state["data"] = df
@@ -2864,37 +2869,6 @@ elif active_tab == "🧾 Alignement":
     # v35: Level autoritaire + indicateur "trouvé"
     try:
         dprop = apply_players_level(dprop)
-    except Exception:
-        pass
-
-    # v35: UI filtre Level + tri
-    try:
-        levels_all = sorted([x for x in dprop.get("Level", pd.Series(dtype=str)).astype(str).unique().tolist() if str(x).strip()])
-        if "level_filter" not in st.session_state:
-            st.session_state["level_filter"] = levels_all
-        if "level_sort" not in st.session_state:
-            st.session_state["level_sort"] = "Aucun"
-        with st.container():
-            a1, a2 = st.columns([3, 1], vertical_alignment="center")
-            with a1:
-                st.session_state["level_filter"] = st.multiselect("Filtrer par Level", levels_all, default=st.session_state["level_filter"], key="align_level_filter")
-            with a2:
-                st.session_state["level_sort"] = st.selectbox("Tri Level", ["Aucun","STD→ELC","ELC→STD"], index=["Aucun","STD→ELC","ELC→STD"].index(st.session_state["level_sort"]), key="align_level_sort")
-    except Exception:
-        pass
-
-    # v35: appliquer filtre/tri avant affichage
-    try:
-        flt = st.session_state.get("level_filter", None)
-        if flt is not None and len(flt) > 0 and "Level" in dprop.columns:
-            dprop = dprop[dprop["Level"].astype(str).isin([str(x) for x in flt])].copy()
-        sort_mode = st.session_state.get("level_sort","Aucun")
-        if sort_mode != "Aucun" and "Level" in dprop.columns:
-            order = {"STD": 0, "ELC": 1}
-            if sort_mode == "ELC→STD":
-                order = {"ELC": 0, "STD": 1}
-            dprop["_lvl_sort"] = dprop["Level"].astype(str).map(order).fillna(9)
-            dprop = dprop.sort_values(["_lvl_sort","Salaire"], ascending=[True, False], kind="mergesort").drop(columns=["_lvl_sort"], errors="ignore")
     except Exception:
         pass
 
