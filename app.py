@@ -2715,143 +2715,149 @@ def render_tab_gm():
 # TAB GM — Picks + Rachat de contrat (helpers)
 #   ⚠️ Doit rester au niveau GLOBAL (pas dans un if/with)
 # =====================================================
+
 def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     """
-    Rendu GM:
-    - Choix de repêchage en pills par année (2026/2027/2028)
-    - Tableau détail avec "Appartenant à" + "Reçu le" (placeholder si pas log)
-    - Rachat de contrat: pénalité 50% automatique, bucket -> "Appliqué à"
+    Section GM: Choix de repêchage + Rachat de contrat (avec collapses complets).
+    Requiert: load_picks, apply_buyout, push_buyout_to_market, money, _norm_name, rebuild_plafonds, do_rerun
     """
-    # =========================
-    # PICKS — compact & esthétique (pills) + années
-    # =========================
-    with st.expander("🎯 Choix de repêchage", expanded=True):
-        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
-
+    owner = str(owner or "").strip()
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
 
-    # Base year = fin de saison (ex: "2025-2026" => 2026)
-    nums = re.findall(r"\d{4}", season)
-    base_year = None
-    if len(nums) >= 2:
-        try:
-            base_year = int(nums[-1])
-        except Exception:
-            base_year = None
-    elif len(nums) == 1:
-        try:
-            base_year = int(nums[0])
-        except Exception:
-            base_year = None
+    # -------------------------
+    # 🎯 PICKS — collapse complet
+    # -------------------------
+    with st.expander("🎯 Choix de repêchage", expanded=True):
+        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
-    years = [str(base_year + i) for i in range(0, 3)] if base_year else [season]
-
-    if "_picks_cache" not in st.session_state or not isinstance(st.session_state.get("_picks_cache"), dict):
-        st.session_state["_picks_cache"] = {}
-
-    for ylbl in years:
-        cache = st.session_state["_picks_cache"]
-        if ylbl not in cache:
+        # base year = fin de saison (ex "2025-2026" => 2026)
+        nums = re.findall(r"\d{4}", season)
+        base_year = None
+        if len(nums) >= 2:
             try:
-                cache[ylbl] = load_picks(ylbl, teams)
+                base_year = int(nums[-1])
             except Exception:
-                cache[ylbl] = {}
+                base_year = None
+        elif len(nums) == 1:
+            try:
+                base_year = int(nums[0])
+            except Exception:
+                base_year = None
+
+        years = [str(base_year + i) for i in range(0, 3)] if base_year else ([season] if season else [])
+
+        # cache picks
+        cache = st.session_state.get("_picks_cache")
+        if not isinstance(cache, dict):
+            cache = {}
             st.session_state["_picks_cache"] = cache
 
-        p_all = cache.get(ylbl, {}) or {}
-        my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
-
-        nb = 0
-        for rr in range(1, 9):
-            who = str(my_p.get(str(rr), owner) or "").strip() or owner
-            if who == owner:
-                nb += 1
-
-        pills_html = ["<div class='pick-line'>"]
-        pills_html.append("<div class='pick-year'>")
-        pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
-        pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
-        pills_html.append("</div>")  # pick-year
-
-        pills_html.append("<div class='pick-row'>")
-        for rr in range(1, 9):
-            who = str(my_p.get(str(rr), owner) or "").strip() or owner
-            cls = "pick-pill mine" if who == owner else "pick-pill other"
-            label = f"R{rr} • {html.escape(who)}"
-            pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
-        pills_html.append("</div>")  # pick-row
-        pills_html.append("</div>")  # pick-line
-
-        st.markdown("".join(pills_html), unsafe_allow_html=True)
-
-    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
-
-    with st.expander("Voir le détail en tableau"):
-        rows = []
         for ylbl in years:
-            p_all = st.session_state.get("_picks_cache", {}).get(ylbl, {}) or {}
+            if ylbl not in cache:
+                try:
+                    cache[ylbl] = load_picks(ylbl, teams)
+                except Exception:
+                    cache[ylbl] = {}
+                st.session_state["_picks_cache"] = cache
+
+            p_all = cache.get(ylbl, {}) or {}
             my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
+
+            nb = 0
             for rr in range(1, 9):
                 who = str(my_p.get(str(rr), owner) or "").strip() or owner
-                rows.append({
-                    "Année": str(ylbl),
-                    "Ronde": int(rr),
-                    "Appartenant à": who,
-                    "Reçu le": "—",
-                })
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucun choix trouvé pour cette équipe.")
+                if who == owner:
+                    nb += 1
 
+            pills_html = ["<div class='pick-line'>"]
+            pills_html.append("<div class='pick-year'>")
+            pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
+            pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
+            pills_html.append("</div>")
+
+            pills_html.append("<div class='pick-row'>")
+            for rr in range(1, 9):
+                who = str(my_p.get(str(rr), owner) or "").strip() or owner
+                cls = "pick-pill mine" if who == owner else "pick-pill other"
+                label = f"R{rr} • {html.escape(who)}"
+                pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
+            pills_html.append("</div>")
+            pills_html.append("</div>")
+
+            st.markdown("".join(pills_html), unsafe_allow_html=True)
+
+        st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
+
+        with st.expander("Voir le détail en tableau", expanded=False):
+            rows = []
+            for ylbl in years:
+                p_all = st.session_state.get("_picks_cache", {}).get(ylbl, {}) or {}
+                my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
+                for rr in range(1, 9):
+                    who = str(my_p.get(str(rr), owner) or "").strip() or owner
+                    rows.append({
+                        "Année": str(ylbl),
+                        "Ronde": int(rr),
+                        "Appartenant à": who,
+                        "Reçu le": "—",
+                    })
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucun choix trouvé pour cette équipe.")
+
+    st.write("")
     st.divider()
+    st.write("")
 
-    # =========================
-    # RACHAT DE CONTRAT — 50% auto
-    # =========================
+    # -------------------------
+    # 🧾 RACHAT — collapse complet
+    # -------------------------
     with st.expander("🧾 Rachat de contrat", expanded=False):
         st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
-    st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
-    # candidats: joueurs de l'équipe avec salaire > 0
-    candidates = dprop.copy()
-    if "Salaire" in candidates.columns:
-        candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
+        # candidats: joueurs de l'équipe avec salaire > 0, exclure déjà "RACHAT — ..."
+        candidates = dprop.copy()
+        if "Joueur" in candidates.columns:
+            candidates = candidates[~candidates["Joueur"].astype(str).str.startswith("RACHAT —", na=False)].copy()
+        if "Salaire" in candidates.columns:
+            candidates = candidates[candidates["Salaire"].fillna(0).astype(float) > 0].copy()
 
-    name_col = "Joueur" if "Joueur" in candidates.columns else ("Player" if "Player" in candidates.columns else None)
-    if not name_col or candidates.empty:
-        st.info("Aucun joueur éligible au rachat (ou colonnes manquantes).")
-        return
+        name_col = "Joueur" if "Joueur" in candidates.columns else ("Player" if "Player" in candidates.columns else None)
+        if not name_col or candidates.empty:
+            st.info("Aucun joueur éligible au rachat.")
+            return
 
-    display = []
-    disp_meta = {}
-    disp_key = {}
-    for _, r in candidates.iterrows():
-        nm = str(r.get(name_col, "")).strip()
-        sal_raw = float(r.get("Salaire", 0) or 0)
-        sal = money(int(sal_raw))
-        pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
-        team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
-        disp = f"{nm}  —  {pos}  {team}  —  {sal}"
-        display.append(disp)
-        disp_meta[disp] = sal_raw
-        disp_key[disp] = _norm_name(nm)
+        display = []
+        disp_salary = {}
+        for _, r in candidates.iterrows():
+            nm = str(r.get(name_col, "")).strip()
+            if not nm:
+                continue
+            sal_raw = float(r.get("Salaire", 0) or 0)
+            sal = money(int(sal_raw))
+            pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
+            team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
+            disp = f"{nm}  —  {pos}  {team}  —  {sal}"
+            display.append(disp)
+            disp_salary[disp] = sal_raw
 
-    picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
-    sel_key = disp_key.get(picked, "")
-    sel_salary = float(disp_meta.get(picked, 0) or 0)
-    penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
+        picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+        sel_salary = float(disp_salary.get(picked, 0) or 0)
+        penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
+        can_apply = bool(str(picked).strip())
 
-    can_apply = bool(str(picked).strip())
-
-    r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
-    with r1:
-        bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
-    with r2:
-        st.caption(f"Pénalité: 50% (auto) → {money(penalite)}" if penalite else "Pénalité: 50% (auto)")
-    with r3:
-        note = st.text_input("Note (optionnel)", key="gm_buyout_note")
+        r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
+        with r1:
+            bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+        with r2:
+            st.caption("Pénalité: 50% (auto)")
+            if can_apply:
+                st.caption(f"≈ {money(int(penalite))}")
+        with r3:
+            note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
         if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
             df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
@@ -2880,7 +2886,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             except Exception:
                 pass
 
-            # Historique (best effort)
+            # Historique
             try:
                 h = st.session_state.get("history", pd.DataFrame())
                 if not isinstance(h, pd.DataFrame):
@@ -2891,6 +2897,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                     "proprietaire": owner,
                     "joueur": player_name,
                     "detail": f"{bucket} — pénalité {money(int(penalite_calc or 0))}",
+                    "note": str(note or ""),
                 }
                 h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
                 st.session_state["history"] = h
@@ -2904,11 +2911,6 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             do_rerun()
 
 
-
-# =====================================================
-# OVERRIDE — render_tab_gm (clean, stable)
-#   ✅ Affiche dashboard GC/CE + appelle picks/rachat
-# =====================================================
 def render_tab_gm() -> None:
     st.subheader("🧊 GM")
 
