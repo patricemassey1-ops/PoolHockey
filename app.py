@@ -2324,7 +2324,10 @@ st.sidebar.markdown("### Navigation")
 # --- GM logo in sidebar (grayscale when inactive + hover tooltip)
 try:
     is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "🧠 GM")
-    render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
+
+    with st.sidebar:
+
+        render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
 except Exception:
     pass
 active_tab = st.sidebar.radio(
@@ -2449,6 +2452,11 @@ if _has_data and _has_hist:
 #   ⚠️ DOIT être défini AVANT Alignement (car appelé dans _render_gc_block)
 # =====================================================
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
+    # v38: force Level (STD/ELC) via Hockey.Players.csv before rendering
+    try:
+        df_src = apply_players_level(df_src)
+    except Exception:
+        pass
     if df_src is None or not isinstance(df_src, pd.DataFrame) or df_src.empty:
         st.info("Aucun joueur.")
         return None
@@ -3837,7 +3845,10 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
-    if "Joueur" not in df.columns:
+    # Colonne joueur (Alignement peut utiliser Joueur ou Player)
+    player_col_candidates = ["Joueur","Player","Nom","Name","Joueur Nom","Player Name"]
+    player_col = next((c for c in player_col_candidates if c in df.columns), None)
+    if not player_col:
         return df
 
     try:
@@ -3855,7 +3866,7 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     def _resolve(row):
-        key = _norm_player_key(row.get("Joueur",""))
+        key = _norm_player_key(row.get(player_col,""))
         mapped = level_map.get(key, "")
         if mapped:
             return mapped, True
@@ -3885,7 +3896,7 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     def _resolve(row):
-        key = _norm_player_key(row.get("Joueur",""))
+        key = _norm_player_key(row.get(player_col,""))
         mapped = level_map.get(key, "")
         if mapped:
             return mapped
