@@ -2893,32 +2893,22 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         except Exception:
             pass
 
-        try:
             st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
-
         # --- RACHAT → autonome (marché)
-        try:
+        # Déplacement sécurisé vers le marché (autonome)
             season_lbl = str(st.session_state.get("season","") or "").strip()
             tm = load_trade_market(season_lbl)
             if not isinstance(tm, pd.DataFrame):
                 tm = pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
-            # upsert (joueur)
+
             now_s = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
             joueur_key = str(player_name).strip()
-            if "joueur" not in tm.columns:
-                tm["joueur"] = ""
-            if "proprietaire" not in tm.columns:
-                tm["proprietaire"] = ""
-            if "is_available" not in tm.columns:
-                tm["is_available"] = ""
-            if "updated_at" not in tm.columns:
-                tm["updated_at"] = ""
-            mask = tm["joueur"].astype(str).str.strip().eq(joueur_key)
+
+            mask = tm.get("joueur", pd.Series([], dtype=str)).astype(str).str.strip().eq(joueur_key)
             if mask.any():
-                tm.loc[mask, "season"] = season_lbl
-                tm.loc[mask, "proprietaire"] = "Autonome"
-                tm.loc[mask, "is_available"] = True
-                tm.loc[mask, "updated_at"] = now_s
+                tm.loc[mask, ["season","proprietaire","is_available","updated_at"]] = [
+                    season_lbl, "Autonome", True, now_s
+                ]
             else:
                 tm = pd.concat([tm, pd.DataFrame([{
                     "season": season_lbl,
@@ -2927,9 +2917,11 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                     "is_available": True,
                     "updated_at": now_s,
                 }])], ignore_index=True)
+
             save_trade_market(season_lbl, tm)
         except Exception:
             pass
+
 
         # --- Log session
         buyouts = st.session_state.get("buyouts", [])
