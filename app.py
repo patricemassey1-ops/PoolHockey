@@ -648,6 +648,7 @@ SLOT_ACTIF = "Actif"
 SLOT_BANC = "Banc"
 SLOT_IR = "Blessé"
 
+SLOT_RACHAT = "RACHAT"
 STATUT_GC = "Grand Club"
 STATUT_CE = "Club École"
 
@@ -1886,6 +1887,9 @@ def open_move_dialog():
         # Exclure IR
         dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
+    # Exclure les lignes de cap mort des listes (Actifs/Banc/Mineur), mais garder pour le calcul du cap ailleurs
+    dprop_ok = dprop_ok[dprop_ok.get("Slot","").astype(str).str.strip().ne(SLOT_RACHAT)].copy()
+
         # Banc GC
         banc = dprop_ok[
             (dprop_ok["Statut"] == STATUT_GC)
@@ -2721,7 +2725,8 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # =========================
     # PICKS — compact & esthétique (pills) + années
     # =========================
-    st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
+    with st.expander("🎯 Choix de repêchage", expanded=True):
+        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
@@ -2805,7 +2810,8 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # =========================
     # RACHAT DE CONTRAT — 50% auto
     # =========================
-    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
+    with st.expander("🧾 Rachat de contrat", expanded=False):
+        st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
     st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
     # candidats: joueurs de l'équipe avec salaire > 0
@@ -2847,120 +2853,55 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     with r3:
         note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
-    
-    if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
-        # --- Identifier le joueur
-        player_name = str(picked).split("—")[0].strip()
-        # (best-effort) si le nom exact diffère, on garde la version affichée
-        if not player_name and picked:
-            player_name = str(picked).strip()
-        if not player_name:
-            st.warning("Impossible d'identifier le joueur sélectionné.")
-            st.stop()
+        if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
+            df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+            df_new, player_name, penalite_calc, removed = apply_buyout(df_all, owner, picked, bucket)
 
-        # --- Charger les données
-        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-        df_all = df_all if isinstance(df_all, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-        df_all = clean_data(df_all)
+            st.session_state["data"] = df_new
 
-        # --- Retirer le joueur du roster
-        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
-        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(sel_key) if sel_key else df_all["Joueur"].astype(str).str.strip().eq(player_name)
-        removed = int((mask_owner & mask_player).sum())
-        df_all = df_all[~(mask_owner & mask_player)].copy()
+            # Sauvegarde data
+            try:
+                data_file = str(st.session_state.get("DATA_FILE", "") or "").strip()
+                if data_file:
+                    df_new.to_csv(data_file, index=False)
+            except Exception:
+                pass
 
-        # --- Ajouter la ligne de pénalité (50%)
-        statut_bucket = STATUT_GC if str(bucket).upper() == "GC" else STATUT_CE
-        dead_row = {
-            "Propriétaire": owner,
-            "Joueur": f"RACHAT — {player_name}",
-            "Salaire": int(penalite or 0),
-            "Statut": statut_bucket,
-            "Slot": "RACHAT",
-        }
-        for k in list(dead_row.keys()):
-            if k not in df_all.columns:
-                dead_row.pop(k, None)
+            # Rebuild plafonds
+            try:
+                st.session_state["plafonds"] = rebuild_plafonds(df_new)
+            except Exception:
+                pass
 
-        df_all = pd.concat([df_all, pd.DataFrame([dead_row])], ignore_index=True)
+            # Marché: joueur devient autonome
+            try:
+                season_lbl = str(st.session_state.get("season","") or "").strip()
+                push_buyout_to_market(season_lbl, player_name)
+            except Exception:
+                pass
 
-        # --- Sauvegarde + recalcul
-        st.session_state["data"] = clean_data(df_all)
-        try:
-            data_file = str(st.session_state.get("DATA_FILE", "") or "").strip()
-            if data_file:
-                st.session_state["data"].to_csv(data_file, index=False)
-        except Exception:
-            pass
+            # Historique (best effort)
+            try:
+                h = st.session_state.get("history", pd.DataFrame())
+                if not isinstance(h, pd.DataFrame):
+                    h = pd.DataFrame()
+                row = {
+                    "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
+                    "action": "RACHAT",
+                    "proprietaire": owner,
+                    "joueur": player_name,
+                    "detail": f"{bucket} — pénalité {money(int(penalite_calc or 0))}",
+                }
+                h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
+                st.session_state["history"] = h
+                hf = str(st.session_state.get("HISTORY_FILE","") or "").strip()
+                if hf:
+                    h.to_csv(hf, index=False)
+            except Exception:
+                pass
 
-            st.session_state["plafonds"] = rebuild_plafonds(st.session_state["data"])
-        # --- RACHAT → autonome (marché)
-        # Déplacement sécurisé vers le marché (autonome)
-            season_lbl = str(st.session_state.get("season","") or "").strip()
-            tm = load_trade_market(season_lbl)
-            if not isinstance(tm, pd.DataFrame):
-                tm = pd.DataFrame(columns=["season","proprietaire","joueur","is_available","updated_at"])
-
-            now_s = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-            joueur_key = str(player_name).strip()
-
-            mask = tm.get("joueur", pd.Series([], dtype=str)).astype(str).str.strip().eq(joueur_key)
-            if mask.any():
-                tm.loc[mask, ["season","proprietaire","is_available","updated_at"]] = [
-                    season_lbl, "Autonome", True, now_s
-                ]
-            else:
-                tm = pd.concat([tm, pd.DataFrame([{
-                    "season": season_lbl,
-                    "proprietaire": "Autonome",
-                    "joueur": joueur_key,
-                    "is_available": True,
-                    "updated_at": now_s,
-                }])], ignore_index=True)
-
-            save_trade_market(season_lbl, tm)
-        except Exception:
-            pass
-
-
-        # --- Log session
-        buyouts = st.session_state.get("buyouts", [])
-        if not isinstance(buyouts, list):
-            buyouts = []
-        buyouts.append({
-            "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
-            "proprietaire": owner,
-            "joueur": player_name,
-            "bucket": bucket,
-            "penalite": int(penalite or 0),
-            "removed_rows": removed,
-        })
-        st.session_state["buyouts"] = buyouts
-
-        
-        # --- Historique (persist best effort)
-        try:
-            h = st.session_state.get("history", pd.DataFrame())
-            if not isinstance(h, pd.DataFrame):
-                h = pd.DataFrame()
-            row = {
-                "timestamp": datetime.now(ZoneInfo("America/Toronto")).isoformat(timespec="seconds"),
-                "action": "RACHAT",
-                "proprietaire": owner,
-                "joueur": player_name,
-                "detail": f"{bucket} — pénalité {money(int(penalite or 0))}",
-            }
-            h = pd.concat([h, pd.DataFrame([row])], ignore_index=True)
-            st.session_state["history"] = h
-            # sauver si possible
-            hf = str(st.session_state.get("HISTORY_FILE","") or "").strip()
-            if hf:
-                h.to_csv(hf, index=False)
-        except Exception:
-            pass
-
-        st.success(f"Rachat appliqué ✅ ({removed} joueur retiré)")
-        do_rerun()
+            st.success(f"Rachat appliqué ✅ — {player_name} devient **Autonome** (pénalité {money(int(penalite_calc or 0))} sur {bucket})")
+            do_rerun()
 
 
 
@@ -3036,6 +2977,116 @@ def render_tab_gm() -> None:
 
     # Picks + Rachat
     render_tab_gm_picks_buyout(owner, dprop)
+
+
+
+# =====================================================
+# BUYOUT HELPERS (pure-ish, isolés)
+#   ✅ apply_buyout(df, owner, picked_label, bucket): retire le joueur + ajoute cap mort (Slot=RACHAT)
+#   ✅ push_buyout_to_market(season, player): rend le joueur AUTONOME sur le marché
+# =====================================================
+def apply_buyout(df_all: "pd.DataFrame", owner: str, picked_label: str, bucket: str, *, penalty_ratio: float = 0.50) -> tuple["pd.DataFrame", str, int, int]:
+    df_all = df_all if isinstance(df_all, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+    df_all = clean_data(df_all)
+
+    # Nom joueur depuis libellé "Nom  —  Pos  Team  —  $"
+    player_name = str(picked_label).split("—")[0].strip()
+    player_key = _norm_name(player_name)
+
+    # Salaire (best effort) à partir de la première ligne matchant le joueur chez owner
+    sal = 0.0
+    try:
+        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(player_key)
+        m = df_all[mask_owner & mask_player]
+        if not m.empty and "Salaire" in m.columns:
+            sal = float(m.iloc[0].get("Salaire", 0) or 0)
+    except Exception:
+        sal = 0.0
+
+    penalite = int(round(max(sal, 0) * float(penalty_ratio)))
+
+    # Retirer le joueur (toutes les lignes) — robuste
+    removed_rows = 0
+    try:
+        mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+        mask_player = df_all["Joueur"].astype(str).map(_norm_name).eq(player_key)
+        removed_rows = int((mask_owner & mask_player).sum())
+        df_all = df_all[~(mask_owner & mask_player)].copy()
+    except Exception:
+        pass
+
+    # Fallback si aucun match exact: contains (au cas où le libellé diffère)
+    if removed_rows == 0 and player_name:
+        try:
+            mask_owner = df_all["Propriétaire"].astype(str).str.strip().eq(str(owner).strip())
+            mask_player2 = df_all["Joueur"].astype(str).str.contains(re.escape(player_name), case=False, na=False)
+            removed_rows = int((mask_owner & mask_player2).sum())
+            df_all = df_all[~(mask_owner & mask_player2)].copy()
+        except Exception:
+            pass
+
+    # Ajouter cap mort (ne doit pas apparaître dans Actifs/Mineur)
+    statut_bucket = STATUT_GC if str(bucket).upper() == "GC" else STATUT_CE
+    dead_row = {
+        "Propriétaire": str(owner).strip(),
+        "Joueur": f"RACHAT — {player_name}",
+        "Salaire": int(penalite or 0),
+        "Statut": statut_bucket,
+        "Slot": "RACHAT",
+    }
+    for k in list(dead_row.keys()):
+        if k not in df_all.columns:
+            dead_row.pop(k, None)
+
+    df_all = pd.concat([df_all, pd.DataFrame([dead_row])], ignore_index=True)
+    df_all = clean_data(df_all)
+    return df_all, player_name, int(penalite or 0), int(removed_rows or 0)
+
+
+def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
+    if not ("load_trade_market" in globals() and callable(globals()["load_trade_market"]) and
+            "save_trade_market" in globals() and callable(globals()["save_trade_market"])):
+        return
+
+    season_lbl = str(season_lbl or "").strip()
+    joueur_key = str(player_name or "").strip()
+    if not season_lbl or not joueur_key:
+        return
+
+    try:
+        tm = load_trade_market(season_lbl)
+    except Exception:
+        tm = pd.DataFrame()
+
+    if not isinstance(tm, pd.DataFrame):
+        tm = pd.DataFrame()
+
+    for c in ["season", "proprietaire", "joueur", "is_available", "updated_at"]:
+        if c not in tm.columns:
+            tm[c] = ""
+
+    now_s = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+    mask = tm["joueur"].astype(str).str.strip().eq(joueur_key)
+
+    if mask.any():
+        tm.loc[mask, "season"] = season_lbl
+        tm.loc[mask, "proprietaire"] = "Autonome"
+        tm.loc[mask, "is_available"] = True
+        tm.loc[mask, "updated_at"] = now_s
+    else:
+        tm = pd.concat([tm, pd.DataFrame([{
+            "season": season_lbl,
+            "proprietaire": "Autonome",
+            "joueur": joueur_key,
+            "is_available": True,
+            "updated_at": now_s,
+        }])], ignore_index=True)
+
+    try:
+        save_trade_market(season_lbl, tm)
+    except Exception:
+        pass
 
 
 # =====================================================
@@ -3228,8 +3279,13 @@ elif active_tab == "🧾 Alignement":
     injured_all = dprop[dprop.get("Slot", "") == SLOT_IR].copy()
     dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-    gc_all = dprop_ok[dprop_ok["Statut"] == STATUT_GC].copy()
-    ce_all = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
+    # Exclure les lignes de cap mort des listes (Actifs/Banc/Mineur), mais garder pour le calcul du cap ailleurs
+    dprop_ok = dprop_ok[dprop_ok.get("Slot","").astype(str).str.strip().ne(SLOT_RACHAT)].copy()
+
+    dprop_cap = dprop[dprop.get("Slot","") != SLOT_IR].copy()  # inclut RACHAT pour le cap
+
+    gc_all = dprop_cap[dprop_cap["Statut"] == STATUT_GC].copy()
+    ce_all = dprop_cap[dprop_cap["Statut"] == STATUT_CE].copy()
 
     gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
     gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
