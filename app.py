@@ -560,6 +560,14 @@ div[data-testid="stButton"] > button{
 .section-title { font-size:22px; font-weight:900; margin: 6px 0 2px; }
 .muted { opacity:0.75; font-size:13px; }
 
+
+/* =====================================================
+   GM PICKS — lignes par année
+   ===================================================== */
+.pick-line { display:flex; align-items:flex-start; gap:12px; margin-top:10px; }
+.pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
+.pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
+
 </style>"""
 
 def apply_theme():
@@ -2698,49 +2706,98 @@ def render_tab_gm():
     st.divider()
 
     # =========================
-    # PICKS — compact & esthétique (pills)
+    # PICKS — compact & esthétique (pills) + années
+    #   ✅ Affiche 3 années: fin de saison (ex 2026) + 2027 + 2028
+    #   ✅ Année à gauche + nb de choix détenus
     # =========================
     st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
 
     teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
     season = str(st.session_state.get("season", "") or "").strip()
 
-    picks = st.session_state.get("picks")
-    if not isinstance(picks, dict) or st.session_state.get("_picks_season") != season:
+    # Déterminer l'année de base (fin de saison) -> ex "2025-2026" => 2026
+    nums = re.findall(r"\d{4}", season)
+    base_year = None
+    if len(nums) >= 2:
+        base_year = int(nums[-1])
+    elif len(nums) == 1:
         try:
-            picks = load_picks(season, teams)
+            base_year = int(nums[0])
         except Exception:
-            picks = {}
-        st.session_state["picks"] = picks
-        st.session_state["_picks_season"] = season
+            base_year = None
 
-    my_picks = picks.get(owner, {}) if isinstance(picks, dict) else {}
-    rounds = list(range(1, 9))
+    # 3 années à afficher (2026, 2027, 2028)
+    years = []
+    if base_year:
+        years = [str(base_year + i) for i in range(0, 3)]
+    else:
+        years = [season]  # fallback
 
-    # pills
-    pills_html = ["<div class='pick-row'>"]
-    for r in rounds:
-        who = str(my_picks.get(r, owner) or "").strip() or owner
-        cls = "pick-pill mine" if who == owner else "pick-pill other"
-        label = f"R{r} • {html.escape(who)}"
-        pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
-    pills_html.append("</div>")
-    st.markdown("".join(pills_html), unsafe_allow_html=True)
-    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8.</div>", unsafe_allow_html=True)
+    # Cache picks par année pour éviter relecture
+    if "_picks_cache" not in st.session_state or not isinstance(st.session_state.get("_picks_cache"), dict):
+        st.session_state["_picks_cache"] = {}
+
+    # Lignes pills (1 ligne par année)
+    for ylbl in years:
+        cache = st.session_state["_picks_cache"]
+        if ylbl not in cache:
+            try:
+                cache[ylbl] = load_picks(ylbl, teams)
+            except Exception:
+                cache[ylbl] = {}
+            st.session_state["_picks_cache"] = cache
+
+        p_all = cache.get(ylbl, {}) or {}
+        my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
+
+        # nb de choix détenus par l'équipe (rondes 1-8)
+        nb = 0
+        for rr in range(1, 9):
+            who = str(my_p.get(str(rr), owner) or "").strip() or owner
+            if who == owner:
+                nb += 1
+
+        pills_html = ["<div class='pick-line'>"]
+        pills_html.append("<div class='pick-year'>")
+        pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
+        pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
+        pills_html.append("</div>")  # pick-year
+
+        pills_html.append("<div class='pick-row'>")
+        for rr in range(1, 9):
+            who = str(my_p.get(str(rr), owner) or "").strip() or owner
+            cls = "pick-pill mine" if who == owner else "pick-pill other"
+            icon = " 🔁" if who == owner and who != owner else ""  # placeholder (détecté via historique plus tard)
+            label = f"R{rr} • {html.escape(who)}"
+            pills_html.append(f"<span class='{cls}' title='{html.escape(who)}'>{label}</span>")
+        pills_html.append("</div>")  # pick-row
+        pills_html.append("</div>")  # pick-line
+
+        st.markdown("".join(pills_html), unsafe_allow_html=True)
+
+    st.markdown("<div class='muted'>Affichage compact : possession des rondes 1 à 8, par année.</div>", unsafe_allow_html=True)
 
     with st.expander("Voir le détail en tableau"):
-        if my_picks:
-            rows = [{"Ronde": int(r), "Appartient à": str(my_picks.get(r, ""))} for r in rounds]
+        rows = []
+        for ylbl in years:
+            p_all = st.session_state.get("_picks_cache", {}).get(ylbl, {}) or {}
+            my_p = p_all.get(owner, {}) if isinstance(p_all, dict) else {}
+            for rr in range(1, 9):
+                who = str(my_p.get(str(rr), owner) or "").strip() or owner
+                rows.append({
+                    "Année": str(ylbl),
+                    "Ronde": int(rr),
+                    "Appartenant à": who,
+                    "Reçu le": "—",
+                })
+        if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else:
             st.info("Aucun choix trouvé pour cette équipe.")
 
     st.divider()
 
-    # =========================
-    # RACHAT DE CONTRAT — bouton grisé tant qu'aucun joueur sélectionné
-    # =========================
-    st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>🧾 Rachat de contrat</div>", unsafe_allow_html=True)
     st.markdown("<div class='muted'>Sélectionne un joueur, puis confirme. Le bouton reste grisé tant qu’aucun joueur n’est choisi.</div>", unsafe_allow_html=True)
 
     # candidats: joueurs de l'équipe avec salaire > 0
@@ -2755,21 +2812,31 @@ def render_tab_gm():
 
     # liste selection
     display = []
+    disp_meta = {}
     for _, r in candidates.iterrows():
         nm = str(r.get(name_col, "")).strip()
         sal = money(int(r.get("Salaire", 0) or 0))
         pos = str(r.get("Position", r.get("Pos", "")) or "").strip()
         team = str(r.get("Team", r.get("Équipe", "")) or "").strip()
-        display.append(f"{nm}  —  {pos}  {team}  —  {sal}")
+        disp = f"{nm}  —  {pos}  {team}  —  {sal}"
+        display.append(disp)
+        try:
+            disp_meta[disp] = float(r.get("Salaire", 0) or 0)
+        except Exception:
+            disp_meta[disp] = 0.0
 
     picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+    sel_salary = float(disp_meta.get(picked, 0) or 0)
+    penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
+
     can_apply = bool(str(picked).strip())
 
     r1, r2, r3 = st.columns([1, 1, 2], vertical_alignment="center")
     with r1:
-        bucket = st.radio("Bucket", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
+        bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="gm_buyout_bucket")
     with r2:
-        penalite = st.number_input("Pénalité ($)", min_value=0, value=0, step=100000, key="gm_buyout_penalite")
+        # Pénalité toujours 50% (calculée automatiquement quand un joueur est choisi)
+        st.caption("Pénalité: 50% (auto)")
     with r3:
         note = st.text_input("Note (optionnel)", key="gm_buyout_note")
 
