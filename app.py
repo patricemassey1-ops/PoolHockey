@@ -1,4 +1,51 @@
 
+
+# =====================================================
+# v32 — FORCE LEVEL FROM Hockey.Players.csv (exact + robust)
+# =====================================================
+def _norm_player_key(s: str) -> str:
+    s = str(s or "").strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
+
+
+def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
+    """Override df['Level'] using data/hockey.players.csv (authoritative source)."""
+    try:
+        pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
+        players = pd.read_csv(pdb_path)
+    except Exception:
+        return df
+
+    # detect name column in players db
+    cols = {c.lower(): c for c in players.columns}
+    name_col = (
+        cols.get("player")
+        or cols.get("joueur")
+        or cols.get("name")
+        or cols.get("player name")
+        or cols.get("full name")
+    )
+    if not name_col or "Level" not in players.columns:
+        return df
+
+    players["_key"] = players[name_col].apply(_norm_player_key)
+    level_map = dict(zip(players["_key"], players["Level"].astype(str)))
+
+    if "Joueur" not in df.columns:
+        return df
+
+    def _resolve(row):
+        cur = str(row.get("Level", "") or "").strip()
+        key = _norm_player_key(row.get("Joueur", ""))
+        return level_map.get(key, cur)
+
+    df["Level"] = df.apply(_resolve, axis=1)
+    return df
+
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
 # =====================================================
@@ -44,6 +91,7 @@ def safe_image(path: str, *, width: int | None = None, caption: str | None = Non
 import os
 import io
 import re
+import unicodedata
 import json
 import html
 import base64
@@ -2840,6 +2888,11 @@ elif active_tab == "🧾 Alignement":
         st.stop()
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
+    # v32: authoritative Level from Hockey.Players.csv
+    try:
+        dprop = force_level_from_players(dprop)
+    except Exception:
+        pass
 
     # v29: enrich Level depuis data/hockey.players.csv (players DB)
     try:
@@ -3728,6 +3781,66 @@ elif active_tab == "🧠 Recommandations":
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
+
+
+# =====================================================
+# LEVEL RESOLVE — from players DB (data/hockey.players.csv)
+#   v31: matching robuste (accents / ponctuation / ordre nom-prénom)
+# =====================================================
+@st.cache_data(show_spinner=False)
+def _build_players_level_map(path: str) -> dict:
+    try:
+        db = pd.read_csv(path)
+    except Exception:
+        return {}
+    cols = {c.lower().strip(): c for c in db.columns}
+    name_col = (
+        cols.get("player") or cols.get("joueur") or cols.get("name")
+        or cols.get("player name") or cols.get("full name")
+    )
+    level_col = cols.get("level")
+    if not name_col or not level_col:
+        return {}
+
+    def _norm(s: str) -> str:
+        s = str(s or "").strip()
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
+        s = re.sub(r"\s+", " ", s).strip().lower()
+        return s
+
+    out = {}
+    for _, r in db.iterrows():
+        k = _norm(r.get(name_col, ""))
+        if not k:
+            continue
+        out[k] = str(r.get(level_col, "") or "").strip()
+    return out
+
+
+def _level_from_players_db(player_name: str, level_map: dict) -> str:
+    def _norm(s: str) -> str:
+        s = str(s or "").strip()
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = re.sub(r"[^A-Za-z0-9 ]+", " ", s)
+        s = re.sub(r"\s+", " ", s).strip().lower()
+        return s
+
+    k = _norm(player_name)
+    if not k:
+        return ""
+    v = str(level_map.get(k, "") or "").strip()
+    if v:
+        return v
+
+    # essai inversion "prenom nom" <-> "nom prenom"
+    parts = k.split(" ")
+    if len(parts) >= 2:
+        k2 = " ".join(parts[::-1])
+        return str(level_map.get(k2, "") or "").strip()
+    return ""
 
 else:
     st.warning("Onglet inconnu")
