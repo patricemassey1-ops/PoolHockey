@@ -496,9 +496,25 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.Players.csv")
+PLAYERS_DB_FILE = os.path.join(DATA_DIR, "hockey.players.csv")  # v29: source demandé
+PLAYERS_DB_FALLBACKS = [
+    PLAYERS_DB_FILE,
+    os.path.join(DATA_DIR, "Hockey.Players.csv"),
+    os.path.join(DATA_DIR, "Hockey_Players.csv"),
+    os.path.join(DATA_DIR, "hockey_players.csv"),
+]
 # (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
+
+
+def _first_existing(paths: list[str]) -> str:
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                return p
+        except Exception:
+            pass
+    return paths[0] if paths else ""
 
 REQUIRED_COLS = [
     "Propriétaire", "Joueur", "Pos", "Equipe", "Salaire",
@@ -2194,7 +2210,7 @@ if "process_pending_moves" in globals() and callable(globals()["process_pending_
 # -----------------------------------------------------
 # 4) PLAYERS DATABASE (read-only)
 # -----------------------------------------------------
-players_db = load_players_db(PLAYERS_DB_FILE)
+players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
 st.session_state["players_db"] = players_db
 
 # -----------------------------------------------------
@@ -2213,7 +2229,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
-    "GM",
+    "🧠 GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2274,7 +2290,7 @@ st.sidebar.markdown("### Navigation")
 
 # --- GM logo in sidebar (grayscale when inactive + hover tooltip)
 try:
-    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "GM")
+    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "🧠 GM")
     render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
 except Exception:
     pass
@@ -2442,13 +2458,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
 
     # header
-    h = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
+    h = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
-    h[4].markdown("**Expiry**")
-    h[5].markdown("**Salaire**")
+    h[4].markdown("**Salaire**")
 
     clicked = None
     for _, r in t.iterrows():
@@ -2464,7 +2479,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.9, 1.2, 3.2, 1.0, 1.1, 1.6])
+        c = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -2482,12 +2497,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             f"<span class='levelCell {lvl_cls}'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
-        exp = str(r.get('Expiry Year','')).strip()
-        c[4].markdown(
-            f"<span class='expiryCell'>{html.escape(exp) if exp and exp.lower() not in bad else '—'}</span>",
-            unsafe_allow_html=True,
-        )
-        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -2815,6 +2825,14 @@ elif active_tab == "🧾 Alignement":
 
     dprop = df[df["Propriétaire"].astype(str).str.strip().eq(proprietaire)].copy()
 
+    # v29: enrich Level depuis data/hockey.players.csv (players DB)
+    try:
+        players_db = load_players_db(_first_existing(PLAYERS_DB_FALLBACKS))
+        if 'fill_level_and_expiry_from_players_db' in globals() and callable(globals()['fill_level_and_expiry_from_players_db']):
+            dprop = fill_level_and_expiry_from_players_db(dprop, players_db)
+    except Exception:
+        pass
+
     cap_gc = int(st.session_state.get("PLAFOND_GC", 0) or 0)
     cap_ce = int(st.session_state.get("PLAFOND_CE", 0) or 0)
 
@@ -2959,7 +2977,7 @@ elif active_tab == "🧾 Alignement":
 
 
 
-elif active_tab == "GM":
+elif active_tab == "🧠 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
