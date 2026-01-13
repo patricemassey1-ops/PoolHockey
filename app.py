@@ -2733,7 +2733,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
     # 🎯 PICKS — collapse complet
     # -------------------------
     with st.expander("🎯 Choix de repêchage", expanded=True):
-        st.markdown("<div class='section-title'>🎯 Choix de repêchage</div>", unsafe_allow_html=True)
+        st.markdown("", unsafe_allow_html=True)
 
         # base year = fin de saison (ex "2025-2026" => 2026)
         nums = re.findall(r"\d{4}", season)
@@ -2776,7 +2776,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
             pills_html = ["<div class='pick-line'>"]
             pills_html.append("<div class='pick-year'>")
-            pills_html.append(f"<span class='pick-pill mine'>{html.escape(str(ylbl))}</span>")
+            pills_html.append(f"<div class='pick-year-badge'>{html.escape(str(ylbl))}</div>")
             pills_html.append(f"<div class='pick-sub'>{nb} choix</div>")
             pills_html.append("</div>")
 
@@ -4288,3 +4288,45 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
+
+
+/* --- PICKS layout fixes (no overflow) --- */
+.pick-line{
+  display:grid;
+  grid-template-columns: 84px 1fr;
+  gap:12px;
+  align-items:start;
+  margin: 10px 0;
+}
+.pick-year{ display:flex; flex-direction:column; gap:6px; }
+.pick-year-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 10px;
+  border-radius:999px;
+  font-weight:800;
+  letter-spacing:0.3px;
+  border:1px solid rgba(34,197,94,0.55);
+  background: rgba(34,197,94,0.10);
+}
+.pick-sub{ font-size:12px; opacity:0.8; padding-left:6px; }
+
+.pick-row{
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+.pick-row::-webkit-scrollbar{ height:8px; }
+.pick-row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius: 999px; }
+.pick-row::-webkit-scrollbar-track{ background: transparent; }
+
+.pick-pill{
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
