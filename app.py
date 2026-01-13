@@ -2322,9 +2322,6 @@ st.session_state["plafonds"] = rebuild_plafonds(df0)
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "🏠 Home"
 
-if st.session_state["active_tab"] not in NAV_TABS:
-    st.session_state["active_tab"] = NAV_TABS[0]
-
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
 # =====================================================
