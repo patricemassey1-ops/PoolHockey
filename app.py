@@ -1887,8 +1887,8 @@ def open_move_dialog():
         # Exclure IR
         dprop_ok = dprop[dprop.get("Slot", "") != SLOT_IR].copy()
 
-    # Exclure les lignes de cap mort des listes (Actifs/Banc/Mineur), mais garder pour le calcul du cap ailleurs
-    dprop_ok = dprop_ok[dprop_ok.get("Slot","").astype(str).str.strip().ne(SLOT_RACHAT)].copy()
+        # Exclure les lignes de cap mort des listes (Actifs/Banc/Mineur), mais garder pour le calcul du cap ailleurs
+        dprop_ok = dprop_ok[dprop_ok.get("Slot","").astype(str).str.strip().ne(SLOT_RACHAT)].copy()
 
         # Banc GC
         banc = dprop_ok[
