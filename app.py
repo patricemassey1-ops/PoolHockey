@@ -528,13 +528,19 @@ os.makedirs(DATA_DIR, exist_ok=True)
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "hockey.players.csv")  # v29: source demandé
 PLAYERS_DB_FALLBACKS = [
     # même dossier que app.py
+    os.path.join(APP_DIR, "Hockey.players.csv"),
     os.path.join(APP_DIR, "Hockey.Players.csv"),
     os.path.join(APP_DIR, "hockey.players.csv"),
-    # sous /data
+    # sous ./data
+    os.path.join(APP_DIR, "data", "Hockey.players.csv"),
     os.path.join(APP_DIR, "data", "Hockey.Players.csv"),
     os.path.join(APP_DIR, "data", "hockey.players.csv"),
     os.path.join(APP_DIR, "data", "Hockey_Players.csv"),
     os.path.join(APP_DIR, "data", "hockey_players.csv"),
+    # chemins absolus possibles (Streamlit Cloud / conteneur)
+    os.path.join(os.sep, "data", "Hockey.players.csv"),
+    os.path.join(os.sep, "data", "Hockey.Players.csv"),
+    os.path.join(os.sep, "data", "hockey.players.csv"),
 ]
 # (v18) Logos critiques chargés localement (à côté de app.py)
 INIT_MANIFEST_FILE = os.path.join(DATA_DIR, "init_manifest.json")
@@ -2262,7 +2268,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
-    "🧠 GM",
+    "🧊 GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
     "⚖️ Transactions",
@@ -2321,31 +2327,6 @@ def _nav_label(tab_id: str) -> str:
 st.sidebar.markdown("### Navigation")
 
 
-# --- GM logo in sidebar (grayscale when inactive + hover tooltip)
-try:
-    is_gm_active = (str(st.session_state.get("active_tab","")).strip() == "🧠 GM")
-
-    with st.sidebar:
-
-        render_gm_logo(active=is_gm_active, width=44, tooltip="Gestion d’équipe")
-except Exception:
-    pass
-active_tab = st.sidebar.radio(
-    "",
-    NAV_TABS,
-    index=NAV_TABS.index(st.session_state.get("active_tab", NAV_TABS[0])),
-    key="active_tab",
-    format_func=_nav_label,
-)
-
-
-# Default caps
-if "PLAFOND_GC" not in st.session_state:
-    st.session_state["PLAFOND_GC"] = 95_500_000
-if "PLAFOND_CE" not in st.session_state:
-    st.session_state["PLAFOND_CE"] = 47_750_000
-
-# Team picker
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
 
@@ -2612,7 +2593,7 @@ def render_tab_gm():
     )
 
     # =========================
-    # HEADER GM (pas de "🧠 GM" texte)
+    # HEADER GM (pas de "🧊 GM" texte)
     # =========================
     top = st.columns([1, 8], vertical_alignment="center")
     with top[0]:
@@ -2622,8 +2603,8 @@ def render_tab_gm():
         except Exception:
             # fallback safe
             if os.path.exists(GM_LOGO_FILE):
-                if active_tab == "🧠 GM":
-                    if active_tab == "🧠 GM":
+                if active_tab == "🧊 GM":
+                    if active_tab == "🧊 GM":
 
                         safe_image(GM_LOGO_FILE, width=132, caption="")
     with top[1]:
@@ -3049,7 +3030,7 @@ elif active_tab == "🧾 Alignement":
 
 
 
-elif active_tab == "🧠 GM":
+elif active_tab == "🧊 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
@@ -3912,5 +3893,3 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["Level"] = df.apply(_resolve, axis=1)
     return df
-
-
