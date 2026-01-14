@@ -2427,6 +2427,120 @@ st.session_state["plafonds"] = rebuild_plafonds(df0)
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = "🏠 Home"
 
+
+# =====================================================
+# FREE AGENTS — Embauche (helper) — safe & réutilisable
+#   ✅ utilisé par l'onglet Joueurs autonomes ET par le sidebar
+# =====================================================
+def _fa_owner_key(owner: str) -> str:
+    import re
+    return re.sub(r"[^a-zA-Z0-9]+", "_", str(owner or "x")).strip("_").lower()
+
+def _fa_state_keys(owner: str, season_lbl: str) -> tuple[str, str]:
+    ok = _fa_owner_key(owner)
+    season_lbl = str(season_lbl or "").strip()
+    return (f"fa_selected_players__{season_lbl}__{ok}", f"fa_assign__{season_lbl}__{ok}")
+
+def _apply_free_agent_hire(dest_owner: str, players: list[str], assign: str = "GC") -> tuple[int, list[str]]:
+    """Ajoute les joueurs à l'équipe (GC/Banc/CE). Retourne (added, skipped_owned)."""
+    import pandas as pd
+    import streamlit as st
+
+    dest_owner = str(dest_owner or "").strip()
+    players = [str(x).strip() for x in (players or []) if str(x).strip()]
+    players = players[:5]
+
+    df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    if not isinstance(df_all, pd.DataFrame):
+        df_all = pd.DataFrame(columns=REQUIRED_COLS)
+
+    # owner map (déjà dans la ligue)
+    owner_map = {}
+    if not df_all.empty and "Joueur" in df_all.columns and "Propriétaire" in df_all.columns:
+        tmp = df_all.copy()
+        tmp["_k"] = tmp["Joueur"].astype(str).str.strip().str.lower()
+        owner_map = dict(zip(tmp["_k"], tmp["Propriétaire"].astype(str).str.strip()))
+
+    def _owned_to(player: str) -> str:
+        return owner_map.get(str(player or "").strip().lower(), "")
+
+    # Source: players_db (recherche FA)
+    db = st.session_state.get("players_db")
+    if not isinstance(db, pd.DataFrame) or db.empty:
+        db = pd.DataFrame()
+
+    keycol = "Player" if (isinstance(db, pd.DataFrame) and "Player" in db.columns) else ("Joueur" if isinstance(db, pd.DataFrame) and "Joueur" in db.columns else None)
+    cap_col = "Cap Hit" if (isinstance(db, pd.DataFrame) and "Cap Hit" in db.columns) else ("CapHit" if isinstance(db, pd.DataFrame) and "CapHit" in db.columns else None)
+    lvl_col = "Level" if (isinstance(db, pd.DataFrame) and "Level" in db.columns) else None
+    pos_col = "Pos" if (isinstance(db, pd.DataFrame) and "Pos" in db.columns) else ("Position" if isinstance(db, pd.DataFrame) and "Position" in db.columns else None)
+    team_col = "Team" if (isinstance(db, pd.DataFrame) and "Team" in db.columns) else None
+
+    def _cap_to_int_local(v) -> int:
+        try:
+            if v is None:
+                return 0
+            s = str(v).replace("$","").replace(" ","").replace(",","").strip()
+            if s == "":
+                return 0
+            return int(float(s))
+        except Exception:
+            return 0
+
+    added = 0
+    skipped_owned = []
+
+    for pname in players:
+        if not pname:
+            continue
+
+        if _owned_to(pname):
+            skipped_owned.append(pname)
+            continue
+
+        r0 = {}
+        if isinstance(db, pd.DataFrame) and (keycol in db.columns):
+            sub = db[db[keycol].astype(str).str.strip().eq(pname)].head(1)
+            if not sub.empty:
+                r0 = sub.iloc[0].to_dict()
+
+        pos = str(r0.get(pos_col, "") if pos_col else "").strip()
+        team = str(r0.get(team_col, "") if team_col else "").strip()
+        sal = _cap_to_int_local(r0.get(cap_col, 0)) if cap_col else 0
+        lvl = str(r0.get(lvl_col, "") if lvl_col else "").strip() if lvl_col else ""
+
+        if str(assign).upper() == "GC":
+            statut_val, slot_val = STATUT_GC, SLOT_ACTIF
+        elif str(assign).upper() == "BANC":
+            statut_val, slot_val = STATUT_GC, SLOT_BANC
+        else:
+            statut_val, slot_val = STATUT_CE, SLOT_MINEUR
+
+        new_row = {
+            "Propriétaire": dest_owner,
+            "Joueur": pname,
+            "Équipe": team,
+            "Pos": pos,
+            "Salaire": int(sal or 0),
+            "Statut": statut_val,
+            "Slot": slot_val,
+            "Level": lvl,
+        }
+        for c in REQUIRED_COLS:
+            if c not in new_row:
+                new_row[c] = ""
+
+        df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
+        added += 1
+
+    st.session_state["data"] = df_all
+    try:
+        st.session_state["plafonds"] = rebuild_plafonds(df_all)
+    except Exception:
+        pass
+
+    return added, skipped_owned
+
+
 # =====================================================
 # SIDEBAR — Saison + Équipe + Plafonds + Mobile
 # =====================================================
@@ -2539,6 +2653,39 @@ if chosen_team and chosen_team != cur_team:
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
+
+# -----------------------------------------------------
+# ✅ Embauche en attente (par propriétaire) — bouton sidebar
+#   - Permet de confirmer même si tu changes d'onglet par erreur
+# -----------------------------------------------------
+try:
+    season_lbl = str(st.session_state.get("season", "") or "").strip()
+    owner_sb = str(get_selected_team() or "").strip()
+    pick_k, assign_k = _fa_state_keys(owner_sb, season_lbl)
+
+    pending = st.session_state.get(pick_k, [])
+    if isinstance(pending, list):
+        pending = [str(x).strip() for x in pending if str(x).strip()]
+    else:
+        pending = []
+
+    if pending:
+        st.sidebar.markdown("### ✅ Embauche en attente")
+        st.sidebar.caption(f"Sélection: **{len(pending)} / 5**")
+        # Affectation (mémorisée par équipe)
+        st.sidebar.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key=assign_k)
+        if st.sidebar.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key=f"sb_confirm_hire__{_fa_owner_key(owner_sb)}"):
+            assign_val = str(st.session_state.get(assign_k, "GC") or "GC")
+            added, skipped = _apply_free_agent_hire(owner_sb, pending, assign_val)
+            # clear selection after confirm
+            st.session_state[pick_k] = []
+            st.session_state["fa_add_from_results__" + season_lbl + "__" + _fa_owner_key(owner_sb)] = []
+            if skipped:
+                st.sidebar.warning("Ignorés (déjà à une équipe): " + ", ".join(skipped[:6]))
+            st.sidebar.success(f"Embauche ✅ — {added} joueur(s).")
+            do_rerun()
+except Exception:
+    pass
 
 
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
@@ -3064,6 +3211,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     """
     import pandas as pd
     import streamlit as st
+    import re
 
     # -----------------------------
     # Helpers safe
@@ -3199,7 +3347,12 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     # -----------------------------
     # Selection state (locked)
     # -----------------------------
-    pick_state_key = "fa_selected_players"
+    season_lbl = _safe_strip(st.session_state.get("season", ""))
+    owner_key = re.sub(r"[^a-zA-Z0-9]+", "_", str(owner or "x")).strip("_").lower()
+    pick_state_key = f"fa_selected_players__{season_lbl}__{owner_key}"
+    assign_state_key = f"fa_assign__{season_lbl}__{owner_key}"
+    add_from_results_key = f"fa_add_from_results__{season_lbl}__{owner_key}"
+
     if pick_state_key not in st.session_state or not isinstance(st.session_state.get(pick_state_key), list):
         st.session_state[pick_state_key] = []
     selected = [_safe_strip(x) for x in (st.session_state.get(pick_state_key) or []) if _safe_strip(x)]
@@ -3224,7 +3377,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     # -----------------------------
     c1, c2, c3 = st.columns([5, 3, 3], vertical_alignment="center")
     with c1:
-        q_name = st.text_input("Nom / Prénom", value="", key="fa_q_name").strip()
+        q_name = st.text_input("Nom / Prénom", value="", key=f"fa_q_name__{owner_key}").strip()
     with c2:
         teams = ["Toutes"]
         if team_col:
@@ -3232,7 +3385,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
                 teams += sorted(df_db[team_col].dropna().astype(str).str.strip().unique().tolist())
             except Exception:
                 pass
-        team_pick = st.selectbox("Équipe", teams, index=0, key="fa_team_pick")
+        team_pick = st.selectbox("Équipe", teams, index=0, key=f"fa_team_pick__{owner_key}")
     with c3:
         levels = ["Tous"]
         if level_col:
@@ -3240,18 +3393,18 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
                 levels += sorted(df_db[level_col].dropna().astype(str).str.strip().unique().tolist())
             except Exception:
                 pass
-        lvl_pick = st.selectbox("Level (Contrat)", levels, index=0, key="fa_lvl_pick")
+        lvl_pick = st.selectbox("Level (Contrat)", levels, index=0, key=f"fa_lvl_pick__{owner_key}")
 
     exclure = st.checkbox(
         "Exclure les joueurs selon les critères (NHL GP < 84 ou Level = ELC)",
         value=True,
-        key="fa_exclure_non_jouables",
+        key=f"fa_exclure_non_jouables__{owner_key}",
     )
 
     # -----------------------------
     # Selection panel (Fantrax-like)
     # -----------------------------
-    st.markdown("### ✅ Sélection (max 5)")
+    st.markdown(f"### ✅ Sélection ({len(selected)} / 5)")
     if not selected:
         st.caption("Aucun joueur sélectionné. Utilise la recherche ci-dessous puis **Ajouter**.")
     else:
@@ -3271,7 +3424,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
 
         # Remove buttons
         for p in selected:
-            if st.button(f"Retirer — {p}", use_container_width=True, key=f"fa_rm_{p}"):
+            if st.button(f"Retirer — {p}", use_container_width=True, key=f"fa_rm__{owner_key}__{p}"):
                 cur = [_safe_strip(x) for x in (st.session_state.get(pick_state_key) or []) if _safe_strip(x)]
                 cur = [x for x in cur if x.lower() != _safe_strip(p).lower()]
                 st.session_state[pick_state_key] = cur[:5]
@@ -3352,7 +3505,21 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     out["Team"] = out["_team"].apply(lambda x: _safe_strip(x) if _safe_strip(x) else "—")
     out["Player"] = out["_name"]
 
-    results_cols = ["Player", "Pos", "Team", "Cap Hit", "NHL GP", "Level", "✅", "🔴", "Appartenant à"]
+    # Selection flag + tri (sélectionnés en haut)
+    out["_is_selected"] = out["Player"].astype(str).str.strip().isin(selected)
+    # Afficher un badge "✓" pour la sélection
+    out["Sélection"] = out["_is_selected"].apply(lambda v: "✓" if bool(v) else "")
+    # Tri: sélectionnés d'abord, puis jouables, puis non-owned, puis cap hit desc
+    try:
+        out["_cap_int"] = out["Cap Hit"].apply(lambda x: _cap_to_int(x))
+    except Exception:
+        out["_cap_int"] = 0
+    out = out.sort_values(
+        by=["_is_selected", "✅", "_is_owned", "_cap_int", "Player"],
+        ascending=[False, False, True, False, True],
+        kind="mergesort",
+    )
+    results_cols = ["Sélection","Player", "Pos", "Team", "Cap Hit", "NHL GP", "Level", "✅", "🔴", "Appartenant à"]
 
     st.markdown("### 📋 Résultats (style Fantrax)")
     try:
@@ -3375,15 +3542,29 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
         st.dataframe(out[results_cols], use_container_width=True, hide_index=True)
 
     # Add from results (multi-select)
+    full = len(selected) >= 5
     opts = out.loc[~out["_is_owned"], "Player"].astype(str).str.strip().tolist()
+    # on laisse visibles les sélectionnés (tri en haut), mais on ne peut pas les ré-ajouter
     opts = [x for x in opts if x and x not in selected]
+
     add_pick = st.multiselect(
         "Ajouter depuis les résultats (max 5 total)",
         options=opts,
         default=[],
-        key="fa_add_from_results",
+        key=add_from_results_key,
+        disabled=full,
     )
-    if st.button("➕ Ajouter à la sélection", use_container_width=True, key="fa_add_btn"):
+
+    if full:
+        st.info("Sélection complète (5/5). Retire un joueur de la sélection pour en ajouter un autre.")
+
+    if st.button(
+        "➕ Ajouter à la sélection",
+        use_container_width=True,
+        key=f"fa_add_btn__{owner_key}",
+        type="primary" if (add_pick and not full) else "secondary",
+        disabled=(full or (not add_pick)),
+    ):
         _add_players(add_pick)
         _rerun()
 
@@ -3401,7 +3582,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
         else:
             st.text_input("Équipe destination", value=dest_owner, disabled=True, key="fa_dest_owner_readonly")
     with cB:
-        assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
+        assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key=assign_state_key)
 
     selected = [_safe_strip(x) for x in (st.session_state.get(pick_state_key) or []) if _safe_strip(x)]
     selected = selected[:5]
@@ -3416,7 +3597,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     if owned_selected:
         st.warning("Impossible d’embaucher (déjà à une équipe): " + ", ".join(owned_selected[:10]))
 
-    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, disabled=disabled_confirm, key="fa_confirm_hire"):
+    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, disabled=disabled_confirm, key=f"fa_confirm_hire__{owner_key}"):
         df_all = st.session_state.get("data")
         if not isinstance(df_all, pd.DataFrame) or df_all.empty:
             if "REQUIRED_COLS" in globals():
