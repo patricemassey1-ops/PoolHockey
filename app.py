@@ -3201,7 +3201,7 @@ def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
 
 
 
-def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = True):
+def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = True, ctx_key: str = "autonomes"):
     """
     Onglet Joueurs autonomes (et réutilisable en Admin via expander).
     ✅ Sélection persistante (max 5) indépendante des filtres/recherches.
@@ -3341,7 +3341,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
             "Équipe destination",
             owners,
             index=(owners.index(dest_default) if dest_default in owners else 0),
-            key="fa_dest_owner_admin",
+            key=f"fa_dest_owner_admin__{owner_key}",
         )
 
     # -----------------------------
@@ -3349,6 +3349,7 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     # -----------------------------
     season_lbl = _safe_strip(st.session_state.get("season", ""))
     owner_key = re.sub(r"[^a-zA-Z0-9]+", "_", str(owner or "x")).strip("_").lower()
+    owner_key = f"{ctx_key}__{owner_key}" if ctx_key else owner_key
     pick_state_key = f"fa_selected_players__{season_lbl}__{owner_key}"
     assign_state_key = f"fa_assign__{season_lbl}__{owner_key}"
     add_from_results_key = f"fa_add_from_results__{season_lbl}__{owner_key}"
@@ -3578,9 +3579,9 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
     cA, cB = st.columns([2, 2], vertical_alignment="center")
     with cA:
         if lock_dest_to_owner:
-            st.text_input("Équipe destination", value=dest_owner, disabled=True, key="fa_dest_owner_locked")
+            st.text_input("Équipe destination", value=dest_owner, disabled=True, key=f"fa_dest_owner_locked__{owner_key}")
         else:
-            st.text_input("Équipe destination", value=dest_owner, disabled=True, key="fa_dest_owner_readonly")
+            st.text_input("Équipe destination", value=dest_owner, disabled=True, key=f"fa_dest_owner_readonly__{owner_key}")
     with cB:
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key=assign_state_key)
 
@@ -4283,7 +4284,7 @@ elif active_tab == "🛠️ Gestion Admin":
     # -----------------------------
     with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
         # réutilise l'onglet autonomes, sans en-tête
-        render_tab_autonomes(show_header=False)
+        render_tab_autonomes(show_header=False, ctx_key="admin_add")
 
     # -----------------------------
     # 📦 Transactions (Admin) — sauvegarde proposition
