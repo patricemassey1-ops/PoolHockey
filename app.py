@@ -3054,7 +3054,7 @@ def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
 
 
 
-def render_tab_autonomes(show_header: bool = True):
+def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = False):
     if show_header:
         st.subheader("👤 Joueurs autonomes")
         st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
@@ -3152,6 +3152,10 @@ def render_tab_autonomes(show_header: bool = True):
     f1, f2, f3 = st.columns([5, 3, 3], vertical_alignment="center")
     with f1:
         q_name = st.text_input("Nom / Prénom", value="", key="fa_q_name").strip()
+# ✅ Aucun résultat tant que rien n'est saisi
+if not q_name:
+    st.info("Commence à taper un nom (ou début de nom) dans **Nom / Prénom** pour afficher des résultats.")
+    return
     with f2:
         teams = ["Toutes"]
         if "Team" in df_db.columns:
@@ -3310,8 +3314,19 @@ def render_tab_autonomes(show_header: bool = True):
 
     cA, cB, cC = st.columns([2, 1, 1], vertical_alignment="center")
     with cA:
-        dest_owner = st.selectbox("Équipe destination", owners, index=0, key="fa_dest_owner")
-    with cB:
+        # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
+dest_options = owners
+dest_default = owner if owner in owners else (owners[0] if owners else "")
+if lock_dest_to_owner:
+    dest_options = [dest_default] if dest_default else owners
+dest_owner = st.selectbox(
+    "Équipe destination",
+    dest_options,
+    index=0 if lock_dest_to_owner else (dest_options.index(dest_default) if dest_default in dest_options else 0),
+    key="fa_dest_owner",
+    disabled=bool(lock_dest_to_owner),
+)
+with cB:
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
     with cC:
         st.caption("—")
@@ -3707,7 +3722,7 @@ elif active_tab == "🧊 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
-    render_tab_autonomes()
+    render_tab_autonomes(lock_dest_to_owner=True)
 
 elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
