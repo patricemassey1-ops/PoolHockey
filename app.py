@@ -3284,6 +3284,8 @@ def render_tab_autonomes(show_header: bool = True):
 
     st.markdown("#### ✅ Sélection (max 5)")
 
+    picked = picked_rows.copy()
+
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
         own = str(row.get("Appartenant à", "") or "").strip()
@@ -3312,7 +3314,8 @@ def render_tab_autonomes(show_header: bool = True):
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
     with cC:
         st.caption("—")
-if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
+
+    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         if not isinstance(df_all, pd.DataFrame):
             df_all = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3320,13 +3323,13 @@ if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=T
         added = 0
         skipped_owned = []
 
-        for _, rr in picked.iterrows():
+        for _, rr in picked_rows.iterrows():
             pname = str(rr.get("Player", "") or "").strip()
             if not pname:
                 continue
 
-            own = owned_to(pname)
-            if own:
+            owned_to = _owned_to(pname)
+            if owned_to:
                 skipped_owned.append(pname)
                 continue
 
@@ -3338,17 +3341,16 @@ if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=T
             pos = str(r0.get("Position", r0.get("Pos", "")) or "").strip()
             team = str(r0.get("Team", "") or "").strip()
             sal = _cap_to_int(r0.get(cap_col, 0)) if cap_col else 0
-            lvl = str(r0.get("Level", "") or "").strip() if level_col else ""
+            lvl = str(r0.get(level_col, "") or "").strip() if level_col else ""
+
             # Affectation via radio
             if assign == "GC":
-                statut_val = STATUT_GC
-                slot_val = SLOT_ACTIF
+                statut_val, slot_val = STATUT_GC, SLOT_ACTIF
             elif assign == "Banc":
-                statut_val = STATUT_GC
-                slot_val = SLOT_BANC
+                statut_val, slot_val = STATUT_GC, SLOT_BANC
             else:
-                statut_val = STATUT_CE
-                slot_val = SLOT_MINEUR
+                statut_val, slot_val = STATUT_CE, SLOT_MINEUR
+
             new_row = {
                 "Propriétaire": str(dest_owner),
                 "Joueur": pname,
@@ -3366,19 +3368,6 @@ if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=T
             df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
             added += 1
 
-            # Retirer du marché si présent
-            try:
-                season_lbl = str(st.session_state.get("season", "") or "").strip()
-                tm = load_trade_market(season_lbl)
-                if isinstance(tm, pd.DataFrame) and "joueur" in tm.columns:
-                    tm2 = tm.copy()
-                    msk = tm2["joueur"].astype(str).str.strip().eq(pname)
-                    if msk.any():
-                        tm2 = tm2[~msk].copy()
-                        save_trade_market(season_lbl, tm2)
-            except Exception:
-                pass
-
         st.session_state["data"] = df_all
         try:
             st.session_state["plafonds"] = rebuild_plafonds(df_all)
@@ -3386,8 +3375,7 @@ if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=T
             pass
 
         if skipped_owned:
-            st.warning("Joueurs ignorés (appartiennent déjà à une équipe): " + ", ".join(skipped_owned[:10]))
-
+            st.warning("Joueurs ignorés (déjà à une équipe): " + ", ".join(skipped_owned[:10]))
         st.success(f"Embauche complétée ✅ — {added} joueur(s) ajoutés à {dest_owner}.")
         do_rerun()
 
