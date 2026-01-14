@@ -3294,15 +3294,47 @@ if not q_name:
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
         own = str(row.get("Appartenant à", "") or "").strip()
+
+        # Non-jouable = pas de ✅ (ou champ ✅ Jouable False)
+        non_jouable = False
+        try:
+            if "✅" in row.index:
+                non_jouable = str(row.get("✅", "") or "").strip() != "✅"
+            elif "✅ Jouable" in row.index:
+                non_jouable = not bool(row.get("✅ Jouable", True))
+        except Exception:
+            non_jouable = False
+
+        styles = [""] * len(row)
+
         if own:
-            return ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
-        return [""] * len(row)
+            styles = ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
+
+        if non_jouable:
+            # Surbrillance rouge légère + texte gras
+            styles = ["background: rgba(239,68,68,0.12); font-weight:700;"] * len(row)
+
+        return styles
 
     try:
         styled = picked_rows.drop(columns=["Pick"], errors="ignore").style.apply(_style_owned_row, axis=1)
         st.dataframe(styled, use_container_width=True, hide_index=True)
     except Exception:
         st.dataframe(picked_rows.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
+
+        # --- Validation "jouable" (désactive le bouton si un joueur non-jouable est coché)
+        has_non_jouable = False
+        try:
+            if "✅" in picked_rows.columns:
+                has_non_jouable = (~picked_rows["✅"].astype(str).str.strip().eq("✅")).any()
+            elif "✅ Jouable" in picked_rows.columns:
+                has_non_jouable = (~picked_rows["✅ Jouable"].astype(bool)).any()
+        except Exception:
+            has_non_jouable = False
+        
+        if has_non_jouable:
+            st.warning("Au moins un joueur sélectionné est **NON JOUABLE** (NHL GP < 84 ou Level = ELC). Décoche-le pour confirmer l’embauche.")
+
 
     owners = []
     if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
@@ -3331,7 +3363,7 @@ with cB:
     with cC:
         st.caption("—")
 
-    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm", disabled=picked_rows.empty):
+    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm", disabled=(picked_rows.empty or has_non_jouable)):
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         if not isinstance(df_all, pd.DataFrame):
             df_all = pd.DataFrame(columns=REQUIRED_COLS)
