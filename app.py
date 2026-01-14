@@ -3315,31 +3315,41 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
             picked_rows = selected_df.copy()
 
     # Persist picks (pour garder la sélection visible après rerun)
-
-
-
     try:
-
-
-
-        cur_picks = []
-
-
-
+        cur_true = []
+        cur_false = []
         if isinstance(edited, pd.DataFrame) and "Pick" in edited.columns and "Player" in edited.columns:
+            _p = edited["Player"].astype(str).str.strip()
+            _k = edited["Pick"].fillna(False).astype(bool)
+            cur_true = _p[_k].tolist()
+            cur_false = _p[~_k].tolist()
 
+        prev_list = [str(x).strip() for x in (prev_picks or []) if str(x).strip()]
+        false_set = set([x for x in cur_false if x])
 
+        merged = []
+        seen = set()
 
-            cur_picks = edited.loc[edited["Pick"] == True, "Player"].astype(str).str.strip().tolist()
+        # On conserve les anciens picks, sauf si l'utilisateur a explicitement décoché dans la vue courante
+        for x in prev_list:
+            if x in false_set:
+                continue
+            if x and x not in seen:
+                merged.append(x)
+                seen.add(x)
 
+        # On ajoute les nouveaux cochés de la vue courante
+        for x in cur_true:
+            if x and x not in seen:
+                merged.append(x)
+                seen.add(x)
 
-
-        st.session_state[pick_state_key] = cur_picks[:5] if cur_picks else prev_picks[:5]
-
-
+        st.session_state[pick_state_key] = merged[:5]
 
     except Exception:
-        pass
+        # fallback ultra-safe
+        st.session_state[pick_state_key] = (prev_picks or [])[:5]
+
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
         own = str(row.get("Appartenant à", "") or "").strip()
