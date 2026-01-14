@@ -3328,32 +3328,43 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     st.write("")
     can_add_more = len(sel_players) < 5
     add_choices = [p for p in df_show["Player"].astype(str).str.strip().tolist() if p]
+        # --- Ajouter depuis les résultats (multi-ajout stable) ---
+    add_widget_key = f"fa_pending_add__{season_lbl}__{owner or 'x'}__{scope}"
+    add_btn_key = f"fa_add_btn__{season_lbl}__{owner or 'x'}__{scope}"
+
+    def _fa_add_to_selection(_wkey=add_widget_key, _pick_key=pick_state_key):
+        pending = st.session_state.get(_wkey, []) or []
+        cur = st.session_state.get(_pick_key, []) or []
+        new_list = [str(x).strip() for x in cur if str(x).strip()]
+
+        for p in pending:
+            p = str(p).strip()
+            if p and p not in new_list:
+                new_list.append(p)
+
+        st.session_state[_pick_key] = new_list[:5]
+        # ✅ on peut vider un widget key seulement via callback
+        st.session_state[_wkey] = []
+
     pending_add = st.multiselect(
         "Ajouter depuis les résultats (max 5 total)",
         options=add_choices,
         default=[],
-        key=f"fa_pending_add__{season_lbl}__{owner or 'x'}__{scope}",
+        key=add_widget_key,
         disabled=(not can_add_more),
     )
+
     if pending_add:
         st.caption("À ajouter à la sélection : " + ", ".join([str(x) for x in pending_add[:5]]))
 
-    if st.button(
+    st.button(
         "➕ Ajouter à la sélection",
         type="primary",
         use_container_width=True,
-        key=f"fa_add_btn__{season_lbl}__{owner or 'x'}__{scope}",
-        disabled=(not pending_add) or (not can_add_more),
-    ):
-        new_list = list(sel_players)
-        for p in pending_add:
-            p = str(p).strip()
-            if p and p not in new_list:
-                new_list.append(p)
-        st.session_state[pick_state_key] = new_list[:5]
-        # clear pending
-        st.session_state[f"fa_pending_add__{season_lbl}__{owner or 'x'}__{scope}"] = []
-        do_rerun()
+        key=add_btn_key,
+        disabled=(not pending_add or not can_add_more),
+        on_click=_fa_add_to_selection,
+    )
 
     if len(sel_players) >= 5:
         st.info("Sélection complète (5/5) — retire un joueur pour en ajouter un autre.")
