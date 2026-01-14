@@ -2939,10 +2939,10 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             disp_salary[disp] = sal_raw
             disp_name[disp] = nm
 
-        picked = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
-        sel_salary = float(disp_salary.get(picked, 0) or 0)
+        picked_rows = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+        sel_salary = float(disp_salary.get(picked_rows, 0) or 0)
         penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
-        can_apply = bool(str(picked).strip())
+        can_apply = bool(str(picked_rows).strip())
 
         c1, c2, c3 = st.columns([1, 1, 2], vertical_alignment="center")
         with c1:
@@ -2954,7 +2954,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         if st.button("✅ Confirmer le rachat", type="primary", disabled=not can_apply, use_container_width=True, key="gm_buyout_confirm"):
             df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-            df_new, player_name, penalite_calc, removed = apply_buyout(df_all, owner, picked, bucket)
+            df_new, player_name, penalite_calc, removed = apply_buyout(df_all, owner, picked_rows, bucket)
 
             st.session_state["data"] = df_new
 
@@ -3265,10 +3265,13 @@ def render_tab_autonomes(show_header: bool = True):
         disabled=[c for c in df_edit.columns if c != "Pick"],
     )
 
-    picked = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
-    if not picked.empty and len(picked) > 5:
+    picked_rows = pd.DataFrame()
+
+
+    picked_rows = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
+    if not picked_rows.empty and len(picked_rows) > 5:
         st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers cochés.")
-        picked = picked.head(5)
+        picked_rows = picked_rows.head(5)
 
     # Détail optionnel sans expander (évite nested)
     show_detail = st.checkbox("Voir le détail en tableau", value=False, key="fa_show_detail")
@@ -3278,13 +3281,11 @@ def render_tab_autonomes(show_header: bool = True):
     st.divider()
 
     # --------- Sélection + embauche ---------
-    if picked.empty:
+    if picked_rows.empty:
         st.caption("Coche jusqu’à 5 joueurs dans la colonne **Pick**, puis confirme l’embauche.")
         return
 
     st.markdown("#### ✅ Sélection (max 5)")
-
-    picked = picked_rows.copy()
 
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
@@ -3294,10 +3295,10 @@ def render_tab_autonomes(show_header: bool = True):
         return [""] * len(row)
 
     try:
-        styled = picked.drop(columns=["Pick"], errors="ignore").style.apply(_style_owned_row, axis=1)
+        styled = picked_rows.drop(columns=["Pick"], errors="ignore").style.apply(_style_owned_row, axis=1)
         st.dataframe(styled, use_container_width=True, hide_index=True)
     except Exception:
-        st.dataframe(picked.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
+        st.dataframe(picked_rows.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
 
     owners = []
     if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
@@ -3315,7 +3316,7 @@ def render_tab_autonomes(show_header: bool = True):
     with cC:
         st.caption("—")
 
-    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
+    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm", disabled=picked_rows.empty):
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         if not isinstance(df_all, pd.DataFrame):
             df_all = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3878,10 +3879,10 @@ elif active_tab == "⚖️ Transactions":
     st.divider()
 
     # --- Affichage détails (salaire, pos, level, années restantes si dispo)
-    def _detail_df(owner: str, dfo: pd.DataFrame, picked: list[str]) -> pd.DataFrame:
-        if not picked:
+    def _detail_df(owner: str, dfo: pd.DataFrame, picked_rows: list[str]) -> pd.DataFrame:
+        if not picked_rows:
             return pd.DataFrame(columns=["Joueur","Pos","Equipe","Salaire","Level","Expiry Year","Marché"])
-        tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])].copy()
+        tmp = dfo[dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked_rows])].copy()
         tmp["Salaire"] = tmp["Salaire"].apply(lambda x: money(int(pd.to_numeric(x, errors="coerce") or 0)))
         tmp["Marché"] = tmp["Joueur"].apply(lambda j: "Oui" if is_on_trade_market(market, owner, str(j)) else "Non")
 
@@ -3904,10 +3905,10 @@ elif active_tab == "⚖️ Transactions":
         st.dataframe(_detail_df(owner_b, dfb, b_players), use_container_width=True, hide_index=True)
 
     # --- Résumé + Impact (approximation simple)
-    def _sum_salary(dfo: pd.DataFrame, picked: list[str]) -> int:
-        if not picked or dfo.empty:
+    def _sum_salary(dfo: pd.DataFrame, picked_rows: list[str]) -> int:
+        if not picked_rows or dfo.empty:
             return 0
-        m = dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked])
+        m = dfo["Joueur"].astype(str).str.strip().isin([str(x).strip() for x in picked_rows])
         return int(pd.to_numeric(dfo.loc[m, "Salaire"], errors="coerce").fillna(0).sum())
 
     sal_a = _sum_salary(dfa, a_players)
