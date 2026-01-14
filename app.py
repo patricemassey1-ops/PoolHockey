@@ -3314,18 +3314,18 @@ if not q_name:
 
     cA, cB, cC = st.columns([2, 1, 1], vertical_alignment="center")
     with cA:
-        # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
-dest_options = owners
-dest_default = owner if owner in owners else (owners[0] if owners else "")
-if lock_dest_to_owner:
-    dest_options = [dest_default] if dest_default else owners
-dest_owner = st.selectbox(
-    "Équipe destination",
-    dest_options,
-    index=0 if lock_dest_to_owner else (dest_options.index(dest_default) if dest_default in dest_options else 0),
-    key="fa_dest_owner",
-    disabled=bool(lock_dest_to_owner),
-)
+                # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
+        dest_options = owners
+        dest_default = owner if owner in owners else (owners[0] if owners else "")
+        if lock_dest_to_owner:
+            dest_options = [dest_default] if dest_default else owners
+        dest_owner = st.selectbox(
+            "Équipe destination",
+            dest_options,
+            index=0 if lock_dest_to_owner else (dest_options.index(dest_default) if dest_default in dest_options else 0),
+            key="fa_dest_owner",
+            disabled=bool(lock_dest_to_owner),
+        )
 with cB:
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
     with cC:
