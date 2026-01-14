@@ -3152,10 +3152,14 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     f1, f2, f3 = st.columns([5, 3, 3], vertical_alignment="center")
     with f1:
         q_name = st.text_input("Nom / Prénom", value="", key="fa_q_name").strip()
-# ✅ Aucun résultat tant que rien n'est saisi
-if not q_name:
-    st.info("Commence à taper un nom (ou début de nom) dans **Nom / Prénom** pour afficher des résultats.")
-    return
+
+        # ✅ Aucun résultat tant que rien n'est saisi
+
+        if not q_name:
+
+            st.info("Commence à taper un nom (ou début de nom) dans **Nom / Prénom** pour afficher des résultats.")
+
+            st.stop()
     with f2:
         teams = ["Toutes"]
         if "Team" in df_db.columns:
