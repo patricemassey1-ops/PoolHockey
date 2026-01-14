@@ -19,39 +19,31 @@ import streamlit.components.v1 as components
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
 # =====================================================
 def safe_image(image, *args, **kwargs):
+    """Affiche une image sans jamais planter l'app.
+    Mini-protection: si le fichier est manquant, on affiche un placeholder discret."""
+    cap = str(kwargs.get('caption', '') or '').strip()
     try:
         if isinstance(image, str):
             p = image.strip()
             if p and os.path.exists(p):
                 return st.image(p, *args, **kwargs)
-            cap = kwargs.get("caption", "")
+            # placeholder (pas d'exception, pas d'écran noir)
+            box = "<div style='padding:10px 12px;border-radius:12px;border:1px dashed rgba(148,163,184,.5);opacity:.85'>🖼️ Image introuvable</div>"
+            st.markdown(box, unsafe_allow_html=True)
             if cap:
                 st.caption(cap)
             return None
         return st.image(image, *args, **kwargs)
-    except Exception:
-        cap = kwargs.get("caption", "")
+    except Exception as e:
+        # fallback ultime: on ne casse jamais le rendu
+        st.markdown("<div style='padding:10px 12px;border-radius:12px;border:1px dashed rgba(239,68,68,.5);opacity:.9'>⚠️ Image non affichable</div>", unsafe_allow_html=True)
         if cap:
             st.caption(cap)
+        try:
+            st.caption(str(e))
+        except Exception:
+            pass
         return None
-
-
-# =====================================================
-# app.py — PMS Pool (version propre + corrections + Admin complet)
-#   ✅ 1 seule section Alignement (dans le routing)
-#   ✅ sidebar = source de vérité (sync selected_team / align_owner)
-#   ✅ Admin Import (preview + confirmer + tri imports)
-# =====================================================
-
-# =====================================================
-# IMPORTS
-
-
-# =====================================================
-
-# =====================================================
-# Level override helper (alias) — must exist before Admin import preview
-# =====================================================
 def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     """Compat wrapper: Admin import calls this; delegates to apply_players_level when available."""
     try:
@@ -809,14 +801,16 @@ def require_password():
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
                 st.success("✅ Accès autorisé")
-                st.rerun()
+                return
             else:
                 st.error("❌ Mot de passe invalide")
 
     with col2:
         st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
 
-    st.stop()
+    # Stop seulement si on n'est pas authentifié
+    if not st.session_state.get('authed', False):
+        st.stop()
 
 require_password()
 
