@@ -36,17 +36,6 @@ def safe_image(image, *args, **kwargs):
         return None
 
 
-def safe_image(path: str, *, width: int | None = None, caption: str | None = None):
-    try:
-        if path and os.path.exists(path):
-            safe_image(path, width=width, caption=caption)
-        else:
-            if caption:
-                st.caption(caption)
-    except Exception:
-        if caption:
-            st.caption(caption)
-
 # =====================================================
 # app.py — PMS Pool (version propre + corrections + Admin complet)
 #   ✅ 1 seule section Alignement (dans le routing)
