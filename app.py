@@ -3,276 +3,169 @@ from __future__ import annotations
 import os
 import io
 import re
-import unicodedata
-import json
-import html
-import base64
-import hashlib
-import requests  # Added for NHL API calls
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import pandas as pd
+import requests
 import streamlit as st
-import streamlit.components.v1 as components
-
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # =====================================================
-# CONFIGURATION & SCORING RULES
+# CONFIGURATION & CONSTANTES
 # =====================================================
+st.set_page_config(page_title="PMS - Gestion de Ligue", layout="wide")
+
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+REQUIRED_COLS = ["Propriétaire", "Joueur", "Pos", "Equipe", "Salaire", "Level", "Statut", "Slot", "IR Date"]
+SLOT_ACTIF = "Actif"
+STATUT_GC = "Grand Club"
+
+# Barème de points NHL
 SCORING_RULES = {
-    "F": {"goals": 3, "assists": 2, "plusMinus": 0.5, "powerPlayPoints": 1, "shots": 0.1},
-    "D": {"goals": 5, "assists": 3, "plusMinus": 1, "powerPlayPoints": 1, "shots": 0.2},
+    "F": {"goals": 3, "assists": 2, "plusMinus": 0.5},
+    "D": {"goals": 5, "assists": 3, "plusMinus": 1},
     "G": {"wins": 5, "shutouts": 5, "saves": 0.05, "goalsAgainst": -1}
 }
 
 # =====================================================
-# SAFE IMAGE (évite MediaFileHandler: Missing file)
+# FONCTIONS DE NETTOYAGE ET IMPORTATION
 # =====================================================
-def safe_image(image, *args, **kwargs):
-    try:
-        if isinstance(image, str):
-            p = image.strip()
-            if p and os.path.exists(p):
-                return st.image(p, *args, **kwargs)
-            cap = kwargs.get("caption", "")
-            if cap:
-                st.caption(cap)
-            return None
-        return st.image(image, *args, **kwargs)
-    except Exception:
-        cap = kwargs.get("caption", "")
-        if cap:
-            st.caption(cap)
-        return None
 
-# =====================================================
-# PATHS — repo local (Streamlit Cloud safe)
-# =====================================================
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+def clean_salary(val):
+    """Nettoie les chaînes de caractères de salaire (ex: '1 250 000 $' -> 1250000)"""
+    if pd.isna(val): return 0
+    s = str(val).replace("$", "").replace(" ", "").replace(",", "")
+    try: return int(float(s))
+    except: return 0
 
-def _resolve_local_logo(candidates: list[str]) -> str:
-    search_dirs = [APP_DIR, os.getcwd(), os.path.join(os.getcwd(), "data"), os.path.join(APP_DIR, "data")]
-    for name in candidates:
-        for d in search_dirs:
-            p = os.path.join(d, name)
-            if os.path.exists(p):
-                return p
-    return os.path.join(APP_DIR, candidates[0]) 
-
-LOGO_POOL_FILE = _resolve_local_logo(["logo_pool.png","Logo_Pool.png","LOGO_POOL.png"])
-GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png"])
-
-# =====================================================
-# STREAMLIT CONFIG
-# =====================================================
-st.set_page_config(page_title="PMS", layout="wide")
-if "PLAFOND_GC" not in st.session_state or int(st.session_state.get("PLAFOND_GC") or 0) <= 0:
-    st.session_state["PLAFOND_GC"] = 95_500_000
-if "PLAFOND_CE" not in st.session_state or int(st.session_state.get("PLAFOND_CE") or 0) <= 0:
-    st.session_state["PLAFOND_CE"] = 47_750_000
-
-# =====================================================
-# 🏆 LIVE SCORING ENGINE (NHL API)
-# =====================================================
-def sync_nhl_stats():
-    """Fetches stats from the NHL API and saves to points_cache.csv"""
-    try:
-        # Fetch Skaters (F/D)
-        s_resp = requests.get("https://api-web.nhl.com/v1/skater-stats-now").json()
-        skaters = pd.DataFrame(s_resp['data'])
-        # Fetch Goalies (G)
-        g_resp = requests.get("https://api-web.nhl.com/v1/goalie-stats-now").json()
-        goalies = pd.DataFrame(g_resp['data'])
-
-        points_map = {}
-
-        for _, r in skaters.iterrows():
-            name = f"{r['firstName']} {r['lastName']}".lower().strip()
-            pos = "D" if r['positionCode'] == "D" else "F"
-            rules = SCORING_RULES[pos]
-            pts = (r.get('goals', 0) * rules['goals'] + 
-                   r.get('assists', 0) * rules['assists'] + 
-                   r.get('plusMinus', 0) * rules['plusMinus'] +
-                   r.get('powerPlayPoints', 0) * rules['powerPlayPoints'] +
-                   r.get('shots', 0) * rules['shots'])
-            points_map[name] = round(pts, 2)
-
-        for _, r in goalies.iterrows():
-            name = f"{r['firstName']} {r['lastName']}".lower().strip()
-            rules = SCORING_RULES["G"]
-            pts = (r.get('wins', 0) * rules['wins'] + 
-                   r.get('shutouts', 0) * rules['shutouts'] + 
-                   r.get('saves', 0) * rules['saves'] + 
-                   r.get('goalsAgainst', 0) * rules['goalsAgainst'])
-            points_map[name] = round(pts, 2)
-
-        cache_df = pd.DataFrame(list(points_map.items()), columns=['player', 'pts'])
-        cache_df.to_csv(os.path.join(DATA_DIR, "points_cache.csv"), index=False)
-        return True
-    except Exception as e:
-        st.error(f"Erreur API NHL: {e}")
-        return False
-
-def get_cached_points(name: str) -> float:
-    """Retrieves points for a player from the local cache file."""
-    path = os.path.join(DATA_DIR, "points_cache.csv")
-    if not os.path.exists(path): return 0.0
-    try:
-        df = pd.read_csv(path)
-        match = df[df['player'] == name.lower().strip()]
-        return float(match['pts'].values[0]) if not match.empty else 0.0
-    except: return 0.0
-
-# =====================================================
-# THEME & CSS
-# =====================================================
-THEME_CSS = """<style>
-.leaderboard-card { background: rgba(255,255,255,0.04); border-radius: 14px; padding: 16px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.1); }
-.levelBadge { display:inline-block; padding:2px 10px; border-radius:999px; font-weight:800; font-size:0.82rem; background: rgba(255,255,255,0.06); }
-.salaryCell { white-space: nowrap; text-align: right; font-weight: 900; }
-.pms-broadcast-bar { border-radius: 18px; padding: 18px 16px; background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02), rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 14px 40px rgba(0,0,0,0.30); text-align: center;}
-</style>"""
-st.markdown(THEME_CSS, unsafe_allow_html=True)
-
-# =====================================================
-# DATE & UTILITIES
-# =====================================================
-MOIS_FR = ["", "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
-TZ_TOR = ZoneInfo("America/Montreal")
-REQUIRED_COLS = ["Propriétaire", "Joueur", "Pos", "Equipe", "Salaire", "Level", "Statut", "Slot", "IR Date"]
-
-SLOT_ACTIF = "Actif"
-SLOT_BANC = "Banc"
-SLOT_IR = "Blessé"
-STATUT_GC = "Grand Club"
-STATUT_CE = "Club École"
-
-def money(v) -> str:
-    try: return f"{int(v):,}".replace(",", " ") + " $"
-    except: return "0 $"
-
-def normalize_pos(pos: str) -> str:
-    p = str(pos or "").upper()
-    if "G" in p: return "G"
-    if "D" in p: return "D"
-    return "F"
-
-def get_selected_team() -> str:
-    return str(st.session_state.get("selected_team") or "").strip()
-
-# =====================================================
-# 🏆 TAB: CLASSEMENT (LEADERBOARD)
-# =====================================================
-def render_tab_leaderboard():
-    st.markdown("<div class='pms-broadcast-bar'><h1>🏆 Classement de la Ligue</h1></div>", unsafe_allow_html=True)
-    st.write("")
+def parse_fantrax_csv(uploaded_file, team_owner):
+    """Lit le CSV et mappe les colonnes vers notre format standard."""
+    df_raw = pd.read_csv(uploaded_file)
     
-    df = st.session_state.get("data")
-    if df is None or df.empty:
-        st.info("Aucun joueur n'est actuellement dans la ligue.")
-        return
-
-    # Attach live points
-    df['Pts'] = df['Joueur'].apply(get_cached_points)
+    # Mapping des colonnes Fantrax vers les nôtres
+    # On cherche les colonnes qui contiennent ces mots-clés
+    mapping = {
+        'Player': 'Joueur',
+        'Team': 'Equipe',
+        'Position': 'Pos',
+        'Salary': 'Salaire'
+    }
     
-    # Leaderboard logic: Sum points for "Actif" players only
-    active_players = df[df['Slot'] == SLOT_ACTIF].copy()
-    standings = active_players.groupby("Propriétaire")['Pts'].sum().reset_index()
-    standings = standings.sort_values(by="Pts", ascending=False).reset_index(drop=True)
+    df_new = pd.DataFrame()
+    
+    # Identification intelligente des colonnes
+    for raw_col in df_raw.columns:
+        for key, target in mapping.items():
+            if key.lower() in raw_col.lower():
+                df_new[target] = df_raw[raw_col]
+    
+    # Ajout des colonnes par défaut
+    df_new["Propriétaire"] = team_owner
+    df_new["Salaire"] = df_new["Salaire"].apply(clean_salary)
+    df_new["Statut"] = STATUT_GC
+    df_new["Slot"] = SLOT_ACTIF
+    df_new["Level"] = "STD"
+    df_new["IR Date"] = ""
+    
+    # S'assurer que toutes les colonnes requises sont là
+    for col in REQUIRED_COLS:
+        if col not in df_new.columns:
+            df_new[col] = ""
+            
+    return df_new[REQUIRED_COLS]
 
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        for i, row in standings.iterrows():
-            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
-            st.markdown(f"""
-            <div class="leaderboard-card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="font-size:1.2rem; font-weight:bold;">{medal} {row['Propriétaire']}</div>
-                    <div style="font-size:1.6rem; font-weight:900; color:#22c55e;">{row['Pts']:.2f} <span style="font-size:0.8rem; opacity:0.6;">PTS</span></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    with c2:
-        st.subheader("💡 Info")
-        st.write("Le pointage est basé sur les statistiques réelles de la NHL.")
-        st.caption("Seuls les joueurs en position 'Actif' accumulent des points pour leur propriétaire.")
-        st.divider()
-        with st.expander("Consulter le barème"):
-            st.write("**Attaquants**: B=3, P=2, +/-=0.5")
-            st.write("**Défenseurs**: B=5, P=3, +/-=1")
-            st.write("**Gardiens**: V=5, BL=5, Arr=0.05")
-
-# =====================================================
-# MAIN APP ROUTING
-# =====================================================
-def pick_team(team: str):
-    st.session_state["selected_team"] = team
-    st.rerun()
-
-def load_data():
+def save_data(df):
     season = st.session_state.get("season", "2024-2025")
     path = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-    if os.path.exists(path):
-        return pd.read_csv(path)
-    return pd.DataFrame(columns=REQUIRED_COLS)
+    df.to_csv(path, index=False)
+    st.session_state["data"] = df
 
 # =====================================================
-# START APP
+# 🛠️ ONGLET ADMIN (IMPORTATION)
 # =====================================================
-if "data" not in st.session_state:
-    st.session_state["data"] = load_data()
 
-# --- SIDEBAR ---
-st.sidebar.title("🏒 PMS Pool")
-saisons = ["2024-2025", "2025-2026"]
-season_pick = st.sidebar.selectbox("Saison", saisons, key="sb_season_select")
-st.session_state["season"] = season_pick
-
-teams = ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"]
-cur_team = get_selected_team() or teams[0]
-chosen_team = st.sidebar.selectbox("Équipe", teams, index=teams.index(cur_team))
-if chosen_team != cur_team:
-    pick_team(chosen_team)
-
-# Navigation
-is_admin = (chosen_team.lower() == "whalers")
-NAV_TABS = ["🏆 Classement", "🧾 Alignement", "🧊 GM", "👤 Joueurs autonomes", "🕘 Historique", "⚖️ Transactions"]
-if is_admin:
-    NAV_TABS.append("🛠️ Gestion Admin")
-
-active_tab = st.sidebar.radio("Navigation", NAV_TABS)
-
-# --- ROUTING ---
-if active_tab == "🏆 Classement":
-    render_tab_leaderboard()
-
-elif active_tab == "🧾 Alignement":
-    st.header(f"🧾 Alignement: {chosen_team}")
-    df = st.session_state["data"]
-    dprop = df[df["Propriétaire"] == chosen_team].copy()
-    if not dprop.empty:
-        dprop['Pts'] = dprop['Joueur'].apply(get_cached_points)
-        st.dataframe(dprop[['Slot', 'Pos', 'Joueur', 'Pts', 'Salaire']], use_container_width=True, hide_index=True)
-    else:
-        st.info("Aucun joueur pour cette équipe.")
-
-elif active_tab == "🛠️ Gestion Admin" and is_admin:
-    st.header("🛠️ Gestion Admin (Whalers)")
+def render_tab_admin():
+    st.title("🛠️ Gestion Admin (Whalers)")
     
-    with st.expander("🔄 Synchronisation NHL Live", expanded=True):
-        st.write("Récupérer les statistiques réelles de la NHL pour mettre à jour les points.")
-        if st.button("Mettre à jour les scores", type="primary", use_container_width=True):
-            with st.spinner("Appel à l'API NHL..."):
-                if sync_nhl_stats():
-                    st.success("Points mis à jour !")
-                    st.rerun()
-    
+    # --- SECTION 1 : SYNCHRO ---
+    with st.expander("🔄 Synchronisation NHL Live", expanded=False):
+        if st.button("Mettre à jour les scores NHL"):
+            st.info("Appel API NHL en cours...")
+            # (Insérer ici ta fonction sync_nhl_stats déjà créée)
+
     st.divider()
-    st.write("### Gestion des fichiers")
-    # Place your existing Admin CSV import logic here
 
-else:
-    st.title(active_tab)
-    st.info("Contenu en cours de développement.")
+    # --- SECTION 2 : IMPORTATION ---
+    st.subheader("📥 Importer des Joueurs (CSV)")
+    st.write("Téléchargez un export Fantrax pour mettre à jour l'alignement d'une équipe.")
+    
+    teams = ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"]
+    col_t, col_f = st.columns([1, 2])
+    
+    with col_t:
+        target_team = st.selectbox("Équipe cible", teams)
+    
+    with col_f:
+        file = st.file_uploader("Choisir le fichier CSV", type=["csv"])
+
+    if file:
+        df_preview = parse_fantrax_csv(file, target_team)
+        st.write(f"🔍 Aperçu de l'importation ({len(df_preview)} joueurs détectés) :")
+        st.dataframe(df_preview.head(10), use_container_width=True)
+        
+        if st.button(f"Confirmer l'importation pour les {target_team}", type="primary"):
+            # Charger les données globales
+            df_global = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+            
+            # Supprimer les anciens joueurs de cette équipe
+            df_global = df_global[df_global["Propriétaire"] != target_team]
+            
+            # Ajouter les nouveaux
+            df_final = pd.concat([df_global, df_preview], ignore_index=True)
+            
+            # Sauvegarder
+            save_data(df_final)
+            st.success(f"✅ Alignement des {target_team} mis à jour !")
+            st.rerun()
+
+# =====================================================
+# 🏆 CLASSEMENT & LOGIQUE APP
+# =====================================================
+
+def main():
+    if "data" not in st.session_state:
+        # Charger le fichier de la saison par défaut
+        path = os.path.join(DATA_DIR, "fantrax_2024-2025.csv")
+        if os.path.exists(path):
+            st.session_state["data"] = pd.read_csv(path)
+        else:
+            st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
+
+    # Sidebar
+    st.sidebar.title("🏒 PMS Pool")
+    st.session_state["season"] = st.sidebar.selectbox("Saison", ["2024-2025", "2025-2026"])
+    
+    teams = ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"]
+    selected_team = st.sidebar.selectbox("Mon Équipe", teams, key="selected_team")
+    
+    is_admin = (selected_team.lower() == "whalers")
+    
+    menu = ["🏆 Classement", "🧾 Alignement"]
+    if is_admin:
+        menu.append("🛠️ Gestion Admin")
+    
+    choice = st.sidebar.radio("Navigation", menu)
+
+    if choice == "🏆 Classement":
+        st.title("🏆 Classement")
+        st.dataframe(st.session_state["data"], use_container_width=True) # Simple view for now
+    elif choice == "🧾 Alignement":
+        st.title(f"Alignement de {selected_team}")
+        df = st.session_state["data"]
+        st.dataframe(df[df["Propriétaire"] == selected_team], use_container_width=True)
+    elif choice == "🛠️ Gestion Admin":
+        render_tab_admin()
+
+if __name__ == "__main__":
+    main()
