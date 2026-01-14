@@ -3314,175 +3314,47 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         if isinstance(selected_df, pd.DataFrame) and not selected_df.empty:
             picked_rows = selected_df.copy()
 
-    # Persist picks (pour garder la sélection visible après rerun)
+# Persist picks (pour garder la sélection visible après rerun)
+# ✅ IMPORTANT: un nouveau search ne doit PAS écraser une sélection existante.
+# Règle:
+# - On garde prev_picks (persisté)
+# - On ajoute les "Pick=True" visibles
+# - On retire seulement les joueurs visibles explicitement décochés
+try:
+    prev = [str(x).strip() for x in (prev_picks or []) if str(x).strip()]
+    visible_players = []
+    visible_checked = []
+    visible_unchecked = []
+    if isinstance(edited, pd.DataFrame) and "Player" in edited.columns:
+        visible_players = edited["Player"].astype(str).str.strip().tolist()
+        if "Pick" in edited.columns:
+            visible_checked = edited.loc[edited["Pick"] == True, "Player"].astype(str).str.strip().tolist()
+            visible_unchecked = [p for p in visible_players if p and (p not in set(visible_checked))]
+    # 1) garder prev sauf ceux explicitement décochés (dans la vue courante)
+    cur = [p for p in prev if p and (p not in set(visible_unchecked))]
+    # 2) ajouter cochés visibles
+    for p in visible_checked:
+        p = str(p).strip()
+        if p and p not in cur:
+            cur.append(p)
+    # 3) max 5
+    st.session_state[pick_state_key] = cur[:5]
+
+    # Rebuild picked_rows from persisted selection (robuste aux changements de filtres/recherche)
     try:
-        cur_true = []
-        cur_false = []
-        if isinstance(edited, pd.DataFrame) and "Pick" in edited.columns and "Player" in edited.columns:
-            _p = edited["Player"].astype(str).str.strip()
-            _k = edited["Pick"].fillna(False).astype(bool)
-            cur_true = _p[_k].tolist()
-            cur_false = _p[~_k].tolist()
-
-        prev_list = [str(x).strip() for x in (prev_picks or []) if str(x).strip()]
-        false_set = set([x for x in cur_false if x])
-
-        merged = []
-        seen = set()
-
-        # On conserve les anciens picks, sauf si l'utilisateur a explicitement décoché dans la vue courante
-        for x in prev_list:
-            if x in false_set:
-                continue
-            if x and x not in seen:
-                merged.append(x)
-                seen.add(x)
-
-        # On ajoute les nouveaux cochés de la vue courante
-        for x in cur_true:
-            if x and x not in seen:
-                merged.append(x)
-                seen.add(x)
-
-        st.session_state[pick_state_key] = merged[:5]
-
+        persisted = [str(x).strip() for x in (st.session_state.get(pick_state_key) or []) if str(x).strip()]
+        if persisted and isinstance(df_db, pd.DataFrame) and not df_db.empty:
+            keycol = "Player" if "Player" in df_db.columns else ("Joueur" if "Joueur" in df_db.columns else None)
+            if keycol:
+                _sel = df_db[df_db[keycol].astype(str).str.strip().isin(persisted)].copy()
+                if not _sel.empty:
+                    if keycol != "Player":
+                        _sel["Player"] = _sel[keycol].astype(str)
+                    picked_rows = _sel.copy()
     except Exception:
-        # fallback ultra-safe
-        st.session_state[pick_state_key] = (prev_picks or [])[:5]
-
-    def _style_owned_row(row):
-        # Encadrement rouge si Appartenant à non vide
-        own = str(row.get("Appartenant à", "") or "").strip()
-
-        # Non-jouable = pas de ✅ (ou champ ✅ Jouable False)
-        non_jouable = False
-        try:
-            if "✅" in row.index:
-                non_jouable = str(row.get("✅", "") or "").strip() != "✅"
-            elif "✅ Jouable" in row.index:
-                non_jouable = not bool(row.get("✅ Jouable", True))
-        except Exception:
-            non_jouable = False
-
-        styles = [""] * len(row)
-
-        if own:
-            styles = ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
-
-        if non_jouable:
-            # Surbrillance rouge légère + texte gras
-            styles = ["background: rgba(239,68,68,0.12); font-weight:700;"] * len(row)
-
-        return styles
-
-    try:
-        styled = picked_rows.drop(columns=["Pick"], errors="ignore").style.apply(_style_owned_row, axis=1)
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-    except Exception:
-        st.dataframe(picked_rows.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
-
-        # --- Validation "jouable" (désactive le bouton si un joueur non-jouable est coché)
-        has_non_jouable = False
-        try:
-            if "✅" in picked_rows.columns:
-                has_non_jouable = (~picked_rows["✅"].astype(str).str.strip().eq("✅")).any()
-            elif "✅ Jouable" in picked_rows.columns:
-                has_non_jouable = (~picked_rows["✅ Jouable"].astype(bool)).any()
-        except Exception:
-            has_non_jouable = False
-        
-        if has_non_jouable:
-            st.warning("Au moins un joueur sélectionné est **NON JOUABLE** (NHL GP < 84 ou Level = ELC). Décoche-le pour confirmer l’embauche.")
-    owners = []
-    if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
-        owners = sorted(df_league["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
-    if not owners and "LOGOS" in globals():
-        owners = sorted(list(LOGOS.keys()))
-    if not owners:
-        owners = [get_selected_team()] if "get_selected_team" in globals() else []
-
-    cA, cB, cC = st.columns([2, 1, 1], vertical_alignment="center")
-    with cA:
-        # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
-        dest_default = owner if owner in owners else (owners[0] if owners else "")
-        dest_options = [dest_default] if (lock_dest_to_owner and dest_default) else owners
-        dest_owner = st.selectbox(
-            "Équipe destination",
-            dest_options,
-            index=0 if lock_dest_to_owner else (dest_options.index(dest_default) if dest_default in dest_options else 0),
-            key="fa_dest_owner",
-            disabled=bool(lock_dest_to_owner),
-        )
-    with cB:
-        assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
-    with cC:
-        st.caption("—")
-
-    if st.button(
-        "✅ Confirmer l’embauche",
-        type="primary",
-        use_container_width=True,
-        key="fa_confirm",
-        disabled=(picked_rows.empty or has_non_jouable),
-    ):
-
-        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-        if not isinstance(df_all, pd.DataFrame):
-            df_all = pd.DataFrame(columns=REQUIRED_COLS)
-
-        added = 0
-        skipped_owned = []
-
-        for _, rr in picked_rows.iterrows():
-            pname = str(rr.get("Player", "") or "").strip()
-            if not pname:
-                continue
-
-            owned_team = owned_to(pname)
-            if owned_team:
-                skipped_owned.append(pname)
-                continue
-
-            sub = dff[dff["Player"].astype(str).str.strip().eq(pname)].head(1)
-            if sub.empty:
-                continue
-
-            r0 = sub.iloc[0].to_dict()
-            pos = str(r0.get("Position", r0.get("Pos", "")) or "").strip()
-            team = str(r0.get("Team", "") or "").strip()
-            sal = _cap_to_int(r0.get(cap_col, 0)) if cap_col else 0
-            lvl = str(r0.get(level_col, "") or "").strip() if level_col else ""
-
-            # Affectation via radio
-            if assign == "GC":
-                statut_val, slot_val = STATUT_GC, SLOT_ACTIF
-            elif assign == "Banc":
-                statut_val, slot_val = STATUT_GC, SLOT_BANC
-            else:
-                statut_val, slot_val = STATUT_CE, SLOT_MINEUR
-
-            new_row = {
-                "Propriétaire": str(dest_owner),
-                "Joueur": pname,
-                "Équipe": team,
-                "Pos": pos,
-                "Salaire": int(sal or 0),
-                "Statut": statut_val,
-                "Slot": slot_val,
-                "Level": lvl,
-            }
-            for c in REQUIRED_COLS:
-                if c not in new_row:
-                    new_row[c] = ""
-
-            df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
-            added += 1
-
-        st.session_state["data"] = df_all
-        try:
-            st.session_state["plafonds"] = rebuild_plafonds(df_all)
-        except Exception:
-            pass
+        pass
+except Exception:
+    pass
 
         if skipped_owned:
             st.warning("Joueurs ignorés (déjà à une équipe): " + ", ".join(skipped_owned[:10]))
@@ -4547,4 +4419,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
-    
