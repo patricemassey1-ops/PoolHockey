@@ -3520,6 +3520,205 @@ elif active_tab == "👤 Joueurs autonomes":
             for c in df_show.columns:
                 df_show[c] = df_show[c].apply(_clean_intlike)
 
+            # --- Sélection (max 5) + encadrement rouge si appartient déjà à une équipe
+
+
+            try:
+
+
+                # Liste de choix depuis les résultats visibles (jusqu'à 250)
+
+
+                if "Player" in df_show.columns:
+
+
+                    options = df_show["Player"].dropna().astype(str).tolist()
+
+
+                else:
+
+
+                    options = []
+
+
+            
+
+
+                picked = st.multiselect(
+
+
+                    "Sélection (max 5 joueurs)",
+
+
+                    options,
+
+
+                    default=[],
+
+
+                    key="fa_selected_players",
+
+
+                    help="Ajoute jusqu’à 5 joueurs pour les comparer. Rouge = appartient déjà à une équipe.",
+
+
+                )
+
+
+                if isinstance(picked, list) and len(picked) > 5:
+
+
+                    st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers.")
+
+
+                    picked = picked[:5]
+
+
+                    st.session_state["fa_selected_players"] = picked
+
+
+            
+
+
+                if picked:
+
+
+                    # Mapping propriétaire depuis les données de ligue (si dispo)
+
+
+                    df_league = st.session_state.get("data")
+
+
+                    owner_map = {}
+
+
+                    if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Joueur" in df_league.columns and "Propriétaire" in df_league.columns:
+
+
+                        def _k(x: str) -> str:
+
+
+                            return str(x or "").strip().lower()
+
+
+                        tmp = df_league.copy()
+
+
+                        tmp["_k"] = tmp["Joueur"].astype(str).map(_k)
+
+
+                        # dernier propriétaire rencontré (stable)
+
+
+                        for _, rr in tmp.iterrows():
+
+
+                            owner_map[str(rr.get("_k",""))] = str(rr.get("Propriétaire","") or "").strip()
+
+
+            
+
+
+                    # build selected table from dff (source complète)
+
+
+                    sel_rows = []
+
+
+                    for name in picked:
+
+
+                        name_s = str(name or "").strip()
+
+
+                        if not name_s:
+
+
+                            continue
+
+
+                        sub = dff[dff["Player"].astype(str).str.strip().eq(name_s)].head(1)
+
+
+                        if sub.empty:
+
+
+                            continue
+
+
+                        r0 = sub.iloc[0].to_dict()
+
+
+                        own = owner_map.get(str(name_s).strip().lower(), "")
+
+
+                        sel_rows.append({
+
+
+                            "Joueur": name_s,
+
+
+                            "Appartenant à": own if own else "Autonome",
+
+
+                            "Équipe": str(r0.get("Team","") or ""),
+
+
+                            "Position": str(r0.get("Position", r0.get("Pos","")) or ""),
+
+
+                            "Cap Hit": _money_space(_cap_to_int(r0.get(cap_col, 0))) if cap_col else "—",
+
+
+                            "Level": str(r0.get("Level","") or r0.get(level_col,"") or ""),
+
+
+                        })
+
+
+            
+
+
+                    if sel_rows:
+
+
+                        df_sel = pd.DataFrame(sel_rows).head(5)
+
+
+            
+
+
+                        def _style_row(row):
+
+
+                            own = str(row.get("Appartenant à","") or "").strip()
+
+
+                            if own and own.lower() not in ["autonome", "free agent", "fa", "-"]:
+
+
+                                return ["border:2px solid #ef4444;"] * len(row)
+
+
+                            return [""] * len(row)
+
+
+            
+
+
+                        st.markdown("#### 🎛️ Sélection (comparatif)")
+
+
+                        st.dataframe(df_sel.style.apply(_style_row, axis=1), use_container_width=True, hide_index=True)
+
+
+            except Exception:
+
+
+                pass
+
+
+
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 elif active_tab == "🕘 Historique":
