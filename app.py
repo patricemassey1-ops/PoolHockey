@@ -3202,11 +3202,8 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
     # NHL GP + jouable
     st.divider()
-    gp1, gp2 = st.columns([2, 3], vertical_alignment="center")
-    with gp1:
-        min_gp = st.selectbox("NHL GP (minimum)", ["Tous", "0+", "10+", "20+", "40+", "84+"], index=0, key="fa_min_gp")
-    with gp2:
-        only_jouable = st.checkbox("🚫 Exclure non‑jouables (NHL GP < 84 ou Level = ELC)", value=True, key="fa_only_jouable")
+    # ✅ Filtre rapide: exclure les non‑jouables
+    only_jouable = st.checkbox("🚫 Exclure les joueurs non‑jouables (NHL GP < 84 ou Level = ELC)", value=True, key="fa_only_jouable")
 
     # --------- Filtrage ---------
     dff = df_db.copy()
@@ -3227,10 +3224,6 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     dff["_nhl_gp"] = dff[nhl_gp_col].apply(_as_int) if nhl_gp_col and nhl_gp_col in dff.columns else 0
     dff["_lvl"] = dff["Level"].astype(str).str.strip().str.upper() if level_col else ""
 
-    if min_gp != "Tous":
-        gp_min = int(str(min_gp).replace("+", ""))
-        dff = dff[dff["_nhl_gp"] >= gp_min].copy()
-
     dff["✅ Jouable"] = (dff["_nhl_gp"] >= 84) & (dff["_lvl"].ne("ELC"))
     if only_jouable:
         dff = dff[dff["✅ Jouable"]].copy()
@@ -3239,7 +3232,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     st.markdown("### Résultats")
 
     # Guard: aucun filtre -> rien
-    if not any([q_name, (team_pick != "Toutes"), (lvl_pick != "Tous"), cap_on, (min_gp != "Tous"), only_jouable]):
+    if not any([q_name, (team_pick != "Toutes"), (lvl_pick != "Tous"), cap_on, (None != "Tous"), only_jouable]):
         st.info("Ajoute au moins un filtre (nom, équipe, level, cap hit, NHL GP, jouable) pour afficher des résultats.")
         return
 
