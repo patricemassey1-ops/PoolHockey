@@ -3053,6 +3053,324 @@ def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
         pass
 
 
+
+def render_tab_autonomes():
+    st.subheader("👤 Joueurs autonomes")
+    st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
+
+    players_db = st.session_state.get("players_db")
+    if players_db is None or (not isinstance(players_db, pd.DataFrame)) or players_db.empty:
+        st.error("Impossible de charger la base joueurs.")
+        st.stop()
+
+    df_db = players_db.copy()
+
+    # --------- Normalisation colonnes (best effort) ---------
+    if "Player" not in df_db.columns:
+        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
+            if cand in df_db.columns:
+                df_db = df_db.rename(columns={cand: "Player"})
+                break
+
+    if "Team" not in df_db.columns:
+        for cand in ["Équipe", "Equipe", "NHL Team", "team", "Club"]:
+            if cand in df_db.columns:
+                df_db = df_db.rename(columns={cand: "Team"})
+                break
+
+    if "Position" not in df_db.columns:
+        for cand in ["Pos", "POS", "position"]:
+            if cand in df_db.columns:
+                df_db = df_db.rename(columns={cand: "Position"})
+                break
+
+    # Level / contrat
+    level_col = None
+    for cand in ["Level", "Contrat", "Contract", "Type", "level"]:
+        if cand in df_db.columns:
+            level_col = cand
+            break
+    if level_col and level_col != "Level":
+        df_db = df_db.rename(columns={level_col: "Level"})
+    level_col = "Level" if "Level" in df_db.columns else None
+
+    # Cap hit / salaire
+    cap_col = None
+    for cand in ["Cap Hit", "CapHit", "Cap", "Salary", "Salaire", "AAV"]:
+        if cand in df_db.columns:
+            cap_col = cand
+            break
+
+    # NHL GP
+    nhl_gp_col = None
+    for cand in ["NHL GP", "NHL_GP", "NHLGP", "NHL Games", "NHLGames", "GP", "NHL_Games"]:
+        if cand in df_db.columns:
+            nhl_gp_col = cand
+            break
+
+    # --------- Mapping "appartient déjà à" (à partir de la ligue) ---------
+    df_league = st.session_state.get("data")
+    owner_map = {}
+    if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Joueur" in df_league.columns and "Propriétaire" in df_league.columns:
+        def _k(x: str) -> str:
+            return str(x or "").strip().lower()
+        tmp = df_league.copy()
+        tmp["_k"] = tmp["Joueur"].astype(str).map(_k)
+        for _, rr in tmp.iterrows():
+            owner_map[str(rr.get("_k",""))] = str(rr.get("Propriétaire","") or "").strip()
+
+    def owned_to(player: str) -> str:
+        return owner_map.get(str(player or "").strip().lower(), "")
+
+    def _as_int(v) -> int:
+        try:
+            return int(float(v))
+        except Exception:
+            return 0
+
+    # --------- UI filtres ---------
+    f1, f2, f3 = st.columns([5, 3, 3], vertical_alignment="center")
+    with f1:
+        q_name = st.text_input("Nom / Prénom", value="", key="fa_q_name").strip()
+    with f2:
+        teams = ["Toutes"]
+        if "Team" in df_db.columns:
+            teams += sorted(df_db["Team"].dropna().astype(str).str.strip().unique().tolist())
+        team_pick = st.selectbox("Équipe", teams, index=0, key="fa_team_pick")
+    with f3:
+        levels = ["Tous"]
+        if level_col:
+            levels += sorted(df_db["Level"].dropna().astype(str).str.strip().unique().tolist())
+        lvl_pick = st.selectbox("Level (Contrat)", levels, index=0, key="fa_lvl_pick")
+
+    st.divider()
+
+    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
+    cap_on = st.checkbox("Activer le filtre Cap Hit", value=False, key="fa_cap_on")
+    cap_min, cap_max = (0, 30_000_000)
+    if cap_col and cap_col in df_db.columns:
+        try:
+            vals = df_db[cap_col].apply(_cap_to_int)
+            cap_min = int(vals.min()) if vals.notna().any() else 0
+            cap_max = int(vals.max()) if vals.notna().any() else 30_000_000
+            cap_min = max(0, min(cap_min, cap_max))
+        except Exception:
+            cap_min, cap_max = (0, 30_000_000)
+
+    if cap_on:
+        cap_rng = st.slider("Plage Cap Hit", min_value=0, max_value=int(max(cap_max, 1)), value=(0, int(max(cap_max, 1))), step=50_000, key="fa_cap_rng")
+    else:
+        cap_rng = (0, int(max(cap_max, 1)))
+
+    # NHL GP + jouable
+    st.divider()
+    gp1, gp2 = st.columns([2, 3], vertical_alignment="center")
+    with gp1:
+        min_gp = st.selectbox("NHL GP (minimum)", ["Tous", "0+", "10+", "20+", "40+", "84+"], index=0, key="fa_min_gp")
+    with gp2:
+        only_jouable = st.checkbox("✅ Montrer seulement les joueurs jouables (NHL GP ≥ 84 et Level ≠ ELC)", value=False, key="fa_only_jouable")
+
+    # --------- Filtrage ---------
+    dff = df_db.copy()
+    if q_name:
+        dff = dff[dff["Player"].astype(str).str.lower().str.contains(q_name.lower(), na=False)].copy()
+
+    if team_pick != "Toutes" and "Team" in dff.columns:
+        dff = dff[dff["Team"].astype(str).str.strip().eq(str(team_pick).strip())].copy()
+
+    if lvl_pick != "Tous" and level_col:
+        dff = dff[dff["Level"].astype(str).str.strip().eq(str(lvl_pick).strip())].copy()
+
+    if cap_on and cap_col and cap_col in dff.columns:
+        cap_vals = dff[cap_col].apply(_cap_to_int)
+        dff = dff[(cap_vals >= int(cap_rng[0])) & (cap_vals <= int(cap_rng[1]))].copy()
+
+    # NHL GP & jouable
+    dff["_nhl_gp"] = dff[nhl_gp_col].apply(_as_int) if nhl_gp_col and nhl_gp_col in dff.columns else 0
+    dff["_lvl"] = dff["Level"].astype(str).str.strip().str.upper() if level_col else ""
+
+    if min_gp != "Tous":
+        gp_min = int(str(min_gp).replace("+", ""))
+        dff = dff[dff["_nhl_gp"] >= gp_min].copy()
+
+    dff["✅ Jouable"] = (dff["_nhl_gp"] >= 84) & (dff["_lvl"].ne("ELC"))
+    if only_jouable:
+        dff = dff[dff["✅ Jouable"]].copy()
+
+    st.divider()
+    st.markdown("### Résultats")
+
+    # Guard: aucun filtre -> rien
+    if not any([q_name, (team_pick != "Toutes"), (lvl_pick != "Tous"), cap_on, (min_gp != "Tous"), only_jouable]):
+        st.info("Ajoute au moins un filtre (nom, équipe, level, cap hit, NHL GP, jouable) pour afficher des résultats.")
+        return
+
+    if dff.empty:
+        st.warning("Aucun joueur trouvé.")
+        return
+
+    dff = dff.head(300).reset_index(drop=True)
+
+    # --------- Tableau principal (sélection max 5) ---------
+    cols = []
+    for c in ["Player", "Team", "Position"]:
+        if c in dff.columns:
+            cols.append(c)
+
+    df_show = dff[cols].copy()
+
+    if cap_col and cap_col in dff.columns:
+        df_show["Cap Hit"] = dff[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+
+    if level_col:
+        df_show["Level"] = dff["Level"].astype(str).str.strip()
+
+    df_show["NHL GP"] = dff["_nhl_gp"].astype(int)
+    df_show["✅"] = dff["✅ Jouable"].apply(lambda v: "✅" if bool(v) else "")
+
+    df_show["Appartenant à"] = df_show["Player"].apply(owned_to)
+    df_show["🔴"] = df_show["Appartenant à"].apply(lambda x: "🔴" if str(x or "").strip() else "")
+
+    df_edit = df_show.copy()
+    df_edit.insert(0, "Pick", False)
+
+    edited = st.data_editor(
+        df_edit,
+        use_container_width=True,
+        hide_index=True,
+        key="fa_editor",
+        column_config={
+            "Pick": st.column_config.CheckboxColumn("Pick", help="Coche pour sélectionner (max 5)."),
+        },
+        disabled=[c for c in df_edit.columns if c != "Pick"],
+    )
+
+    picked = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
+    if not picked.empty and len(picked) > 5:
+        st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers cochés.")
+        picked = picked.head(5)
+
+    # Détail optionnel sans expander (évite nested)
+    show_detail = st.checkbox("Voir le détail en tableau", value=False, key="fa_show_detail")
+    if show_detail:
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # --------- Sélection + embauche ---------
+    if picked.empty:
+        st.caption("Coche jusqu’à 5 joueurs dans la colonne **Pick**, puis confirme l’embauche.")
+        return
+
+    st.markdown("#### ✅ Sélection (max 5)")
+
+    def _style_owned_row(row):
+        # Encadrement rouge si Appartenant à non vide
+        own = str(row.get("Appartenant à", "") or "").strip()
+        if own:
+            return ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
+        return [""] * len(row)
+
+    try:
+        styled = picked.drop(columns=["Pick"], errors="ignore").style.apply(_style_owned_row, axis=1)
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+    except Exception:
+        st.dataframe(picked.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
+
+    owners = []
+    if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
+        owners = sorted(df_league["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+    if not owners and "LOGOS" in globals():
+        owners = sorted(list(LOGOS.keys()))
+    if not owners:
+        owners = [get_selected_team()] if "get_selected_team" in globals() else []
+
+    cA, cB, cC = st.columns([2, 1, 1], vertical_alignment="center")
+    with cA:
+        dest_owner = st.selectbox("Équipe destination", owners, index=0, key="fa_dest_owner")
+    with cB:
+        bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="fa_bucket")
+    with cC:
+        slot = st.selectbox("Slot", ["Actif", "Banc", "Mineur"], index=2, key="fa_slot")
+
+    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
+        df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+        if not isinstance(df_all, pd.DataFrame):
+            df_all = pd.DataFrame(columns=REQUIRED_COLS)
+
+        added = 0
+        skipped_owned = []
+
+        for _, rr in picked.iterrows():
+            pname = str(rr.get("Player", "") or "").strip()
+            if not pname:
+                continue
+
+            own = owned_to(pname)
+            if own:
+                skipped_owned.append(pname)
+                continue
+
+            sub = dff[dff["Player"].astype(str).str.strip().eq(pname)].head(1)
+            if sub.empty:
+                continue
+
+            r0 = sub.iloc[0].to_dict()
+            pos = str(r0.get("Position", r0.get("Pos", "")) or "").strip()
+            team = str(r0.get("Team", "") or "").strip()
+            sal = _cap_to_int(r0.get(cap_col, 0)) if cap_col else 0
+            lvl = str(r0.get("Level", "") or "").strip() if level_col else ""
+
+            slot_map = {"Actif": SLOT_ACTIF, "Banc": SLOT_BANC, "Mineur": SLOT_MINEUR}
+            slot_val = slot_map.get(slot, SLOT_MINEUR)
+
+            statut_val = STATUT_GC if bucket == "GC" else STATUT_CE
+            if statut_val == STATUT_CE:
+                slot_val = SLOT_MINEUR
+
+            new_row = {
+                "Propriétaire": str(dest_owner),
+                "Joueur": pname,
+                "Équipe": team,
+                "Pos": pos,
+                "Salaire": int(sal or 0),
+                "Statut": statut_val,
+                "Slot": slot_val,
+                "Level": lvl,
+            }
+            for c in REQUIRED_COLS:
+                if c not in new_row:
+                    new_row[c] = ""
+
+            df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
+            added += 1
+
+            # Retirer du marché si présent
+            try:
+                season_lbl = str(st.session_state.get("season", "") or "").strip()
+                tm = load_trade_market(season_lbl)
+                if isinstance(tm, pd.DataFrame) and "joueur" in tm.columns:
+                    tm2 = tm.copy()
+                    msk = tm2["joueur"].astype(str).str.strip().eq(pname)
+                    if msk.any():
+                        tm2 = tm2[~msk].copy()
+                        save_trade_market(season_lbl, tm2)
+            except Exception:
+                pass
+
+        st.session_state["data"] = df_all
+        try:
+            st.session_state["plafonds"] = rebuild_plafonds(df_all)
+        except Exception:
+            pass
+
+        if skipped_owned:
+            st.warning("Joueurs ignorés (appartiennent déjà à une équipe): " + ", ".join(skipped_owned[:10]))
+
+        st.success(f"Embauche complétée ✅ — {added} joueur(s) ajoutés à {dest_owner}.")
+        do_rerun()
+
+
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
@@ -3379,281 +3697,7 @@ elif active_tab == "🧊 GM":
     render_tab_gm()
 
 elif active_tab == "👤 Joueurs autonomes":
-    st.subheader("👤 Joueurs autonomes")
-    st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
-
-    players_db = st.session_state.get("players_db")
-    if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
-        st.error("Impossible de charger la base joueurs.")
-        st.caption(f"Chemin attendu : {PLAYERS_DB_FILE}")
-        st.stop()
-
-    df_db = players_db.copy()
-
-    if "Player" not in df_db.columns:
-        found = None
-        for cand in ["Joueur", "Name", "Full Name", "fullname", "player"]:
-            if cand in df_db.columns:
-                found = cand
-                break
-        if found:
-            df_db = df_db.rename(columns={found: "Player"})
-        else:
-            st.error(f"Colonne 'Player' introuvable. Colonnes: {list(df_db.columns)}")
-            st.stop()
-
-    def _clean_intlike(x):
-        s = str(x).strip()
-        if s == "" or s.lower() in {"nan", "none"}:
-            return ""
-        if re.match(r"^\d+\.0$", s):
-            return s.split(".")[0]
-        return s
-
-    def _cap_to_int(v) -> int:
-        s = str(v if v is not None else "").strip()
-        if s == "" or s.lower() in {"nan", "none"}:
-            return 0
-        s = s.replace("$", "").replace("€", "").replace("£", "")
-        s = s.replace(",", "").replace(" ", "")
-        s = re.sub(r"\.0+$", "", s)
-        s = re.sub(r"[^\d]", "", s)
-        return int(s) if s.isdigit() else 0
-
-    def _money_space(v: int) -> str:
-        try:
-            return f"{int(v):,}".replace(",", " ") + " $"
-        except Exception:
-            return "0 $"
-
-    def clear_j_name():
-        st.session_state["j_name"] = ""
-
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        a, b = st.columns([12, 1])
-        with a:
-            q_name = st.text_input("Nom / Prénom", placeholder="Ex: Jack Eichel", key="j_name")
-        with b:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            st.button("❌", key="j_name_clear", help="Effacer Nom / Prénom",
-                      use_container_width=True, on_click=clear_j_name)
-
-    with c2:
-        if "Team" in df_db.columns:
-            teams_db = sorted(df_db["Team"].dropna().astype(str).unique().tolist())
-            options_team = ["Toutes"] + teams_db
-            cur_team = st.session_state.get("j_team", "Toutes")
-            if cur_team not in options_team:
-                st.session_state["j_team"] = "Toutes"
-            q_team = st.selectbox("Équipe", options_team, key="j_team")
-        else:
-            q_team = "Toutes"
-            st.selectbox("Équipe", ["Toutes"], disabled=True, key="j_team_disabled")
-
-    with c3:
-        level_col = "Level" if "Level" in df_db.columns else None
-        if level_col:
-            levels = sorted(df_db[level_col].dropna().astype(str).unique().tolist())
-            options_level = ["Tous"] + levels
-            cur_level = st.session_state.get("j_level", "Tous")
-            if cur_level not in options_level:
-                st.session_state["j_level"] = "Tous"
-            q_level = st.selectbox("Level (Contrat)", options_level, key="j_level")
-        else:
-            q_level = "Tous"
-            st.selectbox("Level (Contrat)", ["Tous"], disabled=True, key="j_level_disabled")
-
-    st.divider()
-    st.markdown("### 💰 Recherche par Salaire (Cap Hit)")
-
-    cap_col = None
-    for cand in ["Cap Hit", "CapHit", "AAV"]:
-        if cand in df_db.columns:
-            cap_col = cand
-            break
-
-    if not cap_col:
-        st.warning("Aucune colonne Cap Hit/CapHit/AAV trouvée → filtre salaire désactivé.")
-        cap_apply = False
-        cap_min = cap_max = 0
-    else:
-        df_db["_cap_int"] = df_db[cap_col].apply(_cap_to_int)
-        cap_apply = st.checkbox("Activer le filtre Cap Hit", value=False, key="cap_apply")
-        cap_min, cap_max = st.slider(
-            "Plage Cap Hit",
-            min_value=0,
-            max_value=30_000_000,
-            value=(0, 30_000_000),
-            step=250_000,
-            disabled=(not cap_apply),
-            key="cap_slider",
-        )
-        st.caption(f"Plage sélectionnée : **{_money_space(cap_min)} → {_money_space(cap_max)}**")
-
-    has_filter = bool(str(q_name).strip()) or q_team != "Toutes" or q_level != "Tous" or cap_apply
-    if not has_filter:
-        st.info("Entre au moins un filtre pour afficher les résultats.")
-    else:
-        dff = df_db.copy()
-        if str(q_name).strip():
-            dff = dff[dff["Player"].astype(str).str.contains(q_name, case=False, na=False)]
-        if q_team != "Toutes" and "Team" in dff.columns:
-            dff = dff[dff["Team"].astype(str) == q_team]
-        if q_level != "Tous" and level_col:
-            dff = dff[dff[level_col].astype(str) == q_level]
-        if cap_col and cap_apply:
-            dff = dff[(dff["_cap_int"] >= cap_min) & (dff["_cap_int"] <= cap_max)]
-
-        if dff.empty:
-            st.warning("Aucun joueur trouvé avec ces critères.")
-        else:
-            dff = dff.head(250).reset_index(drop=True)
-            st.markdown("### Résultats")
-
-# --- Colonne NHL GP + filtres + embauche (max 5)
-nhl_gp_col = None
-for _c in ["NHL GP","NHL_GP","NHLGP","NHL Games","NHLGames","GP","NHL_Games"]:
-    if _c in dff.columns:
-        nhl_gp_col = _c
-        break
-
-df_league = st.session_state.get("data")
-owner_map = {}
-if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Joueur" in df_league.columns and "Propriétaire" in df_league.columns:
-    def _k(x: str) -> str:
-        return str(x or "").strip().lower()
-    tmp = df_league.copy()
-    tmp["_k"] = tmp["Joueur"].astype(str).map(_k)
-    for _, rr in tmp.iterrows():
-        owner_map[str(rr.get("_k",""))] = str(rr.get("Propriétaire","") or "").strip()
-
-def _as_int(v) -> int:
-    try:
-        return int(float(v))
-    except Exception:
-        return 0
-
-min_gp = st.selectbox("NHL GP (minimum)", ["Tous","0+","10+","20+","40+","84+"], index=0, key="fa_min_gp")
-only_jouable = st.checkbox("✅ Montrer seulement les joueurs jouables (NHL GP ≥ 84 et Level ≠ ELC)", value=False, key="fa_only_jouable")
-
-dff2 = dff.copy()
-dff2["_nhl_gp"] = dff2[nhl_gp_col].apply(_as_int) if nhl_gp_col else 0
-
-level_src = level_col if level_col and level_col in dff2.columns else ("Level" if "Level" in dff2.columns else None)
-dff2["_lvl"] = dff2[level_src].astype(str).str.strip().str.upper() if level_src else ""
-
-if min_gp != "Tous":
-    gp_min = int(str(min_gp).replace("+",""))
-    dff2 = dff2[dff2["_nhl_gp"] >= gp_min]
-
-dff2["✅ Jouable"] = (dff2["_nhl_gp"] >= 84) & (dff2["_lvl"].ne("ELC"))
-if only_jouable:
-    dff2 = dff2[dff2["✅ Jouable"]]
-
-if dff2.empty:
-    st.warning("Aucun joueur trouvé avec ces critères (après filtres NHL GP/Jouable).")
-else:
-    dff2 = dff2.head(250).reset_index(drop=True)
-
-    def _owned_to(player: str) -> str:
-        return owner_map.get(str(player or "").strip().lower(), "")
-
-    df_show = pd.DataFrame()
-    df_show["Player"] = dff2["Player"].astype(str).str.strip()
-    if "Team" in dff2.columns: df_show["Team"] = dff2["Team"].astype(str)
-    if "Position" in dff2.columns: df_show["Position"] = dff2["Position"].astype(str)
-    if cap_col and cap_col in dff2.columns:
-        df_show["Cap Hit"] = dff2[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
-    if level_src:
-        df_show["Level"] = dff2[level_src].astype(str).str.strip()
-    df_show["NHL GP"] = dff2["_nhl_gp"].astype(int)
-    df_show["✅"] = dff2["✅ Jouable"].apply(lambda v: "✅" if bool(v) else "")
-    df_show["Appartenant à"] = df_show["Player"].apply(_owned_to)
-    df_show["🔴"] = df_show["Appartenant à"].apply(lambda x: "🔴" if str(x or "").strip() else "")
-
-    df_edit = df_show.copy()
-    df_edit.insert(0, "Pick", False)
-
-    edited = st.data_editor(
-        df_edit,
-        use_container_width=True,
-        hide_index=True,
-        key="fa_editor",
-        column_config={"Pick": st.column_config.CheckboxColumn("Pick", help="Coche pour sélectionner (max 5).")},
-        disabled=[c for c in df_edit.columns if c != "Pick"],
-    )
-
-    picked_rows = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
-    if not picked_rows.empty and len(picked_rows) > 5:
-        st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers cochés.")
-        picked_rows = picked_rows.head(5)
-
-    if picked_rows.empty:
-        st.caption("Coche jusqu’à 5 joueurs puis confirme l’embauche.")
-    else:
-        st.markdown("#### ✅ Sélection (max 5)")
-        st.dataframe(picked_rows.drop(columns=["Pick"], errors="ignore"), use_container_width=True, hide_index=True)
-
-        owners = []
-        if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
-            owners = sorted(df_league["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
-        if not owners and "LOGOS" in globals():
-            owners = sorted(list(LOGOS.keys()))
-        if not owners:
-            owners = [owner] if owner else []
-
-        cA, cB, cC = st.columns([2,1,1], vertical_alignment="center")
-        with cA:
-            dest_owner = st.selectbox("Équipe destination", owners, index=(owners.index(owner) if owner in owners else 0), key="fa_dest_owner")
-        with cB:
-            bucket = st.radio("Appliqué à", ["GC","CE"], horizontal=True, key="fa_bucket")
-        with cC:
-            slot = st.selectbox("Slot", ["Actif","Banc","Mineur"], index=2, key="fa_slot")
-
-        if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
-            df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-            if not isinstance(df_all, pd.DataFrame):
-                df_all = pd.DataFrame(columns=REQUIRED_COLS)
-
-            added = 0
-            skipped_owned = []
-            for _, rr in picked_rows.iterrows():
-                pname = str(rr.get("Player","") or "").strip()
-                if not pname: 
-                    continue
-                owned_to = _owned_to(pname)
-                if owned_to:
-                    skipped_owned.append(pname); continue
-
-                sub = dff2[dff2["Player"].astype(str).str.strip().eq(pname)].head(1)
-                if sub.empty: 
-                    continue
-                r0 = sub.iloc[0].to_dict()
-                pos = str(r0.get("Position", r0.get("Pos","")) or "").strip()
-                team = str(r0.get("Team","") or "").strip()
-                sal = _cap_to_int(r0.get(cap_col, 0)) if cap_col else 0
-                lvl = str(r0.get(level_src,"") or "").strip() if level_src else ""
-
-                slot_map = {"Actif": SLOT_ACTIF, "Banc": SLOT_BANC, "Mineur": SLOT_MINEUR}
-                slot_val = slot_map.get(slot, SLOT_MINEUR)
-                statut_val = STATUT_GC if bucket == "GC" else STATUT_CE
-                if statut_val == STATUT_CE:
-                    slot_val = SLOT_MINEUR
-
-                new_row = {"Propriétaire": str(dest_owner), "Joueur": pname, "Équipe": team, "Pos": pos, "Salaire": int(sal or 0), "Statut": statut_val, "Slot": slot_val, "Level": lvl}
-                for c in REQUIRED_COLS:
-                    if c not in new_row: new_row[c] = ""
-                df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
-                added += 1
-
-            st.session_state["data"] = df_all
-            try: st.session_state["plafonds"] = rebuild_plafonds(df_all)
-            except Exception: pass
-            if skipped_owned:
-                st.warning("Joueurs ignorés (déjà à une équipe): " + ", ".join(skipped_owned[:10]))
-            st.success(f"Embauche complétée ✅ — {added} joueur(s) ajoutés à {dest_owner}.")
-            do_rerun()
+    render_tab_autonomes()
 
 elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
