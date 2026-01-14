@@ -831,11 +831,18 @@ def require_password():
 
 require_password()
 
+# --- Post-login ping (always visible) ---
+if st.session_state.get("authed", False):
+    st.markdown("✅ **Connecté** — chargement de l’application…")
+
 # =====================================================
 # MAIN APP (wrapped to avoid black screen)
 # =====================================================
 
 def _main_app():
+
+    st.markdown("## 🧊 PMS — Application chargée")
+    st.caption("Si tu vois ceci, l’écran noir n’est pas un crash mais un routing/affichage vide.")
 
     # =====================================================
     # MAIN HEADER — Logo_Pool + 🏒 (gauche) + 🥅 (droite)
