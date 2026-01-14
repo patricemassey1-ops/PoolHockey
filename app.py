@@ -23,46 +23,54 @@ STATUT_GC = "Grand Club"
 TZ_TOR = ZoneInfo("America/Toronto")
 
 # =====================================================
-# 2. FONCTIONS DE NETTOYAGE & PARSING
+# 2. FONCTIONS DE NETTOYAGE & PARSING (FIXED)
 # =====================================================
 
 def clean_salary(val):
-    """Nettoie les salaires (ex: '4 750 000 $' -> 4750000)"""
     if pd.isna(val): return 0
     s = str(val).replace("$", "").replace(",", "").replace("\xa0", "").strip()
-    s = re.sub(r'\s+', '', s) # Enlever tous les espaces
+    s = re.sub(r'\s+', '', s)
     try:
         return int(float(s))
     except:
         return 0
 
 def parse_fantrax_robust(uploaded_file, team_owner):
-    """Analyse robuste du CSV Fantrax avec détection automatique des colonnes."""
+    """
+    Analyse le CSV de façon ultra-robuste pour éviter l'erreur 'Expected X fields, saw Y'.
+    """
     raw_bytes = uploaded_file.read()
     raw_text = raw_bytes.decode("utf-8", errors="ignore")
     lines = raw_text.splitlines()
     
-    # 1. Trouver les lignes d'en-tête (cherche 'Player')
-    indices = [i for i, line in enumerate(lines) if "player" in line.lower()]
+    data_rows = []
+    current_columns = []
     
-    if not indices:
-        st.error("Le fichier ne semble pas contenir de colonne 'Player'.")
+    # 1. Parcourir le fichier ligne par ligne pour extraire les données
+    for line in lines:
+        # Nettoyer la ligne (enlever espaces et guillemets inutiles)
+        parts = [p.strip().replace('"', '') for p in line.split(',')]
+        
+        # Détecter une ligne d'en-tête (contient "Player" ou "Joueur")
+        if any("player" in p.lower() or "joueur" in p.lower() for p in parts):
+            current_columns = parts
+            continue
+            
+        # Si on a un en-tête et que la ligne a le même nombre d'éléments
+        if current_columns and len(parts) == len(current_columns):
+            # Créer un dictionnaire pour cette ligne
+            row_dict = dict(zip(current_columns, parts))
+            # On ne garde que si le nom du joueur n'est pas vide
+            if row_dict.get("Player") or row_dict.get("Joueur"):
+                data_rows.append(row_dict)
+
+    if not data_rows:
+        st.error("Aucune donnée de joueur n'a pu être extraite. Vérifiez le format du CSV.")
         return pd.DataFrame()
 
-    # 2. Extraire et combiner les blocs (Skaters + Goalies)
-    dfs = []
-    for idx in indices:
-        # On lit à partir de cet en-tête jusqu'à la prochaine ligne vide ou fin
-        content = "\n".join(lines[idx:])
-        temp_df = pd.read_csv(io.StringIO(content), sep=",", quotechar='"')
-        # Nettoyer les noms de colonnes (enlever les guillemets et espaces)
-        temp_df.columns = [c.strip().replace('"', '') for c in temp_df.columns]
-        dfs.append(temp_df)
-
-    df_all = pd.concat(dfs, ignore_index=True)
+    df_all = pd.DataFrame(data_rows)
     
-    # 3. Mapping intelligent des colonnes (Alias)
-    # On cherche dans df_all quelle colonne correspond à nos besoins
+    # 2. Mapping intelligent des colonnes (Recherche de synonymes)
     def find_col(possible_names):
         for col in df_all.columns:
             if any(name.lower() in col.lower() for name in possible_names):
@@ -72,14 +80,10 @@ def parse_fantrax_robust(uploaded_file, team_owner):
     c_joueur = find_col(['player', 'joueur', 'name'])
     c_equipe = find_col(['team', 'equipe', 'équipe'])
     c_pos = find_col(['pos', 'position'])
-    c_salaire = find_col(['salary', 'salaire', 'cap hit', 'aav', 'cap-hit'])
+    c_salaire = find_col(['salary', 'salaire', 'cap hit', 'aav'])
     c_status = find_col(['status', 'statut'])
 
-    if not c_joueur:
-        st.error("Colonne 'Joueur' introuvable.")
-        return pd.DataFrame()
-
-    # 4. Création du DataFrame final PMS
+    # 3. Construction du DataFrame final
     df_final = pd.DataFrame()
     df_final["Joueur"] = df_all[c_joueur]
     df_final["Equipe"] = df_all[c_equipe] if c_equipe else "N/A"
@@ -88,7 +92,6 @@ def parse_fantrax_robust(uploaded_file, team_owner):
     df_final["Propriétaire"] = team_owner
     df_final["Statut"] = STATUT_GC
     
-    # Déterminer le Slot (Actif / Banc) basé sur l'export Fantrax
     if c_status:
         df_final["Slot"] = df_all[c_status].apply(lambda x: "Actif" if "act" in str(x).lower() else "Banc")
     else:
@@ -97,29 +100,14 @@ def parse_fantrax_robust(uploaded_file, team_owner):
     df_final["Level"] = "STD"
     df_final["IR Date"] = ""
     
-    # Compléter les colonnes manquantes pour correspondre à REQUIRED_COLS
     for col in REQUIRED_COLS:
         if col not in df_final.columns: df_final[col] = ""
             
     return df_final[REQUIRED_COLS].dropna(subset=["Joueur"])
 
-def save_data(df):
-    season = st.session_state.get("season", "2024-2025")
-    path = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-    df.to_csv(path, index=False)
-    st.session_state["data"] = df
-
 # =====================================================
-# 3. INTERFACE & NAVIGATION
+# 3. INTERFACE ADMIN
 # =====================================================
-
-def render_tab_leaderboard():
-    st.markdown("<div class='pms-broadcast-bar'><h1>🏆 Classement Général</h1></div>", unsafe_allow_html=True)
-    df = st.session_state.get("data", pd.DataFrame())
-    if df.empty:
-        st.info("Aucun joueur. Importez un alignement dans l'onglet Admin.")
-    else:
-        st.dataframe(df, use_container_width=True, hide_index=True)
 
 def render_tab_admin():
     st.title("🛠️ Gestion Admin")
@@ -131,33 +119,46 @@ def render_tab_admin():
     with col1:
         target_team = st.selectbox("Équipe destinataire", teams)
     with col2:
-        file = st.file_uploader("Fichier CSV Fantrax", type=["csv"])
+        file = st.file_uploader("Fichier CSV Fantrax", type=["csv", "txt"])
 
     if file:
         try:
+            # On utilise le parsing ligne par ligne pour éviter l'erreur de tokenization
             df_preview = parse_fantrax_robust(file, target_team)
+            
             if not df_preview.empty:
-                st.write(f"✅ {len(df_preview)} joueurs détectés.")
+                st.write(f"✅ {len(df_preview)} joueurs détectés pour les {target_team}")
                 st.dataframe(df_preview.head(5), use_container_width=True)
                 
-                if st.button(f"Confirmer l'import pour {target_team}", type="primary"):
-                    df_cur = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-                    # Remplacer l'ancien alignement par le nouveau
-                    df_cur = df_cur[df_cur["Propriétaire"] != target_team]
-                    df_final = pd.concat([df_cur, df_preview], ignore_index=True)
-                    save_data(df_final)
-                    st.success(f"Alignement {target_team} mis à jour !")
+                if st.button(f"Confirmer l'importation pour {target_team}", type="primary"):
+                    # Charger data existante
+                    path = os.path.join(DATA_DIR, f"fantrax_{st.session_state['season']}.csv")
+                    if os.path.exists(path):
+                        df_global = pd.read_csv(path)
+                    else:
+                        df_global = pd.DataFrame(columns=REQUIRED_COLS)
+                    
+                    # Remplacer
+                    df_global = df_global[df_global["Propriétaire"] != target_team]
+                    df_final = pd.concat([df_global, df_preview], ignore_index=True)
+                    
+                    # Sauvegarder
+                    df_final.to_csv(path, index=False)
+                    st.session_state["data"] = df_final
+                    st.success("Données enregistrées !")
                     st.rerun()
         except Exception as e:
             st.error(f"Erreur lors de l'analyse : {e}")
 
 # =====================================================
-# 4. MAIN & LOGO
+# 4. LOGIQUE PRINCIPALE
 # =====================================================
 
 def main():
+    if "season" not in st.session_state: st.session_state["season"] = "2024-2025"
+    
+    path = os.path.join(DATA_DIR, f"fantrax_{st.session_state['season']}.csv")
     if "data" not in st.session_state:
-        path = os.path.join(DATA_DIR, "fantrax_2024-2025.csv")
         if os.path.exists(path):
             st.session_state["data"] = pd.read_csv(path)
         else:
@@ -169,7 +170,7 @@ def main():
     teams = ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"]
     selected_team = st.sidebar.selectbox("Mon Équipe", teams, key="selected_team")
     
-    # Affichage du logo d'équipe (cherché dans /data)
+    # Gestion des logos (Automatique)
     logo_path = os.path.join(DATA_DIR, f"{selected_team}_Logo.png")
     if os.path.exists(logo_path):
         st.sidebar.image(logo_path, use_container_width=True)
@@ -181,15 +182,12 @@ def main():
     choice = st.sidebar.radio("Navigation", menu)
 
     if choice == "🏆 Classement":
-        render_tab_leaderboard()
+        st.markdown("<div class='pms-broadcast-bar'><h1>🏆 Classement Général</h1></div>", unsafe_allow_html=True)
+        st.dataframe(st.session_state["data"], use_container_width=True, hide_index=True)
     elif choice == "🧾 Alignement":
         st.header(f"Alignement : {selected_team}")
         df = st.session_state["data"]
-        team_df = df[df["Propriétaire"] == selected_team]
-        if team_df.empty:
-            st.info("Aucun joueur pour cette équipe.")
-        else:
-            st.dataframe(team_df, use_container_width=True, hide_index=True)
+        st.dataframe(df[df["Propriétaire"] == selected_team], use_container_width=True, hide_index=True)
     elif choice == "🛠️ Gestion Admin":
         render_tab_admin()
 
