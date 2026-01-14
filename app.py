@@ -3188,7 +3188,7 @@ def render_tab_autonomes(show_header: bool = True):
     with gp1:
         min_gp = st.selectbox("NHL GP (minimum)", ["Tous", "0+", "10+", "20+", "40+", "84+"], index=0, key="fa_min_gp")
     with gp2:
-        only_jouable = st.checkbox("✅ Montrer seulement les joueurs jouables (NHL GP ≥ 84 et Level ≠ ELC)", value=False, key="fa_only_jouable")
+        only_jouable = st.checkbox("🚫 Exclure non‑jouables (NHL GP < 84 ou Level = ELC)", value=True, key="fa_only_jouable")
 
     # --------- Filtrage ---------
     dff = df_db.copy()
@@ -3309,11 +3309,10 @@ def render_tab_autonomes(show_header: bool = True):
     with cA:
         dest_owner = st.selectbox("Équipe destination", owners, index=0, key="fa_dest_owner")
     with cB:
-        bucket = st.radio("Appliqué à", ["GC", "CE"], horizontal=True, key="fa_bucket")
+        assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
     with cC:
-        slot = st.selectbox("Slot", ["Actif", "Banc", "Mineur"], index=2, key="fa_slot")
-
-    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
+        st.caption("—")
+if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm"):
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         if not isinstance(df_all, pd.DataFrame):
             df_all = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3340,14 +3339,16 @@ def render_tab_autonomes(show_header: bool = True):
             team = str(r0.get("Team", "") or "").strip()
             sal = _cap_to_int(r0.get(cap_col, 0)) if cap_col else 0
             lvl = str(r0.get("Level", "") or "").strip() if level_col else ""
-
-            slot_map = {"Actif": SLOT_ACTIF, "Banc": SLOT_BANC, "Mineur": SLOT_MINEUR}
-            slot_val = slot_map.get(slot, SLOT_MINEUR)
-
-            statut_val = STATUT_GC if bucket == "GC" else STATUT_CE
-            if statut_val == STATUT_CE:
+            # Affectation via radio
+            if assign == "GC":
+                statut_val = STATUT_GC
+                slot_val = SLOT_ACTIF
+            elif assign == "Banc":
+                statut_val = STATUT_GC
+                slot_val = SLOT_BANC
+            else:
+                statut_val = STATUT_CE
                 slot_val = SLOT_MINEUR
-
             new_row = {
                 "Propriétaire": str(dest_owner),
                 "Joueur": pname,
