@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import io
 import re
-import requests
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -24,16 +23,14 @@ SLOT_IR = "Blessé"
 STATUT_GC = "Grand Club"
 STATUT_CE = "Club École"
 
-# Plafonds par défaut
 PLAFOND_GC_DEFAULT = 95_500_000
 PLAFOND_CE_DEFAULT = 47_750_000
 
 # =====================================================
-# 2. STYLE CSS (POUR CORRESPONDRE À LA CAPTURE)
+# 2. STYLE CSS
 # =====================================================
 st.markdown("""
 <style>
-    /* Boutons de joueurs arrondis */
     div.stButton > button {
         border-radius: 10px;
         background-color: #1e2129;
@@ -43,11 +40,9 @@ st.markdown("""
         text-align: center;
         padding: 5px;
     }
-    /* Badges de position */
     .pos-badge {
         display: inline-block;
-        width: 28px;
-        height: 28px;
+        width: 28px; height: 28px;
         border-radius: 50%;
         text-align: center;
         line-height: 28px;
@@ -58,20 +53,18 @@ st.markdown("""
     .pos-f { background-color: #16a34a; }
     .pos-d { background-color: #2563eb; }
     .pos-g { background-color: #7c3aed; }
-    
-    /* Conteneurs de blocs */
-    .roster-block {
-        border: 1px solid #3e4451;
-        border-radius: 15px;
-        padding: 20px;
-        background-color: #0e1117;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================================================
-# 3. FONCTIONS UTILITAIRES
+# 3. FONCTIONS DE GESTION DES DONNÉES
 # =====================================================
+
+def save_to_csv():
+    """Sauvegarde l'état actuel du dataframe dans le fichier CSV de la saison."""
+    season = st.session_state.get("season", "2024-2025")
+    path = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+    st.session_state["data"].to_csv(path, index=False)
 
 def money(v) -> str:
     return f"{int(v or 0):,}".replace(",", " ") + " $"
@@ -88,69 +81,48 @@ def get_pos_html(pos):
     return f'<div class="pos-badge {cls}">{p}</div>'
 
 # =====================================================
-# 4. PARSING ROBUSTE (FANTRAX MULTI-SECTIONS)
+# 4. POPUP DE MOUVEMENT (MODAL)
 # =====================================================
 
-def clean_val(v):
-    if pd.isna(v): return 0
-    s = str(v).replace("$", "").replace(",", "").replace("\xa0", "").strip()
-    s = re.sub(r'\s+', '', s)
-    try: return int(float(s))
-    except: return 0
+@st.dialog("Gérer le joueur")
+def move_player_dialog(player_name, owner):
+    df = st.session_state["data"]
+    # Trouver le joueur
+    idx = df[(df["Joueur"] == player_name) & (df["Propriétaire"] == owner)].index[0]
+    player_data = df.loc[idx]
 
-def parse_fantrax_robust(uploaded_file, team_owner):
-    raw_text = uploaded_file.read().decode("utf-8", errors="ignore")
-    lines = raw_text.splitlines()
-    
-    all_data = []
-    headers = None
-    
-    for line in lines:
-        parts = [p.strip().replace('"', '') for p in line.split(',')]
-        if not parts or parts[0] == "": continue
+    st.write(f"Où voulez-vous envoyer **{player_name}** ?")
+    st.caption(f"Position actuelle : {player_data['Statut']} / {player_data['Slot'] if player_data['Slot'] else 'Aligné'}")
+
+    options = {
+        "🟢 Actif (Grand Club)": (STATUT_GC, SLOT_ACTIF),
+        "🟡 Banc (Grand Club)": (STATUT_GC, SLOT_BANC),
+        "🔵 Mineur (Club École)": (STATUT_CE, ""),
+        "🩹 Liste des blessés (IR)": (player_data['Statut'], SLOT_IR)
+    }
+
+    choice = st.radio("Destination", list(options.keys()))
+
+    if st.button("Confirmer le déplacement", type="primary"):
+        new_statut, new_slot = options[choice]
         
-        # Détecter en-tête
-        if "player" in parts[0].lower() or "player" in "".join(parts).lower():
-            headers = [p.lower() for p in parts]
-            continue
+        # Mise à jour
+        st.session_state["data"].at[idx, "Statut"] = new_statut
+        st.session_state["data"].at[idx, "Slot"] = new_slot
         
-        if headers and len(parts) >= len(headers):
-            row = dict(zip(headers, parts))
-            all_data.append(row)
-
-    df_raw = pd.DataFrame(all_data)
-    
-    # Mapping intelligent
-    def find_key(keys):
-        for k in df_raw.columns:
-            if any(x in k for x in keys): return k
-        return None
-
-    k_p = find_key(['player', 'joueur'])
-    k_t = find_key(['team', 'equipe'])
-    k_pos = find_key(['pos', 'position'])
-    k_s = find_key(['salary', 'salaire', 'cap hit', 'aav'])
-    k_stat = find_key(['status', 'statut'])
-
-    df_final = pd.DataFrame()
-    df_final["Joueur"] = df_raw[k_p]
-    df_final["Equipe"] = df_raw[k_t] if k_t else "N/A"
-    df_final["Pos"] = df_raw[k_pos].apply(normalize_pos) if k_pos else "F"
-    df_final["Salaire"] = df_raw[k_s].apply(clean_val) if k_s else 0
-    df_final["Propriétaire"] = team_owner
-    df_final["Statut"] = df_raw[k_stat].apply(lambda x: STATUT_CE if "min" in str(x).lower() else STATUT_GC)
-    df_final["Slot"] = df_raw[k_stat].apply(lambda x: "Actif" if "act" in str(x).lower() else "Banc")
-    df_final["Level"] = df_raw.get("level", "0")
-    df_final["IR Date"] = ""
-    
-    return df_final[REQUIRED_COLS].dropna(subset=["Joueur"])
+        save_to_csv()
+        st.success(f"{player_name} déplacé vers {choice}")
+        st.rerun()
 
 # =====================================================
-# 5. RENDU DE L'ALIGNEMENT (STYLE CAPTURE D'ÉCRAN)
+# 5. RENDU DE L'INTERFACE
 # =====================================================
 
-def render_roster_table(df_roster):
-    # En-tête de colonnes
+def render_roster_table(df_roster, owner):
+    if df_roster.empty:
+        st.caption("Aucun joueur ici.")
+        return
+
     h1, h2, h3, h4, h5 = st.columns([0.5, 1, 3, 1, 1.5])
     h1.markdown("**Pos**")
     h2.markdown("**Équipe**")
@@ -162,125 +134,96 @@ def render_roster_table(df_roster):
         c1, c2, c3, c4, c5 = st.columns([0.5, 1, 3, 1, 1.5])
         c1.markdown(get_pos_html(row['Pos']), unsafe_allow_html=True)
         c2.write(row['Equipe'])
-        c3.button(row['Joueur'], key=f"btn_{row['Joueur']}_{_}")
+        
+        # Le clic sur le bouton ouvre le popup
+        if c3.button(row['Joueur'], key=f"btn_{row['Joueur']}_{owner}_{_}"):
+            move_player_dialog(row['Joueur'], owner)
+            
         c4.write(str(row['Level']))
         c5.write(money(row['Salaire']))
 
 def render_tab_alignment():
     owner = st.session_state.get("selected_team", "Whalers")
-    df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
+    df_all = st.session_state["data"]
     dprop = df_all[df_all["Propriétaire"] == owner].copy()
     
     if dprop.empty:
-        st.info("Aucun joueur. Importez un fichier dans l'onglet Admin.")
+        st.info("Aucun joueur trouvé pour cette équipe.")
         return
 
-    # --- CALCULS ---
-    gc_players = dprop[dprop["Statut"] == STATUT_GC]
-    ce_players = dprop[dprop["Statut"] == STATUT_CE]
-    
-    used_gc = gc_players["Salaire"].sum()
-    used_ce = ce_players["Salaire"].sum()
-    
-    # Comptage des actifs
-    active = gc_players[gc_players["Slot"] == "Actif"]
-    nb_f = len(active[active["Pos"] == "F"])
-    nb_d = len(active[active["Pos"] == "D"])
-    nb_g = len(active[active["Pos"] == "G"])
+    # Séparations pour le rendu
+    actifs = dprop[(dprop["Statut"] == STATUT_GC) & (dprop["Slot"] == SLOT_ACTIF)]
+    banc = dprop[(dprop["Statut"] == STATUT_GC) & (dprop["Slot"] == SLOT_BANC)]
+    mineur = dprop[dprop["Statut"] == STATUT_CE]
+    ir = dprop[dprop["Slot"] == SLOT_IR]
+
+    # --- CALCULS MASSES ---
+    used_gc = dprop[dprop["Statut"] == STATUT_GC]["Salaire"].sum()
+    used_ce = dprop[dprop["Statut"] == STATUT_CE]["Salaire"].sum()
     
     # --- HEADER PROGRESS BARS ---
     col_prog1, col_prog2 = st.columns(2)
     with col_prog1:
         st.markdown(f"📊 **Plafond GC — {owner}** <span style='float:right; color:#22c55e;'>{money(PLAFOND_GC_DEFAULT - used_gc)}</span>", unsafe_allow_html=True)
         st.progress(min(used_gc / PLAFOND_GC_DEFAULT, 1.0))
-        st.caption(f"Utilisé : {money(used_gc)} / {money(PLAFOND_GC_DEFAULT)}")
         
     with col_prog2:
         st.markdown(f"📊 **Plafond CE — {owner}** <span style='float:right; color:#22c55e;'>{money(PLAFOND_CE_DEFAULT - used_ce)}</span>", unsafe_allow_html=True)
         st.progress(min(used_ce / PLAFOND_CE_DEFAULT, 1.0))
-        st.caption(f"Utilisé : {money(used_ce)} / {money(PLAFOND_CE_DEFAULT)}")
 
-    # --- METRIQUES TEXTE ---
-    st.write("")
-    m1, m2, m3 = st.columns(3)
-    m1.write(f"**GC** {money(used_gc)} / {money(PLAFOND_GC_DEFAULT)}")
-    m2.write(f"**CE** {money(used_ce)} / {money(PLAFOND_CE_DEFAULT)}")
-    m3.write(f"**IR** {len(dprop[dprop['Slot'] == SLOT_IR])} joueur(s)")
+    # --- COMPTEURS ---
+    st.write(f"**GC:** {money(used_gc)} | **CE:** {money(used_ce)} | **IR:** {len(ir)} | **Banc:** {len(banc)}")
     
-    m4, m5, m6 = st.columns(3)
-    m4.write(f"**Reste GC** {money(PLAFOND_GC_DEFAULT - used_gc)}")
-    m5.write(f"**Reste CE** {money(PLAFOND_CE_DEFAULT - used_ce)}")
-    m6.write(f"**Banc** {len(gc_players[gc_players['Slot'] == SLOT_BANC])} joueur(s)")
-
-    # --- COMPTEURS ACTIFS ---
-    f_warn = "⚠️" if nb_f > 12 else ""
-    d_warn = "⚠️" if nb_d > 6 else ""
-    st.write(f"**Actifs** — F <span style='color:red;'>{nb_f}</span>/12 {f_warn} • D <span style='color:red;'>{nb_d}</span>/6 {d_warn} • G {nb_g}/2", unsafe_allow_html=True)
-
     st.divider()
 
-    # --- GRILLE 2 COLONNES ---
+    # --- AFFICHAGE ---
     col_left, col_right = st.columns(2)
-    
     with col_left:
         st.markdown("### 🟢 Actifs (Grand Club)")
-        render_roster_table(gc_players[gc_players["Slot"] == "Actif"])
+        render_roster_table(actifs, owner)
+        
+        st.write("")
+        with st.expander(f"🟡 Banc ({len(banc)})", expanded=False):
+            render_roster_table(banc, owner)
 
     with col_right:
         st.markdown("### 🔵 Mineur (Club École)")
-        render_roster_table(ce_players)
+        render_roster_table(mineur, owner)
+        
+        st.write("")
+        with st.expander(f"🩹 Blessés / IR ({len(ir)})", expanded=False):
+            render_roster_table(ir, owner)
 
 # =====================================================
-# 6. GESTION ADMIN
-# =====================================================
-
-def render_tab_admin():
-    st.title("🛠️ Gestion Admin")
-    teams = ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"]
-    
-    target_team = st.selectbox("Équipe cible", teams)
-    file = st.file_uploader("Importer CSV Fantrax", type=["csv"])
-    
-    if file:
-        df_new = parse_fantrax_robust(file, target_team)
-        st.dataframe(df_new.head())
-        if st.button("Confirmer l'importation"):
-            path = os.path.join(DATA_DIR, f"fantrax_{st.session_state['season']}.csv")
-            df_cur = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame(columns=REQUIRED_COLS)
-            df_cur = df_cur[df_cur["Propriétaire"] != target_team]
-            df_final = pd.concat([df_cur, df_new], ignore_index=True)
-            df_final.to_csv(path, index=False)
-            st.session_state["data"] = df_final
-            st.success("Importation réussie !")
-
-# =====================================================
-# 7. MAIN
+# 6. MAIN & ROUTING
 # =====================================================
 
 def main():
     if "season" not in st.session_state: st.session_state["season"] = "2024-2025"
+    
+    # Chargement initial des données en Session State
     path = os.path.join(DATA_DIR, f"fantrax_{st.session_state['season']}.csv")
-    if os.path.exists(path):
-        st.session_state["data"] = pd.read_csv(path)
-    else:
-        st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
+    if "data" not in st.session_state:
+        if os.path.exists(path):
+            st.session_state["data"] = pd.read_csv(path)
+        else:
+            st.session_state["data"] = pd.DataFrame(columns=REQUIRED_COLS)
 
+    # Sidebar
     st.sidebar.title("🏒 PMS Pool")
     st.session_state["season"] = st.sidebar.selectbox("Saison", ["2024-2025", "2025-2026"])
     selected_team = st.sidebar.selectbox("Mon Équipe", ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"], key="selected_team")
     
-    menu = ["🏆 Classement", "🧾 Alignement"]
-    if selected_team == "Whalers": menu.append("🛠️ Gestion Admin")
-    
-    choice = st.sidebar.radio("Navigation", menu)
+    choice = st.sidebar.radio("Navigation", ["🏆 Classement", "🧾 Alignement", "🛠️ Gestion Admin"])
     
     if choice == "🧾 Alignement":
         render_tab_alignment()
     elif choice == "🛠️ Gestion Admin":
-        render_tab_admin()
+        # (Insérer ici la fonction render_tab_admin de l'étape précédente)
+        st.write("Section Admin pour l'importation.")
     else:
-        st.title(choice)
-        st.write("Contenu à venir...")
+        st.title("🏆 Classement")
+        st.write("Calcul des scores en cours...")
 
 if __name__ == "__main__":
     main()
