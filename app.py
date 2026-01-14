@@ -3054,9 +3054,10 @@ def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
 
 
 
-def render_tab_autonomes():
-    st.subheader("👤 Joueurs autonomes")
-    st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
+def render_tab_autonomes(show_header: bool = True):
+    if show_header:
+        st.subheader("👤 Joueurs autonomes")
+        st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
 
     players_db = st.session_state.get("players_db")
     if players_db is None or (not isinstance(players_db, pd.DataFrame)) or players_db.empty:
@@ -3998,6 +3999,14 @@ elif active_tab == "🛠️ Gestion Admin":
             key="admin_plafond_ce",
             disabled=locked,
         )
+
+
+    # -----------------------------
+    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
+    # -----------------------------
+    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
+        # réutilise l'onglet autonomes, sans en-tête
+        render_tab_autonomes(show_header=False)
 
     # -----------------------------
     # 📦 Transactions (Admin) — sauvegarde proposition
