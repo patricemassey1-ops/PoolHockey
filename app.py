@@ -3329,7 +3329,7 @@ def render_tab_autonomes(show_header: bool = True):
             if not pname:
                 continue
 
-            owned_to = _owned_to(pname)
+            owned_to = owned_to(pname)
             if owned_to:
                 skipped_owned.append(pname)
                 continue
