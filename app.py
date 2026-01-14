@@ -3334,8 +3334,6 @@ if not q_name:
         
         if has_non_jouable:
             st.warning("Au moins un joueur sélectionné est **NON JOUABLE** (NHL GP < 84 ou Level = ELC). Décoche-le pour confirmer l’embauche.")
-
-
     owners = []
     if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Propriétaire" in df_league.columns:
         owners = sorted(df_league["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
@@ -3346,11 +3344,9 @@ if not q_name:
 
     cA, cB, cC = st.columns([2, 1, 1], vertical_alignment="center")
     with cA:
-                # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
-        dest_options = owners
+        # Équipe destination — verrouillée à l'équipe sélectionnée dans l'onglet Autonomes
         dest_default = owner if owner in owners else (owners[0] if owners else "")
-        if lock_dest_to_owner:
-            dest_options = [dest_default] if dest_default else owners
+        dest_options = [dest_default] if (lock_dest_to_owner and dest_default) else owners
         dest_owner = st.selectbox(
             "Équipe destination",
             dest_options,
@@ -3358,12 +3354,19 @@ if not q_name:
             key="fa_dest_owner",
             disabled=bool(lock_dest_to_owner),
         )
-with cB:
+    with cB:
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key="fa_assign")
     with cC:
         st.caption("—")
 
-    if st.button("✅ Confirmer l’embauche", type="primary", use_container_width=True, key="fa_confirm", disabled=(picked_rows.empty or has_non_jouable)):
+    if st.button(
+        "✅ Confirmer l’embauche",
+        type="primary",
+        use_container_width=True,
+        key="fa_confirm",
+        disabled=(picked_rows.empty or has_non_jouable),
+    ):
+
         df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
         if not isinstance(df_all, pd.DataFrame):
             df_all = pd.DataFrame(columns=REQUIRED_COLS)
@@ -3376,8 +3379,8 @@ with cB:
             if not pname:
                 continue
 
-            owned_to = owned_to(pname)
-            if owned_to:
+            owned_team = owned_to(pname)
+            if owned_team:
                 skipped_owned.append(pname)
                 continue
 
