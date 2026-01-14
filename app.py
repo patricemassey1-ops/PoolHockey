@@ -3060,6 +3060,11 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         owner = str(get_selected_team() or "").strip() if "get_selected_team" in globals() else ""
     except Exception:
         owner = ""
+
+    # Sélection persistante (max 5) — garde les joueurs cochés jusqu'à confirmation
+    pick_state_key = "fa_pick_state_auto" if lock_dest_to_owner else "fa_pick_state_admin"
+    prev_picks = st.session_state.get(pick_state_key, [])
+    prev_picks = [str(x).strip() for x in (prev_picks or []) if str(x).strip()]
     if show_header:
         st.subheader("👤 Joueurs autonomes")
         st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
@@ -3158,9 +3163,9 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     with f1:
         q_name = st.text_input("Nom / Prénom", value="", key="fa_q_name").strip()
 
-        # ✅ Aucun résultat tant que rien n'est saisi
+        # ✅ Aucun résultat tant que rien n'est saisi (sauf si une sélection existe déjà)
 
-        if not q_name:
+        if not q_name and not prev_picks:
 
             st.info("Commence à taper un nom (ou début de nom) dans **Nom / Prénom** pour afficher des résultats.")
 
@@ -3291,6 +3296,22 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
 
 
+    # Si la table filtrée ne contient plus les joueurs cochés, on retombe sur la sélection persistée
+
+
+
+    if (picked_rows is None) or (not isinstance(picked_rows, pd.DataFrame)) or picked_rows.empty:
+
+
+
+        if isinstance(selected_df, pd.DataFrame) and not selected_df.empty:
+
+
+
+            picked_rows = selected_df.copy()
+
+
+
     # Persist picks (pour garder la sélection visible après rerun)
 
 
@@ -3311,7 +3332,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
 
 
-        st.session_state[pick_state_key] = cur_picks[:5]
+        st.session_state[pick_state_key] = cur_picks[:5] if cur_picks else prev_picks[:5]
 
 
 
@@ -3338,6 +3359,20 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         return
 
     st.markdown("#### ✅ Sélection (max 5)")
+    # Construire la sélection à partir de l'état persisté, même si le joueur n'est plus dans les résultats filtrés
+    selected_df = pd.DataFrame()
+    try:
+        if prev_picks and isinstance(df_db, pd.DataFrame) and not df_db.empty:
+            keycol = "Player" if "Player" in df_db.columns else ("Joueur" if "Joueur" in df_db.columns else None)
+            if keycol:
+                tmp_sel = df_db[df_db[keycol].astype(str).str.strip().isin(prev_picks)].copy()
+                if not tmp_sel.empty:
+                    if keycol != "Player":
+                        tmp_sel["Player"] = tmp_sel[keycol].astype(str)
+                    selected_df = tmp_sel
+    except Exception:
+        selected_df = pd.DataFrame()
+
 
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
