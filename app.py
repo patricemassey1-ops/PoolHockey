@@ -3064,6 +3064,25 @@ def render_tab_autonomes():
         st.stop()
 
     df_db = players_db.copy()
+    # Helpers locaux (sécuritaires)
+    def _cap_to_int(v) -> int:
+        """Convertit un cap hit en int, tolère '1 250 000 $', '1250000', NaN, etc."""
+        try:
+            s = str(v).strip()
+            if not s or s.lower() in ("nan","none"):
+                return 0
+            s = s.replace("$","").replace("€","").replace("£","")
+            s = s.replace(",", " ").replace(" "," ")
+            s = re.sub(r"[^0-9.]", "", s)
+            if s == "":
+                return 0
+            # certains cap hits peuvent être float
+            return int(round(float(s)))
+        except Exception:
+            return 0
+
+    def _money_space(v) -> str:
+        return money(_cap_to_int(v))
 
     # --------- Normalisation colonnes (best effort) ---------
     if "Player" not in df_db.columns:
@@ -3220,7 +3239,7 @@ def render_tab_autonomes():
     df_show = dff[cols].copy()
 
     if cap_col and cap_col in dff.columns:
-        df_show["Cap Hit"] = dff[cap_col].apply(lambda x: _money_space(_cap_to_int(x)))
+        df_show["Cap Hit"] = dff[cap_col].apply(lambda x: _money_space(x))
 
     if level_col:
         df_show["Level"] = dff["Level"].astype(str).str.strip()
