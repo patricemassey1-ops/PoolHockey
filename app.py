@@ -3284,6 +3284,9 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     picked_rows = pd.DataFrame()
 
 
+    has_non_jouable = False  # init safe
+
+
     picked_rows = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
 
 
