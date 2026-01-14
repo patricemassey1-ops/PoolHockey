@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import io
 import re
+import json
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 # =====================================================
 # 1. CONFIGURATION & CONSTANTES
 # =====================================================
-st.set_page_config(page_title="PMS - Pool Hockey", layout="wide")
+st.set_page_config(page_title="PMS - Fantasy Hockey Pool", layout="wide")
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -27,7 +28,7 @@ PLAFOND_GC_DEFAULT = 95_500_000
 PLAFOND_CE_DEFAULT = 47_750_000
 
 # =====================================================
-# 2. STYLE CSS
+# 2. STYLE CSS (IDENTIQUE À VOTRE CAPTURE)
 # =====================================================
 st.markdown("""
 <style>
@@ -42,10 +43,10 @@ st.markdown("""
     }
     .pos-badge {
         display: inline-block;
-        width: 26px; height: 26px;
+        width: 24px; height: 24px;
         border-radius: 50%;
         text-align: center;
-        line-height: 26px;
+        line-height: 24px;
         font-weight: bold;
         font-size: 11px;
         color: white;
@@ -53,12 +54,33 @@ st.markdown("""
     .pos-f { background-color: #16a34a; }
     .pos-d { background-color: #2563eb; }
     .pos-g { background-color: #7c3aed; }
+    .pms-header {
+        border-radius: 18px; padding: 15px;
+        background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+        border: 1px solid rgba(255,255,255,0.1);
+        text-align: center; margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================================================
-# 3. FONCTIONS UTILITAIRES & DONNÉES
+# 3. LOGIQUE DES DONNÉES & HISTORIQUE
 # =====================================================
+
+def save_all_data():
+    season = st.session_state.get("season", "2024-2025")
+    st.session_state["data"].to_csv(os.path.join(DATA_DIR, f"fantrax_{season}.csv"), index=False)
+    st.session_state["history"].to_csv(os.path.join(DATA_DIR, f"history_{season}.csv"), index=False)
+
+def log_change(owner, player, action):
+    """Enregistre un changement dans l'historique."""
+    new_entry = {
+        "Date": datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M"),
+        "Équipe": owner,
+        "Joueur": player,
+        "Action": action
+    }
+    st.session_state["history"] = pd.concat([st.session_state["history"], pd.DataFrame([new_entry])], ignore_index=True)
 
 def money(v) -> str:
     return f"{int(v or 0):,}".replace(",", " ") + " $"
@@ -74,226 +96,260 @@ def get_pos_html(pos):
     cls = "pos-f" if p == "F" else "pos-d" if p == "D" else "pos-g"
     return f'<div class="pos-badge {cls}">{p}</div>'
 
-def save_to_csv(df):
-    season = st.session_state.get("season", "2024-2025")
-    path = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-    df.to_csv(path, index=False)
-    st.session_state["data"] = df
-
-def load_players_db():
-    """Charge la base de données globale des joueurs NHL."""
-    if os.path.exists("hockey.players.csv"):
-        return pd.read_csv("hockey.players.csv")
-    return pd.DataFrame()
-
 # =====================================================
-# 4. MOTEUR D'IMPORTATION (FANTRAX)
+# 4. POPUP : DÉPLACER UN JOUEUR
 # =====================================================
 
-def parse_fantrax_robust(uploaded_file, team_owner):
-    raw_text = uploaded_file.read().decode("utf-8", errors="ignore")
-    lines = raw_text.splitlines()
-    data_rows = []
-    current_headers = None
-    
-    for line in lines:
-        parts = [p.strip().replace('"', '') for p in line.split(',')]
-        if not parts or parts == [''] or "Skaters" in parts or "Goalies" in parts: continue
-        if any(x in parts[0].lower() for x in ["player", "joueur", "id"]):
-            current_headers = [p.lower() for p in parts]
-            continue
-        if current_headers and len(parts) >= len(current_headers):
-            row = dict(zip(current_headers, parts))
-            if row.get("player"): data_rows.append(row)
-
-    df_raw = pd.DataFrame(data_rows)
-    if df_raw.empty: return pd.DataFrame()
-
-    def find_col(aliases):
-        for c in df_raw.columns:
-            if any(a in c for a in aliases): return c
-        return None
-
-    c_p, c_t, c_pos, c_sal, c_stat, c_lvl = find_col(['player']), find_col(['team']), find_col(['pos']), find_col(['salary']), find_col(['status']), find_col(['level'])
-
-    df_final = pd.DataFrame()
-    df_final["Joueur"] = df_raw[c_p]
-    df_final["Equipe"] = df_raw[c_t] if c_t else "N/A"
-    df_final["Pos"] = df_raw[c_pos].apply(normalize_pos)
-    
-    def clean_s(v):
-        s = str(v).replace("$","").replace(",","").replace("\xa0","").strip()
-        s = re.sub(r'\s+', '', s)
-        try: return int(float(s))
-        except: return 0
-    
-    df_final["Salaire"] = df_raw[c_sal].apply(clean_s)
-    df_final["Propriétaire"] = team_owner
-    df_final["Statut"] = df_raw[c_stat].apply(lambda s: STATUT_CE if "min" in str(s).lower() else STATUT_GC)
-    df_final["Slot"] = df_raw[c_stat].apply(lambda s: SLOT_ACTIF if "act" in str(s).lower() else (SLOT_BANC if "res" in str(s).lower() else ""))
-    df_final["Level"] = df_raw[c_lvl] if c_lvl else "STD"
-    df_final["IR Date"] = ""
-    
-    return df_final[REQUIRED_COLS]
-
-# =====================================================
-# 5. POPUPS (MOUVEMENT ET AJOUT)
-# =====================================================
-
-@st.dialog("Déplacer le joueur")
+@st.dialog("Mouvement de personnel")
 def move_player_dialog(player_name, owner):
     df = st.session_state["data"]
     idx = df[(df["Joueur"] == player_name) & (df["Propriétaire"] == owner)].index[0]
-    st.write(f"Déplacer **{player_name}** vers :")
+    
+    st.write(f"Déplacer **{player_name}**")
+    
     options = {
         "🟢 Actif (Grand Club)": (STATUT_GC, SLOT_ACTIF),
         "🟡 Banc (Grand Club)": (STATUT_GC, SLOT_BANC),
         "🔵 Mineur (Club École)": (STATUT_CE, ""),
         "🩹 Blessé (IR)": (df.at[idx, "Statut"], SLOT_IR)
     }
+    
     dest = st.radio("Destination", list(options.keys()))
-    if st.button("Confirmer"):
+    
+    if st.button("Confirmer le mouvement"):
         new_statut, new_slot = options[dest]
         st.session_state["data"].at[idx, "Statut"] = new_statut
         st.session_state["data"].at[idx, "Slot"] = new_slot
-        save_to_csv(st.session_state["data"])
+        
+        log_change(owner, player_name, f"Déplacé vers {dest}")
+        save_all_data()
         st.rerun()
 
 # =====================================================
-# 6. ONGLET JOUEURS AUTONOMES
+# 5. ONGLET : HOME (Leaderboard & Historique)
 # =====================================================
 
-def render_tab_autonomes():
-    st.title("👤 Joueurs autonomes")
-    st.write("Cherchez un joueur dans la base de données pour l'ajouter à votre équipe.")
-
-    # Chargement DB
-    db = load_players_db()
-    if db.empty:
-        st.error("Fichier 'hockey.players.csv' introuvable.")
-        return
-
-    # Recherche
-    search_query = st.text_input("Nom du joueur", placeholder="Ex: McDavid...")
+def render_tab_home():
+    st.markdown("<div class='pms-header'><h1>🏆 Accueil PMS Pool</h1></div>", unsafe_allow_html=True)
     
-    if search_query:
-        # Filtrage (insensible à la casse)
-        results = db[db["Player"].str.contains(search_query, case=False, na=False)].copy()
-        
-        # Exclure les joueurs déjà dans une équipe
-        ligue_joueurs = st.session_state["data"]["Joueur"].tolist()
-        results = results[~results["Player"].isin(ligue_joueurs)]
-
-        if results.empty:
-            st.warning("Aucun joueur autonome trouvé.")
+    c1, c2 = st.columns([1, 1])
+    
+    with c1:
+        st.subheader("📊 Classement (Masse Salariale)")
+        df = st.session_state["data"]
+        if not df.empty:
+            # Calcul rapide de la valeur de l'équipe (simple exemple ici)
+            classement = df.groupby("Propriétaire")["Salaire"].sum().reset_index()
+            classement = classement.sort_values("Salaire", ascending=False)
+            st.dataframe(classement, use_container_width=True, hide_index=True)
         else:
-            st.write(f"Résultats ({len(results)}) :")
-            
-            # Affichage
-            h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1, 3, 1, 1.5, 1.5])
-            h1.write("Pos"); h2.write("Équipe NHL"); h3.write("Joueur"); h4.write("Lvl"); h5.write("Salaire"); h6.write("Action")
-            
-            for _, row in results.head(20).iterrows():
-                c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1, 3, 1, 1.5, 1.5])
-                c1.markdown(get_pos_html(row['Position']), unsafe_allow_html=True)
-                c2.write(row['Team'])
-                c3.write(f"**{row['Player']}**")
-                c4.write(row['Level'])
-                c5.write(row['Cap Hit'])
-                
-                if c6.button("Embaucher", key=f"add_{row['Player']}"):
-                    # Création du nouveau joueur
-                    new_player = {
-                        "Propriétaire": st.session_state["selected_team"],
-                        "Joueur": row['Player'],
-                        "Pos": normalize_pos(row['Position']),
-                        "Equipe": row['Team'],
-                        "Salaire": int(str(row['Cap Hit']).replace(" ","").replace("$","")),
-                        "Level": row['Level'],
-                        "Statut": STATUT_GC,
-                        "Slot": SLOT_BANC,
-                        "IR Date": ""
-                    }
-                    st.session_state["data"] = pd.concat([st.session_state["data"], pd.DataFrame([new_player])], ignore_index=True)
-                    save_to_csv(st.session_state["data"])
-                    st.success(f"{row['Player']} a rejoint les {st.session_state['selected_team']} !")
-                    st.rerun()
+            st.info("Aucune donnée disponible.")
+
+    with c2:
+        st.subheader("🕘 Derniers changements")
+        hist = st.session_state["history"]
+        if not hist.empty:
+            st.dataframe(hist.sort_index(ascending=False).head(15), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Aucun historique pour le moment.")
 
 # =====================================================
-# 7. RENDU ALIGNEMENT
+# 6. ONGLET : ALIGNEMENT
 # =====================================================
 
 def render_roster_table(df_roster, owner):
     if df_roster.empty:
-        st.caption("Vide.")
+        st.caption("Vide")
         return
     h1, h2, h3, h4, h5 = st.columns([0.5, 1, 3, 1, 1.5])
-    h1.write("Pos"); h2.write("Équipe"); h3.write("Joueur"); h4.write("Lvl"); h5.write("Salaire")
+    h1.write("**Pos**"); h2.write("**Équipe**"); h3.write("**Joueur**"); h4.write("**Lvl**"); h5.write("**Salaire**")
+    
     for _, row in df_roster.iterrows():
         c1, c2, c3, c4, c5 = st.columns([0.5, 1, 3, 1, 1.5])
         c1.markdown(get_pos_html(row['Pos']), unsafe_allow_html=True)
         c2.write(row['Equipe'])
-        if c3.button(row['Joueur'], key=f"btn_{row['Joueur']}_{owner}_{_}"):
+        if c3.button(row['Joueur'], key=f"align_{row['Joueur']}_{_}"):
             move_player_dialog(row['Joueur'], owner)
-        c4.write(str(row['Level']))
+        c4.write(row['Level'])
         c5.write(money(row['Salaire']))
 
 def render_tab_alignment():
-    owner = st.session_state.get("selected_team", "Whalers")
+    owner = st.session_state["selected_team"]
     df = st.session_state["data"]
     dprop = df[df["Propriétaire"] == owner].copy()
     
     if dprop.empty:
-        st.info("Équipe vide. Allez dans 'Joueurs autonomes' ou 'Admin'.")
+        st.warning(f"L'équipe {owner} n'a pas de joueurs.")
         return
 
+    # Calculs
     used_gc = dprop[dprop["Statut"] == STATUT_GC]["Salaire"].sum()
     used_ce = dprop[dprop["Statut"] == STATUT_CE]["Salaire"].sum()
     
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        st.markdown(f"**GC — {owner}** <span style='float:right; color:#22c55e;'>{money(PLAFOND_GC_DEFAULT - used_gc)}</span>", unsafe_allow_html=True)
-        st.progress(min(used_gc / PLAFOND_GC_DEFAULT, 1.0))
-    with col_p2:
-        st.markdown(f"**CE — {owner}** <span style='float:right; color:#22c55e;'>{money(PLAFOND_CE_DEFAULT - used_ce)}</span>", unsafe_allow_html=True)
-        st.progress(min(used_ce / PLAFOND_CE_DEFAULT, 1.0))
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"📊 **Plafond GC** : {money(PLAFOND_GC_DEFAULT - used_gc)} libre")
+        st.progress(min(used_gc/PLAFOND_GC_DEFAULT, 1.0))
+    with col2:
+        st.markdown(f"📊 **Plafond CE** : {money(PLAFOND_CE_DEFAULT - used_ce)} libre")
+        st.progress(min(used_ce/PLAFOND_CE_DEFAULT, 1.0))
 
+    st.write(f"**GC:** {money(used_gc)} | **CE:** {money(used_ce)} | **Banc:** {len(dprop[dprop['Slot']==SLOT_BANC])}")
     st.divider()
-    left, right = st.columns(2)
-    with left:
-        st.markdown("### 🟢 Actifs")
+
+    l, r = st.columns(2)
+    with l:
+        st.markdown("### 🟢 Actifs (Grand Club)")
         render_roster_table(dprop[(dprop["Statut"] == STATUT_GC) & (dprop["Slot"] == SLOT_ACTIF)], owner)
         with st.expander("🟡 Banc"):
-            render_roster_table(dprop[(dprop["Statut"] == STATUT_GC) & (dprop["Slot"] == SLOT_BANC)], owner)
-    with right:
-        st.markdown("### 🔵 Mineur")
+            render_roster_table(dprop[dprop["Slot"] == SLOT_BANC], owner)
+    with r:
+        st.markdown("### 🔵 Mineur (Club École)")
         render_roster_table(dprop[dprop["Statut"] == STATUT_CE], owner)
-        with st.expander("🩹 Blessés"):
+        with st.expander("🩹 Blessés (IR)"):
             render_roster_table(dprop[dprop["Slot"] == SLOT_IR], owner)
 
 # =====================================================
-# 8. ROUTING PRINCIPAL
+# 7. ONGLET : GM (Choix de repêchage)
+# =====================================================
+
+def render_tab_gm():
+    st.title(f"🧊 Bureau du GM - {st.session_state['selected_team']}")
+    
+    st.subheader("🎯 Choix de repêchage")
+    st.caption("Le 8e choix de chaque année est verrouillé (non-échangeable).")
+    
+    years = [2026, 2027, 2028]
+    
+    # Simuler le stockage des picks s'il n'existe pas
+    if "picks" not in st.session_state:
+        st.session_state["picks"] = {}
+
+    for year in years:
+        with st.expander(f"📅 Année {year}", expanded=True):
+            cols = st.columns(8)
+            for round_num in range(1, 9):
+                is_locked = (round_num == 8)
+                label = "🔒 R8" if is_locked else f"R{round_num}"
+                
+                with cols[round_num-1]:
+                    st.markdown(f"**{label}**")
+                    if is_locked:
+                        st.info(st.session_state["selected_team"])
+                    else:
+                        # Ici on pourrait ajouter un selectbox pour changer le propriétaire
+                        st.write(st.session_state["selected_team"])
+
+# =====================================================
+# 8. ONGLET : JOUEURS AUTONOMES (Free Agents)
+# =====================================================
+
+def render_tab_autonomes():
+    st.title("👤 Joueurs autonomes")
+    if not os.path.exists("hockey.players.csv"):
+        st.error("Base de données hockey.players.csv manquante.")
+        return
+
+    db = pd.read_csv("hockey.players.csv")
+    query = st.text_input("Rechercher un joueur (Nom)")
+    
+    if query:
+        results = db[db["Player"].str.contains(query, case=False, na=False)]
+        # Exclure les joueurs déjà pris
+        taken = st.session_state["data"]["Joueur"].tolist()
+        results = results[~results["Player"].isin(taken)]
+        
+        if not results.empty:
+            for _, r in results.head(10).iterrows():
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                c1.write(f"**{r['Player']}** ({r['Team']})")
+                c2.write(r['Level'])
+                c3.write(r['Cap Hit'])
+                if c4.button("Signer", key=f"sign_{r['Player']}"):
+                    new_p = {
+                        "Propriétaire": st.session_state["selected_team"],
+                        "Joueur": r['Player'], "Pos": r['Position'], "Equipe": r['Team'],
+                        "Salaire": int(str(r['Cap Hit']).replace(" ","").replace("$","")),
+                        "Level": r['Level'], "Statut": STATUT_GC, "Slot": SLOT_BANC, "IR Date": ""
+                    }
+                    st.session_state["data"] = pd.concat([st.session_state["data"], pd.DataFrame([new_p])], ignore_index=True)
+                    log_change(st.session_state["selected_team"], r['Player'], "Signature (Agent Libre)")
+                    save_all_data()
+                    st.rerun()
+
+# =====================================================
+# 9. ADMIN & IMPORT
+# =====================================================
+
+def parse_fantrax_robust(uploaded_file, team_owner):
+    # Logique simplifiée mais robuste pour cet export
+    raw_text = uploaded_file.read().decode("utf-8", errors="ignore")
+    lines = raw_text.splitlines()
+    data = []
+    headers = None
+    for line in lines:
+        parts = [p.strip().replace('"', '') for p in line.split(',')]
+        if "Player" in parts: headers = [p.lower() for p in parts]; continue
+        if headers and len(parts) == len(headers):
+            row = dict(zip(headers, parts))
+            if row.get("player"): data.append(row)
+    
+    df_raw = pd.DataFrame(data)
+    df_final = pd.DataFrame()
+    df_final["Joueur"] = df_raw["player"]
+    df_final["Equipe"] = df_raw["team"]
+    df_final["Pos"] = df_raw["pos"].apply(normalize_pos)
+    df_final["Salaire"] = df_raw["salary"].apply(lambda x: int(str(x).replace(",","").replace("$","").replace(" ","")))
+    df_final["Propriétaire"] = team_owner
+    df_final["Statut"] = df_raw["status"].apply(lambda x: STATUT_CE if "min" in str(x).lower() else STATUT_GC)
+    df_final["Slot"] = df_raw["status"].apply(lambda x: SLOT_ACTIF if "act" in str(x).lower() else SLOT_BANC)
+    df_final["Level"] = df_raw.get("contract", "STD")
+    df_final["IR Date"] = ""
+    return df_final
+
+def render_tab_admin():
+    st.title("🛠️ Gestion Admin")
+    target = st.selectbox("Équipe destinataire", ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"])
+    file = st.file_uploader("CSV Fantrax", type=["csv"])
+    if file and st.button("Lancer l'importation"):
+        df_new = parse_fantrax_robust(file, target)
+        df_cur = st.session_state["data"]
+        df_cur = df_cur[df_cur["Propriétaire"] != target]
+        st.session_state["data"] = pd.concat([df_cur, df_new], ignore_index=True)
+        save_all_data()
+        st.success("Importation terminée.")
+
+# =====================================================
+# 10. MAIN ROUTING
 # =====================================================
 
 def main():
+    # Initialisation
     if "season" not in st.session_state: st.session_state["season"] = "2024-2025"
-    path = os.path.join(DATA_DIR, f"fantrax_{st.session_state['season']}.csv")
+    s = st.session_state["season"]
+    
     if "data" not in st.session_state:
-        st.session_state["data"] = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame(columns=REQUIRED_COLS)
+        p = os.path.join(DATA_DIR, f"fantrax_{s}.csv")
+        st.session_state["data"] = pd.read_csv(p) if os.path.exists(p) else pd.DataFrame(columns=REQUIRED_COLS)
+    
+    if "history" not in st.session_state:
+        p = os.path.join(DATA_DIR, f"history_{s}.csv")
+        st.session_state["history"] = pd.read_csv(p) if os.path.exists(p) else pd.DataFrame(columns=["Date", "Équipe", "Joueur", "Action"])
 
+    # Sidebar
     st.sidebar.title("🏒 PMS Pool")
-    selected_team = st.sidebar.selectbox("Équipe", ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"], key="selected_team")
+    st.session_state["selected_team"] = st.sidebar.selectbox("Équipe", ["Whalers", "Nordiques", "Cracheurs", "Prédateurs", "Red Wings", "Canadiens"])
     
-    choice = st.sidebar.radio("Navigation", ["🏆 Classement", "🧾 Alignement", "👤 Joueurs autonomes", "🛠️ Gestion Admin"])
+    menu = ["🏠 Home", "🧾 Alignement", "🧊 GM", "👤 Joueurs autonomes"]
+    if st.session_state["selected_team"] == "Whalers": menu.append("🛠️ Gestion Admin")
     
-    if choice == "🧾 Alignement": render_tab_alignment()
+    choice = st.sidebar.radio("Navigation", menu)
+    
+    if choice == "🏠 Home": render_tab_home()
+    elif choice == "🧾 Alignement": render_tab_alignment()
+    elif choice == "🧊 GM": render_tab_gm()
     elif choice == "👤 Joueurs autonomes": render_tab_autonomes()
-    elif choice == "🛠️ Gestion Admin": 
-        # (render_tab_admin ici)
-        st.write("Section Admin d'importation.")
-    else: 
-        st.title("🏆 Classement")
-        st.dataframe(st.session_state["data"], hide_index=True)
+    elif choice == "🛠️ Gestion Admin": render_tab_admin()
 
 if __name__ == "__main__":
     main()
