@@ -3055,6 +3055,11 @@ def push_buyout_to_market(season_lbl: str, player_name: str) -> None:
 
 
 def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = False):
+    # Owner courant (équipe sélectionnée) — utilisé pour verrouiller la destination dans l'onglet Autonomes
+    try:
+        owner = str(get_selected_team() or "").strip() if "get_selected_team" in globals() else ""
+    except Exception:
+        owner = ""
     if show_header:
         st.subheader("👤 Joueurs autonomes")
         st.caption("Recherche dans la base — aucun résultat tant qu’aucun filtre n’est rempli.")
@@ -3259,8 +3264,11 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     df_show["Appartenant à"] = df_show["Player"].apply(owned_to)
     df_show["🔴"] = df_show["Appartenant à"].apply(lambda x: "🔴" if str(x or "").strip() else "")
 
+    pick_state_key = "fa_pick_state_auto" if lock_dest_to_owner else "fa_pick_state_admin"
+    prev_picks = st.session_state.get(pick_state_key, [])
+    prev_picks = [str(x).strip() for x in prev_picks if str(x).strip()]
     df_edit = df_show.copy()
-    df_edit.insert(0, "Pick", False)
+    df_edit.insert(0, "Pick", df_edit["Player"].astype(str).str.strip().isin(prev_picks) if "Player" in df_edit.columns else False)
 
     edited = st.data_editor(
         df_edit,
@@ -3277,6 +3285,39 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
 
     picked_rows = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
+
+
+
+    # Persist picks (pour garder la sélection visible après rerun)
+
+
+
+    try:
+
+
+
+        cur_picks = []
+
+
+
+        if isinstance(edited, pd.DataFrame) and "Pick" in edited.columns and "Player" in edited.columns:
+
+
+
+            cur_picks = edited.loc[edited["Pick"] == True, "Player"].astype(str).str.strip().tolist()
+
+
+
+        st.session_state[pick_state_key] = cur_picks[:5]
+
+
+
+    except Exception:
+
+
+
+        pass
+
     if not picked_rows.empty and len(picked_rows) > 5:
         st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers cochés.")
         picked_rows = picked_rows.head(5)
