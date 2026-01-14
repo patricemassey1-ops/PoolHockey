@@ -2455,16 +2455,46 @@ def _apply_free_agent_hire(dest_owner: str, players: list[str], assign: str = "G
         df_all = pd.DataFrame(columns=REQUIRED_COLS)
 
     # owner map (déjà dans la ligue)
+    
+    # owner map (déjà dans la ligue) — robuste aux formats "Nom, Prénom" vs "Prénom Nom"
+    def _pkey(name: str) -> str:
+        # utilise ton normaliseur global si présent
+        if "_norm_player_key" in globals() and callable(globals()["_norm_player_key"]):
+            try:
+                return str(globals()["_norm_player_key"](name) or "").strip()
+            except Exception:
+                pass
+        return str(name or "").strip().lower()
+
+    def _swap_comma(name: str) -> str:
+        s = str(name or "").strip()
+        if "," in s:
+            a, b = [x.strip() for x in s.split(",", 1)]
+            if a and b:
+                return f"{b} {a}".strip()
+        return s
+
     owner_map = {}
     if not df_all.empty and "Joueur" in df_all.columns and "Propriétaire" in df_all.columns:
         tmp = df_all.copy()
-        tmp["_k"] = tmp["Joueur"].astype(str).str.strip().str.lower()
-        owner_map = dict(zip(tmp["_k"], tmp["Propriétaire"].astype(str).str.strip()))
+        for _, rr in tmp.iterrows():
+            j = str(rr.get("Joueur", "") or "").strip()
+            o = str(rr.get("Propriétaire", "") or "").strip()
+            if not j:
+                continue
+            # clé directe
+            owner_map[_pkey(j)] = o
+            # variante "swap"
+            owner_map[_pkey(_swap_comma(j))] = o
 
     def _owned_to(player: str) -> str:
-        return owner_map.get(str(player or "").strip().lower(), "")
+        p = str(player or "").strip()
+        if not p:
+            return ""
+        return owner_map.get(_pkey(p), "") or owner_map.get(_pkey(_swap_comma(p)), "") or ""
 
-    # Source: players_db (recherche FA)
+
+# Source: players_db (recherche FA)
     db = st.session_state.get("players_db")
     if not isinstance(db, pd.DataFrame) or db.empty:
         db = pd.DataFrame()
@@ -3508,8 +3538,6 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
 
     # Selection flag + tri (sélectionnés en haut)
     out["_is_selected"] = out["Player"].astype(str).str.strip().isin(selected)
-    # Afficher un badge "✓" pour la sélection
-    out["Sélection"] = out["_is_selected"].apply(lambda v: "✓" if bool(v) else "")
     # Tri: sélectionnés d'abord, puis jouables, puis non-owned, puis cap hit desc
     try:
         out["_cap_int"] = out["Cap Hit"].apply(lambda x: _cap_to_int(x))
@@ -3520,9 +3548,10 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
         ascending=[False, False, True, False, True],
         kind="mergesort",
     )
-    results_cols = ["Sélection","Player", "Pos", "Team", "Cap Hit", "NHL GP", "Level", "✅", "🔴", "Appartenant à"]
+    results_cols = ["Player", "Pos", "Team", "Cap Hit", "NHL GP", "Level", "✅", "🔴", "Appartenant à"]
 
     st.markdown("### 📋 Résultats (style Fantrax)")
+    st.caption("Colonnes: ✅ = Jouable (NHL GP ≥ 84 **et** Level ≠ ELC) • 🔴 = Déjà dans une équipe • Appartenant à = propriétaire actuel (si 🔴).")
     try:
         def _style_row(row):
             styles = [""] * len(row)
@@ -3555,6 +3584,11 @@ def render_tab_autonomes(lock_dest_to_owner: bool = True, show_header: bool = Tr
         key=add_from_results_key,
         disabled=full,
     )
+
+    if add_pick:
+        st.success("🟢 À ajouter à la sélection")
+    else:
+        st.caption("Choisis un ou plusieurs joueurs ici, puis clique **➕ Ajouter à la sélection**.")
 
     if full:
         st.info("Sélection complète (5/5). Retire un joueur de la sélection pour en ajouter un autre.")
