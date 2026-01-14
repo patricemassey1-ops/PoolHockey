@@ -3294,23 +3294,25 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
     picked_rows = edited[edited["Pick"] == True].copy() if isinstance(edited, pd.DataFrame) else pd.DataFrame()
 
-
+    # Construire la sélection persistée depuis prev_picks (même si les filtres changent)
+    selected_df = pd.DataFrame()
+    try:
+        if prev_picks and isinstance(df_db, pd.DataFrame) and not df_db.empty:
+            keycol = "Player" if "Player" in df_db.columns else ("Joueur" if "Joueur" in df_db.columns else None)
+            if keycol:
+                tmp_sel = df_db[df_db[keycol].astype(str).str.strip().isin(prev_picks)].copy()
+                if not tmp_sel.empty:
+                    if keycol != "Player":
+                        tmp_sel["Player"] = tmp_sel[keycol].astype(str)
+                    selected_df = tmp_sel
+    except Exception:
+        pass
+        selected_df = pd.DataFrame()
 
     # Si la table filtrée ne contient plus les joueurs cochés, on retombe sur la sélection persistée
-
-
-
     if (picked_rows is None) or (not isinstance(picked_rows, pd.DataFrame)) or picked_rows.empty:
-
-
-
         if isinstance(selected_df, pd.DataFrame) and not selected_df.empty:
-
-
-
             picked_rows = selected_df.copy()
-
-
 
     # Persist picks (pour garder la sélection visible après rerun)
 
@@ -3337,43 +3339,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
 
 
     except Exception:
-
-
-
         pass
-
-    if not picked_rows.empty and len(picked_rows) > 5:
-        st.warning("Maximum 5 joueurs — j’ai gardé les 5 premiers cochés.")
-        picked_rows = picked_rows.head(5)
-
-    # Détail optionnel sans expander (évite nested)
-    show_detail = st.checkbox("Voir le détail en tableau", value=False, key="fa_show_detail")
-    if show_detail:
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-    st.divider()
-
-    # --------- Sélection + embauche ---------
-    if picked_rows.empty:
-        st.caption("Coche jusqu’à 5 joueurs dans la colonne **Pick**, puis confirme l’embauche.")
-        return
-
-    st.markdown("#### ✅ Sélection (max 5)")
-    # Construire la sélection à partir de l'état persisté, même si le joueur n'est plus dans les résultats filtrés
-    selected_df = pd.DataFrame()
-    try:
-        if prev_picks and isinstance(df_db, pd.DataFrame) and not df_db.empty:
-            keycol = "Player" if "Player" in df_db.columns else ("Joueur" if "Joueur" in df_db.columns else None)
-            if keycol:
-                tmp_sel = df_db[df_db[keycol].astype(str).str.strip().isin(prev_picks)].copy()
-                if not tmp_sel.empty:
-                    if keycol != "Player":
-                        tmp_sel["Player"] = tmp_sel[keycol].astype(str)
-                    selected_df = tmp_sel
-    except Exception:
-        selected_df = pd.DataFrame()
-
-
     def _style_owned_row(row):
         # Encadrement rouge si Appartenant à non vide
         own = str(row.get("Appartenant à", "") or "").strip()
