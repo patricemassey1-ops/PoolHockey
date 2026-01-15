@@ -569,7 +569,7 @@ div[data-testid="stButton"] > button{
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
 
-</style>
+
 
 
 /* ===============================
@@ -664,6 +664,22 @@ div[data-testid="stButton"] > button{
   margin-top: 2px;
 }
 
+/* ==========================
+   Trade preview pills (Fantrax++)
+   ========================== */
+.trade-preview{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+.trade-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 10px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.06);
+  font-size:13px;font-weight:800;
+}
+.trade-pill.fromA{animation:slideA .35s ease-out both;}
+.trade-pill.fromB{animation:slideB .35s ease-out both;}
+@keyframes slideA{from{opacity:0;transform:translateX(-12px);}to{opacity:1;transform:translateX(0);}}
+@keyframes slideB{from{opacity:0;transform:translateX(12px);}to{opacity:1;transform:translateX(0);}}
+</style>
 """
 
 def apply_theme():
@@ -2939,15 +2955,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             disp_salary[disp] = sal_raw
             disp_name[disp] = nm
 
-        picked_list = st.multiselect(
-            "Joueur à racheter",
-            options=display,
-            default=[],
-            max_selections=1,
-            placeholder="Recherche et sélectionne un joueur…",
-            key="gm_buyout_pick_ms",
-        )
-        picked_rows = picked_list[0] if picked_list else ""
+        picked_rows = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
         sel_salary = float(disp_salary.get(picked_rows, 0) or 0)
         penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
         can_apply = bool(str(picked_rows).strip())
@@ -3491,27 +3499,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
             df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
             added += 1
 
-            # Log dans l'historique pour que Home/Historique reflète l'embauche
-            try:
-                log_history_row(
-                    proprietaire=str(dest_owner),
-                    joueur=str(pname),
-                    pos=str(pos),
-                    equipe=str(team),
-                    from_statut="",
-                    from_slot="",
-                    to_statut=str(statut_val),
-                    to_slot=str(slot_val),
-                    action="EMBAUCHE",
-                )
-            except Exception:
-                pass
-
         st.session_state["data"] = df_all
-        try:
-            persist_data(df_all, season_lbl)
-        except Exception:
-            pass
         try:
             st.session_state["plafonds"] = rebuild_plafonds(df_all)
         except Exception:
@@ -4101,6 +4089,158 @@ elif active_tab == "⚖️ Transactions":
     if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
         save_trade_market(season, market)
         st.toast("✅ Marché sauvegardé", icon="✅")
+
+    st.divider()
+    # =====================================================
+    # 🤝 Transaction (Échange) — joueurs + choix (Fantrax++)
+    #   ✅ aperçu visuel avant exécution (pills)
+    #   ✅ transfert réel des picks (picks_{season}.json)
+    #   ✅ log dans history: TRADE + PICK_TRADE
+    # =====================================================
+    with st.expander("🤝 Créer une transaction (joueurs + choix)", expanded=True):
+
+        # Helpers UI
+        def _trade_pill(txt: str, cls: str) -> str:
+            t = html.escape(str(txt or "").strip())
+            return f"<span class='trade-pill {cls}'>{t}</span>"
+
+        def _parse_pick_token(tok: str):
+            # format attendu: "R2 — Whalers"
+            try:
+                part_r, part_orig = tok.split("—", 1)
+                rd = int(str(part_r).strip().replace("R",""))
+                orig = str(part_orig).strip()
+                return orig, rd
+            except Exception:
+                return None, None
+
+        # --- Rosters (sans IR)
+        ra = _roster(owner_a)
+        rb = _roster(owner_b)
+
+        # options affichées (label) → joueur (nom)
+        opts_a = [ _player_label(r) for _, r in ra.iterrows() ]
+        map_a = { _player_label(r): str(r.get("Joueur","")).strip() for _, r in ra.iterrows() }
+
+        opts_b = [ _player_label(r) for _, r in rb.iterrows() ]
+        map_b = { _player_label(r): str(r.get("Joueur","")).strip() for _, r in rb.iterrows() }
+
+        c1, c2 = st.columns(2, vertical_alignment="top")
+        with c1:
+            st.markdown(f"#### {owner_a} → {owner_b}")
+            sel_players_a_lbl = st.multiselect("Joueurs envoyés", opts_a, default=[], key="tx_send_players_a")
+            sel_picks_a = st.multiselect("Choix envoyés", _owner_picks(owner_a), default=[], key="tx_send_picks_a")
+        with c2:
+            st.markdown(f"#### {owner_b} → {owner_a}")
+            sel_players_b_lbl = st.multiselect("Joueurs envoyés", opts_b, default=[], key="tx_send_players_b")
+            sel_picks_b = st.multiselect("Choix envoyés", _owner_picks(owner_b), default=[], key="tx_send_picks_b")
+
+        send_a = [map_a.get(x, x) for x in (sel_players_a_lbl or [])]
+        send_b = [map_b.get(x, x) for x in (sel_players_b_lbl or [])]
+
+        # --- Aperçu (pills)
+        st.markdown("#### 👀 Aperçu visuel (avant exécution)")
+        pv1, pv2 = st.columns(2, vertical_alignment="top")
+        with pv1:
+            st.caption(f"{owner_a} → {owner_b}")
+            pills = []
+            for j in (send_a or []):
+                pills.append(_trade_pill(f"🧍 {j}", "fromA"))
+            for p in (sel_picks_a or []):
+                pills.append(_trade_pill(f"🎯 {p}", "fromA"))
+            st.markdown("<div class='trade-preview'>" + (" ".join(pills) if pills else "<span style='opacity:.7'>—</span>") + "</div>", unsafe_allow_html=True)
+
+        with pv2:
+            st.caption(f"{owner_b} → {owner_a}")
+            pills = []
+            for j in (send_b or []):
+                pills.append(_trade_pill(f"🧍 {j}", "fromB"))
+            for p in (sel_picks_b or []):
+                pills.append(_trade_pill(f"🎯 {p}", "fromB"))
+            st.markdown("<div class='trade-preview'>" + (" ".join(pills) if pills else "<span style='opacity:.7'>—</span>") + "</div>", unsafe_allow_html=True)
+
+        # --- Solde net
+        net_players_a = len(send_b or []) - len(send_a or [])
+        net_picks_a = len(sel_picks_b or []) - len(sel_picks_a or [])
+        sign = lambda n: ("+" if n > 0 else "") + str(n)
+        st.caption(
+            f"**Solde net** — {owner_a}: {sign(net_players_a)} joueur(s), {sign(net_picks_a)} choix  |  "
+            f"{owner_b}: {sign(-net_players_a)} joueur(s), {sign(-net_picks_a)} choix"
+        )
+
+        can_exec = bool(send_a or send_b or sel_picks_a or sel_picks_b)
+
+        if st.button("🤝 Exécuter la transaction", type="primary", disabled=not can_exec, use_container_width=True, key="tx_exec_trade"):
+            df_all = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)).copy()
+
+            # 1) Transfert joueurs
+            def _move_player(name: str, src: str, dst: str):
+                if not name:
+                    return
+                m = (df_all["Propriétaire"].astype(str).str.strip().eq(str(src).strip()) &
+                     df_all["Joueur"].astype(str).str.strip().eq(str(name).strip()))
+                if m.any():
+                    row = df_all[m].iloc[0].to_dict()
+                    log_history_row(
+                        proprietaire=str(src),
+                        joueur=str(name),
+                        pos=str(row.get("Pos","") or ""),
+                        equipe=str(row.get("Equipe","") or ""),
+                        from_statut=str(row.get("Statut","") or ""),
+                        from_slot=str(row.get("Slot","") or ""),
+                        to_statut=str(row.get("Statut","") or ""),
+                        to_slot=str(dst),
+                        action="TRADE",
+                    )
+                    df_all.loc[m, "Propriétaire"] = str(dst)
+
+            for j in (send_a or []):
+                _move_player(j, owner_a, owner_b)
+            for j in (send_b or []):
+                _move_player(j, owner_b, owner_a)
+
+            # 2) Transfert picks
+            picks2 = picks if isinstance(picks, dict) else {}
+            def _move_pick(tok: str, src: str, dst: str):
+                orig, rd = _parse_pick_token(tok)
+                if not orig or not rd:
+                    return
+                if orig not in picks2 or not isinstance(picks2.get(orig), dict):
+                    picks2[orig] = {}
+                picks2[orig][str(rd)] = str(dst)
+                log_history_row(
+                    proprietaire=str(src),
+                    joueur=f"R{rd} — {orig}",
+                    pos="",
+                    equipe="",
+                    from_statut="PICK",
+                    from_slot=str(src),
+                    to_statut="PICK",
+                    to_slot=str(dst),
+                    action="PICK_TRADE",
+                )
+
+            for tok in (sel_picks_a or []):
+                _move_pick(tok, owner_a, owner_b)
+            for tok in (sel_picks_b or []):
+                _move_pick(tok, owner_b, owner_a)
+
+            # 3) Persist
+            st.session_state["data"] = df_all
+            try:
+                persist_data(df_all, season)
+            except Exception:
+                pass
+
+            try:
+                save_picks(season, picks2)
+            except Exception:
+                pass
+
+            st.session_state["plafonds"] = build_plafonds(df_all, season, owners)
+
+            st.toast("✅ Transaction exécutée", icon="✅")
+            do_rerun()
         do_rerun()
 
 
