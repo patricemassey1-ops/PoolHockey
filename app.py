@@ -213,7 +213,7 @@ st.session_state["_rerun_requested"] = False
 #   ✅ 1 thème, 1 injection
 #   ✅ aucun CSS ailleurs
 # =====================================================
-THEME_CSS = """<style>
+THEME_CSS = """
 
 /* v35 Level badges */
 .levelBadge{
@@ -540,7 +540,7 @@ div[data-testid="stButton"] > button{
 
 
 /* =====================================================
-   GM TAB (migré depuis st.markdown <style> inline)
+   GM TAB (migré depuis st.markdown <style>/*STYLE_REMOVED*/ inline)
    ===================================================== */
 .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
 .gm-top img { width:132px; } /* 3x */
