@@ -127,8 +127,6 @@ def _apply_pending_team_selection():
         return
     st.session_state["selected_team"] = team
     st.session_state["align_owner"] = team
-    # sync UI key (sidebar selectbox)
-    st.session_state["sb_team_select"] = team
 
 _apply_pending_team_selection()
 
@@ -586,6 +584,18 @@ div[data-testid="stButton"] > button{
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
 
+
+/* Destination hint */
+.dest-hint{
+  margin-top: .35rem;
+  padding: .45rem .6rem;
+  border-radius: .6rem;
+  border: 1px solid rgba(46, 204, 113, .45);
+  background: rgba(46, 204, 113, .10);
+  color: rgba(230, 255, 240, .95);
+  font-weight: 600;
+}
+
 </style>
 
 
@@ -679,9 +689,7 @@ div[data-testid="stButton"] > button{
   font-size: 18px;
   font-weight: 800;
   margin-top: 2px;
-}
-
-"""
+}"""
 
 def apply_theme():
     if st.session_state.get('_theme_css_injected', False):
@@ -2552,7 +2560,7 @@ chosen_team = st.sidebar.selectbox(
     "Choisir une équipe",
     teams,
     index=teams.index(cur_team),
-    key="sb_team_select",
+    key="selected_team_ui",
 )
 
 # Sync UI -> intent (évite boucle: on compare avec selected_team réel)
@@ -3441,6 +3449,9 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
             key=f"fa_dest_owner__{season_lbl}__{owner or 'x'}__{scope}",
             disabled=bool(lock_dest_to_owner),
         )
+    
+        # 🟢 Micro-fix UX: rendre la destination très visible
+        st.markdown('<div class="dest-hint">⬇️ Destination : choisis l’équipe ici</div>', unsafe_allow_html=True)
     with cB:
         assign_state_key = f"fa_assign__{season_lbl}__{owner or 'x'}__{scope}"
         assign = st.radio("Affectation", ["GC", "Banc", "CE"], horizontal=True, key=assign_state_key)
@@ -4077,6 +4088,138 @@ elif active_tab == "⚖️ Transactions":
 
     # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
 
+    
+    
+    # =====================================================
+    # 👀 Aperçu visuel (pills qui “bougent”) — avant exécution
+    # =====================================================
+    def _pill_html(label: str, kind: str, direction: str) -> str:
+        cls_kind = "tradePillPick" if kind == "pick" else "tradePillPlayer"
+        cls_dir = "tradeMoveRight" if direction == "right" else "tradeMoveLeft"
+        return f'<span class="tradePill {cls_kind} {cls_dir}">{label}</span>'
+
+    def _render_trade_lane(title: str, players: list[str], picks_lbls: list[str], direction: str):
+        pills: list[str] = []
+        for p in (players or []):
+            pills.append(_pill_html(f"👤 {p}", "player", direction))
+        for pk in (picks_lbls or []):
+            pills.append(_pill_html(f"🎯 {pk}", "pick", direction))
+        inner = ("".join(pills) if pills else '<span style="opacity:.65">Aucun élément</span>')
+        html = (
+            '<div class="tradeLane">'
+            f'<div class="tradeLaneTitle">{title}</div>'
+            f'<div>{inner}</div>'
+            '</div>'
+        )
+        st.markdown(html, unsafe_allow_html=True)
+
+    st.markdown("### 👀 Aperçu de l’échange (visuel)")
+    pcols = st.columns(2)
+    with pcols[0]:
+        _render_trade_lane(f"{owner_a} → {owner_b}", a_players, a_meta.get("picks", []), direction="right")
+    with pcols[1]:
+        _render_trade_lane(f"{owner_b} → {owner_a}", b_players, b_meta.get("picks", []), direction="left")
+
+# =====================================================
+    # ✅ CONFIRMATION — Exécuter la transaction (joueurs + picks)
+    #   Important: on applique réellement les changements dans df + picks + history.
+    # =====================================================
+    def _parse_pick_label(lbl: str):
+        # "R2 — Whalers" -> (2, "Whalers")
+        m = re.search(r"R(\d+)\s*[—-]\s*(.+)$", str(lbl).strip())
+        if not m:
+            return None, None
+        try:
+            rd = int(m.group(1))
+        except Exception:
+            rd = None
+        orig = str(m.group(2)).strip()
+        return rd, orig
+
+    has_any = bool(a_players or b_players or a_meta.get("picks") or b_meta.get("picks") or a_meta.get("cash") or b_meta.get("cash") or ret_a or ret_b)
+
+    if not has_any:
+        st.info("Ajoute au moins un joueur ou un choix pour pouvoir soumettre une transaction.")
+    else:
+        confirm = st.checkbox("✅ Je confirme que je veux exécuter cette transaction", value=False, key="tx_confirm_exec")
+
+        cexec1, cexec2 = st.columns([2, 1], vertical_alignment="center")
+        with cexec1:
+            st.caption("Cela changera les propriétaires des joueurs, transférera les choix de repêchage, écrira l’historique et mettra à jour les masses salariales.")
+        with cexec2:
+            exec_btn = st.button("🤝 Soumettre / confirmer la transaction", use_container_width=True, disabled=not confirm, key="tx_exec_btn")
+
+        if exec_btn:
+            # --- 1) Appliquer joueurs
+            df_new = df.copy()
+            def _swap_owner(pname: str, new_owner: str):
+                if not pname:
+                    return
+                m = df_new["Joueur"].astype(str).str.strip().eq(str(pname).strip())
+                if m.any():
+                    df_new.loc[m, "Propriétaire"] = str(new_owner).strip()
+
+            for p in a_players:
+                _swap_owner(p, owner_b)
+                # log sortie A
+                try:
+                    rowp = dfa[dfa["Joueur"].astype(str).str.strip().eq(str(p).strip())].iloc[0].to_dict()
+                    log_history_row(owner_a, p, rowp.get("Pos",""), rowp.get("Equipe",""), rowp.get("Statut",""), rowp.get("Slot",""), rowp.get("Statut",""), rowp.get("Slot",""), f"TRADE {owner_a}→{owner_b}")
+                    log_history_row(owner_b, p, rowp.get("Pos",""), rowp.get("Equipe",""), rowp.get("Statut",""), rowp.get("Slot",""), rowp.get("Statut",""), rowp.get("Slot",""), f"TRADE {owner_a}→{owner_b}")
+                except Exception:
+                    log_history_row(owner_a, p, "", "", "", "", "", "", f"TRADE {owner_a}→{owner_b}")
+
+            for p in b_players:
+                _swap_owner(p, owner_a)
+                try:
+                    rowp = dfb[dfb["Joueur"].astype(str).str.strip().eq(str(p).strip())].iloc[0].to_dict()
+                    log_history_row(owner_b, p, rowp.get("Pos",""), rowp.get("Equipe",""), rowp.get("Statut",""), rowp.get("Slot",""), rowp.get("Statut",""), rowp.get("Slot",""), f"TRADE {owner_b}→{owner_a}")
+                    log_history_row(owner_a, p, rowp.get("Pos",""), rowp.get("Equipe",""), rowp.get("Statut",""), rowp.get("Slot",""), rowp.get("Statut",""), rowp.get("Slot",""), f"TRADE {owner_b}→{owner_a}")
+                except Exception:
+                    log_history_row(owner_b, p, "", "", "", "", "", "", f"TRADE {owner_b}→{owner_a}")
+
+            # --- 2) Appliquer picks
+            def _set_pick_holder(orig_team: str, rd: int, holder: str):
+                if not orig_team or not rd:
+                    return
+                picks.setdefault(orig_team, {})
+                picks[orig_team][str(rd)] = str(holder).strip()
+
+            for lbl in (a_meta.get("picks") or []):
+                rd, orig = _parse_pick_label(lbl)
+                if rd and orig:
+                    _set_pick_holder(orig, rd, owner_b)
+                    log_history_row(owner_a, f"R{rd} — {orig} ({owner_a}→{owner_b})", "", "", "", "", "", "", "PICK_TRADE")
+
+            for lbl in (b_meta.get("picks") or []):
+                rd, orig = _parse_pick_label(lbl)
+                if rd and orig:
+                    _set_pick_holder(orig, rd, owner_a)
+                    log_history_row(owner_b, f"R{rd} — {orig} ({owner_b}→{owner_a})", "", "", "", "", "", "", "PICK_TRADE")
+
+            # --- 3) Persist
+            st.session_state["data"] = df_new
+            persist_data(df_new, season)
+
+            try:
+                save_picks(season, picks)
+            except Exception:
+                # si save_picks signature différente, on tente sans season
+                try:
+                    save_picks(season, picks)  # keep
+                except Exception:
+                    pass
+
+            # --- 4) Rebuild plafonds
+            try:
+                st.session_state["plafonds"] = rebuild_plafonds(df_new)
+            except Exception:
+                pass
+
+            st.toast("✅ Transaction exécutée", icon="✅")
+            do_rerun()
+
+    st.divider()
     st.markdown("### Marché des échanges (optionnel)")
     st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
 
