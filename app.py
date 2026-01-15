@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import inspect
 
 
 # =====================================================
@@ -150,9 +151,14 @@ st.session_state["_boot_ts"] = _boot_now.isoformat()
 st.session_state["_boot_count"] = _boot_count
 
 # Si armé et boucle forte, on désactive les rerun automatiques au lieu de stopper.
-if _boot_armed and _boot_count >= 12:
-    st.session_state["_disable_auto_rerun"] = True
-    st.warning("⚠️ Boucle de rerun détectée: rerun automatiques désactivés (mode safe).")
+if _boot_armed and _boot_count >= 25:
+    st.session_state['_disable_auto_rerun'] = True
+    srcinfo = st.session_state.get('_last_rerun_source') or {}
+    where = str(srcinfo.get('where',''))
+    reason = str(srcinfo.get('reason',''))
+    st.warning('⚠️ Boucle de rerun détectée: rerun automatiques désactivés (mode safe).')
+    if where or reason:
+        st.caption(f"Dernier rerun demandé par: {where} {('— '+reason) if reason else ''}")
     st.info("Va dans la sidebar → change d'onglet/équipe une fois. Si ça persiste: refresh (Ctrl/Cmd+R).")
 
 # --- reset rerun guard each run (prevents "Running/STOP" loop & stuck reruns)
@@ -167,7 +173,7 @@ if "PLAFOND_CE" not in st.session_state or int(st.session_state.get("PLAFOND_CE"
 
 # =====================================================
 # TEAM SELECTION — LOOP-FREE
-#   ✅ Aucun st.rerun() déclenché par la sidebar
+#   ✅ Aucun do_rerun() déclenché par la sidebar
 #   ✅ selected_team est synchronisé depuis selected_team_ui après le widget
 # =====================================================
 
@@ -886,7 +892,7 @@ def require_password():
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
                 st.success("✅ Accès autorisé")
-                st.rerun()
+                do_rerun()
             else:
                 st.error("❌ Mot de passe invalide")
 
@@ -921,16 +927,26 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
 # =====================================================
 # BASIC HELPERS
 # =====================================================
-def do_rerun():
-    """Rerun sécurisé.
+def do_rerun(reason: str = ''):
+    """Rerun sécurisé (diagnostic-friendly).
 
     - Jamais plus d'un rerun par run
     - Respecte le mode safe (_disable_auto_rerun)
+    - Trace la source du rerun pour diagnostiquer les boucles
     """
     if st.session_state.get('_disable_auto_rerun', False):
         return
     if st.session_state.get('_rerun_requested', False):
         return
+
+    # capture caller (ligne/fonction)
+    try:
+        frm = inspect.stack()[1]
+        loc = f"{frm.filename}:{frm.lineno} ({frm.function})"
+    except Exception:
+        loc = 'unknown'
+    st.session_state['_last_rerun_source'] = {'where': loc, 'reason': str(reason or '')}
+
     st.session_state['_rerun_requested'] = True
     try:
         st.rerun()
@@ -4127,14 +4143,14 @@ def tx_render_pending_section(season_lbl: str):
                                 tx_apply_trade_execution(season_lbl, tr)
                             allp[idx]=tr
                             tx_update_pending(season_lbl, allp)
-                            st.rerun()
+                            do_rerun()
                 with c2:
                     if st.button("🗑️ Annuler", key=f"cancel_{tid}", disabled=not can_approve):
                         idx, tr, allp = tx_find_pending(season_lbl, tid)
                         if idx >= 0:
                             allp.pop(idx)
                             tx_update_pending(season_lbl, allp)
-                            st.rerun()
+                            do_rerun()
             else:
                 st.caption("Seuls les propriétaires impliqués peuvent approuver.")
 
@@ -4302,11 +4318,11 @@ def render_tab_transactions():
             trade = tx_make_trade_payload(season_lbl, owner_a, owner_b, a_sel, b_sel, a_pick_sel, b_pick_sel, a_meta, b_meta, ap_meta, bp_meta, ret_a, ret_b, cash_a, cash_b)
             tx_save_pending(season_lbl, trade)
             st.success(f"Transaction #{trade['id']} soumise. En attente d’approbation.")
-            st.rerun()
+            do_rerun()
     with b2:
         if st.button("🧹 Vider le brouillon", key=f"tx_clear__{season_lbl}"):
             tx_clear_draft(season_lbl)
-            st.rerun()
+            do_rerun()
 
     if errs:
         for e in errs:
