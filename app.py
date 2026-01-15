@@ -125,6 +125,32 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
+# --- BOOT LOOP GUARD (prevents silent infinite reruns -> black screen + Running/STOP)
+_boot_now = datetime.now(TZ_TOR)
+_boot_ts = st.session_state.get("_boot_ts")
+_boot_count = int(st.session_state.get("_boot_count", 0) or 0)
+
+if _boot_ts:
+    try:
+        _boot_prev = datetime.fromisoformat(str(_boot_ts))
+        if (_boot_now - _boot_prev).total_seconds() < 3:
+            _boot_count += 1
+        else:
+            _boot_count = 0
+    except Exception:
+        _boot_count = 0
+else:
+    _boot_count = 0
+
+st.session_state["_boot_ts"] = _boot_now.isoformat()
+st.session_state["_boot_count"] = _boot_count
+
+if _boot_count >= 4:
+    st.error("⚠️ Boucle de rerun détectée. On stoppe pour éviter l'écran noir.")
+    st.info("Causes typiques: sync sidebar (équipe/onglet) + st.rerun() automatique. "
+            "Réessaie après refresh (Ctrl/Cmd+R).")
+    st.stop()
+
 # --- reset rerun guard each run (prevents "Running/STOP" loop & stuck reruns)
 st.session_state["_rerun_requested"] = False
 # --- plafonds par défaut (évite cap=0)
