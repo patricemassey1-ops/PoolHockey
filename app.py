@@ -125,10 +125,14 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
-# --- BOOT LOOP GUARD (prevents silent infinite reruns -> black screen + Running/STOP)
-_boot_now = datetime.now(TZ_TOR) if TZ_TOR else datetime.now()
+
+# --- BOOT LOOP GUARD (soft)
+# Streamlit peut exécuter le script plusieurs fois au chargement initial.
+# On ne bloque jamais l'UI ici: au pire on désactive les rerun automatiques.
+_boot_now = datetime.now(TZ_TOR) if ("TZ_TOR" in globals() and TZ_TOR) else datetime.now()
 _boot_ts = st.session_state.get("_boot_ts")
 _boot_count = int(st.session_state.get("_boot_count", 0) or 0)
+_boot_armed = bool(st.session_state.get("_boot_armed", False))
 
 if _boot_ts:
     try:
@@ -145,11 +149,11 @@ else:
 st.session_state["_boot_ts"] = _boot_now.isoformat()
 st.session_state["_boot_count"] = _boot_count
 
-if _boot_count >= 4:
-    st.error("⚠️ Boucle de rerun détectée. On stoppe pour éviter l'écran noir.")
-    st.info("Causes typiques: sync sidebar (équipe/onglet) + st.rerun() automatique. "
-            "Réessaie après refresh (Ctrl/Cmd+R).")
-    st.stop()
+# Si armé et boucle forte, on désactive les rerun automatiques au lieu de stopper.
+if _boot_armed and _boot_count >= 12:
+    st.session_state["_disable_auto_rerun"] = True
+    st.warning("⚠️ Boucle de rerun détectée: rerun automatiques désactivés (mode safe).")
+    st.info("Va dans la sidebar → change d'onglet/équipe une fois. Si ça persiste: refresh (Ctrl/Cmd+R).")
 
 # --- reset rerun guard each run (prevents "Running/STOP" loop & stuck reruns)
 st.session_state["_rerun_requested"] = False
@@ -912,6 +916,10 @@ def require_password():
     st.stop()
 
 require_password()
+
+# Arm the boot-loop guard only AFTER successful auth / first full render.
+# This avoids false positives during Streamlit's normal initial multi-runs.
+st.session_state["_boot_armed"] = True
 
 # =====================================================
 # MAIN HEADER — Logo_Pool + 🏒 (gauche) + 🥅 (droite)
@@ -4311,4 +4319,3 @@ def render_tab_transactions():
 
     st.divider()
     tx_render_pending_section(season_lbl)
-    
