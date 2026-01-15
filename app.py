@@ -11,7 +11,6 @@ import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -184,6 +183,7 @@ st.session_state["_rerun_requested"] = False
 #   ✅ aucun CSS ailleurs
 # =====================================================
 THEME_CSS = """<style>
+
 /* v35 Level badges */
 .levelBadge{
   display:inline-block;
@@ -509,7 +509,7 @@ div[data-testid="stButton"] > button{
 
 
 /* =====================================================
-   GM TAB (migré depuis st.markdown &lt;style&gt; inline)
+   GM TAB (migré depuis st.markdown <style> inline)
    ===================================================== */
 .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
 .gm-top img { width:132px; } /* 3x */
@@ -569,7 +569,7 @@ div[data-testid="stButton"] > button{
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
 
-
+</style>
 
 
 /* ===============================
@@ -663,7 +663,7 @@ div[data-testid="stButton"] > button{
   font-weight: 800;
   margin-top: 2px;
 }
-</style>
+
 """
 
 def apply_theme():
@@ -1245,16 +1245,20 @@ def team_logo_path(team: str) -> str:
 # TEAM SELECTION (single source of truth)
 # =====================================================
 def pick_team(team: str):
-    """Sélection d'équipe (source de vérité = st.session_state['selected_team']).
-    IMPORTANT: ne pas forcer st.rerun() ici, sinon boucle si le selectbox a une key différente.
+    """Change l'équipe sélectionnée (safe même si widget sidebar existe).
+
+    On ne modifie PAS directement la key d'un widget déjà instancié.
+    On enregistre une demande, puis on applique AVANT la création des widgets au prochain run.
     """
     team = str(team or "").strip()
     if not team:
         return
-    st.session_state["selected_team"] = team
-    st.session_state["align_owner"] = team
+    st.session_state["_pending_team_select"] = team
+    # rerun demandé (boutons Home, etc.)
+    do_rerun()
 
 def get_selected_team() -> str:
+() -> str:
     v = str(st.session_state.get("selected_team") or "").strip()
     if v:
         return v
@@ -2489,7 +2493,6 @@ NAV_TABS = [
     "🧾 Alignement",
     "🧊 GM",
     "👤 Joueurs autonomes",
-    "📈 Classement",
     "🕘 Historique",
     "⚖️ Transactions",
 ]
@@ -2503,7 +2506,33 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-# Widget (radio) — `active_tab` est la source de vérité
+
+# =====================================================
+# APPLY PENDING TEAM SELECTION (safe)
+#   - appliqué AVANT les widgets sidebar
+# =====================================================
+if st.session_state.get("_pending_team_select"):
+    _t = str(st.session_state.get("_pending_team_select") or "").strip()
+    if _t:
+        # sync source of truth + widget value (avant création)
+        st.session_state["selected_team"] = _t
+        st.session_state["align_owner"] = _t
+        st.session_state["sb_team_select"] = _t
+    st.session_state.pop("_pending_team_select", None)
+
+# Si le selectbox sidebar existe déjà, on s'aligne dessus (toujours AVANT création)
+if "sb_team_select" in st.session_state and str(st.session_state.get("sb_team_select") or "").strip():
+    _t2 = str(st.session_state.get("sb_team_select") or "").strip()
+    st.session_state["selected_team"] = _t2
+    st.session_state["align_owner"] = _t2
+
+# Widget (labels = tabs, pas de mapping fragile)
+# ✅ Une seule source de vérité: key="active_tab"
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = NAV_TABS[0]
+if st.session_state["active_tab"] not in NAV_TABS:
+    st.session_state["active_tab"] = NAV_TABS[0]
+
 active_tab = st.sidebar.radio(
     "Navigation",
     NAV_TABS,
@@ -2522,37 +2551,13 @@ cur_team = get_selected_team().strip() or teams[0]
 if cur_team not in teams:
     cur_team = teams[0]
 
-# --- Team selection (single source of truth = st.session_state['selected_team'])
-# IMPORTANT:
-# - The sidebar widget must NOT use key='selected_team', otherwise updating selected_team elsewhere
-#   (ex: clicking a team button in Home) will raise StreamlitAPIException.
-# - Use a separate widget key and sync it safely.
-
-# Apply any pending team selection *before* rendering the widget
-if "pending_team_select" in st.session_state:
-    _pt = str(st.session_state.pop("pending_team_select") or "").strip()
-    if _pt:
-        st.session_state["selected_team"] = _pt
-        st.session_state["align_owner"] = _pt
-
-# Establish current selection
-cur_team = str(st.session_state.get("selected_team") or cur_team or "").strip() or (teams[0] if teams else "")
-if cur_team and cur_team not in teams and teams:
-    cur_team = teams[0]
-
-# Keep UI widget in sync
-st.session_state["selected_team_ui"] = cur_team
-
+# ✅ Le widget déclenche déjà un rerun; on synchronise via le bloc APPLY PENDING TEAM SELECTION plus haut.
 chosen_team = st.sidebar.selectbox(
     "Choisir une équipe",
     teams,
-    index=(teams.index(cur_team) if (teams and cur_team in teams) else 0),
-    key="selected_team_ui",
+    index=teams.index(cur_team),
+    key="sb_team_select",
 )
-
-# If user changed the selection in the sidebar, update the source of truth
-if chosen_team and str(chosen_team).strip() != cur_team:
-    pick_team(chosen_team)
 
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
@@ -3516,359 +3521,6 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         do_rerun()
 
 
-
-# =====================================================
-# CLASSEMENT (API NHL) — SAFE + CACHED
-#   - Classement = Actifs Grand Club seulement
-#   - Source NHL: suggest endpoint (player id) + landing endpoint (stats)
-# =====================================================
-
-SCORING_RULES = {
-    "F": {"goals": 1, "assists": 1},   # Avants
-    "D": {"goals": 1, "assists": 1},   # Défenseurs
-    "G": {"wins": 2, "shutouts": 1},   # Gardiens
-}
-
-def _is_goalie(pos: str) -> bool:
-    p = str(pos or "").strip().upper()
-    return p in {"G", "GK", "GOALIE"}
-
-def _pos_bucket(pos: str) -> str:
-    p = str(pos or "").strip().upper()
-    if _is_goalie(p):
-        return "G"
-    if p == "D":
-        return "D"
-    # défaut: F (C/LW/RW, etc.)
-    return "F"
-
-def _deep_find_first_number(obj, key: str):
-    """Cherche récursivement la 1ère valeur numérique associée à `key`."""
-    if isinstance(obj, dict):
-        if key in obj and isinstance(obj[key], (int, float)) and obj[key] is not None:
-            return obj[key]
-        for v in obj.values():
-            out = _deep_find_first_number(v, key)
-            if out is not None:
-                return out
-    elif isinstance(obj, list):
-        for it in obj:
-            out = _deep_find_first_number(it, key)
-            if out is not None:
-                return out
-    return None
-
-@st.cache_data(ttl=60*60*6)  # 6h
-def _nhl_suggest_player_id(query: str, refresh_key: str = "") -> int | None:
-    """
-    NHL suggest endpoint: renvoie le playerId.
-    Référence courante largement utilisée: https://suggest.svc.nhl.com/svc/suggest/v1/minplayers/<query>
-    """
-    q = str(query or "").strip().lower()
-    if not q:
-        return None
-    url = f"https://suggest.svc.nhl.com/svc/suggest/v1/minplayers/{q}"
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        js = r.json()
-    except Exception:
-        return None
-
-    # Format fréquent: { "suggestion": ["mcdavid|connor|8478402|..."] } ou list brute
-    suggestions = []
-    if isinstance(js, dict):
-        suggestions = js.get("suggestion") or js.get("suggestions") or []
-    elif isinstance(js, list):
-        suggestions = js
-    if not suggestions:
-        return None
-
-    first = suggestions[0]
-    if isinstance(first, str):
-        parts = first.split("|")
-        # pattern usuel: last|first|id|...
-        for p in parts:
-            if p.isdigit() and len(p) >= 6:
-                try:
-                    return int(p)
-                except Exception:
-                    pass
-    # fallback: essayer de trouver un id n'importe où
-    pid = _deep_find_first_number(js, "playerId")
-    try:
-        return int(pid) if pid is not None else None
-    except Exception:
-        return None
-
-@st.cache_data(ttl=60*60*6)  # 6h
-def _nhl_player_landing(player_id: int, refresh_key: str = "") -> dict:
-    """Landing endpoint (profil joueur + stats)."""
-    if not player_id:
-        return {}
-    url = f"https://api-web.nhle.com/v1/player/{int(player_id)}/landing"
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json() or {}
-    except Exception:
-        return {}
-
-
-@st.cache_data(ttl=60*60*6)  # 6h
-def _nhl_player_gamelog_now(player_id: int, refresh_key: str = "") -> dict:
-    """Game log endpoint (as of now). Utile pour calculer une fenêtre 7/14/30 jours."""
-    if not player_id:
-        return {}
-    url = f"https://api-web.nhle.com/v1/player/{int(player_id)}/game-log/now"
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json() or {}
-    except Exception:
-        return {}
-
-def _extract_recent_stats_from_gamelog(js: dict, since_dt: datetime) -> dict:
-    """Somme des stats depuis `since_dt` (best effort)."""
-    out = {"goals": 0, "assists": 0, "points": 0, "wins": 0, "shutouts": 0}
-    try:
-        gl = None
-        if isinstance(js, dict):
-            gl = js.get("gameLog") or js.get("games") or js.get("data")
-        if not isinstance(gl, list):
-            return out
-        for g in gl:
-            if not isinstance(g, dict):
-                continue
-            gd = g.get("gameDate") or g.get("date") or g.get("game_date")
-            gdt = None
-            if isinstance(gd, str) and gd:
-                try:
-                    gdt = datetime.fromisoformat(gd.replace("Z","").split("T")[0])
-                except Exception:
-                    gdt = None
-            if gdt is not None and gdt < since_dt:
-                continue
-            for k in ("goals","assists","points"):
-                try:
-                    v = g.get(k)
-                    if isinstance(v, (int,float)) and v is not None:
-                        out[k] += float(v)
-                except Exception:
-                    pass
-            dec = str(g.get("decision") or g.get("result") or "").upper()
-            if dec == "W":
-                out["wins"] += 1
-            ga = g.get("goalsAgainst") or g.get("goals_against")
-            try:
-                ga_i = int(ga) if ga is not None else None
-            except Exception:
-                ga_i = None
-            if dec == "W" and ga_i == 0:
-                out["shutouts"] += 1
-    except Exception:
-        return out
-    return out
-
-def _extract_player_stats_from_landing(js: dict) -> dict:
-    """
-    Extraction robuste (les structures changent parfois).
-    On essaie d'abord featuredStats/regularSeason, puis fallback récursif.
-    """
-    out = {
-        "goals": 0, "assists": 0, "points": 0,
-        "wins": 0, "shutouts": 0,
-        "gamesPlayed": None,
-    }
-
-    try:
-        featured = js.get("featuredStats") if isinstance(js, dict) else None
-        rs = None
-        if isinstance(featured, dict):
-            rs = featured.get("regularSeason") or featured.get("seasonTotals") or featured.get("currentSeason")
-        if isinstance(rs, dict):
-            # Cherche des clés directes
-            for k in ["goals", "assists", "points", "wins", "shutouts", "gamesPlayed"]:
-                v = rs.get(k)
-                if isinstance(v, (int, float)) and v is not None:
-                    out[k] = int(v)
-    except Exception:
-        pass
-
-    # fallback récursif si manquant
-    for k in ["goals", "assists", "points", "wins", "shutouts", "gamesPlayed"]:
-        if out.get(k) in (0, None):
-            v = _deep_find_first_number(js, k)
-            if isinstance(v, (int, float)) and v is not None:
-                out[k] = int(v)
-
-    # points si absent mais goals+assists présents
-    if (out.get("points") in (0, None)) and (out.get("goals", 0) or out.get("assists", 0)):
-        out["points"] = int(out.get("goals", 0) + out.get("assists", 0))
-
-    return out
-
-def calculate_player_points(stats: dict, pos: str) -> float:
-    bucket = _pos_bucket(pos)
-    rules = SCORING_RULES.get(bucket, SCORING_RULES["F"])
-    score = 0.0
-    for stat, weight in rules.items():
-        try:
-            score += float(stats.get(stat, 0) or 0) * float(weight)
-        except Exception:
-            pass
-    # fallback utile pour skaters si on a seulement "points"
-    if score == 0.0 and bucket != "G":
-        try:
-            score = float(stats.get("points", 0) or 0)
-        except Exception:
-            score = 0.0
-    return score
-
-def render_tab_classement():
-    st.subheader("📈 Classement — Points (Actifs Grand Club seulement)")
-    st.caption("Source: NHL API (suggest + landing) • Cache 6h • Bouton rafraîchir si nécessaire.")
-
-
-    # Période (safe): Saison vs fenêtre récente
-    period = st.selectbox(
-        "Période",
-        ["Saison (totaux)", "7 jours", "14 jours", "30 jours"],
-        index=0,
-        key="rank_period",
-    )
-    days_map = {"7 jours": 7, "14 jours": 14, "30 jours": 30}
-    window_days = days_map.get(period, 0)
-
-    colR1, colR2 = st.columns([1, 2], vertical_alignment="center")
-    with colR1:
-        if st.button("🔄 Rafraîchir NHL", key="rank_refresh_nhl", use_container_width=True):
-            st.session_state["_nhl_refresh_key"] = str(datetime.utcnow().timestamp())
-            try:
-                st.cache_data.clear()
-            except Exception:
-                pass
-            st.rerun()
-    with colR2:
-        if window_days:
-            since_date = (datetime.now() - timedelta(days=window_days)).date().isoformat()
-            st.caption(f"Fenêtre: derniers {window_days} jours (depuis {since_date})")
-
-    df = st.session_state.get("data", pd.DataFrame()).copy()
-    if df is None or df.empty:
-        st.info("Aucune donnée d'alignement. Va dans 🛠️ Gestion Admin → Import Fantrax.")
-        return
-
-    # Colonnes minimales
-    for col in ["Propriétaire", "Joueur", "Statut", "Slot"]:
-        if col not in df.columns:
-            st.error(f"Colonne manquante: {col}")
-            return
-
-    # Filtre demandé: Actifs Grand Club seulement
-    d = df.copy()
-    try:
-        d = d[(d["Statut"] == STATUT_GC) & (d["Slot"] == SLOT_ACTIF)].copy()
-    except Exception:
-        # fallback strings
-        d = d[
-            d["Statut"].astype(str).str.contains("GC", na=False)
-            & d["Slot"].astype(str).str.contains("ACTIF", na=False)
-        ].copy()
-
-    if d.empty:
-        st.warning("Aucun joueur Actif (Grand Club) trouvé.")
-        return
-
-    # Map position: on privilégie la colonne Position du df sinon fallback hockey.players.csv (minuscule)
-    pos_map = {}
-    if "Position" in d.columns:
-        pos_map = {str(r["Joueur"]): str(r.get("Position","")) for _, r in d.iterrows()}
-    else:
-        # fallback sur DB joueurs
-        try:
-            pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-            if pdb_path and os.path.exists(pdb_path):
-                pdb = load_players_db(pdb_path, mtime=os.path.getmtime(pdb_path))
-                if pdb is not None and not pdb.empty:
-                    # essaie de trouver une colonne position
-                    cand_cols = [c for c in pdb.columns if str(c).lower() in {"pos","position","positions"}]
-                    name_col = None
-                    for c in pdb.columns:
-                        if str(c).lower() in {"joueur","player","name","nom"}:
-                            name_col = c
-                            break
-                    if cand_cols and name_col:
-                        pc = cand_cols[0]
-                        for _, r in pdb.iterrows():
-                            pos_map[str(r.get(name_col,""))] = str(r.get(pc,""))
-        except Exception:
-            pass
-    refresh_key = str(st.session_state.get("_nhl_refresh_key", ""))
-
-    # Collect unique players
-    players = sorted({str(x).strip() for x in d["Joueur"].dropna().tolist() if str(x).strip()})
-    st.write(f"Joueurs analysés: **{len(players)}**")
-
-    # Fetch stats
-    rows = []
-    prog = st.progress(0)
-    for i, name in enumerate(players, start=1):
-        pid = _nhl_suggest_player_id(name, refresh_key=refresh_key)
-        landing = _nhl_player_landing(pid or 0, refresh_key=refresh_key) if (pid and window_days == 0) else {}
-        stats = (_extract_player_stats_from_landing(landing) if landing else {"goals":0,"assists":0,"points":0,"wins":0,"shutouts":0,"gamesPlayed":None})
-        if pid and window_days:
-            gl = _nhl_player_gamelog_now(pid, refresh_key=refresh_key)
-            stats_win = _extract_recent_stats_from_gamelog(gl, since_dt=datetime.now() - timedelta(days=window_days))
-            # override skater/goalie buckets with window stats
-            for k in ("goals","assists","points","wins","shutouts"):
-                if k in stats_win:
-                    stats[k] = stats_win.get(k, stats.get(k))
-            stats["gamesPlayed"] = ""
-
-        pos = pos_map.get(name, "")
-        pts = calculate_player_points(stats, pos)
-
-        rows.append({
-            "Joueur": name,
-            "NHL_ID": pid or "",
-            "Position": pos,
-            "GP": stats.get("gamesPlayed", ""),
-            "G": stats.get("goals", 0),
-            "A": stats.get("assists", 0),
-            "PTS": stats.get("points", 0),
-            "W": stats.get("wins", 0),
-            "SO": stats.get("shutouts", 0),
-            "PointsPool": pts,
-        })
-        prog.progress(int(i/len(players)*100))
-
-    prog.empty()
-
-    stats_df = pd.DataFrame(rows)
-
-    # Join owner
-    d_owner = d[["Propriétaire","Joueur"]].copy()
-    d_owner["Joueur"] = d_owner["Joueur"].astype(str).str.strip()
-    stats_df["Joueur"] = stats_df["Joueur"].astype(str).str.strip()
-    merged = stats_df.merge(d_owner, on="Joueur", how="left")
-
-    # Classement propriétaires
-    ranking = (merged.groupby("Propriétaire", dropna=False)["PointsPool"]
-                    .sum()
-                    .reset_index()
-                    .sort_values("PointsPool", ascending=False))
-
-    st.markdown("### 🏆 Classement des propriétaires")
-    st.dataframe(ranking, use_container_width=True, hide_index=True)
-
-    with st.expander("🔎 Détail — joueurs Actifs (Grand Club)", expanded=False):
-        show_cols = ["Propriétaire","Joueur","Position","GP","G","A","PTS","W","SO","PointsPool","NHL_ID"]
-        st.dataframe(merged[show_cols].sort_values(["Propriétaire","PointsPool"], ascending=[True, False]),
-                     use_container_width=True,
-                     hide_index=True)
-
-
 # =====================================================
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
@@ -4002,85 +3654,6 @@ if active_tab == "🏠 Home":
         st.caption("Aucun changement enregistré pour l’instant.")
     else:
         st.dataframe(recent, use_container_width=True, hide_index=True)
-
-
-# -------------------------------------------------
-# 🧾 Dernières embauches (visible dans Home)
-# -------------------------------------------------
-def _recent_hires(limit: int = 10) -> pd.DataFrame:
-    h = st.session_state.get("history")
-    if not isinstance(h, pd.DataFrame) or h.empty:
-        return pd.DataFrame()
-    hh = h.copy()
-    if "timestamp_dt" not in hh.columns and "timestamp" in hh.columns:
-        hh["timestamp_dt"] = pd.to_datetime(hh["timestamp"], errors="coerce")
-    act_col = "action" if "action" in hh.columns else ("type" if "type" in hh.columns else "")
-    if not act_col:
-        return pd.DataFrame()
-    hh = hh[hh[act_col].astype(str).str.upper().eq("EMBAUCHE")].copy()
-    if hh.empty:
-        return pd.DataFrame()
-    sort_col = "timestamp_dt" if "timestamp_dt" in hh.columns else ("timestamp" if "timestamp" in hh.columns else act_col)
-    hh = hh.sort_values(sort_col, ascending=False)
-    return hh.head(int(limit)).copy()
-
-def _render_pick_trade_pill(frm: str, to: str, label: str, side: str = "left"):
-    cls = "slide-left" if side == "left" else "slide-right"
-    st.markdown(
-        f'<div class="trade-row {cls}">'
-        f'<span class="trade-pill">{html.escape(frm)} <span class="arrow">→</span> {html.escape(to)}</span>'
-        f'<span class="pick-pill">🎯 {html.escape(label)}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-st.write("")
-st.markdown("### 🧾 Dernières embauches")
-hires = _recent_hires(8)
-if hires is None or hires.empty:
-    st.caption("Aucune embauche récente.")
-else:
-    for _, r in hires.iterrows():
-        ts = r.get("timestamp_dt") or r.get("timestamp") or ""
-        owner = r.get("proprietaire") or r.get("Propriétaire") or r.get("owner") or ""
-        joueur = r.get("joueur") or r.get("Joueur") or ""
-        note = r.get("note") or r.get("details") or ""
-        st.markdown(
-            f"- **{html.escape(str(owner))}** a embauché **{html.escape(str(joueur))}**  \n"
-            f"  <span class='muted'>{html.escape(str(ts))}</span> <span class='muted'>{html.escape(str(note))}</span>",
-            unsafe_allow_html=True,
-        )
-
-st.write("")
-st.markdown("### 🎯 Derniers échanges de choix")
-shown = 0
-h = st.session_state.get("history")
-if isinstance(h, pd.DataFrame) and not h.empty:
-    hh = h.copy()
-    if "timestamp_dt" not in hh.columns and "timestamp" in hh.columns:
-        hh["timestamp_dt"] = pd.to_datetime(hh["timestamp"], errors="coerce")
-    act_col = "action" if "action" in hh.columns else ("type" if "type" in hh.columns else "")
-    if act_col:
-        pick = hh[hh[act_col].astype(str).str.upper().eq("PICK_TRADE")].copy()
-        if not pick.empty:
-            sort_col = "timestamp_dt" if "timestamp_dt" in pick.columns else ("timestamp" if "timestamp" in pick.columns else act_col)
-            pick = pick.sort_values(sort_col, ascending=False).head(10)
-            for _, r in pick.iterrows():
-                frm = str(r.get("from") or r.get("owner_from") or r.get("src") or r.get("team_from") or "").strip()
-                to = str(r.get("to") or r.get("owner_to") or r.get("dst") or r.get("team_to") or "").strip()
-                year = str(r.get("year") or r.get("annee") or "").strip()
-                rnd = str(r.get("round") or r.get("ronde") or "").strip()
-                origin = str(r.get("origin") or r.get("origine") or r.get("pick_origin") or "").strip()
-                label_parts = []
-                if year: label_parts.append(year)
-                if rnd: label_parts.append(f"R{rnd}")
-                if origin: label_parts.append(origin)
-                label = " • ".join(label_parts)
-                if frm and to and label:
-                    _render_pick_trade_pill(frm, to, label, side="left")
-                    shown += 1
-if shown == 0:
-    st.caption("Aucun échange de choix récent (PICK_TRADE) dans l’historique.")
 
 
 elif active_tab == "🧾 Alignement":
@@ -4275,9 +3848,6 @@ elif active_tab == "🧊 GM":
 
 elif active_tab == "👤 Joueurs autonomes":
     render_tab_autonomes(lock_dest_to_owner=True)
-
-elif active_tab == "📈 Classement":
-    render_tab_classement()
 
 elif active_tab == "🕘 Historique":
     st.subheader("🕘 Historique des changements d’alignement")
@@ -4537,143 +4107,6 @@ elif active_tab == "🛠️ Gestion Admin":
     st.subheader("🛠️ Gestion Admin")
 
     # -----------------------------
-    # 📥 Importation (hors expander)
-    # -----------------------------
-    manifest = load_init_manifest() or {}
-    if "fantrax_by_team" not in manifest:
-        manifest["fantrax_by_team"] = {}
-
-    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
-    default_owner = get_selected_team().strip() or teams[0]
-    if default_owner not in teams:
-        default_owner = teams[0]
-
-    chosen_owner = st.selectbox(
-        "Importer l'alignement dans quelle équipe ?",
-        teams,
-        index=teams.index(default_owner),
-        key="admin_import_team_pick",
-    )
-
-    clear_team_before = st.checkbox(
-        f"Vider l’alignement de {chosen_owner} avant import",
-        value=True,
-        help="Recommandé si tu réimportes la même équipe.",
-        key="admin_clear_team_before",
-    )
-
-    u_nonce = int(st.session_state.get("uploader_nonce", 0))
-    c_init1, c_init2 = st.columns(2)
-    with c_init1:
-        init_align = st.file_uploader(
-            "CSV — Alignement (Fantrax)",
-            type=["csv", "txt"],
-            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-    with c_init2:
-        init_hist = st.file_uploader(
-            "CSV — Historique (optionnel)",
-            type=["csv", "txt"],
-            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-
-    c_btn1, c_btn2 = st.columns([1, 1])
-
-    with c_btn1:
-        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-            if init_align is None:
-                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
-            else:
-                try:
-                    buf = io.BytesIO(init_align.getbuffer())
-                    buf.name = init_align.name
-                    df_import = parse_fantrax(buf)
-                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
-                    df_import["Propriétaire"] = str(chosen_owner).strip()
-                    df_import = clean_data(df_import)
-                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
-
-                    st.session_state["init_preview_df"] = df_import
-                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                    st.session_state["init_preview_filename"] = init_align.name
-                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
-                except Exception as e:
-                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
-
-    preview_df = st.session_state.get("init_preview_df")
-    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
-        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
-            st.dataframe(preview_df.head(20), use_container_width=True)
-
-    with c_btn2:
-        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
-        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
-            df_team = st.session_state.get("init_preview_df")
-            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
-            filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
-
-            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-
-            df_team = clean_data(df_team.copy())
-            df_team["Propriétaire"] = owner_final
-            df_team = clean_data(df_team)
-
-            if clear_team_before:
-                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
-                df_new = pd.concat([keep, df_team], ignore_index=True)
-            else:
-                df_new = pd.concat([df_cur, df_team], ignore_index=True)
-
-            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
-                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
-                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
-                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-
-            df_new = clean_data(df_new)
-            st.session_state["data"] = df_new
-            persist_data(df_new, season_pick)
-
-            st.session_state["plafonds"] = rebuild_plafonds(df_new)
-
-            st.session_state["selected_team"] = owner_final
-            st.session_state["align_owner"] = owner_final
-            clear_move_ctx()
-
-            manifest["fantrax_by_team"][owner_final] = {
-                "uploaded_name": filename_final,
-                "season": season_pick,
-                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
-                "team": owner_final,
-            }
-            save_init_manifest(manifest)
-
-            if init_hist is not None:
-                try:
-                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
-                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
-                        h0["proprietaire"] = h0["Propriétaire"]
-                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
-                        h0["joueur"] = h0["Joueur"]
-                    for c in _history_expected_cols():
-                        if c not in h0.columns:
-                            h0[c] = ""
-                    h0 = h0[_history_expected_cols()].copy()
-                    st.session_state["history"] = h0
-                    persist_history(h0, season_pick)
-                except Exception as e:
-                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
-
-            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
-            st.session_state.pop("init_preview_df", None)
-            st.session_state.pop("init_preview_owner", None)
-            st.session_state.pop("init_preview_filename", None)
-
-            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
-            do_rerun()
-
-    
-
-    # -----------------------------
     # 💰 Plafonds (édition admin)
     # -----------------------------
     with st.expander("💰 Plafonds (Admin)", expanded=False):
@@ -4805,6 +4238,138 @@ elif active_tab == "🛠️ Gestion Admin":
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
+
+    manifest = load_init_manifest() or {}
+    if "fantrax_by_team" not in manifest:
+        manifest["fantrax_by_team"] = {}
+
+    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
+    default_owner = get_selected_team().strip() or teams[0]
+    if default_owner not in teams:
+        default_owner = teams[0]
+
+    chosen_owner = st.selectbox(
+        "Importer l'alignement dans quelle équipe ?",
+        teams,
+        index=teams.index(default_owner),
+        key="admin_import_team_pick",
+    )
+
+    clear_team_before = st.checkbox(
+        f"Vider l’alignement de {chosen_owner} avant import",
+        value=True,
+        help="Recommandé si tu réimportes la même équipe.",
+        key="admin_clear_team_before",
+    )
+
+    u_nonce = int(st.session_state.get("uploader_nonce", 0))
+    c_init1, c_init2 = st.columns(2)
+    with c_init1:
+        init_align = st.file_uploader(
+            "CSV — Alignement (Fantrax)",
+            type=["csv", "txt"],
+            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+    with c_init2:
+        init_hist = st.file_uploader(
+            "CSV — Historique (optionnel)",
+            type=["csv", "txt"],
+            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+
+    c_btn1, c_btn2 = st.columns([1, 1])
+
+    with c_btn1:
+        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
+            if init_align is None:
+                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
+            else:
+                try:
+                    buf = io.BytesIO(init_align.getbuffer())
+                    buf.name = init_align.name
+                    df_import = parse_fantrax(buf)
+                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                    df_import["Propriétaire"] = str(chosen_owner).strip()
+                    df_import = clean_data(df_import)
+                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
+
+                    st.session_state["init_preview_df"] = df_import
+                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
+                    st.session_state["init_preview_filename"] = init_align.name
+                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                except Exception as e:
+                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
+
+    preview_df = st.session_state.get("init_preview_df")
+    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
+            st.dataframe(preview_df.head(20), use_container_width=True)
+
+    with c_btn2:
+        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
+        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
+            df_team = st.session_state.get("init_preview_df")
+            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
+            filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
+
+            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+
+            df_team = clean_data(df_team.copy())
+            df_team["Propriétaire"] = owner_final
+            df_team = clean_data(df_team)
+
+            if clear_team_before:
+                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                df_new = pd.concat([keep, df_team], ignore_index=True)
+            else:
+                df_new = pd.concat([df_cur, df_team], ignore_index=True)
+
+            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
+                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+            df_new = clean_data(df_new)
+            st.session_state["data"] = df_new
+            persist_data(df_new, season_pick)
+
+            st.session_state["plafonds"] = rebuild_plafonds(df_new)
+
+            st.session_state["selected_team"] = owner_final
+            st.session_state["align_owner"] = owner_final
+            clear_move_ctx()
+
+            manifest["fantrax_by_team"][owner_final] = {
+                "uploaded_name": filename_final,
+                "season": season_pick,
+                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
+                "team": owner_final,
+            }
+            save_init_manifest(manifest)
+
+            if init_hist is not None:
+                try:
+                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
+                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
+                        h0["proprietaire"] = h0["Propriétaire"]
+                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
+                        h0["joueur"] = h0["Joueur"]
+                    for c in _history_expected_cols():
+                        if c not in h0.columns:
+                            h0[c] = ""
+                    h0 = h0[_history_expected_cols()].copy()
+                    st.session_state["history"] = h0
+                    persist_history(h0, season_pick)
+                except Exception as e:
+                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
+
+            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
+            st.session_state.pop("init_preview_df", None)
+            st.session_state.pop("init_preview_owner", None)
+            st.session_state.pop("init_preview_filename", None)
+
+            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
+            do_rerun()
 
     st.divider()
     st.markdown("### 📌 Derniers imports par équipe")
