@@ -4314,4 +4314,3 @@ def render_tab_transactions():
 
     st.divider()
     tx_render_pending_section(season_lbl)
-d
