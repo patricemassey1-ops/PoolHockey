@@ -166,30 +166,10 @@ if "PLAFOND_CE" not in st.session_state or int(st.session_state.get("PLAFOND_CE"
 
 
 # =====================================================
-# TEAM SELECTION — SAFE PENDING APPLY (anti boucle rerun / anti key conflict)
-#   Toute écriture vers selected_team se fait ICI, avant les widgets.
+# TEAM SELECTION — LOOP-FREE
+#   ✅ Aucun st.rerun() déclenché par la sidebar
+#   ✅ selected_team est synchronisé depuis selected_team_ui après le widget
 # =====================================================
-def _apply_pending_team_selection():
-    team = str(st.session_state.pop("_pending_team_select", "") or "").strip()
-    if not team:
-        return
-    st.session_state["selected_team"] = team
-    st.session_state["align_owner"] = team
-
-_apply_pending_team_selection()
-
-# --- Sync UI -> state at start of run (prevents rerun loops / black screen)
-# If the sidebar selectbox (selected_team_ui) changed in the previous run,
-# we apply it here BEFORE widgets are instantiated.
-try:
-    _ui_team = str(st.session_state.get("selected_team_ui","") or "").strip()
-    _cur_team = str(st.session_state.get("selected_team","") or "").strip()
-    if _ui_team and _ui_team != _cur_team and not str(st.session_state.get("_pending_team_select","") or "").strip():
-        st.session_state["selected_team"] = _ui_team
-        st.session_state["align_owner"] = _ui_team
-except Exception:
-    pass
-
 
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
@@ -942,10 +922,16 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
 # BASIC HELPERS
 # =====================================================
 def do_rerun():
-    # Guard: éviter plusieurs rerun dans le même run
-    if st.session_state.get("_rerun_requested", False):
+    """Rerun sécurisé.
+
+    - Jamais plus d'un rerun par run
+    - Respecte le mode safe (_disable_auto_rerun)
+    """
+    if st.session_state.get('_disable_auto_rerun', False):
         return
-    st.session_state["_rerun_requested"] = True
+    if st.session_state.get('_rerun_requested', False):
+        return
+    st.session_state['_rerun_requested'] = True
     try:
         st.rerun()
     except Exception:
@@ -2813,25 +2799,34 @@ active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
 
-teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
+teams = sorted(list(LOGOS.keys())) if 'LOGOS' in globals() else []
+teams = [str(t).strip() for t in teams if str(t).strip()]
 if not teams:
-    teams = ["Whalers"]
+    teams = ['Whalers']
 
-cur_team = get_selected_team().strip() or teams[0]
-if cur_team not in teams:
+# Init state
+cur_team = str(st.session_state.get('selected_team') or '').strip()
+if not cur_team or cur_team not in teams:
     cur_team = teams[0]
+    st.session_state['selected_team'] = cur_team
+    st.session_state['align_owner'] = cur_team
 
-# ✅ Widget UI séparé, mais synchronisé via _apply_pending_team_selection()
+if 'selected_team_ui' not in st.session_state or str(st.session_state.get('selected_team_ui') or '').strip() not in teams:
+    st.session_state['selected_team_ui'] = cur_team
+
 chosen_team = st.sidebar.selectbox(
-    "Choisir une équipe",
+    'Choisir une équipe',
     teams,
-    index=teams.index(cur_team),
-    key="selected_team_ui",
+    index=(teams.index(st.session_state['selected_team_ui']) if st.session_state['selected_team_ui'] in teams else 0),
+    key='selected_team_ui',
 )
 
-# Sync is applied at start of run (see _ui_team sync above). No writes here.
+# Sync UI → state (SANS rerun)
+if chosen_team and chosen_team != st.session_state.get('selected_team'):
+    st.session_state['selected_team'] = chosen_team
+    st.session_state['align_owner'] = chosen_team
 
-logo_path = team_logo_path(get_selected_team())
+logo_path = team_logo_path(str(st.session_state.get('selected_team') or '').strip())
 if logo_path:
     st.sidebar.image(logo_path, use_container_width=True)
 
@@ -2839,7 +2834,7 @@ if logo_path:
 if st.sidebar.button("👀 Prévisualiser l’alignement GC", use_container_width=True, key="sb_preview_gc"):
     st.session_state["gc_preview_open"] = True
     st.session_state["active_tab"] = "🧾 Alignement"
-    do_rerun()
+    # pas de do_rerun() : le clic déclenche déjà un rerun
 
 st.sidebar.divider()
 st.sidebar.header("💰 Plafonds")
@@ -4319,3 +4314,4 @@ def render_tab_transactions():
 
     st.divider()
     tx_render_pending_section(season_lbl)
+d
