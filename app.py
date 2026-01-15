@@ -115,6 +115,23 @@ if "PLAFOND_GC" not in st.session_state or int(st.session_state.get("PLAFOND_GC"
 if "PLAFOND_CE" not in st.session_state or int(st.session_state.get("PLAFOND_CE") or 0) <= 0:
     st.session_state["PLAFOND_CE"] = 47_750_000
 
+
+
+# =====================================================
+# TEAM SELECTION — SAFE PENDING APPLY (anti boucle rerun / anti key conflict)
+#   Toute écriture vers selected_team se fait ICI, avant les widgets.
+# =====================================================
+def _apply_pending_team_selection():
+    team = str(st.session_state.pop("_pending_team_select", "") or "").strip()
+    if not team:
+        return
+    st.session_state["selected_team"] = team
+    st.session_state["align_owner"] = team
+    # sync UI key (sidebar selectbox)
+    st.session_state["sb_team_select"] = team
+
+_apply_pending_team_selection()
+
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
 # =====================================================
@@ -1245,20 +1262,19 @@ def team_logo_path(team: str) -> str:
 # TEAM SELECTION (single source of truth)
 # =====================================================
 def pick_team(team: str):
-    """Change l'équipe sélectionnée (safe même si widget sidebar existe).
-
-    On ne modifie PAS directement la key d'un widget déjà instancié.
-    On enregistre une demande, puis on applique AVANT la création des widgets au prochain run.
+    """Demande de changement d'équipe (safe).
+    Ne modifie PAS directement selected_team (key widget possible) — on pose un intent,
+    appliqué en début de run par _apply_pending_team_selection().
     """
     team = str(team or "").strip()
     if not team:
         return
+    # intent
     st.session_state["_pending_team_select"] = team
-    # rerun demandé (boutons Home, etc.)
+    # rerun immédiat (boutons Home / tableau)
     do_rerun()
 
 def get_selected_team() -> str:
-() -> str:
     v = str(st.session_state.get("selected_team") or "").strip()
     if v:
         return v
@@ -2506,39 +2522,19 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-
-# =====================================================
-# APPLY PENDING TEAM SELECTION (safe)
-#   - appliqué AVANT les widgets sidebar
-# =====================================================
-if st.session_state.get("_pending_team_select"):
-    _t = str(st.session_state.get("_pending_team_select") or "").strip()
-    if _t:
-        # sync source of truth + widget value (avant création)
-        st.session_state["selected_team"] = _t
-        st.session_state["align_owner"] = _t
-        st.session_state["sb_team_select"] = _t
-    st.session_state.pop("_pending_team_select", None)
-
-# Si le selectbox sidebar existe déjà, on s'aligne dessus (toujours AVANT création)
-if "sb_team_select" in st.session_state and str(st.session_state.get("sb_team_select") or "").strip():
-    _t2 = str(st.session_state.get("sb_team_select") or "").strip()
-    st.session_state["selected_team"] = _t2
-    st.session_state["align_owner"] = _t2
-
 # Widget (labels = tabs, pas de mapping fragile)
-# ✅ Une seule source de vérité: key="active_tab"
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = NAV_TABS[0]
-if st.session_state["active_tab"] not in NAV_TABS:
-    st.session_state["active_tab"] = NAV_TABS[0]
+_cur = st.session_state.get("active_tab", NAV_TABS[0])
+_cur_idx = NAV_TABS.index(_cur) if _cur in NAV_TABS else 0
 
+# ✅ Source de vérité unique pour la navigation
 active_tab = st.sidebar.radio(
     "Navigation",
     NAV_TABS,
+    index=_cur_idx,
     key="active_tab",
 )
 
+active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
@@ -2551,13 +2547,18 @@ cur_team = get_selected_team().strip() or teams[0]
 if cur_team not in teams:
     cur_team = teams[0]
 
-# ✅ Le widget déclenche déjà un rerun; on synchronise via le bloc APPLY PENDING TEAM SELECTION plus haut.
+# ✅ Widget UI séparé, mais synchronisé via _apply_pending_team_selection()
 chosen_team = st.sidebar.selectbox(
     "Choisir une équipe",
     teams,
     index=teams.index(cur_team),
     key="sb_team_select",
 )
+
+# Sync UI -> intent (évite boucle: on compare avec selected_team réel)
+if chosen_team and str(chosen_team).strip() != str(st.session_state.get("selected_team","") or "").strip():
+    st.session_state["_pending_team_select"] = str(chosen_team).strip()
+    do_rerun()
 
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
@@ -4335,8 +4336,9 @@ elif active_tab == "🛠️ Gestion Admin":
 
             st.session_state["plafonds"] = rebuild_plafonds(df_new)
 
-            st.session_state["selected_team"] = owner_final
-            st.session_state["align_owner"] = owner_final
+            st.session_state["_pending_team_select"] = owner_final
+            # sync se fera en début de run
+            
             clear_move_ctx()
 
             manifest["fantrax_by_team"][owner_final] = {
