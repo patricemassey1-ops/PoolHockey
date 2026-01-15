@@ -2522,17 +2522,35 @@ cur_team = get_selected_team().strip() or teams[0]
 if cur_team not in teams:
     cur_team = teams[0]
 
-st.session_state.setdefault("selected_team", cur_team)
-st.session_state["selected_team"] = cur_team  # sync avant widget
+# --- Team selection (single source of truth = st.session_state['selected_team'])
+# IMPORTANT:
+# - The sidebar widget must NOT use key='selected_team', otherwise updating selected_team elsewhere
+#   (ex: clicking a team button in Home) will raise StreamlitAPIException.
+# - Use a separate widget key and sync it safely.
+
+# Apply any pending team selection *before* rendering the widget
+if "pending_team_select" in st.session_state:
+    _pt = str(st.session_state.pop("pending_team_select") or "").strip()
+    if _pt:
+        st.session_state["selected_team"] = _pt
+        st.session_state["align_owner"] = _pt
+
+# Establish current selection
+cur_team = str(st.session_state.get("selected_team") or cur_team or "").strip() or (teams[0] if teams else "")
+if cur_team and cur_team not in teams and teams:
+    cur_team = teams[0]
+
+# Keep UI widget in sync
+st.session_state["selected_team_ui"] = cur_team
 
 chosen_team = st.sidebar.selectbox(
     "Choisir une équipe",
     teams,
-    index=teams.index(cur_team),
-    key="selected_team",
+    index=(teams.index(cur_team) if (teams and cur_team in teams) else 0),
+    key="selected_team_ui",
 )
 
-# Sync: si l'utilisateur change, on met à jour les champs dépendants.
+# If user changed the selection in the sidebar, update the source of truth
 if chosen_team and str(chosen_team).strip() != cur_team:
     pick_team(chosen_team)
 
