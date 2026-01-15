@@ -16,6 +16,16 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
+# =====================================================
+# TIMEZONE (safe)
+# =====================================================
+try:
+    TZ_TOR = ZoneInfo("America/Montreal")
+except Exception:
+    TZ_TOR = None
+
+
+
 
 # =====================================================
 # Helpers — clés joueurs (global, utilisé partout)
@@ -32,36 +42,26 @@ def _norm_player_key(s: str) -> str:
     return s
 
 # =====================================================
-# SAFE IMAGE (évite MediaFileHandler: Missing file)
+# SAFE IMAGE (evite MediaFileHandler: Missing file)
 # =====================================================
 def safe_image(image, *args, **kwargs):
+    """Wrapper st.image safe: accepte path str ou objet image."""
     try:
         if isinstance(image, str):
             p = image.strip()
             if p and os.path.exists(p):
                 return st.image(p, *args, **kwargs)
-            cap = kwargs.get("caption", "")
+            cap = kwargs.get("caption") or ""
             if cap:
                 st.caption(cap)
             return None
         return st.image(image, *args, **kwargs)
     except Exception:
-        cap = kwargs.get("caption", "")
+        cap = kwargs.get("caption") or ""
         if cap:
             st.caption(cap)
         return None
 
-
-def safe_image(path: str, *, width: int | None = None, caption: str | None = None):
-    try:
-        if path and os.path.exists(path):
-            safe_image(path, width=width, caption=caption)
-        else:
-            if caption:
-                st.caption(caption)
-    except Exception:
-        if caption:
-            st.caption(caption)
 
 # =====================================================
 # app.py — PMS Pool (version propre + corrections + Admin complet)
@@ -126,7 +126,7 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
 # --- BOOT LOOP GUARD (prevents silent infinite reruns -> black screen + Running/STOP)
-_boot_now = datetime.now(TZ_TOR)
+_boot_now = datetime.now(TZ_TOR) if TZ_TOR else datetime.now()
 _boot_ts = st.session_state.get("_boot_ts")
 _boot_count = int(st.session_state.get("_boot_count", 0) or 0)
 
