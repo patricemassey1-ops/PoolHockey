@@ -1,81 +1,186 @@
 from __future__ import annotations
 
+# =====================================================
+# IMPORTS
+# =====================================================
 import os
-import io
-import uuid
 import re
 import unicodedata
-import json
-import html
-import base64
-import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
-import pandas as pd
-import streamlit as st
-import streamlit.components.v1 as components
-import inspect
 
+import streamlit as st
+import pandas as pd
 
 # =====================================================
-# TIMEZONE (safe)
+# STREAMLIT CONFIG (DOIT ÊTRE LE PREMIER APPEL st.*)
+# =====================================================
+st.set_page_config(
+    page_title="PMS Pool Hockey",
+    layout="wide",
+)
+
+# =====================================================
+# TIMEZONE (SAFE)
 # =====================================================
 try:
     TZ_TOR = ZoneInfo("America/Montreal")
 except Exception:
     TZ_TOR = None
 
-
-
+# =====================================================
+# SAFE IMAGE (UNE SEULE DÉFINITION — PAS DE RÉCURSION)
+# =====================================================
+def safe_image(image, *args, **kwargs):
+    try:
+        if isinstance(image, str):
+            p = image.strip()
+            if p and os.path.exists(p):
+                return st.image(p, *args, **kwargs)
+            caption = kwargs.get("caption", "")
+            if caption:
+                st.caption(caption)
+            return None
+        return st.image(image, *args, **kwargs)
+    except Exception:
+        caption = kwargs.get("caption", "")
+        if caption:
+            st.caption(caption)
+        return None
 
 # =====================================================
-# Helpers — clés joueurs (global, utilisé partout)
-#   ⚠️ Doit être défini AVANT l'UI (Transactions, Autonomes, etc.)
+# HELPERS — JOUEURS (SAFE)
 # =====================================================
 def _strip_accents(s: str) -> str:
-    return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", s)
+        if not unicodedata.combining(ch)
+    )
 
 def _norm_player_key(s: str) -> str:
-    """Normalise un nom pour matching robuste (accents, ponctuation, espaces)."""
     s = _strip_accents(str(s or "")).lower().strip()
     s = re.sub(r"[^a-z0-9\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 # =====================================================
-# SAFE IMAGE (evite MediaFileHandler: Missing file)
+# AUTH — SANS RERUN (ANTI BOUCLE)
 # =====================================================
-def safe_image(image, *args, **kwargs):
-    """Wrapper st.image safe: accepte path str ou objet image."""
-    try:
-        if isinstance(image, str):
-            p = image.strip()
-            if p and os.path.exists(p):
-                return st.image(p, *args, **kwargs)
-            cap = kwargs.get("caption") or ""
-            if cap:
-                st.caption(cap)
-            return None
-        return st.image(image, *args, **kwargs)
-    except Exception:
-        cap = kwargs.get("caption") or ""
-        if cap:
-            st.caption(cap)
-        return None
+def require_password():
+    if st.session_state.get("authed", False):
+        return
 
+    st.title("🔒 Accès protégé")
 
-# =====================================================
-# app.py — PMS Pool (version propre + corrections + Admin complet)
-#   ✅ 1 seule section Alignement (dans le routing)
-#   ✅ sidebar = source de vérité (sync selected_team / align_owner)
-#   ✅ Admin Import (preview + confirmer + tri imports)
-# =====================================================
+    pwd = st.text_input(
+        "Mot de passe",
+        type="password",
+        key="pwd_input"
+    )
 
-# =====================================================
-# IMPORTS
+    submitted = st.button("Se connecter", key="pwd_submit")
 
+    if submitted:
+        expected = str(st.secrets.get("app_password", "") or "").strip()
+
+        if expected and pwd.strip() == expected:
+            st.session_state["authed"] = True
+            st.success("✅ Connecté.")
+            return
+        else:
+            st.error("❌ Mot de passe incorrect.")
+
+    st.stop()
 
 # =====================================================
+# BOOT (AUTH)
+# =====================================================
+require_password()
+
+# =====================================================
+# SIDEBAR — NAVIGATION (ZÉRO RERUN)
+# =====================================================
+NAV_TABS = [
+    "🏠 Home",
+    "🧾 Alignement",
+    "🧊 GM",
+    "⚖️ Transactions",
+    "📈 Classement",
+    "🕘 Historique",
+    "🛠️ Gestion Admin",
+]
+
+active_tab = st.sidebar.radio(
+    "Navigation",
+    NAV_TABS,
+    key="active_tab"
+)
+
+# =====================================================
+# SIDEBAR — ÉQUIPE (ZÉRO RERUN)
+# =====================================================
+TEAMS = [
+    "Canadiens",
+    "Nordiques",
+    "Whalers",
+    "Bruins",
+]
+
+if "selected_team" not in st.session_state:
+    st.session_state["selected_team"] = TEAMS[0]
+
+if "selected_team_ui" not in st.session_state:
+    st.session_state["selected_team_ui"] = st.session_state["selected_team"]
+
+chosen_team = st.sidebar.selectbox(
+    "Choisir une équipe",
+    TEAMS,
+    index=TEAMS.index(st.session_state["selected_team_ui"]),
+    key="selected_team_ui"
+)
+
+if chosen_team != st.session_state["selected_team"]:
+    st.session_state["selected_team"] = chosen_team
+
+# =====================================================
+# MAIN CONTENT (ROUTING CLAIR)
+# =====================================================
+st.markdown(
+    f"### Équipe active : **{st.session_state['selected_team']}**"
+)
+
+if active_tab == "🏠 Home":
+    st.subheader("🏠 Home")
+    st.info("Base stable — Home fonctionne.")
+
+elif active_tab == "🧾 Alignement":
+    st.subheader("🧾 Alignement")
+    st.info("Alignement (placeholder stable).")
+
+elif active_tab == "🧊 GM":
+    st.subheader("🧊 GM")
+    st.info("GM (placeholder stable).")
+
+elif active_tab == "⚖️ Transactions":
+    st.subheader("⚖️ Transactions")
+    st.info("Transactions (sera ré-intégré proprement).")
+
+elif active_tab == "📈 Classement":
+    st.subheader("📈 Classement")
+    st.info("Classement (sera ré-intégré proprement).")
+
+elif active_tab == "🕘 Historique":
+    st.subheader("🕘 Historique")
+    st.info("Historique (placeholder).")
+
+elif active_tab == "🛠️ Gestion Admin":
+    st.subheader("🛠️ Gestion Admin")
+    st.info("Admin (import CSV à ajouter ici).")
+
+# =====================================================
+# END — AUCUN RERUN AUTOMATIQUE
+# =====================================================
+
 
 # =====================================================
 # Level override helper (alias) — must exist before Admin import preview
@@ -868,38 +973,35 @@ def _login_header():
 
 
 def require_password():
-    cfg = st.secrets.get("security", {}) or {}
-
-    if bool(cfg.get("enable_hash_tool", False)):
-        return
-
-    expected = str(cfg.get("password_sha256", "")).strip()
-    if not expected:
-        return
-
+    """Écran de mot de passe (sans rerun, anti-boucle)."""
+    # déjà authed
     if st.session_state.get("authed", False):
         return
 
-    _login_header()
-    st.title("🔐 Accès sécurisé")
-    st.caption("Entre le mot de passe partagé pour accéder à l’application.")
+    st.title("🔒 Accès protégé")
 
-    pwd = st.text_input("Mot de passe", type="password")
-    col1, col2 = st.columns([1, 2], vertical_alignment="center")
+    pwd = st.text_input("Mot de passe", type="password", key="pwd_input")
+    col1, col2 = st.columns([1, 2])
 
     with col1:
-        if st.button("Se connecter", type="primary", use_container_width=True):
-            if _sha256(pwd) == expected:
-                st.session_state["authed"] = True
-                st.success("✅ Accès autorisé")
-                do_rerun()
-            else:
-                st.error("❌ Mot de passe invalide")
+        submitted = st.button("Se connecter", key="pwd_submit")
 
-    with col2:
-        st.info("Astuce: si tu changes le mot de passe, regénère un nouveau hash et remplace-le dans Secrets.")
+    if submitted:
+        expected = str(st.secrets.get("app_password", "") or "").strip()
+        # fallback optionnel si tu as un constant PASSWORD
+        if not expected and "PASSWORD" in globals():
+            expected = str(globals().get("PASSWORD") or "").strip()
+
+        if expected and pwd.strip() == expected:
+            st.session_state["authed"] = True
+            st.success("✅ Connecté.")
+            # IMPORTANT: pas de st.rerun() / do_rerun()
+            return
+        else:
+            st.error("❌ Mot de passe incorrect.")
 
     st.stop()
+
 
 require_password()
 
