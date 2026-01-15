@@ -509,7 +509,7 @@ div[data-testid="stButton"] > button{
 
 
 /* =====================================================
-   GM TAB (migré depuis st.markdown <style> inline)
+   GM TAB (migré depuis st.markdown &lt;style&gt; inline)
    ===================================================== */
 .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
 .gm-top img { width:132px; } /* 3x */
@@ -569,7 +569,7 @@ div[data-testid="stButton"] > button{
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
 
-</style>
+
 
 
 /* ===============================
@@ -663,6 +663,7 @@ div[data-testid="stButton"] > button{
   font-weight: 800;
   margin-top: 2px;
 }
+</style>
 """
 
 def apply_theme():
@@ -4986,4 +4987,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
-    
