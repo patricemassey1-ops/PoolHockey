@@ -3286,20 +3286,54 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     if n_sel == 0:
         st.caption("Aucun joueur sélectionné. Utilise les résultats ci-dessous puis ajoute.")
     else:
-        sel_df = df_show[df_show["Player"].astype(str).str.strip().isin(sel_players)].copy()
-        # highlight non-jouables (si affichés sans filtre)
-        try:
-            def _style_row(row):
-                nonj = str(row.get("Raison", "—")) != "—"
-                owned = str(row.get("Appartenant à", "") or "").strip() != ""
-                if nonj:
-                    return ["background: rgba(239,68,68,0.12); font-weight:700;"] * len(row)
-                if owned:
-                    return ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
-                return [""] * len(row)
-            st.dataframe(sel_df.style.apply(_style_row, axis=1), use_container_width=True, hide_index=True)
-        except Exception:
-            st.dataframe(sel_df, use_container_width=True, hide_index=True)
+        # Construire l'affichage de la sélection depuis la base complète (pas seulement df_show)
+        # Ainsi, tous les joueurs sélectionnés apparaissent même si filtres/head(300) changent.
+        sel_full_disp = df_db[df_db["Player"].astype(str).str.strip().isin(sel_players)].copy()
+        if sel_full_disp.empty:
+            st.info("Sélection introuvable dans la base (réessaie la recherche).")
+        else:
+            # Recréer les mêmes colonnes que dans les résultats
+            show_cols2 = ["Player", "Position", "Team"]
+            show_cols2 = [c for c in show_cols2 if c in sel_full_disp.columns]
+            sel_df = sel_full_disp[show_cols2].copy()
+            if cap_col and cap_col in sel_full_disp.columns:
+                sel_df["Cap Hit"] = sel_full_disp[cap_col].apply(lambda x: money(_cap_to_int(x)))
+            sel_df["NHL GP"] = (
+                sel_full_disp[nhl_gp_col].apply(_as_int).astype(int)
+                if nhl_gp_col and nhl_gp_col in sel_full_disp.columns
+                else 0
+            )
+            if level_col and "Level" in sel_full_disp.columns:
+                sel_df["Level"] = sel_full_disp["Level"].astype(str).str.strip()
+
+            # Calcul jouable + raison (comme plus haut)
+            _gp = sel_full_disp[nhl_gp_col].apply(_as_int) if nhl_gp_col and nhl_gp_col in sel_full_disp.columns else 0
+            _lv = sel_full_disp["Level"].astype(str).str.strip().str.upper() if level_col and "Level" in sel_full_disp.columns else ""
+            _jouable = (_gp >= 84) & (_lv != "ELC")
+            sel_df["✅"] = _jouable.apply(lambda v: "✅" if bool(v) else "—")
+            sel_df["🔴"] = sel_df["Player"].apply(lambda p: "🔴" if owned_to(p) else "")
+            sel_df["Appartenant à"] = sel_df["Player"].apply(owned_to)
+            sel_df["Raison"] = [
+                _reason(int(gp or 0), str(lv or ""))
+                for gp, lv in zip(
+                    list(_gp) if hasattr(_gp, '__iter__') else [0]*len(sel_df),
+                    list(_lv) if hasattr(_lv, '__iter__') else [""]*len(sel_df),
+                )
+            ]
+
+            # highlight non-jouables / déjà possédé
+            try:
+                def _style_row(row):
+                    nonj = str(row.get("Raison", "—")) != "—"
+                    owned = str(row.get("Appartenant à", "") or "").strip() != ""
+                    if nonj:
+                        return ["background: rgba(239,68,68,0.12); font-weight:700;"] * len(row)
+                    if owned:
+                        return ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
+                    return [""] * len(row)
+                st.dataframe(sel_df.style.apply(_style_row, axis=1), use_container_width=True, hide_index=True)
+            except Exception:
+                st.dataframe(sel_df, use_container_width=True, hide_index=True)
 
         # Retirer un joueur
         remove_opts = sel_players
@@ -3317,6 +3351,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         ):
             st.session_state[pick_state_key] = [p for p in sel_players if p not in set(to_remove)]
             do_rerun()
+
 
     # Ajouter depuis résultats
     st.write("")
