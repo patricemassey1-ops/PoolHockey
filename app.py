@@ -4986,3 +4986,4 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
     mask = mapped.astype(str).str.strip().ne("")
     out.loc[mask, "Level"] = mapped[mask]
     return out
+    
