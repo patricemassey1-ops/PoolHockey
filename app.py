@@ -3817,10 +3817,6 @@ if active_tab == "🏠 Home":
         st.markdown("## ⏳ Transactions en voie d’être complétées")
         viewer = get_selected_team().strip()
 
-                    # Guard: empêcher une transaction avec la même équipe des deux côtés
-                    if owner_a and owner_b and owner_a.strip() == owner_b.strip():
-                        st.error("❌ Transaction invalide: l’équipe A et l’équipe B sont identiques. Choisis deux équipes différentes.")
-                        st.stop()
         # owners list (pour exécution)
         try:
             owners_all = sorted(st.session_state.get("plafonds")["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
@@ -4486,6 +4482,10 @@ elif active_tab == "⚖️ Transactions":
         st.info("Ajoute au moins un joueur ou un choix pour pouvoir soumettre une transaction.")
     else:
                 confirm = st.checkbox("✅ Je confirme que je veux soumettre cette transaction", value=False, key="tx_confirm_exec")
+                dry_run = st.checkbox("🧪 Simulation seulement (aucune soumission / aucun mouvement)", value=False, key="tx_dry_run")
+                if dry_run:
+                    st.info("Mode simulation: tu peux voir l’aperçu et les impacts, mais rien ne sera soumis ni exécuté.")
+
 
                 cexec1, cexec2, cexec3 = st.columns([2, 1, 1], vertical_alignment="center")
                 with cexec1:
@@ -4505,6 +4505,11 @@ elif active_tab == "⚖️ Transactions":
 
                 if submit_btn:
                     viewer = get_selected_team().strip()
+                    # Guard: empêcher une transaction avec la même équipe des deux côtés
+                    if owner_a and owner_b and owner_a.strip() == owner_b.strip():
+                        st.error("❌ Transaction invalide: l’équipe A et l’équipe B sont identiques. Choisis deux équipes différentes.")
+                        st.stop()
+
 
                     # --- Vérifier verrous (joueurs / picks déjà engagés dans une transaction PENDING)
                     conflicts = []
@@ -4526,6 +4531,22 @@ elif active_tab == "⚖️ Transactions":
                         for c in conflicts[:12]:
                             st.caption(c)
                         st.stop()
+                    # --- Simulation (dry-run): afficher impacts sans soumettre
+                    if st.session_state.get('tx_dry_run', False):
+                        try:
+                            df_all = st.session_state.get('data', pd.DataFrame()).copy()
+                            if not df_all.empty and 'Joueur' in df_all.columns and 'Salaire' in df_all.columns:
+                                sA = df_all[df_all['Joueur'].astype(str).isin([str(x) for x in (a_players or [])])]['Salaire'].fillna(0).astype(float).sum()
+                                sB = df_all[df_all['Joueur'].astype(str).isin([str(x) for x in (b_players or [])])]['Salaire'].fillna(0).astype(float).sum()
+                            else:
+                                sA = 0.0; sB = 0.0
+                        except Exception:
+                            sA = 0.0; sB = 0.0
+                        st.success('🧪 Simulation — aucun changement appliqué')
+                        st.caption(f"{owner_a} ➜ {owner_b}: {len(a_players or [])} joueurs, {len(a_meta.get('picks') or [])} choix, salaires déplacés ≈ {int(round(sA))}$")
+                        st.caption(f"{owner_b} ➜ {owner_a}: {len(b_players or [])} joueurs, {len(b_meta.get('picks') or [])} choix, salaires déplacés ≈ {int(round(sB))}$")
+                        st.stop()
+
                     trade_id = _new_trade_id()
                     trade = {
                         "id": trade_id,
