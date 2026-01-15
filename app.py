@@ -125,6 +125,8 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
 st.set_page_config(page_title="PMS", layout="wide")
+# --- reset rerun guard each run (prevents "Running/STOP" loop & stuck reruns)
+st.session_state["_rerun_requested"] = False
 # --- plafonds par défaut (évite cap=0)
 if "PLAFOND_GC" not in st.session_state or int(st.session_state.get("PLAFOND_GC") or 0) <= 0:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -2782,8 +2784,9 @@ chosen_team = st.sidebar.selectbox(
 
 # Sync UI -> intent (évite boucle: on compare avec selected_team réel)
 if chosen_team and str(chosen_team).strip() != str(st.session_state.get("selected_team","") or "").strip():
-    st.session_state["_pending_team_select"] = str(chosen_team).strip()
-    do_rerun()
+    # ✅ Pas besoin de rerun: le widget déclenche déjà un rerun lors du changement
+    st.session_state["selected_team"] = str(chosen_team).strip()
+    st.session_state["align_owner"] = str(chosen_team).strip()
 
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
@@ -4273,4 +4276,3 @@ def render_tab_transactions():
 
     st.divider()
     tx_render_pending_section(season_lbl)
-
