@@ -1533,7 +1533,7 @@ def _transactions_path(season_lbl: str) -> str:
 def load_transactions(season_lbl: str) -> pd.DataFrame:
     """Charge les transactions sauvegardées (proposées) pour une saison."""
     path = _transactions_path(season_lbl)
-    cols = ["timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status"]
+    cols = ["trade_id","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
     if not os.path.exists(path):
         return pd.DataFrame(columns=cols)
     try:
@@ -1548,7 +1548,7 @@ def load_transactions(season_lbl: str) -> pd.DataFrame:
 def save_transactions(season_lbl: str, t: pd.DataFrame) -> None:
     """Persist transactions to local CSV (Cloud-safe)."""
     path = _transactions_path(season_lbl)
-    cols = ["timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status"]
+    cols = ["trade_id","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
     try:
         if t is None or not isinstance(t, pd.DataFrame):
             t = pd.DataFrame(columns=cols)
@@ -1564,6 +1564,248 @@ def append_transaction(season_lbl: str, row: dict) -> None:
     t = load_transactions(season_lbl)
     t = pd.concat([t, pd.DataFrame([row])], ignore_index=True)
     save_transactions(season_lbl, t)
+
+
+
+# =====================================================
+# PENDING TRADES — 2-step approval (A submits, B approves)
+#   - Stored in transactions_{season}.csv
+#   - Visible in Home + GM
+# =====================================================
+
+def tx_list_pending(season_lbl: str):
+    t = load_transactions(season_lbl)
+    if t is None or not isinstance(t, pd.DataFrame) or t.empty:
+        return pd.DataFrame(columns=[])
+    # normalize status
+    tmp = t.copy()
+    tmp["status"] = tmp.get("status", "").astype(str)
+    pending = tmp[tmp["status"].astype(str).str.strip().isin(["En attente", "Pending", "PENDING"])].copy()
+    return pending
+
+
+def _tx_now_iso():
+    try:
+        return datetime.now(TZ_TOR).isoformat(timespec="seconds")
+    except Exception:
+        return datetime.now().isoformat(timespec="seconds")
+
+
+def tx_create_pending(season_lbl: str, row: dict) -> str:
+    """Create a pending trade row and persist. Returns trade_id."""
+    trade_id = str(row.get("trade_id") or "").strip() or uuid.uuid4().hex[:10]
+    row = dict(row)
+    row["trade_id"] = trade_id
+    row.setdefault("season", season_lbl)
+    row.setdefault("timestamp", _tx_now_iso())
+    row.setdefault("status", "En attente")
+    row.setdefault("approved_a", True)
+    row.setdefault("approved_b", False)
+    row.setdefault("submitted_by", str(get_selected_team() or "").strip())
+    row.setdefault("approved_at_a", _tx_now_iso() if row.get("approved_a") else "")
+    row.setdefault("approved_at_b", "")
+    row.setdefault("completed_at", "")
+    append_transaction(season_lbl, row)
+    return trade_id
+
+
+def _split_pipe(s: str) -> list[str]:
+    s = str(s or "").strip()
+    if not s:
+        return []
+    return [x.strip() for x in s.split("|") if x.strip()]
+
+
+def _parse_pick_label(lbl: str):
+    """Parse 'R1 — Canadiens' => (1,'Canadiens'). Returns (round:int, orig_team:str) or (None,None)."""
+    lbl = str(lbl or "").strip()
+    m = re.search(r"R\s*(\d+)\s*[—\-]\s*(.+)$", lbl)
+    if not m:
+        return None, None
+    try:
+        rd = int(m.group(1))
+    except Exception:
+        return None, None
+    orig = str(m.group(2) or "").strip()
+    return rd, orig
+
+
+def tx_execute_trade(season_lbl: str, trade_row: dict) -> bool:
+    """Apply players + picks ownership swap. Returns True if applied."""
+    try:
+        owner_a = str(trade_row.get("owner_a") or "").strip()
+        owner_b = str(trade_row.get("owner_b") or "").strip()
+        if not owner_a or not owner_b or owner_a == owner_b:
+            return False
+
+        df = st.session_state.get("data")
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return False
+
+        a_players = _split_pipe(trade_row.get("a_players", ""))
+        b_players = _split_pipe(trade_row.get("b_players", ""))
+        a_picks = _split_pipe(trade_row.get("a_picks", ""))
+        b_picks = _split_pipe(trade_row.get("b_picks", ""))
+
+        df = clean_data(df.copy())
+
+        # Move players A -> B
+        for j in a_players:
+            m = (df["Propriétaire"].astype(str).str.strip().eq(owner_a) & df["Joueur"].astype(str).str.strip().eq(str(j).strip()))
+            if m.any():
+                df.loc[m, "Propriétaire"] = owner_b
+                # safe default placement
+                if "Statut" in df.columns:
+                    df.loc[m, "Statut"] = STATUT_GC
+                if "Slot" in df.columns:
+                    df.loc[m, "Slot"] = SLOT_BANC
+
+        # Move players B -> A
+        for j in b_players:
+            m = (df["Propriétaire"].astype(str).str.strip().eq(owner_b) & df["Joueur"].astype(str).str.strip().eq(str(j).strip()))
+            if m.any():
+                df.loc[m, "Propriétaire"] = owner_a
+                if "Statut" in df.columns:
+                    df.loc[m, "Statut"] = STATUT_GC
+                if "Slot" in df.columns:
+                    df.loc[m, "Slot"] = SLOT_BANC
+
+        st.session_state["data"] = df
+        persist_data(df, season_lbl)
+        st.session_state["plafonds"] = rebuild_plafonds(df)
+
+        # Picks swap
+        try:
+            owners = sorted(df["Propriétaire"].dropna().astype(str).str.strip().unique().tolist())
+            picks = load_picks(season_lbl, owners) if callable(globals().get("load_picks")) else {}
+        except Exception:
+            picks = {}
+
+        if isinstance(picks, dict) and picks:
+            # A sends picks to B
+            for lbl in a_picks:
+                rd, orig = _parse_pick_label(lbl)
+                if rd and orig and str(orig) in picks and str(rd) in picks[str(orig)]:
+                    picks[str(orig)][str(rd)] = owner_b
+            # B sends picks to A
+            for lbl in b_picks:
+                rd, orig = _parse_pick_label(lbl)
+                if rd and orig and str(orig) in picks and str(rd) in picks[str(orig)]:
+                    picks[str(orig)][str(rd)] = owner_a
+            save_picks(season_lbl, picks)
+
+        # History log (best effort)
+        try:
+            tid = str(trade_row.get("trade_id") or "").strip()
+            for j in a_players:
+                log_history_row(owner_a, j, "", "", "", "", STATUT_GC, SLOT_BANC, action=f"TRADE->{owner_b} #{tid}")
+            for j in b_players:
+                log_history_row(owner_b, j, "", "", "", "", STATUT_GC, SLOT_BANC, action=f"TRADE->{owner_a} #{tid}")
+        except Exception:
+            pass
+
+        return True
+    except Exception:
+        return False
+
+
+def tx_approve(season_lbl: str, trade_id: str, approver: str) -> tuple[bool, str]:
+    """Approve pending trade. Returns (completed, message)."""
+    trade_id = str(trade_id or "").strip()
+    approver = str(approver or "").strip()
+    if not trade_id or not approver:
+        return False, "trade_id/approver manquant"
+
+    t = load_transactions(season_lbl)
+    if t is None or not isinstance(t, pd.DataFrame) or t.empty:
+        return False, "Aucune transaction"
+
+    if "trade_id" not in t.columns:
+        return False, "Fichier transactions incompatible"
+
+    m = t["trade_id"].astype(str).str.strip().eq(trade_id)
+    if not m.any():
+        return False, "Transaction introuvable"
+
+    idx = t.index[m][0]
+    row = t.loc[idx].to_dict()
+    owner_a = str(row.get("owner_a") or "").strip()
+    owner_b = str(row.get("owner_b") or "").strip()
+
+    # Only owners can approve
+    if approver != owner_a and approver != owner_b:
+        return False, "Seuls les 2 propriétaires peuvent approuver"
+
+    # Set approval
+    if approver == owner_a:
+        t.at[idx, "approved_a"] = True
+        t.at[idx, "approved_at_a"] = _tx_now_iso()
+    if approver == owner_b:
+        t.at[idx, "approved_b"] = True
+        t.at[idx, "approved_at_b"] = _tx_now_iso()
+
+    # Check completion
+    a_ok = str(t.at[idx, "approved_a"]).strip().lower() in ["1","true","yes","y","oui"]
+    b_ok = str(t.at[idx, "approved_b"]).strip().lower() in ["1","true","yes","y","oui"]
+
+    completed = False
+    if a_ok and b_ok:
+        # Execute
+        ok = tx_execute_trade(season_lbl, row)
+        if ok:
+            t.at[idx, "status"] = "Complétée"
+            t.at[idx, "completed_at"] = _tx_now_iso()
+            completed = True
+        else:
+            t.at[idx, "status"] = "Erreur"
+
+    save_transactions(season_lbl, t)
+    if completed:
+        return True, "✅ Transaction complétée"
+    return False, "✅ Approbation enregistrée"
+
+
+def tx_render_pending_cards(season_lbl: str, context_owner: str | None = None, in_home: bool = False) -> None:
+    """Render pending trades list. If context_owner set, show approve button only for that owner."""
+    pend = tx_list_pending(season_lbl)
+    if pend is None or not isinstance(pend, pd.DataFrame) or pend.empty:
+        if in_home:
+            st.caption("Aucune transaction en attente.")
+        return
+
+    context_owner = str(context_owner or "").strip()
+
+    st.markdown("### ⏳ Transactions en attente")
+    for _, r in pend.iterrows():
+        row = r.to_dict()
+        tid = str(row.get("trade_id") or "").strip()
+        oa = str(row.get("owner_a") or "").strip()
+        ob = str(row.get("owner_b") or "").strip()
+        a_ok = str(row.get("approved_a", "")).strip().lower() in ["1","true","yes","y","oui"]
+        b_ok = str(row.get("approved_b", "")).strip().lower() in ["1","true","yes","y","oui"]
+
+        with st.container(border=True):
+            st.markdown(f"**#{tid}** — **{oa} ↔ {ob}**")
+            ap = _split_pipe(row.get("a_players", ""))
+            bp = _split_pipe(row.get("b_players", ""))
+            apk = _split_pipe(row.get("a_picks", ""))
+            bpk = _split_pipe(row.get("b_picks", ""))
+            st.caption(f"{oa} envoie: {len(ap)} joueur(s), {len(apk)} pick(s) | {ob} envoie: {len(bp)} joueur(s), {len(bpk)} pick(s)")
+            st.write(f"Approbations: {oa}={'✅' if a_ok else '⏳'} · {ob}={'✅' if b_ok else '⏳'}")
+
+            # Approve button only for involved owner
+            can_approve = context_owner in [oa, ob] and ((context_owner == oa and not a_ok) or (context_owner == ob and not b_ok))
+            if can_approve:
+                if st.button(f"✅ Approuver ({context_owner})", key=f"approve_{tid}_{context_owner}_{season_lbl}"):
+                    done, msg = tx_approve(season_lbl, tid, context_owner)
+                    if done:
+                        st.success(msg)
+                    else:
+                        st.info(msg)
+                    do_rerun()
+            else:
+                if context_owner in [oa, ob]:
+                    st.caption("Tu as déjà approuvé." if ((context_owner==oa and a_ok) or (context_owner==ob and b_ok)) else "En attente de l'autre propriétaire.")
 
 def load_trade_market(season_lbl: str) -> pd.DataFrame:
     path = _trade_market_path(season_lbl)
@@ -2778,6 +3020,14 @@ def render_tab_gm():
     st.divider()
 
     # =========================
+    # ⏳ Transactions en attente (approbation)
+    # =========================
+    try:
+        tx_render_pending_cards(str(st.session_state.get("season") or ""), context_owner=owner, in_home=False)
+    except Exception:
+        pass
+
+    # =========================
     # GM — picks & buyouts
     # =========================
     render_tab_gm_picks_buyout(owner, dprop)
@@ -3592,6 +3842,16 @@ if active_tab == "🏠 Home":
                 st.caption("🔕 Aucune transaction affichée pour l’instant.")
         else:
             st.caption("🔕 Aucune transaction affichée pour l’instant.")
+    # =====================================================
+    # ⏳ Transactions en attente — visibilité + approbation
+    #   - Visible pour tous
+    #   - Bouton Approuver seulement pour les équipes impliquées
+    # =====================================================
+    try:
+        tx_render_pending_cards(season, context_owner=str(get_selected_team() or "").strip(), in_home=True)
+    except Exception:
+        pass
+
     # ⚠️ Le tableau principal reste inchangé
     build_tableau_ui(st.session_state.get("plafonds"))
 
@@ -4099,7 +4359,9 @@ elif active_tab == "⚖️ Transactions":
                 else:
                     ts = datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S") if TZ_TOR else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     row = {
+                        "trade_id": uuid.uuid4().hex[:10],
                         "timestamp": ts,
+                        "season": season,
                         "owner_a": owner_a,
                         "owner_b": owner_b,
                         "a_players": " | ".join([str(x).strip() for x in (a_players or [])]),
@@ -4110,7 +4372,13 @@ elif active_tab == "⚖️ Transactions":
                         "b_retained": json.dumps(b_meta.get("retained") or {}, ensure_ascii=False),
                         "a_cash": int(a_meta.get("cash",0) or 0),
                         "b_cash": int(b_meta.get("cash",0) or 0),
-                        "status": "Proposée",
+                        "status": "En attente",
+                        "approved_a": True,
+                        "approved_b": False,
+                        "submitted_by": str(get_selected_team() or "").strip(),
+                        "approved_at_a": ts,
+                        "approved_at_b": "",
+                        "completed_at": "",
                     }
                     append_transaction(season, row)
                     st.toast("✅ Transaction soumise", icon="✅")
@@ -4460,7 +4728,13 @@ elif active_tab == "🛠️ Gestion Admin":
                         "b_retained": json.dumps(b_retained, ensure_ascii=False),
                         "a_cash": int(a_cash or 0),
                         "b_cash": int(b_cash or 0),
-                        "status": "Proposée",
+                        "status": "En attente",
+                        "approved_a": True,
+                        "approved_b": False,
+                        "submitted_by": str(get_selected_team() or "").strip(),
+                        "approved_at_a": ts,
+                        "approved_at_b": "",
+                        "completed_at": "",
                     }
                     append_transaction(season, row)
                     st.toast("✅ Transaction sauvegardée", icon="✅")
