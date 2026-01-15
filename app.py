@@ -4082,6 +4082,57 @@ elif active_tab == "⚖️ Transactions":
 
     # --- Marquer des joueurs "sur le marché" directement ici (optionnel)
 
+    # -----------------------------
+    # ✅ Soumission / Confirmation (proposition)
+    #   Ajoute un bouton de confirmation lorsque des joueurs/picks sont sélectionnés
+    # -----------------------------
+    has_trade = bool(a_players or b_players or (a_meta.get("picks") or []) or (b_meta.get("picks") or []) or int(a_meta.get("cash",0) or 0) or int(b_meta.get("cash",0) or 0) or ret_a or ret_b)
+    if has_trade:
+        st.markdown("### ✅ Confirmer la transaction")
+        st.caption("La transaction sera enregistrée comme **proposition** (aucun alignement n'est modifié ici).")
+        confirm_tx = st.checkbox("✅ Je confirme vouloir soumettre cette transaction", value=False, key=f"tx_confirm_submit__{season}")
+        cbtn1, cbtn2 = st.columns([1,1])
+        with cbtn1:
+            if st.button("📨 Soumettre la transaction", use_container_width=True, disabled=(not confirm_tx), key=f"tx_submit_btn__{season}"):
+                if not (callable(globals().get("append_transaction"))):
+                    st.error("Fonction append_transaction() manquante — impossible d'enregistrer la transaction.")
+                else:
+                    ts = datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S") if TZ_TOR else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    row = {
+                        "timestamp": ts,
+                        "owner_a": owner_a,
+                        "owner_b": owner_b,
+                        "a_players": " | ".join([str(x).strip() for x in (a_players or [])]),
+                        "b_players": " | ".join([str(x).strip() for x in (b_players or [])]),
+                        "a_picks": " | ".join([str(x).strip() for x in (a_meta.get("picks") or [])]),
+                        "b_picks": " | ".join([str(x).strip() for x in (b_meta.get("picks") or [])]),
+                        "a_retained": json.dumps(a_meta.get("retained") or {}, ensure_ascii=False),
+                        "b_retained": json.dumps(b_meta.get("retained") or {}, ensure_ascii=False),
+                        "a_cash": int(a_meta.get("cash",0) or 0),
+                        "b_cash": int(b_meta.get("cash",0) or 0),
+                        "status": "Proposée",
+                    }
+                    append_transaction(season, row)
+                    st.toast("✅ Transaction soumise", icon="✅")
+        with cbtn2:
+            if st.button("🧹 Vider la sélection", use_container_width=True, key=f"tx_clear_btn__{season}"):
+                # reset des widgets de sélection
+                for k in ["tx_players_A","tx_players_B","tx_picks_A","tx_picks_B","tx_cash_A","tx_cash_B"]:
+                    if k in st.session_state:
+                        try:
+                            del st.session_state[k]
+                        except Exception:
+                            pass
+                # retenues
+                for k in list(st.session_state.keys()):
+                    if k.startswith("tx_ret_A_") or k.startswith("tx_ret_B_"):
+                        try:
+                            del st.session_state[k]
+                        except Exception:
+                            pass
+                st.toast("🧹 Sélection vidée", icon="🧹")
+                do_rerun()
+        st.divider()
     st.markdown("### Marché des échanges (optionnel)")
     st.caption("Coche/décoche un joueur comme disponible. C’est purement informatif (n’applique pas la transaction).")
 
@@ -4113,138 +4164,9 @@ elif active_tab == "🛠️ Gestion Admin":
     st.subheader("🛠️ Gestion Admin")
 
     # -----------------------------
-    # 💰 Plafonds (édition admin)
+    # 📥 Importation CSV Fantrax (Admin)
+    #   (sorti de l'expander Ajout de joueurs)
     # -----------------------------
-    with st.expander("💰 Plafonds (Admin)", expanded=False):
-        locked = bool(st.session_state.get("LOCKED", False))
-        if locked:
-            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
-
-        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
-        st.session_state["PLAFOND_GC"] = st.number_input(
-            "Plafond Grand Club",
-            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
-            step=500_000,
-            key="admin_plafond_gc",
-            disabled=locked,
-        )
-        st.session_state["PLAFOND_CE"] = st.number_input(
-            "Plafond Club École",
-            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
-            step=250_000,
-            key="admin_plafond_ce",
-            disabled=locked,
-        )
-
-
-    # -----------------------------
-    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
-    # -----------------------------
-    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
-        # réutilise l'onglet autonomes, sans en-tête
-        render_tab_autonomes(show_header=False)
-
-    # -----------------------------
-    # 📦 Transactions (Admin) — sauvegarde proposition
-    # -----------------------------
-    with st.expander("📦 Transactions (Admin)", expanded=False):
-        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
-
-        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
-        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
-
-        a_players = st.session_state.get("tx_players_A", []) or []
-        b_players = st.session_state.get("tx_players_B", []) or []
-        a_picks = st.session_state.get("tx_picks_A", []) or []
-        b_picks = st.session_state.get("tx_picks_B", []) or []
-        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
-        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
-
-        # Retenues (si présentes)
-        def _collect_ret(side: str) -> dict:
-            out = {}
-            for k, v in st.session_state.items():
-                if k.startswith(f"tx_ret_{side}_"):
-                    try:
-                        amt = int(v or 0)
-                    except Exception:
-                        amt = 0
-                    if amt > 0:
-                        # clé contient déjà le nom "safe", on le garde
-                        out[k] = amt
-            return out
-
-        a_retained = _collect_ret("A")
-        b_retained = _collect_ret("B")
-
-        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
-        if not has_any:
-            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
-        else:
-            # Validations : Level (STD/ELC) et Expiry Year doivent exister pour les joueurs sélectionnés
-            df_all = st.session_state.get("data", pd.DataFrame()).copy()
-
-            missing = []
-            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
-                for j in plist:
-                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
-                    if d.empty:
-                        missing.append(f"{owner or side} — {j} (introuvable)")
-                        continue
-                    lvl = str(d.iloc[0].get("Level", "")).strip()
-                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
-                    if not lvl or lvl.upper() not in ("STD", "ELC"):
-                        missing.append(f"{owner or side} — {j} (Level manquant)")
-                    if not exp:
-                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
-
-            if missing:
-                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
-                st.write("• " + "\n• ".join(missing[:12]))
-                if len(missing) > 12:
-                    st.caption(f"+ {len(missing)-12} autres…")
-                can_save = False
-            else:
-                can_save = True
-
-            # Preview compact
-            st.markdown("**Résumé**")
-            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
-            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
-
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
-                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
-                    row = {
-                        "timestamp": ts,
-                        "owner_a": owner_a,
-                        "owner_b": owner_b,
-                        "a_players": " | ".join([str(x).strip() for x in a_players]),
-                        "b_players": " | ".join([str(x).strip() for x in b_players]),
-                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
-                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
-                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
-                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
-                        "a_cash": int(a_cash or 0),
-                        "b_cash": int(b_cash or 0),
-                        "status": "Proposée",
-                    }
-                    append_transaction(season, row)
-                    st.toast("✅ Transaction sauvegardée", icon="✅")
-
-            with col_s2:
-                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
-                    for k in list(st.session_state.keys()):
-                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
-                            try:
-                                del st.session_state[k]
-                            except Exception:
-                                pass
-                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
-                    do_rerun()
-
-
     manifest = load_init_manifest() or {}
     if "fantrax_by_team" not in manifest:
         manifest["fantrax_by_team"] = {}
@@ -4419,6 +4341,141 @@ elif active_tab == "🛠️ Gestion Admin":
         df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
 
         st.dataframe(df_imports, use_container_width=True, hide_index=True)
+
+
+
+    # -----------------------------
+    # 💰 Plafonds (édition admin)
+    # -----------------------------
+    with st.expander("💰 Plafonds (Admin)", expanded=False):
+        locked = bool(st.session_state.get("LOCKED", False))
+        if locked:
+            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
+
+        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
+        st.session_state["PLAFOND_GC"] = st.number_input(
+            "Plafond Grand Club",
+            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
+            step=500_000,
+            key="admin_plafond_gc",
+            disabled=locked,
+        )
+        st.session_state["PLAFOND_CE"] = st.number_input(
+            "Plafond Club École",
+            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
+            step=250_000,
+            key="admin_plafond_ce",
+            disabled=locked,
+        )
+
+
+    # -----------------------------
+    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
+    # -----------------------------
+    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
+        # réutilise l'onglet autonomes, sans en-tête
+        render_tab_autonomes(show_header=False)
+
+    # -----------------------------
+    # 📦 Transactions (Admin) — sauvegarde proposition
+    # -----------------------------
+    with st.expander("📦 Transactions (Admin)", expanded=False):
+        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
+
+        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
+        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
+
+        a_players = st.session_state.get("tx_players_A", []) or []
+        b_players = st.session_state.get("tx_players_B", []) or []
+        a_picks = st.session_state.get("tx_picks_A", []) or []
+        b_picks = st.session_state.get("tx_picks_B", []) or []
+        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
+        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
+
+        # Retenues (si présentes)
+        def _collect_ret(side: str) -> dict:
+            out = {}
+            for k, v in st.session_state.items():
+                if k.startswith(f"tx_ret_{side}_"):
+                    try:
+                        amt = int(v or 0)
+                    except Exception:
+                        amt = 0
+                    if amt > 0:
+                        # clé contient déjà le nom "safe", on le garde
+                        out[k] = amt
+            return out
+
+        a_retained = _collect_ret("A")
+        b_retained = _collect_ret("B")
+
+        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
+        if not has_any:
+            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
+        else:
+            # Validations : Level (STD/ELC) et Expiry Year doivent exister pour les joueurs sélectionnés
+            df_all = st.session_state.get("data", pd.DataFrame()).copy()
+
+            missing = []
+            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
+                for j in plist:
+                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
+                    if d.empty:
+                        missing.append(f"{owner or side} — {j} (introuvable)")
+                        continue
+                    lvl = str(d.iloc[0].get("Level", "")).strip()
+                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
+                    if not lvl or lvl.upper() not in ("STD", "ELC"):
+                        missing.append(f"{owner or side} — {j} (Level manquant)")
+                    if not exp:
+                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
+
+            if missing:
+                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
+                st.write("• " + "\n• ".join(missing[:12]))
+                if len(missing) > 12:
+                    st.caption(f"+ {len(missing)-12} autres…")
+                can_save = False
+            else:
+                can_save = True
+
+            # Preview compact
+            st.markdown("**Résumé**")
+            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
+            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
+
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
+                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
+                    row = {
+                        "timestamp": ts,
+                        "owner_a": owner_a,
+                        "owner_b": owner_b,
+                        "a_players": " | ".join([str(x).strip() for x in a_players]),
+                        "b_players": " | ".join([str(x).strip() for x in b_players]),
+                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
+                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
+                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
+                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
+                        "a_cash": int(a_cash or 0),
+                        "b_cash": int(b_cash or 0),
+                        "status": "Proposée",
+                    }
+                    append_transaction(season, row)
+                    st.toast("✅ Transaction sauvegardée", icon="✅")
+
+            with col_s2:
+                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
+                            try:
+                                del st.session_state[k]
+                            except Exception:
+                                pass
+                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
+                    do_rerun()
+
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
