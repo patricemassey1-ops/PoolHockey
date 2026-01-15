@@ -3607,7 +3607,7 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
     st.write("")
     can_add_more = len(sel_players) < 5
     add_choices = [p for p in df_show["Player"].astype(str).str.strip().tolist() if p]
-        # --- Ajouter depuis les résultats (multi-ajout stable) ---
+    # --- Ajouter depuis les résultats (multi-ajout stable) ---
     add_widget_key = f"fa_pending_add__{season_lbl}__{owner or 'x'}__{scope}"
     add_btn_key = f"fa_add_btn__{season_lbl}__{owner or 'x'}__{scope}"
 
@@ -3625,10 +3625,13 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         # ✅ on peut vider un widget key seulement via callback
         st.session_state[_wkey] = []
 
+    # --- init widget state (évite warning Streamlit: default + session_state) ---
+    if add_widget_key not in st.session_state:
+        st.session_state[add_widget_key] = []
+
     pending_add = st.multiselect(
         "Ajouter depuis les résultats (max 5 total)",
         options=add_choices,
-        default=[],
         key=add_widget_key,
         disabled=(not can_add_more),
     )
@@ -4385,10 +4388,12 @@ elif active_tab == "⚖️ Transactions":
         with cbtn2:
             if st.button("🧹 Vider la sélection", use_container_width=True, key=f"tx_clear_btn__{season}"):
                 # reset des widgets de sélection
-                for k in ["tx_players_A","tx_players_B","tx_picks_A","tx_picks_B","tx_cash_A","tx_cash_B"]:
-                    if k in st.session_state:
+                # reset des widgets de sélection (toutes variantes, incluant suffix saison)
+                prefixes = ["tx_players_A","tx_players_B","tx_picks_A","tx_picks_B","tx_cash_A","tx_cash_B","tx_confirm_submit__"]
+                for kk in list(st.session_state.keys()):
+                    if any(str(kk).startswith(pref) for pref in prefixes):
                         try:
-                            del st.session_state[k]
+                            del st.session_state[kk]
                         except Exception:
                             pass
                 # retenues
@@ -4409,16 +4414,24 @@ elif active_tab == "⚖️ Transactions":
         if not dfa.empty:
             opts = sorted(dfa["Joueur"].dropna().astype(str).str.strip().unique().tolist())
             cur_on = [j for j in opts if is_on_trade_market(market, owner_a, j)]
-            new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, default=cur_on, key="tx_market_a")
+            mkey_a = f"tx_market_a__{season}"
+            if mkey_a not in st.session_state:
+                st.session_state[mkey_a] = cur_on
+            new_on = st.multiselect(f"{owner_a} — joueurs disponibles", opts, key=mkey_a)
+            # sync safe (sans default)
             market = set_owner_market(market, season, owner_a, new_on)
     with mm2:
         if not dfb.empty:
             opts = sorted(dfb["Joueur"].dropna().astype(str).str.strip().unique().tolist())
             cur_on = [j for j in opts if is_on_trade_market(market, owner_b, j)]
-            new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, default=cur_on, key="tx_market_b")
+            mkey_b = f"tx_market_b__{season}"
+            if mkey_b not in st.session_state:
+                st.session_state[mkey_b] = cur_on
+            new_on = st.multiselect(f"{owner_b} — joueurs disponibles", opts, key=mkey_b)
+            # sync safe (sans default)
             market = set_owner_market(market, season, owner_b, new_on)
 
-    if st.button("💾 Sauvegarder le marché", use_container_width=True, key="tx_market_save"):
+    if st.button("💾 Sauvegarder le marché", use_container_width=True, key=f"tx_market_save__{season}"):
         save_trade_market(season, market)
         st.toast("✅ Marché sauvegardé", icon="✅")
         do_rerun()
