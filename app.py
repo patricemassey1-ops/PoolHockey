@@ -1245,10 +1245,14 @@ def team_logo_path(team: str) -> str:
 # TEAM SELECTION (single source of truth)
 # =====================================================
 def pick_team(team: str):
+    """Sélection d'équipe (source de vérité = st.session_state['selected_team']).
+    IMPORTANT: ne pas forcer st.rerun() ici, sinon boucle si le selectbox a une key différente.
+    """
     team = str(team or "").strip()
+    if not team:
+        return
     st.session_state["selected_team"] = team
     st.session_state["align_owner"] = team
-    do_rerun()
 
 def get_selected_team() -> str:
     v = str(st.session_state.get("selected_team") or "").strip()
@@ -2518,14 +2522,18 @@ cur_team = get_selected_team().strip() or teams[0]
 if cur_team not in teams:
     cur_team = teams[0]
 
+st.session_state.setdefault("selected_team", cur_team)
+st.session_state["selected_team"] = cur_team  # sync avant widget
+
 chosen_team = st.sidebar.selectbox(
     "Choisir une équipe",
     teams,
     index=teams.index(cur_team),
-    key="sb_team_select",
+    key="selected_team",
 )
 
-if chosen_team and chosen_team != cur_team:
+# Sync: si l'utilisateur change, on met à jour les champs dépendants.
+if chosen_team and str(chosen_team).strip() != cur_team:
     pick_team(chosen_team)
 
 logo_path = team_logo_path(get_selected_team())
