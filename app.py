@@ -148,6 +148,19 @@ def _apply_pending_team_selection():
 
 _apply_pending_team_selection()
 
+# --- Sync UI -> state at start of run (prevents rerun loops / black screen)
+# If the sidebar selectbox (selected_team_ui) changed in the previous run,
+# we apply it here BEFORE widgets are instantiated.
+try:
+    _ui_team = str(st.session_state.get("selected_team_ui","") or "").strip()
+    _cur_team = str(st.session_state.get("selected_team","") or "").strip()
+    if _ui_team and _ui_team != _cur_team and not str(st.session_state.get("_pending_team_select","") or "").strip():
+        st.session_state["selected_team"] = _ui_team
+        st.session_state["align_owner"] = _ui_team
+except Exception:
+    pass
+
+
 # =====================================================
 # GM LOGO (cute) — place gm_logo.png in the project root (same folder as app.py)
 # =====================================================
@@ -2782,11 +2795,7 @@ chosen_team = st.sidebar.selectbox(
     key="selected_team_ui",
 )
 
-# Sync UI -> intent (évite boucle: on compare avec selected_team réel)
-if chosen_team and str(chosen_team).strip() != str(st.session_state.get("selected_team","") or "").strip():
-    # ✅ Pas besoin de rerun: le widget déclenche déjà un rerun lors du changement
-    st.session_state["selected_team"] = str(chosen_team).strip()
-    st.session_state["align_owner"] = str(chosen_team).strip()
+# Sync is applied at start of run (see _ui_team sync above). No writes here.
 
 logo_path = team_logo_path(get_selected_team())
 if logo_path:
