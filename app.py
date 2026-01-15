@@ -2939,7 +2939,15 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             disp_salary[disp] = sal_raw
             disp_name[disp] = nm
 
-        picked_rows = st.selectbox("Joueur à racheter", [""] + display, index=0, key="gm_buyout_pick")
+        picked_list = st.multiselect(
+            "Joueur à racheter",
+            options=display,
+            default=[],
+            max_selections=1,
+            placeholder="Recherche et sélectionne un joueur…",
+            key="gm_buyout_pick_ms",
+        )
+        picked_rows = picked_list[0] if picked_list else ""
         sel_salary = float(disp_salary.get(picked_rows, 0) or 0)
         penalite = int(round(sel_salary * 0.50)) if sel_salary > 0 else 0
         can_apply = bool(str(picked_rows).strip())
@@ -3483,7 +3491,27 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
             df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
             added += 1
 
+            # Log dans l'historique pour que Home/Historique reflète l'embauche
+            try:
+                log_history_row(
+                    proprietaire=str(dest_owner),
+                    joueur=str(pname),
+                    pos=str(pos),
+                    equipe=str(team),
+                    from_statut="",
+                    from_slot="",
+                    to_statut=str(statut_val),
+                    to_slot=str(slot_val),
+                    action="EMBAUCHE",
+                )
+            except Exception:
+                pass
+
         st.session_state["data"] = df_all
+        try:
+            persist_data(df_all, season_lbl)
+        except Exception:
+            pass
         try:
             st.session_state["plafonds"] = rebuild_plafonds(df_all)
         except Exception:
