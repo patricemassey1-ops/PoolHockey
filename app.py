@@ -2498,22 +2498,13 @@ if "active_tab" not in st.session_state:
 if st.session_state["active_tab"] not in NAV_TABS:
     st.session_state["active_tab"] = NAV_TABS[0]
 
-# Widget (labels = tabs, pas de mapping fragile)
-_cur = st.session_state.get("active_tab", NAV_TABS[0])
-_cur_idx = NAV_TABS.index(_cur) if _cur in NAV_TABS else 0
-
-_picked_tab = st.sidebar.radio(
+# Widget (radio) — `active_tab` est la source de vérité
+active_tab = st.sidebar.radio(
     "Navigation",
     NAV_TABS,
-    index=_cur_idx,
-    key="sb_nav_radio",
+    key="active_tab",
 )
 
-if _picked_tab != st.session_state.get("active_tab"):
-    st.session_state["active_tab"] = _picked_tab
-
-# ✅ Variable utilisée par le routing plus bas
-active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
 st.sidebar.markdown("### 🏒 Équipe")
