@@ -2777,6 +2777,48 @@ def set_owner_market(t: pd.DataFrame, season_lbl: str, owner: str, available_pla
 def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip()).lower()
 
+
+
+# ==============================
+# COUNTRY FLAG HELPERS (must be defined before dialogs)
+# ==============================
+def _iso2_to_flag(iso2: str) -> str:
+    try:
+        iso2 = (iso2 or '').strip().upper()
+        if len(iso2) != 2 or not iso2.isalpha():
+            return ''
+        return chr(0x1F1E6 + (ord(iso2[0]) - ord('A'))) + chr(0x1F1E6 + (ord(iso2[1]) - ord('A')))
+    except Exception:
+        return ''
+
+_COUNTRY3_TO2 = {
+    'CAN': 'CA', 'USA': 'US', 'SWE': 'SE', 'FIN': 'FI', 'RUS': 'RU', 'CZE': 'CZ', 'SVK': 'SK',
+    'CHE': 'CH', 'GER': 'DE', 'DEU': 'DE', 'AUT': 'AT', 'DNK': 'DK', 'NOR': 'NO', 'LVA': 'LV',
+    'SVN': 'SI', 'FRA': 'FR', 'GBR': 'GB', 'UKR': 'UA', 'KAZ': 'KZ',
+}
+
+_COUNTRYNAME_TO2 = {
+    'canada': 'CA', 'united states': 'US', 'usa': 'US', 'sweden': 'SE', 'finland': 'FI',
+    'russia': 'RU', 'czechia': 'CZ', 'czech republic': 'CZ', 'slovakia': 'SK', 'switzerland': 'CH',
+    'germany': 'DE', 'austria': 'AT', 'denmark': 'DK', 'norway': 'NO', 'latvia': 'LV',
+    'slovenia': 'SI', 'france': 'FR', 'great britain': 'GB', 'ukraine': 'UA', 'kazakhstan': 'KZ',
+}
+
+def _country_flag_from_landing(landing: dict) -> str:
+    if not isinstance(landing, dict):
+        return ''
+    raw = (
+        landing.get('nationality')
+        or landing.get('birthCountryCode')
+        or landing.get('birthCountry')
+        or ''
+    )
+    raw = str(raw).strip()
+    if not raw:
+        return ''
+    if len(raw) == 2 and raw.isalpha():
+        return _iso2_to_flag(raw)
+
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """
