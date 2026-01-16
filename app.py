@@ -18,6 +18,123 @@ import requests
 
 
 # =====================================================
+# Google Drive (Service Account) — persistence (anti-reupload after reboot)
+#   Secrets attendus (Streamlit):
+#     [gdrive]
+#       folder_id = "..."
+#       service_account_json = """{...}"""  # ou service_account (dict)
+#   Dépendances: google-auth, google-api-python-client
+# =====================================================
+
+def _gdrive_cfg() -> dict:
+    try:
+        return dict(st.secrets.get("gdrive", {}) or {})
+    except Exception:
+        return {}
+
+def _gdrive_folder_id() -> str:
+    cfg = _gdrive_cfg()
+    return str(cfg.get("folder_id", "") or cfg.get("folderId", "") or "").strip()
+
+def _gdrive_service_account_info() -> dict | None:
+    cfg = _gdrive_cfg()
+    info = cfg.get("service_account") or cfg.get("service_account_info")
+    if isinstance(info, dict) and info:
+        return info
+    raw = cfg.get("service_account_json")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+    return None
+
+def _gdrive_enabled() -> bool:
+    return bool(_gdrive_folder_id() and _gdrive_service_account_info())
+
+@st.cache_resource(show_spinner=False)
+def _gdrive_service():
+    if not _gdrive_enabled():
+        return None
+    try:
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+    except Exception:
+        return None
+
+    info = _gdrive_service_account_info()
+    folder_id = _gdrive_folder_id()
+    if not info or not folder_id:
+        return None
+
+    scopes = ["https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(info, scopes=scopes)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+def _gdrive_find_file_id(service, folder_id: str, filename: str) -> str:
+    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    res = service.files().list(q=q, fields="files(id,name)", pageSize=5).execute()
+    files = (res or {}).get("files", []) or []
+    return str(files[0].get("id", "")) if files else ""
+
+def gdrive_download_bytes(filename: str) -> bytes | None:
+    service = _gdrive_service()
+    folder_id = _gdrive_folder_id()
+    if not service or not folder_id:
+        return None
+    try:
+        fid = _gdrive_find_file_id(service, folder_id, filename)
+        if not fid:
+            return None
+        from googleapiclient.http import MediaIoBaseDownload
+        buf = io.BytesIO()
+        req = service.files().get_media(fileId=fid)
+        downloader = MediaIoBaseDownload(buf, req)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+def gdrive_upload_bytes(filename: str, content: bytes, mime: str = "text/csv") -> bool:
+    service = _gdrive_service()
+    folder_id = _gdrive_folder_id()
+    if not service or not folder_id:
+        return False
+    try:
+        from googleapiclient.http import MediaIoBaseUpload
+        fid = _gdrive_find_file_id(service, folder_id, filename)
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime, resumable=False)
+        if fid:
+            service.files().update(fileId=fid, media_body=media).execute()
+        else:
+            body = {"name": filename, "parents": [folder_id]}
+            service.files().create(body=body, media_body=media, fields="id").execute()
+        return True
+    except Exception:
+        return False
+
+def ensure_local_from_drive(filename: str, local_path: str) -> bool:
+    # Si le fichier local n'existe pas, tente de le récupérer depuis Drive.
+    try:
+        if local_path and os.path.exists(local_path):
+            return True
+    except Exception:
+        pass
+    data = gdrive_download_bytes(filename)
+    if not data:
+        return False
+    try:
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as f:
+            f.write(data)
+        return True
+    except Exception:
+        return False
+
+
+# =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
 #   ⚠️ IMPORTANT: une seule définition (sinon récursion / écran noir)
 # =====================================================
@@ -2164,10 +2281,17 @@ def save_init_manifest(manifest: dict) -> None:
 # =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
+    path = os.path.join(DATA_DIR, f"pms_{season_lbl}.csv")
     st.session_state["DATA_FILE"] = path
     try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         df.to_csv(path, index=False)
+    except Exception:
+        pass
+    # upload Drive (best-effort)
+    try:
+        if _gdrive_enabled():
+            gdrive_upload_bytes(os.path.basename(path), df.to_csv(index=False).encode('utf-8'), mime='text/csv')
     except Exception:
         pass
 
@@ -4145,7 +4269,7 @@ if not season:
     st.session_state["season"] = season
 
 # --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+DATA_FILE = os.path.join(DATA_DIR, f\"pms_{season}.csv\")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
@@ -4168,9 +4292,23 @@ st.session_state["players_db"] = players_db
 # 1) LOAD DATA (CSV → session_state) puis enrich Level
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-    if os.path.exists(DATA_FILE):
+    # --- Drive sync (best-effort): si DATA_FILE absent, tenter Drive (pms_...).
+_pms_name = os.path.basename(DATA_FILE)
+if not os.path.exists(DATA_FILE):
+    # fallback: ancien nom fantrax_<season>.csv
+    _old_local = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+    if os.path.exists(_old_local) and not os.path.exists(DATA_FILE):
         try:
-            df_loaded = pd.read_csv(DATA_FILE)
+            import shutil
+            shutil.copyfile(_old_local, DATA_FILE)
+        except Exception:
+            pass
+    # tenter Drive
+    ensure_local_from_drive(_pms_name, DATA_FILE)
+
+if os.path.exists(DATA_FILE):
+    try:
+        df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
     else:
@@ -4183,7 +4321,17 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
     df_loaded = clean_data(df_loaded)
     df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db est déjà prêt
     st.session_state["data"] = df_loaded
-    st.session_state["data_season"] = season
+st.session_state["data_season"] = season
+# --- Autosave (anti-perte après reboot): si le contenu change, persiste local + Drive.
+try:
+    import hashlib
+    _csv_bytes = df_loaded.to_csv(index=False).encode('utf-8')
+    _h = hashlib.sha1(_csv_bytes).hexdigest()
+    if st.session_state.get('last_saved_hash') != _h:
+        persist_data(df_loaded, season)
+        st.session_state['last_saved_hash'] = _h
+except Exception:
+    pass
 else:
     # sécurité: s'assurer que data est un DF + clean/enrich léger
     d0 = st.session_state.get("data")
@@ -6386,6 +6534,15 @@ elif active_tab == "🛠️ Gestion Admin":
 
                         # show editor
                         st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
+                        # guard: enlever lignes vides
+                        try:
+                            if "Joueur" in editor.columns:
+                                editor = editor[editor["Joueur"].astype(str).str.strip().ne("")].copy()
+                        except Exception:
+                            pass
+
+                        # show editor
+                        st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
                         editor_view = st.data_editor(
                             editor.drop(columns=["_k"], errors="ignore"),
                             use_container_width=True,
@@ -6401,6 +6558,7 @@ elif active_tab == "🛠️ Gestion Admin":
                             disabled=[c for c in editor.columns if c not in {"Country"} and c != "_k"],
                             key=f"admin_missing_flags_editor__{season_pick}",
                         )
+
 
                         c_apply, c_export = st.columns([1, 1])
                         with c_apply:
