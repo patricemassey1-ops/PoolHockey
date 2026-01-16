@@ -15,6 +15,22 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
+# =====================================================
+# APP MODE
+#   - production: locks admin tools / hides debug helpers
+#   Secrets optional:
+#     [app]
+#       production = true
+# =====================================================
+
+def _app_cfg() -> dict:
+    try:
+        return dict(st.secrets.get("app", {}) or {})
+    except Exception:
+        return {}
+
+PRODUCTION_MODE = bool(_app_cfg().get("production", False))
+
 
 
 # =====================================================
@@ -4293,22 +4309,27 @@ st.session_state["players_db"] = players_db
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
     # --- Drive sync (best-effort): si DATA_FILE absent, tenter Drive (pms_...).
-_pms_name = os.path.basename(DATA_FILE)
-if not os.path.exists(DATA_FILE):
-    # fallback: ancien nom fantrax_<season>.csv
-    _old_local = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-    if os.path.exists(_old_local) and not os.path.exists(DATA_FILE):
+    _pms_name = os.path.basename(DATA_FILE)
+
+    if not os.path.exists(DATA_FILE):
+        # fallback: ancien nom fantrax_<season>.csv
+        _old_local = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+        if os.path.exists(_old_local) and not os.path.exists(DATA_FILE):
+            try:
+                import shutil
+                shutil.copyfile(_old_local, DATA_FILE)
+            except Exception:
+                pass
+
+        # tenter Drive (si configuré)
         try:
-            import shutil
-            shutil.copyfile(_old_local, DATA_FILE)
+            ensure_local_from_drive(_pms_name, DATA_FILE)
         except Exception:
             pass
-    # tenter Drive
-    ensure_local_from_drive(_pms_name, DATA_FILE)
 
-if os.path.exists(DATA_FILE):
-    try:
-        df_loaded = pd.read_csv(DATA_FILE)
+    if os.path.exists(DATA_FILE):
+        try:
+            df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
     else:
@@ -4321,17 +4342,17 @@ if os.path.exists(DATA_FILE):
     df_loaded = clean_data(df_loaded)
     df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db est déjà prêt
     st.session_state["data"] = df_loaded
-st.session_state["data_season"] = season
-# --- Autosave (anti-perte après reboot): si le contenu change, persiste local + Drive.
-try:
-    import hashlib
-    _csv_bytes = df_loaded.to_csv(index=False).encode('utf-8')
-    _h = hashlib.sha1(_csv_bytes).hexdigest()
-    if st.session_state.get('last_saved_hash') != _h:
-        persist_data(df_loaded, season)
-        st.session_state['last_saved_hash'] = _h
-except Exception:
-    pass
+    st.session_state["data_season"] = season
+
+    # --- Autosave (anti-perte après reboot): si le contenu change, persiste local + Drive.
+    try:
+        _csv_bytes = df_loaded.to_csv(index=False).encode("utf-8")
+        _h = hashlib.sha1(_csv_bytes).hexdigest()
+        if st.session_state.get("last_saved_hash") != _h:
+            persist_data(df_loaded, season)
+            st.session_state["last_saved_hash"] = _h
+    except Exception:
+        pass
 else:
     # sécurité: s'assurer que data est un DF + clean/enrich léger
     d0 = st.session_state.get("data")
@@ -4340,7 +4361,6 @@ else:
     d0 = enrich_level_from_players_db(d0)
     st.session_state["data"] = d0
 
-# -----------------------------------------------------
 # 2) LOAD HISTORY (CSV → session_state)
 # -----------------------------------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
@@ -4690,7 +4710,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _player_flag(pid, landing, joueur)
+    flag = _player_flag(pid, landing, pname)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
