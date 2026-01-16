@@ -2880,7 +2880,7 @@ def _player_flag(player_id: int, landing: dict | None = None) -> str:
 
     # 1) landing
     if isinstance(landing, dict):
-        f = _player_flag(pid, landing)
+        f = _country_flag_from_landing(landing)
         if f:
             return f
 
