@@ -6304,38 +6304,6 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
-# =====================================================
-# 🧪 Google Drive — test d'écriture (diagnostic)
-#   Crée/écrase drive_test_pms.txt dans le dossier Drive.
-# =====================================================
-st.markdown("### 🧪 Google Drive")
-st.caption("Teste l'écriture dans le dossier Drive configuré (service account).")
-
-if st.button("🧪 Test Google Drive write", use_container_width=True, key="drive_test_write_btn"):
-    try:
-        from datetime import datetime
-
-        content = (
-            "PMS Drive test OK\n"
-            f"UTC: {datetime.utcnow().isoformat()}Z\n"
-        ).encode("utf-8")
-
-        ok = gdrive_upload_bytes(
-            "drive_test_pms.txt",
-            content,
-            mime="text/plain"
-        )
-
-        if ok:
-            st.success("✅ OK — drive_test_pms.txt a été créé dans ton dossier Google Drive.")
-        else:
-            st.error("❌ Échec — écriture Drive non effectuée (permissions / folder_id ?).")
-
-    except Exception as e:
-        st.error("❌ Erreur pendant le test Drive")
-        st.code(str(e))
-
-
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
     st.caption('Met a jour data/hockey.players.csv avec les joueurs actifs (rosters NHL). Conserve Level (ELC/STD) et Cap Hit si deja presentes.')
     if st.button('🔄 Mettre a jour Players DB via NHL APIs', use_container_width=True, key='admin_update_players_db'):
@@ -6698,6 +6666,38 @@ if st.button("🧪 Test Google Drive write", use_container_width=True, key="driv
 
     st.divider()
 
+# =====================================================
+# 🧪 Google Drive — test d'écriture (diagnostic)
+#   Crée/écrase drive_test_pms.txt dans le dossier Drive.
+# =====================================================
+st.markdown("### 🧪 Google Drive")
+st.caption("Teste l'écriture dans le dossier Drive configuré (service account).")
+
+if st.button("🧪 Test Google Drive write", use_container_width=True, key="drive_test_write_btn"):
+    try:
+        from datetime import datetime
+
+        content = (
+            "PMS Drive test OK\n"
+            f"UTC: {datetime.utcnow().isoformat()}Z\n"
+        ).encode("utf-8")
+
+        ok = gdrive_upload_bytes(
+            "drive_test_pms.txt",
+            content,
+            mime="text/plain"
+        )
+
+        if ok:
+            st.success("✅ OK — drive_test_pms.txt a été créé dans ton dossier Google Drive.")
+        else:
+            st.error("❌ Échec — écriture Drive non effectuée (permissions / folder_id ?).")
+
+    except Exception as e:
+        st.error("❌ Erreur pendant le test Drive")
+        st.code(str(e))
+    
+    st.divider()
 
     # -----------------------------
     # 📥 Importation CSV Fantrax (Admin)
