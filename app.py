@@ -5074,6 +5074,53 @@ elif active_tab == "🛠️ Gestion Admin":
     if last_upd:
         st.caption(f"Derniere mise a jour Players DB: {format_date_fr(last_upd) or last_upd}")
 
+    with st.expander('📦 Exemples de contenu des APIs NHL', expanded=False):
+        st.caption('Extraits simplifiés (format JSON) — utiles pour comprendre quelles données sont disponibles et comment elles sont fusionnées dans hockey.players.csv.')
+
+        st.markdown('**1) api-web.nhle.com — Player landing**')
+        st.json({
+            'playerId': 8478402,
+            'firstName': {'default': 'Connor'},
+            'lastName': {'default': 'McDavid'},
+            'position': 'C',
+            'shootsCatches': 'L',
+            'currentTeamId': 22,
+            'currentTeamAbbrev': 'EDM',
+            'heightInInches': 73,
+            'weightInPounds': 193,
+            'birthDate': '1997-01-13',
+            'isActive': True,
+            'headshot': 'https://assets.nhle.com/mugs/nhl/20242025/EDM/8478402.png'
+        })
+
+        st.markdown('**2) statsapi.web.nhl.com — Team roster**')
+        st.json({
+            'roster': [
+                {
+                    'person': {'id': 8478402, 'fullName': 'Connor McDavid'},
+                    'position': {'code': 'C', 'name': 'Center'},
+                    'jerseyNumber': '97'
+                }
+            ]
+        })
+
+        st.markdown('**3) api.nhle.com/stats/rest — Skater summary**')
+        st.json({
+            'data': [
+                {
+                    'playerId': 8478402,
+                    'skaterFullName': 'Connor McDavid',
+                    'teamAbbrev': 'EDM',
+                    'gamesPlayed': 76,
+                    'goals': 32,
+                    'assists': 89,
+                    'points': 121
+                }
+            ]
+        })
+
+        st.caption('Note: ces APIs NHL fournissent surtout identité/roster/stats. Les champs "Cap Hit" et "Level (ELC/STD)" restent sous ton contrôle dans hockey.players.csv.')
+
     st.divider()
 
 
