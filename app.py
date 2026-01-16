@@ -75,6 +75,10 @@ def _gdrive_service():
     try:
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
+        service = build("drive", "v3", credentials=creds)
+
+        about = service.about().get(fields="user").execute()
+        st.write("Drive user:", about)
     except Exception:
         return None
 
