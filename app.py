@@ -3049,6 +3049,9 @@ def open_move_dialog():
         )
         st.divider()
 
+        # season label (safe for dialog scope)
+        season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "season").strip() or "season"
+
         # -------------------------------------------------
         # ℹ️ Infos joueur (NHL API) — best effort
         # -------------------------------------------------
