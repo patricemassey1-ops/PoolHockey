@@ -8,11 +8,11 @@ import json
 import html
 import base64
 import hashlib
+import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
-import uuid
 import streamlit.components.v1 as components
 
 
@@ -865,6 +865,50 @@ def money(v) -> str:
     except Exception:
         return "0 $"
 
+
+def _cap_to_int(x) -> int:
+    """Parse un salaire/cap hit en entier.
+
+    Supporte:
+      - 1250000, "1,250,000", "$1 250 000"
+      - "1.25M", "950K"
+    """
+    if x is None:
+        return 0
+    if isinstance(x, (int, float)):
+        try:
+            if pd.isna(x):
+                return 0
+        except Exception:
+            pass
+        try:
+            return int(float(x))
+        except Exception:
+            return 0
+    s = str(x).strip()
+    if not s:
+        return 0
+    s = s.replace("$", "").replace(" ", "").replace(",", "")
+    s_up = s.upper()
+    mult = 1
+    if s_up.endswith("M"):
+        mult = 1_000_000
+        s_up = s_up[:-1]
+    elif s_up.endswith("K"):
+        mult = 1_000
+        s_up = s_up[:-1]
+    try:
+        return int(float(s_up) * mult)
+    except Exception:
+        # fallback: extraire un nombre
+        m = re.findall(r"\d+(?:\.\d+)?", s_up)
+        if not m:
+            return 0
+        try:
+            return int(float(m[0]) * mult)
+        except Exception:
+            return 0
+
 def normalize_pos(pos: str) -> str:
     p = str(pos or "").upper()
     if "G" in p:
@@ -942,7 +986,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out["Joueur"] = out["Joueur"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     out["Pos"] = out["Pos"].astype(str).apply(normalize_pos)
     out["Equipe"] = out["Equipe"].astype(str).str.strip()
-    out["Salaire"] = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
+    # Salaire/Cap Hit: parse robuste (Fantrax peut contenir $ / virgules / M/K)
+    out["Salaire"] = out["Salaire"].apply(_cap_to_int).astype(int)
 
     # Level (STD / ELC) — peut être ajouté depuis hockey.players.csv
     out["Level"] = out["Level"].astype(str).str.strip()
@@ -1039,6 +1084,27 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
                 exp_keys.append(n1); exp_vals.append(exp)
         mp_exp = dict(zip(exp_keys, exp_vals))
 
+    # --- map Salaire / Cap Hit / AAV (pour combler les trous dans le roster)
+    mp_sal: dict[str, int] = {}
+    sal_col = None
+    for cand in ["Cap Hit", "CapHit", "Salary", "AAV", "Salaire", "cap hit", "caphit", "salary", "aav"]:
+        if cand in db.columns:
+            sal_col = cand
+            break
+    if sal_col is not None:
+        sal_keys, sal_vals = [], []
+        for nm, sv in zip(base_names.tolist(), db[sal_col].tolist()):
+            sal_int = _cap_to_int(sv)
+            if sal_int <= 0:
+                continue
+            n0 = _n(nm)
+            n1 = _n(_swap_last_first(nm))
+            if n0:
+                sal_keys.append(n0); sal_vals.append(sal_int)
+            if n1 and n1 != n0:
+                sal_keys.append(n1); sal_vals.append(sal_int)
+        mp_sal = dict(zip(sal_keys, sal_vals))
+
     out = df.copy()
 
     # Ensure cols exist
@@ -1046,6 +1112,8 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         out["Level"] = ""
     if "Expiry Year" not in out.columns:
         out["Expiry Year"] = ""
+    if "Salaire" not in out.columns:
+        out["Salaire"] = 0
 
     bad = {"", "none", "nan", "null"}
 
@@ -1073,9 +1141,36 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
             return mp_exp.get(n1, "")
         out.loc[need_exp, "Expiry Year"] = out.loc[need_exp, "Joueur"].astype(str).map(_exp_lookup)
 
+    # Fill Salaire (seulement si vide/0)
+    try:
+        cur_sal = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
+        need_sal = cur_sal.le(0)
+        if need_sal.any() and mp_sal:
+            def _sal_lookup(name: str) -> int:
+                n0 = _n(name)
+                if n0 in mp_sal:
+                    return int(mp_sal.get(n0, 0) or 0)
+                n1 = _n(_swap_last_first(name))
+                return int(mp_sal.get(n1, 0) or 0)
+            out.loc[need_sal, "Salaire"] = out.loc[need_sal, "Joueur"].astype(str).map(_sal_lookup).fillna(0).astype(int)
+    except Exception:
+        pass
+
     out["Level"] = out["Level"].astype(str).str.strip()
     out["Expiry Year"] = out["Expiry Year"].astype(str).str.strip()
     return out
+
+
+# Alias rétro-compat (certaines versions appellent ce nom)
+def fill_level_and_expiry_from_players_db(df: pd.DataFrame, players_db: pd.DataFrame) -> pd.DataFrame:
+    """Compat: délègue à enrich_level_from_players_db() (qui lit st.session_state['players_db'])."""
+    # On accepte le param players_db pour compat, mais la fonction source lit le session_state.
+    try:
+        if isinstance(players_db, pd.DataFrame):
+            st.session_state["players_db"] = players_db
+    except Exception:
+        pass
+    return enrich_level_from_players_db(df)
 
 
 # =====================================================
@@ -1534,7 +1629,7 @@ def _transactions_path(season_lbl: str) -> str:
 def load_transactions(season_lbl: str) -> pd.DataFrame:
     """Charge les transactions sauvegardées (proposées) pour une saison."""
     path = _transactions_path(season_lbl)
-    cols = ["trade_id","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
+    cols = ["trade_id","uuid","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
     if not os.path.exists(path):
         return pd.DataFrame(columns=cols)
     try:
@@ -1549,7 +1644,7 @@ def load_transactions(season_lbl: str) -> pd.DataFrame:
 def save_transactions(season_lbl: str, t: pd.DataFrame) -> None:
     """Persist transactions to local CSV (Cloud-safe)."""
     path = _transactions_path(season_lbl)
-    cols = ["trade_id","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
+    cols = ["trade_id","uuid","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_retained","b_retained","a_cash","b_cash","status","approved_a","approved_b","submitted_by","approved_at_a","approved_at_b","completed_at"]
     try:
         if t is None or not isinstance(t, pd.DataFrame):
             t = pd.DataFrame(columns=cols)
@@ -1592,11 +1687,30 @@ def _tx_now_iso():
         return datetime.now().isoformat(timespec="seconds")
 
 
+def tx_next_trade_id(season_lbl: str) -> str:
+    """Return next incremental trade_id like TR-00000001 based on transactions_{season}.csv."""
+    try:
+        t = load_transactions(season_lbl)
+        if t is None or (hasattr(t, 'empty') and t.empty) or 'trade_id' not in getattr(t, 'columns', []):
+            return 'TR-00000001'
+        # Extract numeric part after TR-
+        s = t['trade_id'].astype(str).str.strip()
+        # accept formats like TR-00000001 or TR-00000001-XXXX
+        nums = s.str.extract(r'^TR-(\d{1,})', expand=False)
+        nums = pd.to_numeric(nums, errors='coerce').fillna(0).astype(int)
+        n = int(nums.max()) if len(nums) else 0
+        nxt = n + 1
+        return f'TR-{nxt:08d}'
+    except Exception:
+        return 'TR-00000001'
+
+
 def tx_create_pending(season_lbl: str, row: dict) -> str:
     """Create a pending trade row and persist. Returns trade_id."""
-    trade_id = str(row.get("trade_id") or "").strip() or f"TR-{uuid.uuid4().hex[:8].upper()}"
+    trade_id = str(row.get("trade_id") or "").strip() or tx_next_trade_id(season_lbl)
     row = dict(row)
     row["trade_id"] = trade_id
+    row.setdefault("uuid", uuid.uuid4().hex)
     row.setdefault("season", season_lbl)
     row.setdefault("timestamp", _tx_now_iso())
     row.setdefault("status", "En attente")
@@ -2006,14 +2120,17 @@ def parse_fantrax(upload) -> pd.DataFrame:
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "F"
     out["Pos"] = out["Pos"].apply(normalize_pos)
 
-    sal = (
-        df[salary_col].astype(str)
-    )
-    # Fantrax: souvent en milliers -> si petit nombre, multiplier par 1000
-    sal_num = pd.to_numeric(sal, errors="coerce").fillna(0)
-    if sal_num.max() <= 50000:
-        sal_num = (sal_num * 1000)
-    out["Salaire"] = sal_num.astype(int)
+    # Salaire / Cap Hit / AAV
+    # Fantrax peut contenir $ / virgules / M/K / nombres en milliers
+    sal_raw = df[salary_col].astype(str)
+    sal_num = sal_raw.apply(_cap_to_int)
+    # Heuristique: si c'est en "k" (ex: 9500 => 9 500 000), on upscale
+    try:
+        if sal_num.max() <= 50000:
+            sal_num = (sal_num * 1000)
+    except Exception:
+        pass
+    out["Salaire"] = sal_num.fillna(0).astype(int)
 
     if status_col:
         out["Statut"] = df[status_col].apply(lambda x: STATUT_CE if "min" in str(x).lower() else STATUT_GC)
@@ -2903,7 +3020,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
 
     # header
-    h = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
+    # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
+    h = st.columns([0.8, 1.1, 4.2, 0.9, 1.4])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
@@ -2924,14 +3042,14 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.9, 1.2, 3.6, 1.0, 1.6])
+        c = st.columns([0.8, 1.1, 4.2, 0.9, 1.4])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
         if c[2].button(
             joueur,
             key=f"{source_key}_{owner}_{row_key}",
-            use_container_width=True,
+            # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
             disabled=disabled,
         ):
             clicked = joueur
@@ -3986,8 +4104,9 @@ elif active_tab == "🧾 Alignement":
 
     dprop_cap = dprop[dprop.get("Slot","") != SLOT_IR].copy()  # inclut RACHAT pour le cap
 
-    gc_all = dprop_cap[dprop_cap["Statut"] == STATUT_GC].copy()
-    ce_all = dprop_cap[dprop_cap["Statut"] == STATUT_CE].copy()
+    # Listes d'affichage: exclure le cap mort (RACHAT) et IR
+    gc_all = dprop_ok[dprop_ok["Statut"] == STATUT_GC].copy()
+    ce_all = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
 
     gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
     gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
@@ -4098,7 +4217,7 @@ elif active_tab == "🧾 Alignement":
             else:
                 roster_click_list(injured_all, proprietaire, "ir_disabled")
 
-    open_move_dialog()
+    # open_move_dialog() est appelé globalement (une seule fois) — éviter le double rendu ici
 
     if st.session_state.pop("just_moved", False):
         show_status_alerts(
@@ -4363,7 +4482,8 @@ elif active_tab == "⚖️ Transactions":
                 else:
                     ts = datetime.now(TZ_TOR).strftime("%Y-%m-%d %H:%M:%S") if TZ_TOR else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     row = {
-                        "trade_id": uuid.uuid4().hex[:10],
+                        "trade_id": tx_next_trade_id(season),
+                        "uuid": uuid.uuid4().hex,
                         "timestamp": ts,
                         "season": season,
                         "owner_a": owner_a,
@@ -4905,16 +5025,33 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 #     - Level_found (bool) : trouvé dans DB
 #     - Level_src (str)    : 'Hockey.Players.csv' si trouvé sinon ''
 # =====================================================
-def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
-    """Force df['Level'] à partir de Hockey.players.csv (STD/ELC)."""
+def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.DataFrame:
+    """Force df['Level'] à partir de Hockey.players.csv (STD/ELC).
+
+    - Source de vérité: colonne Player + Level (ELC/STD)
+    - Ne remplace pas un Level déjà présent sauf si vide
+    - Ajoute:
+        - Level_found (bool)
+        - Level_src (str)
+    """
     if df is None or df.empty or "Joueur" not in df.columns:
         return df
 
     out = df.copy()
     if "Level" not in out.columns:
         out["Level"] = ""
+    if "Level_found" not in out.columns:
+        out["Level_found"] = False
+    if "Level_src" not in out.columns:
+        out["Level_src"] = ""
 
-    level_map = _players_level_map(pdb_path)
+    if not pdb_path:
+        try:
+            pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+        except Exception:
+            pdb_path = ""
+
+    level_map = _players_level_map(str(pdb_path or ""))
     if not level_map:
         return out
 
@@ -4926,6 +5063,15 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str) -> pd.DataFrame:
         return ""
 
     mapped = out["Joueur"].astype(str).apply(_resolve)
-    mask = mapped.astype(str).str.strip().ne("")
-    out.loc[mask, "Level"] = mapped[mask]
+    mapped_clean = mapped.astype(str).str.strip().str.upper()
+    mask_map = mapped_clean.isin(["STD", "ELC"])
+
+    # Ne remplace que si Level est vide/absent
+    cur = out["Level"].astype(str).str.strip().str.upper()
+    need = cur.eq("") | cur.str.lower().isin({"none", "nan", "null"})
+    apply_mask = need & mask_map
+
+    out.loc[apply_mask, "Level"] = mapped_clean[apply_mask]
+    out.loc[apply_mask, "Level_found"] = True
+    out.loc[apply_mask, "Level_src"] = "Hockey.Players.csv"
     return out
