@@ -3264,7 +3264,15 @@ def open_move_dialog():
                     weight = landing.get("weightInPounds") or landing.get("weight")
                     bdate  = str(landing.get("birthDate") or "").strip()
 
-                    st.markdown(f"**{html.escape(full or joueur)}**")
+                    flag = _country_flag_from_landing(landing)
+                    title = f"{flag} {full or joueur}".strip() if flag else (full or joueur)
+                    st.markdown(f"**{html.escape(title)}**")
+                    if st.button("👤 Profil complet", key=f"btn_profile__{cur_pid}__{nonce}"):
+                        st.session_state["profile_player_id"] = int(cur_pid)
+                        st.session_state["profile_player_name"] = str(full or joueur)
+                        st.session_state["move_ctx"] = None
+                        st.session_state["active_tab"] = "👤 Profil joueur"
+                        do_rerun()
                     cols = st.columns(3)
                     cols[0].caption(f"playerId: {cur_pid}")
                     cols[1].caption(f"Pos: {pos or cur_pos}")
@@ -3276,9 +3284,6 @@ def open_move_dialog():
                     cols2[2].caption(f"Weight: {weight or '—'}")
                     if bdate:
                         st.caption(f"Born: {bdate}")
-                    show_json = st.checkbox("Voir JSON brut", value=False, key=f"show_json__{cur_pid}__{nonce}")
-                    if show_json:
-                        st.json(landing)
                 else:
                     st.info("Aucune donnée retournée pour ce playerId (API indisponible ou joueur introuvable).")
 
@@ -3731,6 +3736,7 @@ is_admin = _is_admin_whalers()
 NAV_TABS = [
     "🏠 Home",
     "🧾 Alignement",
+    "👤 Profil joueur",
     "🧊 GM",
     "👤 Joueurs autonomes",
     "🕘 Historique",
@@ -3913,6 +3919,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     )
 
     disabled = str(source_key or "").endswith("_disabled")
+    pid_map = _players_name_to_pid_map()
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
@@ -3933,6 +3940,21 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         team = str(r.get("Equipe", "")).strip()
         lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
+        pid = 0
+        try:
+            pid = int(r.get('playerId', 0) or 0)
+        except Exception:
+            pid = 0
+        if pid <= 0:
+            pid = int(pid_map.get(_norm_name(joueur), 0) or 0)
+        flag = ''
+        if pid > 0:
+            try:
+                landing = nhl_player_landing_cached(pid)
+                flag = _country_flag_from_landing(landing) if landing else ''
+            except Exception:
+                flag = ''
+        display_name = f"{flag} {joueur}".strip() if flag else joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
@@ -3942,7 +3964,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
         if c[2].button(
-            joueur,
+            display_name,
             key=f"{source_key}_{owner}_{row_key}",
             # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
             disabled=disabled,
@@ -3958,6 +3980,65 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
+
+
+
+def render_player_profile_page():
+    st.subheader("👤 Profil joueur")
+    pid = int(st.session_state.get("profile_player_id", 0) or 0)
+    pname = str(st.session_state.get("profile_player_name", "") or "").strip()
+    if pid <= 0:
+        st.info("Clique sur un joueur dans Alignement puis sur ‘👤 Profil complet’. ")
+        return
+
+    landing = nhl_player_landing_cached(pid)
+    if not landing:
+        st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
+        return
+
+    flag = _country_flag_from_landing(landing)
+    first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
+    last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
+    full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
+    pos   = str(landing.get("position") or landing.get("positionCode") or "").strip()
+    shoots= str(landing.get("shootsCatches") or "").strip()
+    team_abbrev = ""
+    team = landing.get("currentTeam")
+    if isinstance(team, dict):
+        team_abbrev = str(team.get("abbrev") or team.get("triCode") or "").strip()
+    if not team_abbrev:
+        team_abbrev = str(landing.get("currentTeamAbbrev") or "").strip()
+
+    headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot","default"], "") or "").strip()
+    cols = st.columns([1, 2], vertical_alignment="top")
+    with cols[0]:
+        if headshot:
+            try:
+                st.image(headshot, width=200)
+            except Exception:
+                pass
+    with cols[1]:
+        title = (flag + " " + full).strip() if flag else full
+        st.markdown(f"## {html.escape(title)}", unsafe_allow_html=True)
+        st.markdown(f"**{html.escape(pos or '—')}** · **{html.escape(team_abbrev or '—')}**")
+        meta = []
+        if shoots: meta.append(f"Shoots/Catches: {shoots}")
+        h = landing.get("heightInInches") or landing.get("height")
+        w = landing.get("weightInPounds") or landing.get("weight")
+        bdate = str(landing.get("birthDate") or "").strip()
+        if h: meta.append(f"Height: {h}")
+        if w: meta.append(f"Weight: {w}")
+        if bdate: meta.append(f"Born: {bdate}")
+        if meta:
+            st.caption(" · ".join(meta))
+        st.caption(f"playerId: {pid}")
+
+    st.divider()
+    st.caption("Données: api-web.nhle.com (landing) — cache 24h")
+
+    if st.button("↩️ Retour à Alignement", key=f"profile_back__{pid}"):
+        st.session_state["active_tab"] = "🧾 Alignement"
+        do_rerun()
 
 
 
@@ -4420,6 +4501,69 @@ def render_tab_autonomes(show_header: bool = True, lock_dest_to_owner: bool = Fa
         # compacter espaces
         s = " ".join(s.split())
         return s
+
+
+# =====================================================
+# NHL — Country flag helpers (emoji)
+# =====================================================
+
+def _iso2_to_flag(iso2: str) -> str:
+    try:
+        iso2 = (iso2 or '').strip().upper()
+        if len(iso2) != 2 or not iso2.isalpha():
+            return ''
+        return chr(0x1F1E6 + (ord(iso2[0]) - ord('A'))) + chr(0x1F1E6 + (ord(iso2[1]) - ord('A')))
+    except Exception:
+        return ''
+
+_COUNTRY3_TO2 = {
+    'CAN': 'CA', 'USA': 'US', 'SWE': 'SE', 'FIN': 'FI', 'RUS': 'RU', 'CZE': 'CZ', 'SVK': 'SK',
+    'CHE': 'CH', 'GER': 'DE', 'DEU': 'DE', 'AUT': 'AT', 'DNK': 'DK', 'NOR': 'NO', 'LVA': 'LV',
+    'SVN': 'SI', 'FRA': 'FR', 'GBR': 'GB', 'UKR': 'UA', 'KAZ': 'KZ',
+}
+
+_COUNTRYNAME_TO2 = {
+    'canada': 'CA', 'united states': 'US', 'usa': 'US', 'sweden': 'SE', 'finland': 'FI',
+    'russia': 'RU', 'czechia': 'CZ', 'czech republic': 'CZ', 'slovakia': 'SK', 'switzerland': 'CH',
+    'germany': 'DE', 'austria': 'AT', 'denmark': 'DK', 'norway': 'NO', 'latvia': 'LV',
+    'slovenia': 'SI', 'france': 'FR', 'great britain': 'GB', 'ukraine': 'UA', 'kazakhstan': 'KZ',
+}
+
+def _country_flag_from_landing(landing: dict) -> str:
+    if not isinstance(landing, dict):
+        return ''
+    raw = (
+        landing.get('nationality')
+        or landing.get('birthCountryCode')
+        or landing.get('birthCountry')
+        or ''
+    )
+    raw = str(raw).strip()
+    if not raw:
+        return ''
+    if len(raw) == 2 and raw.isalpha():
+        return _iso2_to_flag(raw)
+    if len(raw) == 3 and raw.isalpha():
+        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ''))
+    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ''))
+
+def _players_name_to_pid_map() -> dict:
+    """Build {normalized_name: playerId} from st.session_state['players_db']."""
+    db = st.session_state.get('players_db')
+    if db is None or (not isinstance(db, pd.DataFrame)) or db.empty:
+        return {}
+    if 'Player' not in db.columns or 'playerId' not in db.columns:
+        return {}
+    m = {}
+    try:
+        s_names = db['Player'].astype(str).map(_norm_name)
+        s_pid = pd.to_numeric(db['playerId'], errors='coerce').fillna(0).astype(int)
+        for k, pid in zip(s_names.tolist(), s_pid.tolist()):
+            if k and pid > 0 and k not in m:
+                m[k] = pid
+    except Exception:
+        return {}
+    return m
 
     if isinstance(df_league, pd.DataFrame) and not df_league.empty and "Joueur" in df_league.columns and "Propriétaire" in df_league.columns:
         tmp = df_league[["Joueur", "Propriétaire"]].copy()
@@ -5126,6 +5270,9 @@ elif active_tab == "🧾 Alignement":
         )
 
 
+
+elif active_tab == "👤 Profil joueur":
+    render_player_profile_page()
 
 elif active_tab == "🧊 GM":
     render_tab_gm()
