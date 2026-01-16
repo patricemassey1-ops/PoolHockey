@@ -397,8 +397,9 @@ section.main > div { padding-top: 0.5rem; }
             font-weight:900;font-size:12px}
 
 div[data-testid="stButton"] > button{
-                padding: 0.18rem 0.45rem;
+                padding: 0.16rem 0.42rem;
                 font-weight: 900;
+                font-size: 0.98rem;
                 text-align: left;
                 justify-content: flex-start;
                 white-space: nowrap;
@@ -407,6 +408,7 @@ div[data-testid="stButton"] > button{
               }
               .salaryCell{
                 white-space: nowrap;
+                word-break: keep-all;
                 text-align: right;
                 font-weight: 900;
                 display: block;
@@ -861,9 +863,9 @@ def do_rerun():
 
 def money(v) -> str:
     try:
-        return f"{int(v):,}".replace(",", " ") + " $"
+        return f"{int(v):,}".replace(",", " " ) + " $"
     except Exception:
-        return "0 $"
+        return "0 $"
 
 
 def _cap_to_int(x) -> int:
@@ -2995,6 +2997,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t["Joueur"] = t["Joueur"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Level"]  = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
+    t["Level"] = t["Level"].replace({"0": "", "0.0": ""})
     t["Expiry Year"] = t["Expiry Year"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
 
@@ -3021,7 +3024,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.1, 4.2, 0.9, 1.4])
+    h = st.columns([0.8, 1.1, 4.0, 0.9, 1.7])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
@@ -3042,7 +3045,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.1, 4.2, 0.9, 1.4])
+        c = st.columns([0.8, 1.1, 4.0, 0.9, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -5068,7 +5071,7 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.Dat
 
     # Ne remplace que si Level est vide/absent
     cur = out["Level"].astype(str).str.strip().str.upper()
-    need = cur.eq("") | cur.str.lower().isin({"none", "nan", "null"})
+    need = cur.eq("") | cur.isin({"0", "0.0"}) | cur.str.lower().isin({"none", "nan", "null"})
     apply_mask = need & mask_map
 
     out.loc[apply_mask, "Level"] = mapped_clean[apply_mask]
