@@ -3276,8 +3276,8 @@ def open_move_dialog():
                     cols2[2].caption(f"Weight: {weight or '—'}")
                     if bdate:
                         st.caption(f"Born: {bdate}")
-
-                    with st.expander("Voir JSON brut", expanded=False):
+                    show_json = st.checkbox("Voir JSON brut", value=False, key=f"show_json__{cur_pid}__{nonce}")
+                    if show_json:
                         st.json(landing)
                 else:
                     st.info("Aucune donnée retournée pour ce playerId (API indisponible ou joueur introuvable).")
