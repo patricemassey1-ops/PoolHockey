@@ -2844,6 +2844,66 @@ def _country_flag_from_landing(landing: dict) -> str:
     # Country name
     return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ""))
 
+
+
+# --- Fallback: statsapi nationality (some players missing in api-web landing)
+@st.cache_data(show_spinner=False, ttl=24*3600)
+def _statsapi_people_cached(player_id: int) -> dict:
+    """Fetch player info from statsapi.web.nhl.com (best-effort)."""
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+    if pid <= 0:
+        return {}
+    try:
+        url = f"https://statsapi.web.nhl.com/api/v1/people/{pid}"
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return {}
+        return r.json() if isinstance(r.json(), dict) else {}
+    except Exception:
+        return {}
+
+
+def _player_flag(player_id: int, landing: dict | None = None) -> str:
+    """Return flag emoji for a player.
+
+    Priority:
+      1) api-web landing payload (fast)
+      2) statsapi people endpoint (nationality / birthCountry) fallback
+    """
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+
+    # 1) landing
+    if isinstance(landing, dict):
+        f = _player_flag(pid, landing)
+        if f:
+            return f
+
+    # 2) statsapi fallback
+    if pid > 0:
+        j = _statsapi_people_cached(pid)
+        ppl = []
+        try:
+            ppl = j.get('people') or []
+        except Exception:
+            ppl = []
+        if ppl and isinstance(ppl, list) and isinstance(ppl[0], dict):
+            p0 = ppl[0]
+            raw = str(p0.get('nationality') or p0.get('birthCountry') or '').strip()
+            if raw and raw.lower() not in {'nan','none','null','0','0.0','-'}:
+                if len(raw) == 2 and raw.isalpha():
+                    return _iso2_to_flag(raw)
+                if len(raw) == 3 and raw.isalpha():
+                    return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ''))
+                return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ''))
+
+    return ''
+
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """
@@ -3331,7 +3391,7 @@ def open_move_dialog():
                     weight = landing.get("weightInPounds") or landing.get("weight")
                     bdate  = str(landing.get("birthDate") or "").strip()
 
-                    flag = _country_flag_from_landing(landing)
+                    flag = _player_flag(cur_pid, landing)
                     title = f"{flag} {full or joueur}".strip() if flag else (full or joueur)
                     st.markdown(f"**{html.escape(title)}**")
                     if st.button("👤 Profil complet", key=f"btn_profile__{cur_pid}__{nonce}"):
@@ -4018,7 +4078,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         if pid > 0:
             try:
                 landing = nhl_player_landing_cached(pid)
-                flag = _country_flag_from_landing(landing) if landing else ''
+                flag = _player_flag(pid, landing) if landing else ''
             except Exception:
                 flag = ''
         display_name = f"{flag} {joueur}".strip() if flag else joueur
@@ -4063,7 +4123,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _country_flag_from_landing(landing)
+    flag = _player_flag(pid, landing)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
@@ -4596,45 +4656,6 @@ _COUNTRYNAME_TO2 = {
     'slovenia': 'SI', 'france': 'FR', 'great britain': 'GB', 'ukraine': 'UA', 'kazakhstan': 'KZ',
 }
 
-def _country_flag_from_landing(landing: dict) -> str:
-    """Return a flag emoji from NHL landing payload.
-    Tries nationality/birth country fields; supports ISO2, ISO3, and country names.
-    """
-    if not isinstance(landing, dict):
-        return ""
-
-    def _pick(*vals) -> str:
-        for v in vals:
-            if v is None:
-                continue
-            # sometimes values are dicts like {"default": "Canada"}
-            if isinstance(v, dict):
-                v = v.get("default") or v.get("en") or v.get("fr")
-            if isinstance(v, (list, tuple)) and v:
-                v = v[0]
-            s = str(v).strip() if v is not None else ""
-            if s and s.lower() not in {"nan", "none", "null", "0", "0.0", "-"}:
-                return s
-        return ""
-
-    raw = _pick(
-        landing.get("nationality"),
-        landing.get("nationalityCode"),
-        landing.get("birthCountryCode"),
-        landing.get("birthCountry"),
-    )
-    if not raw:
-        return ""
-
-    raw = raw.strip()
-    # ISO2
-    if len(raw) == 2 and raw.isalpha():
-        return _iso2_to_flag(raw)
-    # ISO3
-    if len(raw) == 3 and raw.isalpha():
-        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ""))
-    # Country name
-    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ""))
 
 def _players_name_to_pid_map() -> dict:
     """Build {normalized_name: playerId} from st.session_state['players_db']."""
