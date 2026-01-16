@@ -4219,7 +4219,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         if pid > 0:
             try:
                 landing = nhl_player_landing_cached(pid)
-                flag = _player_flag(pid, landing, player_name) if landing else _player_flag(pid, None, player_name)
+                flag = _player_flag(pid, landing, joueur) if landing else _player_flag(pid, None, joueur)
             except Exception:
                 flag = ''
         display_name = f"{flag} {joueur}".strip() if flag else joueur
@@ -4264,7 +4264,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _player_flag(pid, landing, player_name)
+    flag = _player_flag(pid, landing, joueur)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
