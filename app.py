@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import requests
 
 
 # =====================================================
@@ -71,6 +72,338 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+
+
+# =====================================================
+# NHL APIs - Enrich / Build Players DB (Admin action)
+#   - api-web.nhle.com (roster + player landing)
+#   - statsapi.web.nhl.com (fallback roster + teams)
+#   - api.nhle.com/stats/rest (optional, not required for identity)
+#
+# Design goals:
+#   - One button in Admin to update data/hockey.players.csv
+#   - Cache on disk (CSV) so app works even if API is down
+#   - Preserve user's columns: Level (ELC/STD) + Cap Hit (contracts)
+# =====================================================
+
+NHL_APIWEB_BASE = "https://api-web.nhle.com"
+NHL_STATSAPI_BASE = "https://statsapi.web.nhl.com"
+NHL_STATSREST_BASE = "https://api.nhle.com/stats/rest"
+
+
+def _soft_player_key(name: str) -> str:
+    """Soft normalize for matching when playerId is missing."""
+    s = str(name or "").strip()
+    # Remove team suffixes like " (COL)" or " - COL" if present
+    s = re.sub(r"\s*\([^\)]*\)\s*$", "", s)
+    s = re.sub(r"\s*[-\u2013\u2014]\s*[A-Z]{2,4}\s*$", "", s)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    # Handle "Last, First" to "First Last"
+    if "," in s:
+        parts = [x.strip() for x in s.split(",", 1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            s = f"{parts[1]} {parts[0]}".strip()
+    return s
+
+
+def _http_get_json(url: str, timeout: int = 20):
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; PMSPool/1.0; +https://streamlit.app)",
+    }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def _nhl_get_teams() -> list[dict]:
+    """Get team list from StatsAPI (stable)."""
+    try:
+        j = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams")
+        teams = j.get("teams", []) if isinstance(j, dict) else []
+        out = []
+        for t in teams:
+            out.append(
+                {
+                    "teamId": t.get("id"),
+                    "abbrev": t.get("abbreviation") or (t.get("triCode") if isinstance(t.get("triCode"), str) else None),
+                    "name": t.get("name") or t.get("teamName") or "",
+                }
+            )
+        return [x for x in out if x.get("teamId") and x.get("abbrev")]
+    except Exception:
+        return []
+
+
+def _apiweb_roster_current(abbrev: str) -> list[int]:
+    """api-web roster may be incomplete sometimes; we treat it as one source."""
+    ids: set[int] = set()
+    try:
+        j = _http_get_json(f"{NHL_APIWEB_BASE}/v1/roster/{abbrev}/current")
+        if isinstance(j, dict):
+            # The response typically contains keys like forwards/defensemen/goalies
+            for v in j.values():
+                if isinstance(v, list):
+                    for row in v:
+                        if not isinstance(row, dict):
+                            continue
+                        pid = row.get("id") or row.get("playerId") or (row.get("person", {}) or {}).get("id")
+                        try:
+                            if pid is not None:
+                                ids.add(int(pid))
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+    return sorted(ids)
+
+
+def _statsapi_roster(team_id: int) -> list[int]:
+    ids: set[int] = set()
+    try:
+        j = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams/{int(team_id)}/roster")
+        roster = (j.get("roster") if isinstance(j, dict) else None) or []
+        for r0 in roster:
+            if not isinstance(r0, dict):
+                continue
+            person = r0.get("person") or {}
+            pid = person.get("id")
+            try:
+                if pid is not None:
+                    ids.add(int(pid))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return sorted(ids)
+
+
+def _apiweb_player_landing(player_id: int) -> dict:
+    try:
+        return _http_get_json(f"{NHL_APIWEB_BASE}/v1/player/{int(player_id)}/landing")
+    except Exception:
+        return {}
+
+
+def _extract_player_identity(player_id: int, landing: dict) -> dict:
+    """Best-effort extraction. We keep it flexible because NHL may evolve payloads."""
+    def _g(path, default=""):
+        cur = landing
+        for key in path:
+            if isinstance(cur, dict):
+                cur = cur.get(key)
+            else:
+                return default
+        return cur if cur is not None else default
+
+    first = _g(["firstName", "default"], "") or _g(["firstName"], "")
+    last = _g(["lastName", "default"], "") or _g(["lastName"], "")
+    full = ("%s %s" % (str(first).strip(), str(last).strip())).strip() or str(_g(["fullName"], "") or "").strip()
+
+    pos = str(_g(["position"], "") or _g(["positionCode"], "") or "").strip()
+    shoots = str(_g(["shootsCatches"], "") or "").strip()
+
+    team_abbrev = ""
+    team = landing.get("currentTeam") if isinstance(landing, dict) else None
+    if isinstance(team, dict):
+        team_abbrev = str(team.get("abbrev") or team.get("triCode") or "").strip()
+
+    return {
+        "playerId": int(player_id),
+        "Player": full,
+        "Pos": pos,
+        "Equipe": team_abbrev,
+        "Shoots": shoots,
+        "_player_key": _soft_player_key(full),
+    }
+
+
+def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
+    """Update data/hockey.players.csv by merging NHL public APIs.
+
+    - Adds/updates identity fields for all active roster players (all teams).
+    - Preserves contract fields: Level, Cap Hit (do not overwrite if present).
+
+    Returns: (df_updated, stats)
+    """
+    # Load existing DB if present
+    path = _first_existing(PLAYERS_DB_FALLBACKS)
+    if not path:
+        path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    if os.path.exists(path):
+        try:
+            df0 = pd.read_csv(path)
+        except Exception:
+            df0 = pd.DataFrame()
+    else:
+        df0 = pd.DataFrame()
+
+    # Normalize columns
+    if "Player" not in df0.columns:
+        # try common variants
+        for alt in ["Joueur", "Name", "Nom"]:
+            if alt in df0.columns:
+                df0["Player"] = df0[alt]
+                break
+    if "Level" not in df0.columns:
+        df0["Level"] = ""
+    if "Cap Hit" not in df0.columns:
+        # if user stored salary under another name
+        for alt in ["Salaire", "Salary", "CapHit", "AAV"]:
+            if alt in df0.columns:
+                df0["Cap Hit"] = df0[alt]
+                break
+        if "Cap Hit" not in df0.columns:
+            df0["Cap Hit"] = ""
+
+    if "playerId" not in df0.columns:
+        df0["playerId"] = pd.NA
+
+    df0["Player"] = df0["Player"].astype(str).fillna("").map(lambda x: x.strip())
+    df0["_player_key"] = df0["Player"].map(_soft_player_key)
+
+    # Build index by playerId if present
+    existing_by_id = {}
+    for i, row in df0.iterrows():
+        pid = row.get("playerId")
+        try:
+            if pd.notna(pid):
+                existing_by_id[int(pid)] = i
+        except Exception:
+            pass
+
+    teams = _nhl_get_teams()
+    stats = {
+        "teams": len(teams),
+        "from_apiweb_roster": 0,
+        "from_statsapi_roster": 0,
+        "unique_player_ids": 0,
+        "landing_ok": 0,
+        "landing_fail": 0,
+        "updated_rows": 0,
+        "added_rows": 0,
+        "kept_level": 0,
+        "kept_cap_hit": 0,
+    }
+
+    all_ids: set[int] = set()
+    for t in teams:
+        ab = str(t.get("abbrev") or "").strip()
+        tid = int(t.get("teamId"))
+        ids1 = _apiweb_roster_current(ab)
+        stats["from_apiweb_roster"] += len(ids1)
+        all_ids.update(ids1)
+
+        ids2 = _statsapi_roster(tid)
+        stats["from_statsapi_roster"] += len(ids2)
+        all_ids.update(ids2)
+
+    all_ids = set(int(x) for x in all_ids if x)
+    stats["unique_player_ids"] = len(all_ids)
+
+    new_rows = []
+    for pid in sorted(all_ids):
+        landing = _apiweb_player_landing(pid)
+        if not landing:
+            stats["landing_fail"] += 1
+            continue
+        stats["landing_ok"] += 1
+        info = _extract_player_identity(pid, landing)
+
+        if pid in existing_by_id:
+            i = existing_by_id[pid]
+            # Preserve Level and Cap Hit if present
+            level_before = str(df0.at[i, "Level"] if "Level" in df0.columns else "").strip()
+            cap_before = str(df0.at[i, "Cap Hit"] if "Cap Hit" in df0.columns else "").strip()
+
+            df0.at[i, "Player"] = info.get("Player", "")
+            if "Pos" in df0.columns:
+                df0.at[i, "Pos"] = info.get("Pos", "")
+            else:
+                df0["Pos"] = ""
+                df0.at[i, "Pos"] = info.get("Pos", "")
+            if "Equipe" in df0.columns:
+                df0.at[i, "Equipe"] = info.get("Equipe", "")
+            else:
+                df0["Equipe"] = ""
+                df0.at[i, "Equipe"] = info.get("Equipe", "")
+            df0.at[i, "playerId"] = pid
+            if "Shoots" not in df0.columns:
+                df0["Shoots"] = ""
+            df0.at[i, "Shoots"] = info.get("Shoots", "")
+
+            # restore preserved
+            if level_before:
+                df0.at[i, "Level"] = level_before
+                stats["kept_level"] += 1
+            if cap_before:
+                df0.at[i, "Cap Hit"] = cap_before
+                stats["kept_cap_hit"] += 1
+
+            stats["updated_rows"] += 1
+        else:
+            # Try match by name key if playerId missing in db
+            key = info.get("_player_key", "")
+            matched_i = None
+            if key:
+                hits = df0.index[df0.get("_player_key", pd.Series([], dtype=str)).astype(str) == key].tolist()
+                if hits:
+                    matched_i = hits[0]
+            if matched_i is not None:
+                i = matched_i
+                df0.at[i, "playerId"] = pid
+                df0.at[i, "Player"] = info.get("Player", "")
+                if "Pos" not in df0.columns:
+                    df0["Pos"] = ""
+                df0.at[i, "Pos"] = info.get("Pos", "")
+                if "Equipe" not in df0.columns:
+                    df0["Equipe"] = ""
+                df0.at[i, "Equipe"] = info.get("Equipe", "")
+                if "Shoots" not in df0.columns:
+                    df0["Shoots"] = ""
+                df0.at[i, "Shoots"] = info.get("Shoots", "")
+                stats["updated_rows"] += 1
+            else:
+                new_rows.append(
+                    {
+                        "playerId": pid,
+                        "Player": info.get("Player", ""),
+                        "Pos": info.get("Pos", ""),
+                        "Equipe": info.get("Equipe", ""),
+                        "Shoots": info.get("Shoots", ""),
+                        "Level": "",
+                        "Cap Hit": "",
+                    }
+                )
+                stats["added_rows"] += 1
+
+    if new_rows:
+        df_add = pd.DataFrame(new_rows)
+        df0 = pd.concat([df0.drop(columns=[c for c in ["_player_key"] if c in df0.columns]), df_add], ignore_index=True)
+    else:
+        if "_player_key" in df0.columns:
+            df0 = df0.drop(columns=["_player_key"])
+
+    # Final cleanup
+    for c in ["Player", "Level", "Cap Hit", "Pos", "Equipe"]:
+        if c not in df0.columns:
+            df0[c] = ""
+        df0[c] = df0[c].astype(str).fillna("").map(lambda x: x.strip())
+
+    # Ensure Level is only ELC/STD or empty
+    df0["Level"] = df0["Level"].astype(str).map(lambda x: (x or "").strip().upper())
+    df0.loc[~df0["Level"].isin(["ELC", "STD"]), "Level"] = ""
+
+    # Write
+    out_path = _first_existing(PLAYERS_DB_FALLBACKS)
+    if not out_path:
+        out_path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    df0.to_csv(out_path, index=False)
+    return df0, stats
 
 # =====================================================
 # PATHS — repo local (Streamlit Cloud safe)
@@ -4577,6 +4910,25 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
+
+    st.markdown('### 🔄 Compléter les données (NHL APIs)')
+    st.caption('Met a jour data/hockey.players.csv avec les joueurs actifs (rosters NHL). Conserve Level (ELC/STD) et Cap Hit si deja presentes.')
+    if st.button('🔄 Mettre a jour Players DB via NHL APIs', use_container_width=True, key='admin_update_players_db'):
+        with st.spinner('Mise a jour en cours...'):
+            try:
+                df_upd, stx = update_players_db_via_nhl_apis(season_lbl=str(season_pick))
+                st.success(f"✅ Players DB mis a jour: +{stx.get('added_rows',0)} ajout(s), {stx.get('updated_rows',0)} maj. Total API players: {stx.get('unique_player_ids',0)}")
+                st.info(f"Landing ok: {stx.get('landing_ok',0)} | Landing fail: {stx.get('landing_fail',0)}")
+                st.session_state['players_db_last_update'] = datetime.now(TZ_TOR).isoformat(timespec='seconds')
+            except Exception as e:
+                st.error(f"❌ Echec mise a jour Players DB: {type(e).__name__}: {e}")
+
+    last_upd = st.session_state.get('players_db_last_update','')
+    if last_upd:
+        st.caption(f"Derniere mise a jour Players DB: {format_date_fr(last_upd) or last_upd}")
+
+    st.divider()
+
 
     # -----------------------------
     # 📥 Importation CSV Fantrax (Admin)
