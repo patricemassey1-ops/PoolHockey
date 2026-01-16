@@ -5999,10 +5999,126 @@ elif active_tab == "🛠️ Gestion Admin":
                     if missing_show.empty:
                         st.success("✅ Aucun joueur du roster actif n'a Country manquant (drapeaux OK).")
                     else:
-                        st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Remplis la colonne Country dans hockey.players.csv (ex: CA, US, SE, FI).")
-                        st.dataframe(missing_show, use_container_width=True, hide_index=True)
+                        st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Tu peux le remplir ici (inline) ou dans hockey.players.csv.")
 
-                        st.caption("Astuce: dans hockey.players.csv, ajoute/édite la colonne **Country** pour ces joueurs. Valeurs acceptées: CA/US/SE/FI… (ISO2), ou CAN/USA/SWE… (ISO3), ou nom du pays.")
+                        # --- Suggestions (soft) : pré-remplir CA pour quelques prospects connus
+                        # (tu peux ajouter des noms ici au besoin)
+                        known_ca = {
+                            _norm_name("Tij Iginla"),
+                            _norm_name("Matthew Poitras"),
+                            _norm_name("Ryan Suzuki"),
+                            _norm_name("Michael Hage"),
+                            _norm_name("Isaiah George"),
+                        }
+
+                        # build editable table
+                        edit_cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing_show.columns]
+                        editor = missing_show[edit_cols].copy()
+                        editor["Country"] = ""
+
+                        # auto-suggest (CA) for known prospects
+                        editor["_k"] = editor.get("Joueur", "").astype(str).apply(_norm_name)
+                        editor.loc[editor["_k"].isin(known_ca), "Country"] = "CA"
+
+                        # show editor
+                        st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
+                        editor_view = st.data_editor(
+                            editor.drop(columns=["_k"], errors="ignore"),
+                            use_container_width=True,
+                            hide_index=True,
+                            num_rows="fixed",
+                            column_config={
+                                "Country": st.column_config.TextColumn(
+                                    "Country",
+                                    help="ISO2 (CA/US/SE/FI) ou ISO3 (CAN/USA/SWE) ou nom du pays.",
+                                    max_chars=24,
+                                )
+                            },
+                            disabled=[c for c in editor.columns if c not in {"Country"} and c != "_k"],
+                            key=f"admin_missing_flags_editor__{season_pick}",
+                        )
+
+                        c_apply, c_export = st.columns([1, 1])
+                        with c_apply:
+                            if st.button("💾 Appliquer Country", use_container_width=True, key=f"admin_apply_country__{season_pick}"):
+                                try:
+                                    # load current players db
+                                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                                    if not pdb_path:
+                                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+                                    import pandas as _pd
+                                    pdb_df = _pd.read_csv(pdb_path) if os.path.exists(pdb_path) else _pd.DataFrame()
+                                    if pdb_df.empty:
+                                        pdb_df = _pd.DataFrame(columns=["Player", "Country", "playerId"])
+
+                                    if "Player" not in pdb_df.columns:
+                                        pdb_df["Player"] = ""
+                                    if "Country" not in pdb_df.columns:
+                                        pdb_df["Country"] = ""
+
+                                    pdb_df["_k"] = pdb_df["Player"].astype(str).apply(_norm_name)
+                                    idx_by_k = {k: i for i, k in enumerate(pdb_df["_k"].tolist())}
+
+                                    applied = 0
+                                    for row in editor_view.to_dict(orient="records"):
+                                        name = str(row.get("Joueur", "") or "").strip()
+                                        ctry = str(row.get("Country", "") or "").strip()
+                                        if not name or not ctry:
+                                            continue
+                                        k = _norm_name(name)
+                                        if k in idx_by_k:
+                                            i = idx_by_k[k]
+                                            # ne remplace pas si déjà rempli
+                                            cur = str(pdb_df.at[i, "Country"] or "").strip()
+                                            if not cur:
+                                                pdb_df.at[i, "Country"] = ctry
+                                                applied += 1
+                                        else:
+                                            # append minimal row
+                                            new_row = {col: "" for col in pdb_df.columns}
+                                            new_row["Player"] = name
+                                            new_row["Country"] = ctry
+                                            pdb_df = _pd.concat([pdb_df, _pd.DataFrame([new_row])], ignore_index=True)
+                                            applied += 1
+
+                                    # save back
+                                    pdb_df = pdb_df.drop(columns=["_k"], errors="ignore")
+                                    pdb_df.to_csv(pdb_path, index=False)
+
+                                    # refresh cached players_db
+                                    try:
+                                        try:
+                                            st.cache_data.clear()
+                                        except Exception:
+                                            pass
+                                        mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
+                                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
+                                    except Exception:
+                                        pass
+
+                                    st.success(f"✅ Country appliqué pour {applied} joueur(s).")
+                                    do_rerun()
+                                except Exception as _e:
+                                    st.error(f"Erreur écriture hockey.players.csv: {type(_e).__name__}: {_e}")
+
+                        with c_export:
+                            try:
+                                import pandas as _pd
+                                out_df = editor_view.copy()
+                                csv_bytes = out_df.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    "📤 Export CSV",
+                                    data=csv_bytes,
+                                    file_name=f"joueurs_sans_drapeau_{season_pick}.csv",
+                                    mime="text/csv",
+                                    use_container_width=True,
+                                    key=f"admin_export_missing_flags__{season_pick}",
+                                )
+                            except Exception:
+                                pass
+
+                        st.caption("Astuce: tu peux aussi éditer directement hockey.players.csv. Valeurs acceptées: CA/US/SE/FI… (ISO2), ou CAN/USA/SWE… (ISO3), ou nom du pays.")
         except Exception as e:
             st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
 
