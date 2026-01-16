@@ -75,10 +75,7 @@ def _gdrive_service():
     try:
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
-        service = build("drive", "v3", credentials=creds)
-
-        about = service.about().get(fields="user").execute()
-        st.write("Drive user:", about)
+        
     except Exception:
         return None
 
@@ -152,6 +149,52 @@ def ensure_local_from_drive(filename: str, local_path: str) -> bool:
         return True
     except Exception:
         return False
+
+import streamlit as st
+
+@st.cache_resource(show_spinner=False)
+def gdrive_service_and_debug():
+    if not _gdrive_enabled():
+        return None, {"enabled": False, "reason": "_gdrive_enabled() = False"}
+
+    debug = {"enabled": True}
+
+    try:
+        from google.oauth2.service_account import Credentials as SACredentials
+        from googleapiclient.discovery import build
+
+        # ⚠️ IMPORTANT: ici tu dois créer creds (service account) correctement
+        # Exemple:
+        # creds = SACredentials.from_service_account_info(
+        #     st.secrets["gcp_service_account"],
+        #     scopes=["https://www.googleapis.com/auth/drive"],
+        # )
+
+        debug["creds_type"] = type(creds).__name__
+        debug["service_account_email"] = getattr(creds, "service_account_email", None)
+        debug["scopes"] = getattr(creds, "scopes", None)
+
+        service = build("drive", "v3", credentials=creds)
+
+        # Champs plus parlants (quand c'est OAuth)
+        about = service.about().get(
+            fields="user(displayName,emailAddress,permissionId,me), storageQuota"
+        ).execute()
+
+        debug["about"] = about
+        return service, debug
+
+    except Exception as e:
+        debug["error"] = repr(e)
+        return None, debug
+
+
+# ---- UI debug (à mettre dans un onglet Admin par ex.)
+if st.button("🔎 Debug Drive identity"):
+    svc, dbg = gdrive_service_and_debug()
+    st.json(dbg)
+    if svc is None and "error" in dbg:
+        st.error("Drive service non créé. Voir dbg['error'] ci-dessus.")
 
 
 # =====================================================
