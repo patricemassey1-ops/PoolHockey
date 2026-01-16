@@ -1340,7 +1340,14 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 # ENRICH — Level depuis hockey.players.csv (players_db)
 # =====================================================
 def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
-    """Complète df['Level'] (STD/ELC) et df['Expiry Year'] à partir de la base Hockey.Players.csv (players_db)."""
+    """Complète df (roster) à partir de st.session_state['players_db'] (hockey.players.csv).
+
+    Priorité de matching:
+      1) playerId (si disponible / résolu)
+      2) nom normalisé (avec variantes)
+
+    Ne remplace PAS des valeurs déjà présentes (Level, Salaire/Cap Hit) sauf si vides/0.
+    """
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
 
@@ -1350,7 +1357,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
 
     db = players_db.copy()
 
-    # Trouver la colonne nom joueur
+    # Colonnes clés DB
     name_col = None
     for cand in ["Player", "Joueur", "Name", "Full Name", "fullname", "player"]:
         if cand in db.columns:
@@ -1358,7 +1365,31 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
             break
     if name_col is None:
         return df
-    if "Level" not in db.columns and "Expiry Year" not in db.columns:
+
+    pid_col = None
+    for cand in ["playerId", "player_id", "PlayerId", "PLAYERID", "id"]:
+        if cand in db.columns:
+            pid_col = cand
+            break
+
+    # Colonnes optionnelles DB
+    team_col = None
+    for cand in ["Equipe", "Équipe", "Team", "team", "Abbrev", "abbrev"]:
+        if cand in db.columns:
+            team_col = cand
+            break
+
+    # Salary / Cap Hit / AAV
+    sal_col = None
+    for cand in ["Cap Hit", "CapHit", "Salary", "AAV", "Salaire", "cap hit", "caphit", "salary", "aav"]:
+        if cand in db.columns:
+            sal_col = cand
+            break
+
+    has_level = "Level" in db.columns
+    has_exp   = "Expiry Year" in db.columns
+
+    if (not has_level) and (not has_exp) and (sal_col is None):
         return df
 
     def _n(x: str) -> str:
@@ -1367,7 +1398,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         s = s.replace("’", "'")
         # Enlever équipe entre parenthèses: "Player (COL)" -> "Player"
         s = re.sub(r"\s*\([^)]*\)\s*", " ", s)
-        # Enlever suffixes type " - COL" ou " — COL" (3 lettres)
+        # Enlever suffixes type " - COL" ou " — COL" (2-4 lettres)
         s = re.sub(r"\s*[-–—]\s*[a-z]{2,4}\s*$", "", s)
         # Enlever points
         s = re.sub(r"[\.]", "", s)
@@ -1383,70 +1414,154 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
                 return f"{parts[1]} {parts[0]}".strip()
         return s
 
-    base_names = db[name_col].astype(str).fillna("")
+    def _team(x: str) -> str:
+        t = str(x or "").strip().upper()
+        # garder 2-4 lettres seulement (COL, NYR, etc.) si possible
+        t = re.sub(r"[^A-Z]", "", t)
+        return t[:4]
 
-    # --- map Level
-    mp_level = {}
-    if "Level" in db.columns:
-        db["Level"] = db["Level"].astype(str).str.strip()
-        lvl_keys, lvl_vals = [], []
-        for nm, lvl in zip(base_names.tolist(), db["Level"].tolist()):
-            lvl = str(lvl).strip()
-            if not lvl or lvl.lower() in {"none", "nan", "null"}:
+    base_names = db[name_col].astype(str).fillna("")
+    base_pid   = db[pid_col].astype(str).fillna("") if pid_col else pd.Series([""]*len(db))
+    base_team  = db[team_col].astype(str).fillna("") if team_col else pd.Series([""]*len(db))
+
+    # -----------------------------
+    # 1) Construire mappings par playerId (si dispo)
+    # -----------------------------
+    mp_level_pid: dict[str, str] = {}
+    mp_exp_pid: dict[str, str] = {}
+    mp_sal_pid: dict[str, int] = {}
+
+    if pid_col:
+        if has_level:
+            lvl_series = db["Level"].astype(str).str.strip().str.upper()
+            for pid, lvl in zip(base_pid.tolist(), lvl_series.tolist()):
+                pid = str(pid or "").strip()
+                if not pid:
+                    continue
+                if lvl in ("ELC", "STD") and pid not in mp_level_pid:
+                    mp_level_pid[pid] = lvl
+
+        if has_exp:
+            exp_series = pd.to_numeric(db["Expiry Year"], errors="coerce")
+            for pid, exp in zip(base_pid.tolist(), exp_series.tolist()):
+                pid = str(pid or "").strip()
+                if not pid or exp is None or (isinstance(exp, float) and pd.isna(exp)):
+                    continue
+                try:
+                    mp_exp_pid[pid] = str(int(float(exp)))
+                except Exception:
+                    continue
+
+        if sal_col is not None:
+            for pid, sv in zip(base_pid.tolist(), db[sal_col].tolist()):
+                pid = str(pid or "").strip()
+                if not pid:
+                    continue
+                sal_int = _cap_to_int(sv)
+                if sal_int > 0 and pid not in mp_sal_pid:
+                    mp_sal_pid[pid] = int(sal_int)
+
+    # -----------------------------
+    # 2) Construire mappings par nom (fallback)
+    # -----------------------------
+    mp_level_name: dict[str, str] = {}
+    mp_exp_name: dict[str, str] = {}
+    mp_sal_name: dict[str, int] = {}
+
+    if has_level:
+        lvl_series = db["Level"].astype(str).str.strip().str.upper()
+        for nm, lvl in zip(base_names.tolist(), lvl_series.tolist()):
+            if lvl not in ("ELC", "STD"):
                 continue
             n0 = _n(nm)
             n1 = _n(_swap_last_first(nm))
-            if n0:
-                lvl_keys.append(n0); lvl_vals.append(lvl)
-            if n1 and n1 != n0:
-                lvl_keys.append(n1); lvl_vals.append(lvl)
-        mp_level = dict(zip(lvl_keys, lvl_vals))
+            if n0 and n0 not in mp_level_name:
+                mp_level_name[n0] = lvl
+            if n1 and n1 not in mp_level_name:
+                mp_level_name[n1] = lvl
 
-    # --- map Expiry Year
-    mp_exp = {}
-    if "Expiry Year" in db.columns:
-        exp_keys, exp_vals = [], []
+    if has_exp:
         exp_series = pd.to_numeric(db["Expiry Year"], errors="coerce")
-        exp_series = exp_series.where(exp_series.notna(), None)
         for nm, exp in zip(base_names.tolist(), exp_series.tolist()):
-            # exp peut être NaN (float) même après to_numeric -> guard robuste
             if exp is None or (isinstance(exp, float) and pd.isna(exp)):
                 continue
             try:
-                exp_int = int(float(exp))
+                expv = str(int(float(exp)))
             except Exception:
                 continue
-            exp = str(exp_int)
             n0 = _n(nm)
             n1 = _n(_swap_last_first(nm))
-            if n0:
-                exp_keys.append(n0); exp_vals.append(exp)
-            if n1 and n1 != n0:
-                exp_keys.append(n1); exp_vals.append(exp)
-        mp_exp = dict(zip(exp_keys, exp_vals))
+            if n0 and n0 not in mp_exp_name:
+                mp_exp_name[n0] = expv
+            if n1 and n1 not in mp_exp_name:
+                mp_exp_name[n1] = expv
 
-    # --- map Salaire / Cap Hit / AAV (pour combler les trous dans le roster)
-    mp_sal: dict[str, int] = {}
-    sal_col = None
-    for cand in ["Cap Hit", "CapHit", "Salary", "AAV", "Salaire", "cap hit", "caphit", "salary", "aav"]:
-        if cand in db.columns:
-            sal_col = cand
-            break
     if sal_col is not None:
-        sal_keys, sal_vals = [], []
         for nm, sv in zip(base_names.tolist(), db[sal_col].tolist()):
             sal_int = _cap_to_int(sv)
             if sal_int <= 0:
                 continue
             n0 = _n(nm)
             n1 = _n(_swap_last_first(nm))
-            if n0:
-                sal_keys.append(n0); sal_vals.append(sal_int)
-            if n1 and n1 != n0:
-                sal_keys.append(n1); sal_vals.append(sal_int)
-        mp_sal = dict(zip(sal_keys, sal_vals))
+            if n0 and n0 not in mp_sal_name:
+                mp_sal_name[n0] = int(sal_int)
+            if n1 and n1 not in mp_sal_name:
+                mp_sal_name[n1] = int(sal_int)
 
+    # -----------------------------
+    # 3) Résoudre playerId dans le roster si absent
+    # -----------------------------
     out = df.copy()
+    if "playerId" not in out.columns:
+        out["playerId"] = ""
+
+    # Construire un mapping nom+team -> playerId depuis DB (si pid + team dispo)
+    mp_pid_name_team: dict[str, str] = {}
+    mp_pid_name_only: dict[str, str] = {}
+
+    if pid_col:
+        for nm, pid, tm in zip(base_names.tolist(), base_pid.tolist(), base_team.tolist()):
+            pid = str(pid or "").strip()
+            if not pid:
+                continue
+            k0 = _n(nm)
+            k1 = _n(_swap_last_first(nm))
+            t0 = _team(tm)
+            if k0 and t0:
+                mp_pid_name_team.setdefault(f"{k0}|{t0}", pid)
+            if k1 and t0:
+                mp_pid_name_team.setdefault(f"{k1}|{t0}", pid)
+
+            # nom-only (mais seulement si unique)
+            if k0:
+                if k0 in mp_pid_name_only and mp_pid_name_only[k0] != pid:
+                    mp_pid_name_only[k0] = ""  # ambigu
+                else:
+                    mp_pid_name_only[k0] = pid
+            if k1:
+                if k1 in mp_pid_name_only and mp_pid_name_only[k1] != pid:
+                    mp_pid_name_only[k1] = ""
+                else:
+                    mp_pid_name_only[k1] = pid
+
+    # Remplir playerId manquant en utilisant Joueur + Equipe
+    if pid_col and "Joueur" in out.columns:
+        roster_team_col = "Equipe" if "Equipe" in out.columns else ("Équipe" if "Équipe" in out.columns else None)
+        cur_pid = out["playerId"].astype(str).str.strip()
+        need_pid = cur_pid.eq("") | cur_pid.str.lower().isin({"none","nan","null","0","0.0"})
+        if need_pid.any():
+            def _pid_lookup(row) -> str:
+                nm = str(row.get("Joueur", "") or "")
+                n0 = _n(nm)
+                n1 = _n(_swap_last_first(nm))
+                t = _team(row.get(roster_team_col, "") if roster_team_col else "")
+                if t:
+                    pid = mp_pid_name_team.get(f"{n0}|{t}") or mp_pid_name_team.get(f"{n1}|{t}")
+                    if pid:
+                        return pid
+                pid = mp_pid_name_only.get(n0) or mp_pid_name_only.get(n1)
+                return pid or ""
+            out.loc[need_pid, "playerId"] = out.loc[need_pid].apply(_pid_lookup, axis=1)
 
     # Ensure cols exist
     if "Level" not in out.columns:
@@ -1458,54 +1573,86 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
 
     bad = {"", "none", "nan", "null"}
 
-    # Fill Level
+    # -----------------------------
+    # 4) Fill Level (playerId -> nom)
+    # -----------------------------
     cur_lvl = out["Level"].astype(str).str.strip()
     need_lvl = cur_lvl.eq("") | cur_lvl.str.lower().isin(bad) | cur_lvl.isin(["0", "0.0"]) | cur_lvl.str.lower().isin({"0", "0.0"})
-    if need_lvl.any() and mp_level:
-        def _lvl_lookup(name: str) -> str:
-            n0 = _n(name)
-            if n0 in mp_level:
-                return mp_level.get(n0, "")
-            n1 = _n(_swap_last_first(name))
-            return mp_level.get(n1, "")
-        out.loc[need_lvl, "Level"] = out.loc[need_lvl, "Joueur"].astype(str).map(_lvl_lookup)
 
-        # Sanitiser (ELC/STD seulement)
+    if need_lvl.any():
+        # playerId d'abord
+        if mp_level_pid and "playerId" in out.columns:
+            pid_series = out.loc[need_lvl, "playerId"].astype(str).str.strip()
+            mapped_pid = pid_series.map(lambda pid: mp_level_pid.get(pid, ""))
+            mask_pid = mapped_pid.astype(str).str.strip().str.upper().isin(["ELC","STD"]) & pid_series.ne("")
+            out.loc[need_lvl[need_lvl].index[mask_pid], "Level"] = mapped_pid[mask_pid].astype(str).str.strip().str.upper()
+
+        # fallback nom
+        still_need = out["Level"].astype(str).str.strip().eq("")
+        if still_need.any() and mp_level_name:
+            def _lvl_lookup(name: str) -> str:
+                n0 = _n(name)
+                if n0 in mp_level_name:
+                    return mp_level_name.get(n0, "")
+                n1 = _n(_swap_last_first(name))
+                return mp_level_name.get(n1, "")
+            out.loc[still_need, "Level"] = out.loc[still_need, "Joueur"].astype(str).map(_lvl_lookup)
+
         out["Level"] = out["Level"].astype(str).str.strip().str.upper()
-        out.loc[~out["Level"].isin(["ELC", "STD"]), "Level"] = ""
+        out.loc[~out["Level"].isin(["ELC","STD"]), "Level"] = ""
 
-    # Fill Expiry Year
+    # -----------------------------
+    # 5) Fill Expiry Year (playerId -> nom)
+    # -----------------------------
     cur_exp = out["Expiry Year"].astype(str).str.strip()
     need_exp = cur_exp.eq("") | cur_exp.str.lower().isin(bad)
-    if need_exp.any() and mp_exp:
-        def _exp_lookup(name: str) -> str:
-            n0 = _n(name)
-            if n0 in mp_exp:
-                return mp_exp.get(n0, "")
-            n1 = _n(_swap_last_first(name))
-            return mp_exp.get(n1, "")
-        out.loc[need_exp, "Expiry Year"] = out.loc[need_exp, "Joueur"].astype(str).map(_exp_lookup)
+    if need_exp.any():
+        if mp_exp_pid and "playerId" in out.columns:
+            pid_series = out.loc[need_exp, "playerId"].astype(str).str.strip()
+            mapped_pid = pid_series.map(lambda pid: mp_exp_pid.get(pid, ""))
+            mask_pid = pid_series.ne("") & mapped_pid.astype(str).str.strip().ne("")
+            out.loc[need_exp[need_exp].index[mask_pid], "Expiry Year"] = mapped_pid[mask_pid]
 
-    # Fill Salaire (seulement si vide/0)
+        still_need = out["Expiry Year"].astype(str).str.strip().eq("")
+        if still_need.any() and mp_exp_name:
+            def _exp_lookup(name: str) -> str:
+                n0 = _n(name)
+                if n0 in mp_exp_name:
+                    return mp_exp_name.get(n0, "")
+                n1 = _n(_swap_last_first(name))
+                return mp_exp_name.get(n1, "")
+            out.loc[still_need, "Expiry Year"] = out.loc[still_need, "Joueur"].astype(str).map(_exp_lookup)
+
+        out["Expiry Year"] = out["Expiry Year"].astype(str).str.strip()
+
+    # -----------------------------
+    # 6) Fill Salaire (Cap Hit) (playerId -> nom)
+    # -----------------------------
     try:
         cur_sal = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int)
         need_sal = cur_sal.le(0)
-        if need_sal.any() and mp_sal:
-            def _sal_lookup(name: str) -> int:
-                n0 = _n(name)
-                if n0 in mp_sal:
-                    return int(mp_sal.get(n0, 0) or 0)
-                n1 = _n(_swap_last_first(name))
-                return int(mp_sal.get(n1, 0) or 0)
-            out.loc[need_sal, "Salaire"] = out.loc[need_sal, "Joueur"].astype(str).map(_sal_lookup).fillna(0).astype(int)
+        if need_sal.any():
+            if mp_sal_pid and "playerId" in out.columns:
+                pid_series = out.loc[need_sal, "playerId"].astype(str).str.strip()
+                mapped_pid = pid_series.map(lambda pid: int(mp_sal_pid.get(pid, 0) or 0))
+                mask_pid = pid_series.ne("") & (mapped_pid > 0)
+                out.loc[need_sal[need_sal].index[mask_pid], "Salaire"] = mapped_pid[mask_pid].astype(int)
+
+            still_need = pd.to_numeric(out["Salaire"], errors="coerce").fillna(0).astype(int).le(0)
+            if still_need.any() and mp_sal_name:
+                def _sal_lookup(name: str) -> int:
+                    n0 = _n(name)
+                    if n0 in mp_sal_name:
+                        return int(mp_sal_name.get(n0, 0) or 0)
+                    n1 = _n(_swap_last_first(name))
+                    return int(mp_sal_name.get(n1, 0) or 0)
+                out.loc[still_need, "Salaire"] = out.loc[still_need, "Joueur"].astype(str).map(_sal_lookup).fillna(0).astype(int)
     except Exception:
         pass
 
     out["Level"] = out["Level"].astype(str).str.strip()
     out["Expiry Year"] = out["Expiry Year"].astype(str).str.strip()
     return out
-
-
 # Alias rétro-compat (certaines versions appellent ce nom)
 def fill_level_and_expiry_from_players_db(df: pd.DataFrame, players_db: pd.DataFrame) -> pd.DataFrame:
     """Compat: délègue à enrich_level_from_players_db() (qui lit st.session_state['players_db'])."""
