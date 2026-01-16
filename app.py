@@ -461,24 +461,37 @@ def _statsrest_fetch_summary(kind: str, season_id: str) -> list[dict]:
     if kind not in {"skater", "goalie"}:
         return []
     # Endpoint stats/rest (tables)
+    # NOTE: l'API applique souvent un plafond de page (ex: 100) même si "limit" est plus grand.
+    # => On pagine avec start/limit et on concatène.
     base = f"https://api.nhle.com/stats/rest/en/{kind}/summary"
-    # cayenneExp : filtre principal
-    params = {
-        "cayenneExp": f"seasonId={season_id}",
-        "limit": "10000",
-        "start": "0",
-    }
-    try:
-        r = requests.get(base, params=params, timeout=20)
-        if r.status_code != 200:
-            return []
-        js = r.json()
-        data = js.get("data") if isinstance(js, dict) else None
-        if isinstance(data, list):
-            return data
-    except Exception:
-        return []
-    return []
+    page_size = 100
+    out: list[dict] = []
+
+    start = 0
+    # garde-fou (au cas où l'API boucle)
+    for _ in range(0, 500):
+        params = {
+            "cayenneExp": f"seasonId={season_id}",
+            "limit": str(page_size),
+            "start": str(start),
+        }
+        try:
+            r = requests.get(base, params=params, timeout=20)
+            if r.status_code != 200:
+                break
+            js = r.json()
+            data = js.get("data") if isinstance(js, dict) else None
+            if not isinstance(data, list) or not data:
+                break
+            out.extend([d for d in data if isinstance(d, dict)])
+            # dernière page
+            if len(data) < page_size:
+                break
+            start += page_size
+        except Exception:
+            break
+
+    return out
 
 
 def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
