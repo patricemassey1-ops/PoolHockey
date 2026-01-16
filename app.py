@@ -6492,24 +6492,24 @@ elif active_tab == "🛠️ Gestion Admin":
         st.code(dbg.get("service_account_email") or "(inconnu)")
 
         st.write("**Folder ID**")
-        st.code(dbg.get("folder_id") or "(vide)")
+    st.code(dbg.get("folder_id") or "(vide)")
 
-        with st.expander("Debug complet"):
-            st.json(dbg)
+    with st.expander("Debug complet"):
+        st.json(dbg)
 
-        if not dbg.get("enabled"):
-            st.error(dbg.get("error", "Drive non activé"))
-        else:
-            if st.button("✅ Test Drive write", key="admin_drive_test"):
-                try:
-                    res = drive_test_write(svc, dbg["folder_id"])
-                    st.success("✅ Écriture Drive réussie")
-                    if res.get("webViewLink"):
-                        st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
-                    st.json(res)
-                except Exception as e:
-                    st.error("❌ Échec écriture Drive")
-                    st.exception(e)
+    if not dbg.get("enabled"):
+        st.error(dbg.get("error", "Drive non activé"))
+    else:
+        if st.button("✅ Test Drive write", key="admin_drive_test"):
+            try:
+                res = drive_test_write(svc, dbg["folder_id"])
+                st.success("✅ Écriture Drive réussie")
+                if res.get("webViewLink"):
+                    st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
+                st.json(res)
+            except Exception as e:
+                st.error("❌ Échec écriture Drive")
+                st.exception(e)
 
 
     # -----------------------------
