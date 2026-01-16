@@ -2775,9 +2775,23 @@ def set_owner_market(t: pd.DataFrame, season_lbl: str, owner: str, available_pla
 # PLAYERS DB
 # =====================================================
 def _norm_name(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s or "").strip()).lower()
+    """Normalize player names for matching.
 
-
+    - Lowercase
+    - Strip accents (Slafkovský == Slafkovsky)
+    - Remove team suffixes in parentheses and common separators
+    - Keep only alphanumerics and spaces
+    """
+    s = str(s or '').strip().lower()
+    # remove parenthetical team e.g. "Name (COL)"
+    s = re.sub(r"\([^)]*\)", " ", s)
+    # unicode -> ascii (remove accents)
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(ch for ch in s if not unicodedata.combining(ch))
+    # replace punctuation with spaces
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 # ==============================
 # COUNTRY FLAG HELPERS (must be defined before dialogs)
