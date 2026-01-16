@@ -3190,7 +3190,11 @@ def open_move_dialog():
         # fallback: try Players DB mapping by name
         if cur_pid <= 0:
             try:
-                pdb = load_players_db()
+                pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                if not pdb_path:
+                    pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+                mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
+                pdb = load_players_db(pdb_path, mtime)
                 if pdb is not None and not pdb.empty and "playerId" in pdb.columns and "Player" in pdb.columns:
                     # Utilise une normalisation disponible AVANT ce dialog (évite NameError)
                     nm = _norm_name(joueur)
@@ -3277,7 +3281,7 @@ def open_move_dialog():
                                 _upsert_player_identity_to_players_db(int(guess))
                                 st.success(f"playerId trouvé: {int(guess)}. Réessaie d'ouvrir ce joueur.")
                             else:
-                                st.warning("Impossible de trouver ce joueur via rosters (API). Utilise Admin → Mise à jour Players DB.")
+                                st.warning("Impossible de trouver ce joueur via les stats NHL (API). Utilise Admin → Mise à jour Players DB.")
                         except Exception as e:
                             st.warning(f"API indisponible: {e}")
 
@@ -5452,6 +5456,21 @@ elif active_tab == "🛠️ Gestion Admin":
                 st.success(f"✅ Players DB mis a jour: +{stx.get('added_rows',0)} ajout(s), {stx.get('updated_rows',0)} maj. Total API players: {stx.get('unique_player_ids',0)}")
                 st.info(f"Landing ok: {stx.get('landing_ok',0)} | Landing fail: {stx.get('landing_fail',0)}")
                 st.session_state['players_db_last_update'] = datetime.now(TZ_TOR).isoformat(timespec='seconds')
+
+                # Recharge immédiatement le Players DB en mémoire (pour les popups Alignement)
+                try:
+                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                    if not pdb_path:
+                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+                    mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
+                    # Invalide le cache Streamlit (best effort)
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+                    st.session_state["players_db"] = load_players_db(pdb_path, mtime)
+                except Exception:
+                    pass
             except Exception as e:
                 st.error(f"❌ Echec mise a jour Players DB: {type(e).__name__}: {e}")
 
