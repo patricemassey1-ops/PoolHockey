@@ -186,6 +186,28 @@ def _apiweb_player_landing(player_id: int) -> dict:
     except Exception:
         return {}
 
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def nhl_player_landing_cached(player_id: int) -> dict:
+    """Cache 24h: player landing from api-web.nhle.com.
+    Avoids repeated HTTP calls on reruns / dialogs."""
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+    if pid <= 0:
+        return {}
+    return _apiweb_player_landing(pid) or {}
+
+
+def _landing_field(landing: dict, path: list, default=""):
+    cur = landing
+    for key in path:
+        if isinstance(cur, dict):
+            cur = cur.get(key)
+        else:
+            return default
+    return cur if cur is not None else default
+
 
 def _extract_player_identity(player_id: int, landing: dict) -> dict:
     """Best-effort extraction. We keep it flexible because NHL may evolve payloads."""
@@ -2896,6 +2918,78 @@ def open_move_dialog():
             unsafe_allow_html=True,
         )
         st.divider()
+
+        # -------------------------------------------------
+        # ℹ️ Infos joueur (NHL API) — best effort
+        # -------------------------------------------------
+        try:
+            cur_pid = int(row.get("playerId", 0) or 0)
+        except Exception:
+            cur_pid = 0
+
+        # fallback: try players DB mapping by name
+        if cur_pid <= 0:
+            try:
+                pdb = load_players_db()
+                if pdb is not None and not pdb.empty and "playerId" in pdb.columns and "Player" in pdb.columns:
+                    nm = _norm_player_key(joueur)
+                    pdb2 = pdb.copy()
+                    pdb2["_k"] = pdb2["Player"].astype(str).map(_norm_player_key)
+                    hit = pdb2[pdb2["_k"] == nm]
+                    if not hit.empty:
+                        cur_pid = int(hit.iloc[0].get("playerId", 0) or 0)
+            except Exception:
+                pass
+
+        with st.expander("ℹ️ Infos NHL (api-web.nhle.com)", expanded=False):
+            if cur_pid > 0:
+                landing = nhl_player_landing_cached(cur_pid)
+                if landing:
+                    # Headshot
+                    headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot", "default"], "") or "").strip()
+                    if headshot:
+                        try:
+                            st.image(headshot, width=120)
+                        except Exception:
+                            st.caption(headshot)
+
+                    # Key fields
+                    first = str(_landing_field(landing, ["firstName", "default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
+                    last  = str(_landing_field(landing, ["lastName", "default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
+                    full  = (first + " " + last).strip() or str(landing.get("fullName") or "").strip()
+                    pos   = str(landing.get("position") or landing.get("positionCode") or "").strip()
+                    shoots= str(landing.get("shootsCatches") or "").strip()
+
+                    team_abbrev = ""
+                    team = landing.get("currentTeam")
+                    if isinstance(team, dict):
+                        team_abbrev = str(team.get("abbrev") or team.get("triCode") or "").strip()
+                    if not team_abbrev:
+                        team_abbrev = str(landing.get("currentTeamAbbrev") or "").strip()
+
+                    height = landing.get("heightInInches") or landing.get("height")
+                    weight = landing.get("weightInPounds") or landing.get("weight")
+                    bdate  = str(landing.get("birthDate") or "").strip()
+
+                    st.markdown(f"**{html.escape(full or joueur)}**")
+                    cols = st.columns(3)
+                    cols[0].caption(f"playerId: {cur_pid}")
+                    cols[1].caption(f"Pos: {pos or cur_pos}")
+                    cols[2].caption(f"Team: {team_abbrev or cur_team}")
+
+                    cols2 = st.columns(3)
+                    cols2[0].caption(f"Shoots: {shoots or '—'}")
+                    cols2[1].caption(f"Height: {height or '—'}")
+                    cols2[2].caption(f"Weight: {weight or '—'}")
+                    if bdate:
+                        st.caption(f"Born: {bdate}")
+
+                    with st.expander("Voir JSON brut", expanded=False):
+                        st.json(landing)
+                else:
+                    st.info("Aucune donnée retournée pour ce playerId (API indisponible ou joueur introuvable).")
+            else:
+                st.info("playerId introuvable pour ce joueur. Lance d'abord la mise à jour Players DB via API (Admin) ou vérifie le mapping.")
 
         # 1) Type
         reason = st.radio(
