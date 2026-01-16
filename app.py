@@ -248,6 +248,7 @@ def ensure_local_from_drive(filename: str, local_path: str) -> bool:
         return True
     except Exception:
         return False
+        
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
