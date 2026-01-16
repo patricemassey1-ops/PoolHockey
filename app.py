@@ -1029,10 +1029,16 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     def _n(x: str) -> str:
-        """Normalise un nom joueur pour matching robuste (accents, ponctuation, ordre)."""
+        """Normalise un nom joueur pour matching robuste (ordre, suffixes équipe, ponctuation)."""
         s = str(x or "").strip().lower()
         s = s.replace("’", "'")
+        # Enlever équipe entre parenthèses: "Player (COL)" -> "Player"
+        s = re.sub(r"\s*\([^)]*\)\s*", " ", s)
+        # Enlever suffixes type " - COL" ou " — COL" (3 lettres)
+        s = re.sub(r"\s*[-–—]\s*[a-z]{2,4}\s*$", "", s)
+        # Enlever points
         s = re.sub(r"[\.]", "", s)
+        # Compacter espaces
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
@@ -1121,7 +1127,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
 
     # Fill Level
     cur_lvl = out["Level"].astype(str).str.strip()
-    need_lvl = cur_lvl.eq("") | cur_lvl.str.lower().isin(bad)
+    need_lvl = cur_lvl.eq("") | cur_lvl.str.lower().isin(bad) | cur_lvl.isin(["0", "0.0"]) | cur_lvl.str.lower().isin({"0", "0.0"})
     if need_lvl.any() and mp_level:
         def _lvl_lookup(name: str) -> str:
             n0 = _n(name)
@@ -1130,6 +1136,10 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
             n1 = _n(_swap_last_first(name))
             return mp_level.get(n1, "")
         out.loc[need_lvl, "Level"] = out.loc[need_lvl, "Joueur"].astype(str).map(_lvl_lookup)
+
+        # Sanitiser (ELC/STD seulement)
+        out["Level"] = out["Level"].astype(str).str.strip().str.upper()
+        out.loc[~out["Level"].isin(["ELC", "STD"]), "Level"] = ""
 
     # Fill Expiry Year
     cur_exp = out["Expiry Year"].astype(str).str.strip()
