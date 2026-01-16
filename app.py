@@ -6483,35 +6483,34 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
     # =====================================================
-    # 🧪 Google Drive — test d'écriture (diagnostic)
-    #   Crée/écrase drive_test_pms.txt dans le dossier Drive.
+    # 🔎 GOOGLE DRIVE — TEST ÉCRITURE (ADMIN)
     # =====================================================
-    st.markdown("### 🧪 Google Drive")
-    st.caption("Teste l'écriture dans le dossier Drive configuré (service account).")
+    with st.expander("🔎 Google Drive — Test écriture", expanded=False):
+        svc, dbg = get_drive_service_debug()
 
-    if st.button("🧪 Test Google Drive write", use_container_width=True, key="drive_test_write_btn"):
-        try:
-            from datetime import datetime
+        st.write("**Service account email**")
+        st.code(dbg.get("service_account_email") or "(inconnu)")
 
-            content = (
-                "PMS Drive test OK\n"
-                f"UTC: {datetime.utcnow().isoformat()}Z\n"
-            ).encode("utf-8")
+        st.write("**Folder ID**")
+        st.code(dbg.get("folder_id") or "(vide)")
 
-            ok = gdrive_upload_bytes(
-                "drive_test_pms.txt",
-                content,
-                mime="text/plain"
-            )
+        with st.expander("Debug complet"):
+            st.json(dbg)
 
-            if ok:
-                st.success("✅ OK — drive_test_pms.txt a été créé dans ton dossier Google Drive.")
-            else:
-                st.error("❌ Échec — écriture Drive non effectuée (permissions / folder_id ?).")
+        if not dbg.get("enabled"):
+            st.error(dbg.get("error", "Drive non activé"))
+        else:
+            if st.button("✅ Test Drive write", key="admin_drive_test"):
+                try:
+                    res = drive_test_write(svc, dbg["folder_id"])
+                    st.success("✅ Écriture Drive réussie")
+                    if res.get("webViewLink"):
+                        st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
+                    st.json(res)
+                except Exception as e:
+                    st.error("❌ Échec écriture Drive")
+                    st.exception(e)
 
-        except Exception as e:
-            st.error("❌ Erreur pendant le test Drive")
-            st.code(str(e))
 
     # -----------------------------
     # 🧩 Outil — Joueurs sans drapeau (Country manquant)
