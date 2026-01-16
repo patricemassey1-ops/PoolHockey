@@ -6485,13 +6485,13 @@ elif active_tab == "🛠️ Gestion Admin":
     # =====================================================
     # 🔎 GOOGLE DRIVE — TEST ÉCRITURE (ADMIN)
     # =====================================================
-    with st.expander("🔎 Google Drive — Test écriture", expanded=False):
-        svc, dbg = get_drive_service_debug()
+   with st.expander("🔎 Google Drive — Test écriture", expanded=False):
+       svc, dbg = get_drive_service_debug()
 
-        st.write("**Service account email**")
-        st.code(dbg.get("service_account_email") or "(inconnu)")
+    st.write("**Service account email**")
+    st.code(dbg.get("service_account_email") or "(inconnu)")
 
-        st.write("**Folder ID**")
+    st.write("**Folder ID**")
     st.code(dbg.get("folder_id") or "(vide)")
 
     with st.expander("Debug complet"):
