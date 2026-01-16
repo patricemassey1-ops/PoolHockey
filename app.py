@@ -4269,7 +4269,7 @@ if not season:
     st.session_state["season"] = season
 
 # --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f\"pms_{season}.csv\")
+DATA_FILE = os.path.join(DATA_DIR, f"pms_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
