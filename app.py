@@ -199,6 +199,136 @@ def nhl_player_landing_cached(player_id: int) -> dict:
     return _apiweb_player_landing(pid) or {}
 
 
+# -------------------------------------------------
+# NHL playerId lookup by name (fallback) + single-player DB upsert
+# -------------------------------------------------
+
+def _norm_fullname_for_match(s: str) -> str:
+    s = str(s or "").strip().lower()
+    # remove team suffixes like "(COL)" or "- COL"
+    s = re.sub(r"\([^\)]*\)", " ", s)
+    s = re.sub(r"\s+-\s+[a-z]{2,4}\s*$", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    # remove punctuation
+    s = re.sub(r"[^a-z0-9\s'-]", "", s)
+    return s
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def nhl_find_playerid_by_name_cached(full_name: str) -> int:
+    """Best-effort playerId lookup by player full name.
+
+    Uses statsapi team rosters (fast enough with cache) and matches on normalized fullName.
+    Returns 0 if not found.
+    """
+    target = _norm_fullname_for_match(full_name)
+    if not target:
+        return 0
+    try:
+        teams_json = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams")
+        teams = (teams_json.get("teams") if isinstance(teams_json, dict) else None) or []
+        for t in teams:
+            if not isinstance(t, dict):
+                continue
+            tid = t.get("id")
+            if tid is None:
+                continue
+            roster_json = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams/{int(tid)}/roster")
+            roster = (roster_json.get("roster") if isinstance(roster_json, dict) else None) or []
+            for r0 in roster:
+                if not isinstance(r0, dict):
+                    continue
+                person = r0.get("person") or {}
+                pid = person.get("id")
+                nm = person.get("fullName")
+                if not pid or not nm:
+                    continue
+                if _norm_fullname_for_match(nm) == target:
+                    try:
+                        return int(pid)
+                    except Exception:
+                        return 0
+    except Exception:
+        return 0
+    return 0
+
+def upsert_single_player_from_api(player_id: int) -> bool:
+    """Fetch landing and upsert minimal identity fields into hockey.players.csv.
+
+    Preserves existing Level/Cap Hit if present.
+    """
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+    if pid <= 0:
+        return False
+
+    landing = nhl_player_landing_cached(pid)
+    if not landing:
+        return False
+
+    ident = _extract_player_identity(pid, landing)
+    if not ident or not ident.get("Player"):
+        return False
+
+    # Load existing DB
+    path = _first_existing(PLAYERS_DB_FALLBACKS)
+    if not path:
+        path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            df = pd.DataFrame()
+    else:
+        df = pd.DataFrame()
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["playerId","Player","Pos","Equipe","Shoots","Level","Cap Hit"])
+
+    # Ensure columns
+    for col in ["playerId","Player","Pos","Equipe","Shoots","Level","Cap Hit"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Match by playerId first
+    try:
+        df_pid = pd.to_numeric(df["playerId"], errors="coerce").fillna(0).astype(int)
+    except Exception:
+        df_pid = pd.Series([0]*len(df), dtype=int)
+
+    mask = df_pid.eq(pid)
+    if mask.any():
+        i = int(df.index[mask][0])
+        # Preserve Level/Cap Hit
+        lvl = df.at[i, "Level"] if "Level" in df.columns else ""
+        cap = df.at[i, "Cap Hit"] if "Cap Hit" in df.columns else ""
+        df.at[i, "playerId"] = pid
+        df.at[i, "Player"] = ident.get("Player","")
+        df.at[i, "Pos"] = ident.get("Pos","")
+        df.at[i, "Equipe"] = ident.get("Equipe","")
+        df.at[i, "Shoots"] = ident.get("Shoots","")
+        df.at[i, "Level"] = lvl
+        df.at[i, "Cap Hit"] = cap
+    else:
+        # Append new row
+        df = pd.concat([df, pd.DataFrame([{
+            "playerId": pid,
+            "Player": ident.get("Player",""),
+            "Pos": ident.get("Pos",""),
+            "Equipe": ident.get("Equipe",""),
+            "Shoots": ident.get("Shoots",""),
+            "Level": "",
+            "Cap Hit": "",
+        }])], ignore_index=True)
+
+    try:
+        df.to_csv(path, index=False)
+        return True
+    except Exception:
+        return False
+
 def _landing_field(landing: dict, path: list, default=""):
     cur = landing
     for key in path:
@@ -2922,12 +3052,13 @@ def open_move_dialog():
         # -------------------------------------------------
         # ℹ️ Infos joueur (NHL API) — best effort
         # -------------------------------------------------
+
         try:
             cur_pid = int(row.get("playerId", 0) or 0)
         except Exception:
             cur_pid = 0
 
-        # fallback: try players DB mapping by name
+        # fallback: try Players DB mapping by name
         if cur_pid <= 0:
             try:
                 pdb = load_players_db()
@@ -2941,11 +3072,27 @@ def open_move_dialog():
             except Exception:
                 pass
 
+        # -------------------------------------------------
+        # Option B (auto): tentative automatique (1x) de trouver un playerId par nom
+        #   - scan rosters via statsapi (caché 24h)
+        #   - si trouvé: upsert identity dans hockey.players.csv (sans écraser Level/Cap Hit)
+        # -------------------------------------------------
+        if cur_pid <= 0:
+            auto_key = f"auto_pid_try__{season_lbl}__{_norm_player_key(joueur)}"
+            if not st.session_state.get(auto_key, False):
+                st.session_state[auto_key] = True
+                try:
+                    guess = nhl_find_playerid_by_name_cached(joueur)
+                    if int(guess or 0) > 0:
+                        _upsert_player_identity_to_players_db(int(guess))
+                        cur_pid = int(guess)
+                except Exception:
+                    pass
+
         with st.expander("ℹ️ Infos NHL (api-web.nhle.com)", expanded=False):
             if cur_pid > 0:
                 landing = nhl_player_landing_cached(cur_pid)
                 if landing:
-                    # Headshot
                     headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot", "default"], "") or "").strip()
                     if headshot:
                         try:
@@ -2953,7 +3100,6 @@ def open_move_dialog():
                         except Exception:
                             st.caption(headshot)
 
-                    # Key fields
                     first = str(_landing_field(landing, ["firstName", "default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
                     last  = str(_landing_field(landing, ["lastName", "default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
                     full  = (first + " " + last).strip() or str(landing.get("fullName") or "").strip()
@@ -2988,8 +3134,23 @@ def open_move_dialog():
                         st.json(landing)
                 else:
                     st.info("Aucune donnée retournée pour ce playerId (API indisponible ou joueur introuvable).")
+
             else:
-                st.info("playerId introuvable pour ce joueur. Lance d'abord la mise à jour Players DB via API (Admin) ou vérifie le mapping.")
+                st.info("playerId introuvable pour ce joueur.")
+
+                # Option A: bouton pour mettre à jour CE joueur (best effort)
+                if st.button("🔄 Mettre à jour ce joueur via API", key=f"btn_upd_one__{owner}__{joueur}__{nonce}"):
+                    with st.spinner("Recherche du playerId et mise à jour Players DB..."):
+                        try:
+                            guess = nhl_find_playerid_by_name_cached(joueur)
+                            if int(guess or 0) > 0:
+                                _upsert_player_identity_to_players_db(int(guess))
+                                st.success(f"playerId trouvé: {int(guess)}. Réessaie d'ouvrir ce joueur.")
+                            else:
+                                st.warning("Impossible de trouver ce joueur via rosters (API). Utilise Admin → Mise à jour Players DB.")
+                        except Exception as e:
+                            st.warning(f"API indisponible: {e}")
+
 
         # 1) Type
         reason = st.radio(
