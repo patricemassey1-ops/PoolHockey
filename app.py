@@ -31,6 +31,105 @@ def _app_cfg() -> dict:
 
 PRODUCTION_MODE = bool(_app_cfg().get("production", False))
 
+# =====================================================
+# GOOGLE DRIVE — DEBUG + TEST WRITE (SAFE)
+# =====================================================
+import io
+import json
+import datetime as dt
+
+@st.cache_resource(show_spinner=False)
+def get_drive_service_debug():
+    debug = {
+        "enabled": True,
+        "ts": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+
+    try:
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+    except Exception as e:
+        debug["enabled"] = False
+        debug["error"] = f"Deps manquantes: {e}"
+        return None, debug
+
+    # -------- folder_id
+    folder_id = ""
+    if "gdrive" in st.secrets and "folder_id" in st.secrets["gdrive"]:
+        folder_id = str(st.secrets["gdrive"]["folder_id"] or "").strip()
+    debug["folder_id"] = folder_id
+
+    # -------- service account
+    sa_info = None
+    if "gcp_service_account" in st.secrets:
+        sa_info = dict(st.secrets["gcp_service_account"])
+    elif "gdrive" in st.secrets and "service_account_json" in st.secrets["gdrive"]:
+        try:
+            sa_info = json.loads(st.secrets["gdrive"]["service_account_json"])
+        except Exception:
+            sa_info = None
+
+    if not sa_info:
+        debug["enabled"] = False
+        debug["error"] = "Service account absent dans Secrets"
+        return None, debug
+
+    debug["service_account_email"] = sa_info.get("client_email")
+
+    try:
+        creds = Credentials.from_service_account_info(
+            sa_info,
+            scopes=["https://www.googleapis.com/auth/drive"],
+        )
+
+        service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        debug["creds_type"] = type(creds).__name__
+
+        # about (best-effort)
+        try:
+            about = service.about().get(
+                fields="user(emailAddress,displayName,me)"
+            ).execute()
+            debug["about"] = about
+        except Exception as e:
+            debug["about_error"] = str(e)
+
+        return service, debug
+
+    except Exception as e:
+        debug["enabled"] = False
+        debug["error"] = str(e)
+        return None, debug
+
+
+def drive_test_write(service, folder_id: str):
+    from googleapiclient.http import MediaIoBaseUpload
+
+    payload = {
+        "test": "pms-drive-write",
+        "timestamp": dt.datetime.now().isoformat(),
+    }
+
+    content = json.dumps(payload, indent=2)
+    fh = io.BytesIO(content.encode("utf-8"))
+
+    media = MediaIoBaseUpload(
+        fh,
+        mimetype="text/plain",
+        resumable=False,
+    )
+
+    meta = {
+        "name": f"pms_drive_test_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        "parents": [folder_id],
+    }
+
+    return service.files().create(
+        body=meta,
+        media_body=media,
+        fields="id,name,webViewLink,createdTime",
+        supportsAllDrives=True,
+    ).execute()
 
 
 # =====================================================
@@ -149,53 +248,6 @@ def ensure_local_from_drive(filename: str, local_path: str) -> bool:
         return True
     except Exception:
         return False
-
-import streamlit as st
-
-@st.cache_resource(show_spinner=False)
-def gdrive_service_and_debug():
-    if not _gdrive_enabled():
-        return None, {"enabled": False, "reason": "_gdrive_enabled() = False"}
-
-    debug = {"enabled": True}
-
-    try:
-        from google.oauth2.service_account import Credentials as SACredentials
-        from googleapiclient.discovery import build
-
-        # ⚠️ IMPORTANT: ici tu dois créer creds (service account) correctement
-        # Exemple:
-        # creds = SACredentials.from_service_account_info(
-        #     st.secrets["gcp_service_account"],
-        #     scopes=["https://www.googleapis.com/auth/drive"],
-        # )
-
-        debug["creds_type"] = type(creds).__name__
-        debug["service_account_email"] = getattr(creds, "service_account_email", None)
-        debug["scopes"] = getattr(creds, "scopes", None)
-
-        service = build("drive", "v3", credentials=creds)
-
-        # Champs plus parlants (quand c'est OAuth)
-        about = service.about().get(
-            fields="user(displayName,emailAddress,permissionId,me), storageQuota"
-        ).execute()
-
-        debug["about"] = about
-        return service, debug
-
-    except Exception as e:
-        debug["error"] = repr(e)
-        return None, debug
-
-
-# ---- UI debug (à mettre dans un onglet Admin par ex.)
-if st.button("🔎 Debug Drive identity"):
-    svc, dbg = gdrive_service_and_debug()
-    st.json(dbg)
-    if svc is None and "error" in dbg:
-        st.error("Drive service non créé. Voir dbg['error'] ci-dessus.")
-
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
