@@ -16,6 +16,110 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 
+# =====================================================
+# Google Drive (Service Account) — persistence (anti-reupload after reboot)
+#   Secrets attendus (Streamlit):
+#     [gdrive]
+#       folder_id = "..."
+#       service_account = { ... }   # dict JSON
+#   Dépendances: google-auth, google-api-python-client
+# =====================================================
+
+def _gdrive_cfg() -> dict:
+    try:
+        return dict(st.secrets.get("gdrive", {}) or {})
+    except Exception:
+        return {}
+
+def _gdrive_enabled() -> bool:
+    cfg = _gdrive_cfg()
+    return bool(str(cfg.get("folder_id", "")).strip() and cfg.get("service_account"))
+
+@st.cache_resource(show_spinner=False)
+def _gdrive_service():
+    """Retourne un service Drive v3 (googleapiclient) ou None si libs manquantes."""
+    if not _gdrive_enabled():
+        return None
+    try:
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+    except Exception:
+        return None
+
+    cfg = _gdrive_cfg()
+    sa = cfg.get("service_account")
+    folder_id = str(cfg.get("folder_id", "")).strip()
+    if not folder_id or not sa:
+        return None
+
+    scopes = ["https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(sa, scopes=scopes)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+def _gdrive_find_file_id(service, folder_id: str, filename: str) -> str:
+    q = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    res = service.files().list(q=q, fields="files(id,name)", pageSize=10).execute()
+    files = (res or {}).get("files", []) or []
+    return str(files[0].get("id", "")) if files else ""
+
+def gdrive_download_bytes(filename: str) -> bytes | None:
+    """Télécharge un fichier du folder Drive (service account)."""
+    service = _gdrive_service()
+    if service is None:
+        return None
+    cfg = _gdrive_cfg()
+    folder_id = str(cfg.get("folder_id", "")).strip()
+    try:
+        fid = _gdrive_find_file_id(service, folder_id, filename)
+        if not fid:
+            return None
+        from googleapiclient.http import MediaIoBaseDownload
+        fh = io.BytesIO()
+        req = service.files().get_media(fileId=fid)
+        downloader = MediaIoBaseDownload(fh, req)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue()
+    except Exception:
+        return None
+
+def gdrive_upload_bytes(filename: str, content: bytes, mime: str = "text/csv") -> bool:
+    """Upload/overwrite un fichier dans le folder Drive."""
+    service = _gdrive_service()
+    if service is None:
+        return False
+    cfg = _gdrive_cfg()
+    folder_id = str(cfg.get("folder_id", "")).strip()
+    try:
+        fid = _gdrive_find_file_id(service, folder_id, filename)
+        from googleapiclient.http import MediaIoBaseUpload
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime, resumable=False)
+        if fid:
+            service.files().update(fileId=fid, media_body=media).execute()
+        else:
+            meta = {"name": filename, "parents": [folder_id]}
+            service.files().create(body=meta, media_body=media, fields="id").execute()
+        return True
+    except Exception:
+        return False
+
+def gdrive_save_df(df: pd.DataFrame, filename: str) -> bool:
+    try:
+        b = df.to_csv(index=False).encode("utf-8")
+    except Exception:
+        return False
+    return gdrive_upload_bytes(filename, b, mime="text/csv")
+
+def gdrive_load_df(filename: str) -> pd.DataFrame | None:
+    b = gdrive_download_bytes(filename)
+    if not b:
+        return None
+    try:
+        return pd.read_csv(io.BytesIO(b))
+    except Exception:
+        return None
+
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
@@ -1615,7 +1719,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     out["Joueur"] = out["Joueur"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     out["Pos"] = out["Pos"].astype(str).apply(normalize_pos)
     out["Equipe"] = out["Equipe"].astype(str).str.strip()
-    # Salaire/Cap Hit: parse robuste (Fantrax peut contenir $ / virgules / M/K)
+    # Salaire/Cap Hit: parse robuste (PMS peut contenir $ / virgules / M/K)
     out["Salaire"] = out["Salaire"].apply(_cap_to_int).astype(int)
 
     # Level (STD / ELC) — peut être ajouté depuis hockey.players.csv
@@ -2164,7 +2268,7 @@ def save_init_manifest(manifest: dict) -> None:
 # =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
+    path = os.path.join(DATA_DIR, f"pms_{season_lbl}.csv")
     st.session_state["DATA_FILE"] = path
     try:
         df.to_csv(path, index=False)
@@ -3045,6 +3149,284 @@ def _player_flag(player_id: int, landing: dict | None = None, player_name: str |
 
     return ''
 
+
+# =====================================================
+# Country auto-fill (Web): Wikipedia + Wikidata
+#   - Used ONLY from Admin tools (manual apply step)
+#   - Cached locally to avoid repeated network calls
+# =====================================================
+
+def _country_cache_path() -> str:
+    return os.path.join(DATA_DIR, 'country_web_cache.json')
+
+
+def _load_country_cache() -> dict:
+    path = _country_cache_path()
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                j = json.load(f)
+                return j if isinstance(j, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_country_cache(cache: dict) -> None:
+    path = _country_cache_path()
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(cache or {}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+_WIKIDATA_COUNTRYNAME_TO2 = {
+    # Common hockey countries
+    'canada': 'CA',
+    'united states of america': 'US',
+    'united states': 'US',
+    'usa': 'US',
+    'sweden': 'SE',
+    'finland': 'FI',
+    'slovakia': 'SK',
+    'czech republic': 'CZ',
+    'czechia': 'CZ',
+    'russia': 'RU',
+    'germany': 'DE',
+    'switzerland': 'CH',
+    'latvia': 'LV',
+    'norway': 'NO',
+    'denmark': 'DK',
+    'austria': 'AT',
+    'belarus': 'BY',
+    'ukraine': 'UA',
+    'slovenia': 'SI',
+    'poland': 'PL',
+    'kazakhstan': 'KZ',
+    'france': 'FR',
+    'italy': 'IT',
+    'japan': 'JP',
+    'china': 'CN',
+    'south korea': 'KR',
+    'korea, south': 'KR',
+    'united kingdom': 'GB',
+    'england': 'GB',
+    'scotland': 'GB',
+    'wales': 'GB',
+}
+
+
+def _country_from_wikidata_label(label: str) -> str:
+    if not label:
+        return ''
+    low = str(label).strip().lower()
+    return _WIKIDATA_COUNTRYNAME_TO2.get(low, '')
+
+
+def _wikipedia_search_title(name: str) -> str:
+    """Return best matching Wikipedia title for a player name."""
+    try:
+        import requests
+        q = f"{name} ice hockey"
+        url = 'https://en.wikipedia.org/w/api.php'
+        params = {
+            'action': 'query',
+            'list': 'search',
+            'srsearch': q,
+            'srlimit': 1,
+            'format': 'json',
+        }
+        r = requests.get(url, params=params, timeout=10, headers={'User-Agent': 'PoolHockeyApp/1.0'})
+        if r.status_code != 200:
+            return ''
+        j = r.json() if r.content else {}
+        hits = ((j.get('query') or {}).get('search') or [])
+        if hits and isinstance(hits, list) and isinstance(hits[0], dict):
+            return str(hits[0].get('title') or '').strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _wikibase_item_from_title(title: str) -> str:
+    """Get Wikidata Q-id from a Wikipedia title."""
+    if not title:
+        return ''
+    try:
+        import requests
+        url = 'https://en.wikipedia.org/w/api.php'
+        params = {
+            'action': 'query',
+            'prop': 'pageprops',
+            'titles': title,
+            'format': 'json',
+        }
+        r = requests.get(url, params=params, timeout=10, headers={'User-Agent': 'PoolHockeyApp/1.0'})
+        if r.status_code != 200:
+            return ''
+        j = r.json() if r.content else {}
+        pages = ((j.get('query') or {}).get('pages') or {})
+        if isinstance(pages, dict):
+            for _, v in pages.items():
+                if isinstance(v, dict):
+                    pp = v.get('pageprops') or {}
+                    qid = str(pp.get('wikibase_item') or '').strip()
+                    if qid.startswith('Q'):
+                        return qid
+    except Exception:
+        pass
+    return ''
+
+
+def _country_from_wikidata_entity(qid: str) -> str:
+    """Fetch country from Wikidata entity (citizenship/place of birth -> country)."""
+    if not qid:
+        return ''
+    try:
+        import requests
+        url = 'https://www.wikidata.org/w/api.php'
+        params = {
+            'action': 'wbgetentities',
+            'ids': qid,
+            'props': 'claims',
+            'format': 'json',
+        }
+        r = requests.get(url, params=params, timeout=10, headers={'User-Agent': 'PoolHockeyApp/1.0'})
+        if r.status_code != 200:
+            return ''
+        j = r.json() if r.content else {}
+        ent = ((j.get('entities') or {}).get(qid) or {})
+        claims = ent.get('claims') or {}
+
+        # Try P27 (country of citizenship) first
+        def _extract_qids(prop: str) -> list:
+            out = []
+            arr = claims.get(prop) or []
+            if not isinstance(arr, list):
+                return out
+            for it in arr:
+                try:
+                    dv = (((it.get('mainsnak') or {}).get('datavalue') or {}).get('value') or {})
+                    q = str(dv.get('id') or '').strip()
+                    if q.startswith('Q'):
+                        out.append(q)
+                except Exception:
+                    continue
+            return out
+
+        country_qids = _extract_qids('P27')
+
+        # Fallback P19 place of birth -> P17 country
+        pob_qids = _extract_qids('P19') if not country_qids else []
+
+        def _labels_for(qids: list) -> list:
+            if not qids:
+                return []
+            try:
+                url2 = 'https://www.wikidata.org/w/api.php'
+                params2 = {
+                    'action': 'wbgetentities',
+                    'ids': '|'.join(qids[:5]),
+                    'props': 'labels',
+                    'languages': 'en',
+                    'format': 'json',
+                }
+                r2 = requests.get(url2, params=params2, timeout=10, headers={'User-Agent': 'PoolHockeyApp/1.0'})
+                if r2.status_code != 200:
+                    return []
+                j2 = r2.json() if r2.content else {}
+                ents = j2.get('entities') or {}
+                labs = []
+                if isinstance(ents, dict):
+                    for _, ev in ents.items():
+                        lab = (((ev or {}).get('labels') or {}).get('en') or {}).get('value')
+                        if lab:
+                            labs.append(str(lab))
+                return labs
+            except Exception:
+                return []
+
+        # Country of citizenship labels
+        for lab in _labels_for(country_qids):
+            iso2 = _country_from_wikidata_label(lab)
+            if iso2:
+                return iso2
+
+        # Place of birth -> country (P17)
+        if pob_qids:
+            # Get P17 from each place entity
+            for place_qid in pob_qids[:3]:
+                try:
+                    params_p = {
+                        'action': 'wbgetentities',
+                        'ids': place_qid,
+                        'props': 'claims',
+                        'format': 'json',
+                    }
+                    rp = requests.get(url, params=params_p, timeout=10, headers={'User-Agent': 'PoolHockeyApp/1.0'})
+                    if rp.status_code != 200:
+                        continue
+                    jp = rp.json() if rp.content else {}
+                    entp = ((jp.get('entities') or {}).get(place_qid) or {})
+                    claimsp = entp.get('claims') or {}
+                    arr = claimsp.get('P17') or []
+                    qids = []
+                    if isinstance(arr, list):
+                        for it in arr:
+                            dv = (((it.get('mainsnak') or {}).get('datavalue') or {}).get('value') or {})
+                            q = str(dv.get('id') or '').strip()
+                            if q.startswith('Q'):
+                                qids.append(q)
+                    for lab in _labels_for(qids):
+                        iso2 = _country_from_wikidata_label(lab)
+                        if iso2:
+                            return iso2
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return ''
+
+
+def suggest_country_web(player_name: str) -> tuple[str, str, float]:
+    """Suggest ISO2 country via Wikipedia + Wikidata.
+
+    Returns: (country_iso2, source, confidence)
+    """
+    name = str(player_name or '').strip()
+    if not name:
+        return ('', '', 0.0)
+
+    key = _norm_name(name)
+    cache = _load_country_cache()
+    if key in cache:
+        v = cache.get(key) or {}
+        iso2 = str(v.get('iso2') or '').strip()
+        src = str(v.get('src') or '').strip()
+        conf = float(v.get('conf') or 0.0)
+        return (iso2, src, conf)
+
+    title = _wikipedia_search_title(name)
+    if not title:
+        return ('', '', 0.0)
+    qid = _wikibase_item_from_title(title)
+    if not qid:
+        return ('', '', 0.0)
+
+    iso2 = _country_from_wikidata_entity(qid)
+    if not iso2:
+        return ('', '', 0.0)
+
+    # Confidence heuristic: exact name match in title -> higher
+    conf = 0.85
+    if _norm_name(title) == key:
+        conf = 0.95
+
+    cache[key] = {'iso2': iso2, 'src': 'Wikipedia+Wikidata', 'conf': conf}
+    _save_country_cache(cache)
+    return (iso2, 'Wikipedia+Wikidata', conf)
+
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """
@@ -3073,7 +3455,7 @@ def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
     return dfp
 
 def parse_fantrax(upload) -> pd.DataFrame:
-    """Parse un export Fantrax (format variable).
+    """Parse un export PMS (format variable).
     ✅ supporte colonnes: Player/Name/Joueur + Salary/Cap Hit/AAV/Salaire
     ✅ supporte séparateurs: , ; \t |
     """
@@ -3124,7 +3506,7 @@ def parse_fantrax(upload) -> pd.DataFrame:
                 break
 
     if not header_idxs:
-        raise ValueError("Colonnes Fantrax non détectées (Player/Salary ou équivalent).")
+        raise ValueError("Colonnes PMS non détectées (Player/Salary ou équivalent).")
 
     def read_section(start, end):
         lines = [l for l in raw_lines[start:end] if l.strip() != ""]
@@ -3142,7 +3524,7 @@ def parse_fantrax(upload) -> pd.DataFrame:
             parts.append(dfp)
 
     if not parts:
-        raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
+        raise ValueError("Sections PMS détectées mais aucune donnée exploitable.")
 
     df = pd.concat(parts, ignore_index=True)
 
@@ -3172,7 +3554,7 @@ def parse_fantrax(upload) -> pd.DataFrame:
     out["Pos"] = out["Pos"].apply(normalize_pos)
 
     # Salaire / Cap Hit / AAV
-    # Fantrax peut contenir $ / virgules / M/K / nombres en milliers
+    # PMS peut contenir $ / virgules / M/K / nombres en milliers
     sal_raw = df[salary_col].astype(str)
     sal_num = sal_raw.apply(_cap_to_int)
     # Heuristique: si c'est en "k" (ex: 9500 => 9 500 000), on upscale
@@ -3867,7 +4249,8 @@ if not season:
     st.session_state["season"] = season
 
 # --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+DATA_FILE = os.path.join(DATA_DIR, f"pms_{season}.csv")
+OLD_DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
@@ -3890,7 +4273,20 @@ st.session_state["players_db"] = players_db
 # 1) LOAD DATA (CSV → session_state) puis enrich Level
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
-    if os.path.exists(DATA_FILE):
+    df_loaded = None
+
+    # 1) Google Drive (priorité)
+    if _gdrive_enabled():
+        try:
+            df_loaded = gdrive_load_df(os.path.basename(DATA_FILE))
+            if df_loaded is None and os.path.exists(OLD_DATA_FILE):
+                # migration locale ancienne
+                df_loaded = pd.read_csv(OLD_DATA_FILE)
+        except Exception:
+            df_loaded = None
+
+    # 2) Fallback local
+    if df_loaded is None and os.path.exists(DATA_FILE):
         try:
             df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
@@ -3899,6 +4295,12 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
         df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
         try:
             df_loaded.to_csv(DATA_FILE, index=False)
+            # Drive persist (anti-reboot)
+            if _gdrive_enabled():
+                try:
+                    gdrive_save_df(df_loaded, os.path.basename(DATA_FILE))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -4570,6 +4972,11 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                 data_file = str(st.session_state.get("DATA_FILE", "") or "").strip()
                 if data_file:
                     df_new.to_csv(data_file, index=False)
+                    if _gdrive_enabled():
+                        try:
+                            gdrive_save_df(df_new, os.path.basename(data_file))
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -4913,7 +5320,7 @@ def _players_name_to_pid_map() -> dict:
 
     dff = dff.head(300).reset_index(drop=True)
 
-    # --- Présentation Fantrax
+    # --- Présentation PMS
     show_cols = ["Player", "Position", "Team"]
     show_cols = [c for c in show_cols if c in dff.columns]
     df_show = dff[show_cols].copy()
@@ -5953,7 +6360,7 @@ elif active_tab == "🛠️ Gestion Admin":
             df_roster = st.session_state.get("data", pd.DataFrame())
             df_roster = clean_data(df_roster) if isinstance(df_roster, pd.DataFrame) else pd.DataFrame()
             if df_roster.empty or "Joueur" not in df_roster.columns:
-                st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import Fantrax.")
+                st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import PMS.")
             else:
                 # filtre saison + owner? => on prend tout le roster de la saison en cours
                 # (si tu veux limiter à l'équipe sélectionnée, on pourra l'ajouter)
@@ -6001,6 +6408,82 @@ elif active_tab == "🛠️ Gestion Admin":
                     else:
                         st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Tu peux le remplir ici (inline) ou dans hockey.players.csv.")
 
+                        # --- Auto-fill (Mode C): NHL APIs + Draft Prospects + Wikipedia+Wikidata
+                        #     Remplit des SUGGESTIONS (ne sauvegarde rien sans clic 'Appliquer Country')
+                        sug_key = f"country_suggestions__{season_pick}"
+                        if sug_key not in st.session_state:
+                            st.session_state[sug_key] = {}
+
+                        def _best_country_suggest(name: str, pid_raw: str) -> tuple[str, str, float]:
+                            nm = str(name or '').strip()
+                            if not nm:
+                                return ('', '', 0.0)
+                            # 1) statsapi people if pid
+                            try:
+                                pid = int(float(pid_raw)) if str(pid_raw).strip() else 0
+                            except Exception:
+                                pid = 0
+                            if pid > 0:
+                                try:
+                                    j = _statsapi_people_cached(pid)
+                                    ppl = (j.get('people') or []) if isinstance(j, dict) else []
+                                    if ppl and isinstance(ppl, list) and isinstance(ppl[0], dict):
+                                        p0 = ppl[0]
+                                        raw = str(p0.get('nationality') or p0.get('birthCountry') or '').strip()
+                                        if raw and raw.lower() not in {'nan','none','null','0','0.0','-'}:
+                                            if len(raw) == 2 and raw.isalpha():
+                                                return (raw.upper(), 'NHL statsapi people', 0.95)
+                                            if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
+                                                return (_COUNTRY3_TO2[raw.upper()], 'NHL statsapi people', 0.95)
+                                            if raw.lower() in _COUNTRYNAME_TO2:
+                                                return (_COUNTRYNAME_TO2[raw.lower()], 'NHL statsapi people', 0.90)
+                                except Exception:
+                                    pass
+
+                            # 2) Draft prospects list
+                            try:
+                                mp = _draft_prospects_map_cached()
+                                raw = mp.get(_norm_name(nm), '') if isinstance(mp, dict) else ''
+                                if raw:
+                                    if len(raw) == 2 and raw.isalpha():
+                                        return (raw.upper(), 'NHL prospects', 0.90)
+                                    if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
+                                        return (_COUNTRY3_TO2[raw.upper()], 'NHL prospects', 0.90)
+                                    if raw.lower() in _COUNTRYNAME_TO2:
+                                        return (_COUNTRYNAME_TO2[raw.lower()], 'NHL prospects', 0.85)
+                            except Exception:
+                                pass
+
+                            # 3) Wikipedia + Wikidata
+                            try:
+                                iso2, src, conf = suggest_country_web(nm)
+                                if iso2:
+                                    return (iso2, src, conf)
+                            except Exception:
+                                pass
+
+                            return ('', '', 0.0)
+
+                        c_auto, c_hint = st.columns([1, 2])
+                        with c_auto:
+                            if st.button("🌍 Suggestion auto (Web + API)", use_container_width=True, key=f"admin_autofill_country__{season_pick}"):
+                                sug = st.session_state.get(sug_key, {}) or {}
+                                for r in missing_show.to_dict(orient='records'):
+                                    nm = str(r.get('Joueur', '') or '').strip()
+                                    if not nm:
+                                        continue
+                                    k = _norm_name(nm)
+                                    if k in sug and str(sug.get(k, {}).get('iso2') or '').strip():
+                                        continue
+                                    iso2, src, conf = _best_country_suggest(nm, str(r.get('playerId', '') or '').strip())
+                                    if iso2:
+                                        sug[k] = {'iso2': iso2, 'src': src, 'conf': conf}
+                                st.session_state[sug_key] = sug
+                                st.success("✅ Suggestions générées. Vérifie/ajuste puis clique 'Appliquer Country'.")
+
+                        with c_hint:
+                            st.caption("Les suggestions utilisent: NHL APIs (people/prospects) + Wikipedia/Wikidata. Rien n'est écrit dans hockey.players.csv tant que tu ne cliques pas **Appliquer Country**.")
+
                         # --- Suggestions (soft) : pré-remplir CA pour quelques prospects connus
                         # (tu peux ajouter des noms ici au besoin)
                         known_ca = {
@@ -6016,9 +6499,19 @@ elif active_tab == "🛠️ Gestion Admin":
                         editor = missing_show[edit_cols].copy()
                         editor["Country"] = ""
 
-                        # auto-suggest (CA) for known prospects
+                        # auto-suggest (from cache + web/API) + known CA fallback
                         editor["_k"] = editor.get("Joueur", "").astype(str).apply(_norm_name)
-                        editor.loc[editor["_k"].isin(known_ca), "Country"] = "CA"
+                        sug = st.session_state.get(sug_key, {}) or {}
+                        # suggestions from session
+                        for i, k in enumerate(editor["_k"].tolist()):
+                            try:
+                                iso2 = str((sug.get(k) or {}).get('iso2') or '').strip()
+                                if iso2:
+                                    editor.at[i, 'Country'] = iso2
+                            except Exception:
+                                pass
+                        # known CA fallback
+                        editor.loc[editor["_k"].isin(known_ca) & editor["Country"].astype(str).str.strip().eq(""), "Country"] = "CA"
 
                         # show editor
                         st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
@@ -6126,12 +6619,14 @@ elif active_tab == "🛠️ Gestion Admin":
 
 
     # -----------------------------
-    # 📥 Importation CSV Fantrax (Admin)
+    # 📥 Importation CSV PMS (Admin)
     #   (sorti de l'expander Ajout de joueurs)
     # -----------------------------
     manifest = load_init_manifest() or {}
-    if "fantrax_by_team" not in manifest:
-        manifest["fantrax_by_team"] = {}
+    if "pms_by_team" not in manifest and "fantrax_by_team" in manifest:
+        manifest["pms_by_team"] = manifest.get("fantrax_by_team", {})
+    if "pms_by_team" not in manifest:
+        manifest["pms_by_team"] = {}
 
     teams = sorted(list(LOGOS.keys())) or ["Whalers"]
     default_owner = get_selected_team().strip() or teams[0]
@@ -6156,7 +6651,7 @@ elif active_tab == "🛠️ Gestion Admin":
     c_init1, c_init2 = st.columns(2)
     with c_init1:
         init_align = st.file_uploader(
-            "CSV — Alignement (Fantrax)",
+            "CSV — Alignement (PMS)",
             type=["csv", "txt"],
             key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
         )
@@ -6229,7 +6724,7 @@ elif active_tab == "🛠️ Gestion Admin":
             st.session_state["align_owner"] = owner_final
             clear_move_ctx()
 
-            manifest["fantrax_by_team"][owner_final] = {
+            manifest["pms_by_team"][owner_final] = {
                 "uploaded_name": filename_final,
                 "season": season_pick,
                 "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
@@ -6264,7 +6759,7 @@ elif active_tab == "🛠️ Gestion Admin":
     st.divider()
     st.markdown("### 📌 Derniers imports par équipe")
 
-    by_team = manifest.get("fantrax_by_team", {}) or {}
+    by_team = manifest.get("pms_by_team", manifest.get("fantrax_by_team", {})) or {}
     if not by_team:
         st.caption("— Aucun import enregistré —")
     else:
