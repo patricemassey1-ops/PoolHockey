@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
+import uuid
 import streamlit.components.v1 as components
 
 
@@ -1593,7 +1594,7 @@ def _tx_now_iso():
 
 def tx_create_pending(season_lbl: str, row: dict) -> str:
     """Create a pending trade row and persist. Returns trade_id."""
-    trade_id = str(row.get("trade_id") or "").strip() or uuid.uuid4().hex[:10]
+    trade_id = str(row.get("trade_id") or "").strip() or f"TR-{uuid.uuid4().hex[:8].upper()}"
     row = dict(row)
     row["trade_id"] = trade_id
     row.setdefault("season", season_lbl)
