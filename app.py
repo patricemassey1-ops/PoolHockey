@@ -7020,38 +7020,6 @@ elif active_tab == "🧠 Recommandations":
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
-# =====================================================
-# 🧪 Google Drive — test d'écriture (diagnostic)
-#   Crée/écrase drive_test_pms.txt dans le dossier Drive.
-# =====================================================
-st.markdown("### 🧪 Google Drive")
-st.caption("Teste l'écriture dans le dossier Drive configuré (service account).")
-
-if st.button("🧪 Test Google Drive write", use_container_width=True, key="drive_test_write_btn"):
-    try:
-        from datetime import datetime
-
-        content = (
-            "PMS Drive test OK\n"
-            f"UTC: {datetime.utcnow().isoformat()}Z\n"
-        ).encode("utf-8")
-
-        ok = gdrive_upload_bytes(
-            "drive_test_pms.txt",
-            content,
-            mime="text/plain"
-        )
-
-        if ok:
-            st.success("✅ OK — drive_test_pms.txt a été créé dans ton dossier Google Drive.")
-        else:
-            st.error("❌ Échec — écriture Drive non effectuée (permissions / folder_id ?).")
-
-    except Exception as e:
-        st.error("❌ Erreur pendant le test Drive")
-        st.code(str(e))
-
-
 
 # =====================================================
 # v33 — Level autoritaire depuis Hockey.Players.csv
@@ -7208,3 +7176,34 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.Dat
     out.loc[apply_mask, "Level_found"] = True
     out.loc[apply_mask, "Level_src"] = "Hockey.Players.csv"
     return out
+
+    # =====================================================
+# 🧪 Google Drive — test d'écriture (diagnostic)
+#   Crée/écrase drive_test_pms.txt dans le dossier Drive.
+# =====================================================
+st.markdown("### 🧪 Google Drive")
+st.caption("Teste l'écriture dans le dossier Drive configuré (service account).")
+
+if st.button("🧪 Test Google Drive write", use_container_width=True, key="drive_test_write_btn"):
+    try:
+        from datetime import datetime
+
+        content = (
+            "PMS Drive test OK\n"
+            f"UTC: {datetime.utcnow().isoformat()}Z\n"
+        ).encode("utf-8")
+
+        ok = gdrive_upload_bytes(
+            "drive_test_pms.txt",
+            content,
+            mime="text/plain"
+        )
+
+        if ok:
+            st.success("✅ OK — drive_test_pms.txt a été créé dans ton dossier Google Drive.")
+        else:
+            st.error("❌ Échec — écriture Drive non effectuée (permissions / folder_id ?).")
+
+    except Exception as e:
+        st.error("❌ Erreur pendant le test Drive")
+        st.code(str(e))
