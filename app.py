@@ -2805,19 +2805,44 @@ _COUNTRYNAME_TO2 = {
 }
 
 def _country_flag_from_landing(landing: dict) -> str:
+    """Return a flag emoji from NHL landing payload.
+    Tries nationality/birth country fields; supports ISO2, ISO3, and country names.
+    """
     if not isinstance(landing, dict):
-        return ''
-    raw = (
-        landing.get('nationality')
-        or landing.get('birthCountryCode')
-        or landing.get('birthCountry')
-        or ''
+        return ""
+
+    def _pick(*vals) -> str:
+        for v in vals:
+            if v is None:
+                continue
+            # sometimes values are dicts like {"default": "Canada"}
+            if isinstance(v, dict):
+                v = v.get("default") or v.get("en") or v.get("fr")
+            if isinstance(v, (list, tuple)) and v:
+                v = v[0]
+            s = str(v).strip() if v is not None else ""
+            if s and s.lower() not in {"nan", "none", "null", "0", "0.0", "-"}:
+                return s
+        return ""
+
+    raw = _pick(
+        landing.get("nationality"),
+        landing.get("nationalityCode"),
+        landing.get("birthCountryCode"),
+        landing.get("birthCountry"),
     )
-    raw = str(raw).strip()
     if not raw:
-        return ''
+        return ""
+
+    raw = raw.strip()
+    # ISO2
     if len(raw) == 2 and raw.isalpha():
         return _iso2_to_flag(raw)
+    # ISO3
+    if len(raw) == 3 and raw.isalpha():
+        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ""))
+    # Country name
+    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ""))
 
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
@@ -4572,22 +4597,44 @@ _COUNTRYNAME_TO2 = {
 }
 
 def _country_flag_from_landing(landing: dict) -> str:
+    """Return a flag emoji from NHL landing payload.
+    Tries nationality/birth country fields; supports ISO2, ISO3, and country names.
+    """
     if not isinstance(landing, dict):
-        return ''
-    raw = (
-        landing.get('nationality')
-        or landing.get('birthCountryCode')
-        or landing.get('birthCountry')
-        or ''
+        return ""
+
+    def _pick(*vals) -> str:
+        for v in vals:
+            if v is None:
+                continue
+            # sometimes values are dicts like {"default": "Canada"}
+            if isinstance(v, dict):
+                v = v.get("default") or v.get("en") or v.get("fr")
+            if isinstance(v, (list, tuple)) and v:
+                v = v[0]
+            s = str(v).strip() if v is not None else ""
+            if s and s.lower() not in {"nan", "none", "null", "0", "0.0", "-"}:
+                return s
+        return ""
+
+    raw = _pick(
+        landing.get("nationality"),
+        landing.get("nationalityCode"),
+        landing.get("birthCountryCode"),
+        landing.get("birthCountry"),
     )
-    raw = str(raw).strip()
     if not raw:
-        return ''
+        return ""
+
+    raw = raw.strip()
+    # ISO2
     if len(raw) == 2 and raw.isalpha():
         return _iso2_to_flag(raw)
+    # ISO3
     if len(raw) == 3 and raw.isalpha():
-        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ''))
-    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ''))
+        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ""))
+    # Country name
+    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ""))
 
 def _players_name_to_pid_map() -> dict:
     """Build {normalized_name: playerId} from st.session_state['players_db']."""
