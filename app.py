@@ -6486,31 +6486,30 @@ elif active_tab == "🛠️ Gestion Admin":
     # =====================================================
     # 🔎 GOOGLE DRIVE — TEST ÉCRITURE (ADMIN)
     # =====================================================
-    with st.expander("🔎 Google Drive — Test écriture", expanded=False):
-        svc, dbg = get_drive_service_debug()
+    with st.expander("🔎 Google Drive — Connexion & Test", expanded=False):
+    # 1) UI de connexion OAuth
+    oauth_connect_ui()
 
-        st.write("**Service account email**")
-        st.code(dbg.get("service_account_email") or "(inconnu)")
+    st.write("**Folder ID**")
+    st.code(_folder_id() or "(vide)")
 
-        st.write("**Folder ID**")
-        st.code(dbg.get("folder_id") or "(vide)")
+    # 2) Service Drive basé sur le token OAuth (user)
+    svc = get_drive_service_oauth()
 
-    with st.expander("Debug complet"):
-        st.json(dbg)
+    if svc is None:
+        st.info("Connecte-toi d'abord via le bouton Google Drive.")
+    else:
+        if st.button("✅ Test Drive write", key="admin_drive_test_oauth"):
+            try:
+                res = drive_test_write(svc, _folder_id())
+                st.success("✅ Écriture Drive réussie (Mon Drive)")
+                if res.get("webViewLink"):
+                    st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
+                st.json(res)
+            except Exception as e:
+                st.error("❌ Échec écriture Drive")
+                st.exception(e)
 
-        if not dbg.get("enabled"):
-            st.error(dbg.get("error", "Drive non activé"))
-        else:
-            if st.button("✅ Test Drive write", key="admin_drive_test"):
-                try:
-                    res = drive_test_write(svc, dbg["folder_id"])
-                    st.success("✅ Écriture Drive réussie")
-                    if res.get("webViewLink"):
-                        st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
-                    st.json(res)
-                except Exception as e:
-                    st.error("❌ Échec écriture Drive")
-                    st.exception(e)
 
 
     # -----------------------------
