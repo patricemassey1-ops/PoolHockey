@@ -341,10 +341,10 @@ def upsert_single_player_from_api(player_id: int) -> bool:
         df = pd.DataFrame()
 
     if df is None or df.empty:
-        df = pd.DataFrame(columns=["playerId","Player","Pos","Equipe","Shoots","Level","Cap Hit"])
+        df = pd.DataFrame(columns=["playerId","Player","Pos","Equipe","Shoots","Country","Level","Cap Hit"])
 
     # Ensure columns
-    for col in ["playerId","Player","Pos","Equipe","Shoots","Level","Cap Hit"]:
+    for col in ["playerId","Player","Pos","Equipe","Shoots","Country","Level","Cap Hit"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -357,7 +357,8 @@ def upsert_single_player_from_api(player_id: int) -> bool:
     mask = df_pid.eq(pid)
     if mask.any():
         i = int(df.index[mask][0])
-        # Preserve Level/Cap Hit
+        # Preserve Country/Level/Cap Hit
+        ctry = df.at[i, "Country"] if "Country" in df.columns else ""
         lvl = df.at[i, "Level"] if "Level" in df.columns else ""
         cap = df.at[i, "Cap Hit"] if "Cap Hit" in df.columns else ""
         df.at[i, "playerId"] = pid
@@ -365,6 +366,7 @@ def upsert_single_player_from_api(player_id: int) -> bool:
         df.at[i, "Pos"] = ident.get("Pos","")
         df.at[i, "Equipe"] = ident.get("Equipe","")
         df.at[i, "Shoots"] = ident.get("Shoots","")
+        df.at[i, "Country"] = ctry
         df.at[i, "Level"] = lvl
         df.at[i, "Cap Hit"] = cap
     else:
@@ -375,6 +377,7 @@ def upsert_single_player_from_api(player_id: int) -> bool:
             "Pos": ident.get("Pos",""),
             "Equipe": ident.get("Equipe",""),
             "Shoots": ident.get("Shoots",""),
+            "Country": "",
             "Level": "",
             "Cap Hit": "",
         }])], ignore_index=True)
@@ -2880,7 +2883,115 @@ def _statsapi_people_cached(player_id: int) -> dict:
         return {}
 
 
-def _player_flag(player_id: int, landing: dict | None = None) -> str:
+# --- Fallback: draft prospects nationality (for players not present in NHL stats tables yet)
+# Note: this endpoint returns a large payload; we cache it and only touch it when needed.
+@st.cache_data(show_spinner=False, ttl=7*24*3600)
+def _draft_prospects_map_cached() -> dict:
+    # Map normalized prospect fullName -> ISO3 nationality/birthCountry
+    try:
+        url = "https://statsapi.web.nhl.com/api/v1/draft/prospects"
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200:
+            return {}
+        j = r.json() if hasattr(r, 'json') else {}
+        if not isinstance(j, dict):
+            return {}
+        prospects = j.get('prospects') or []
+        if not isinstance(prospects, list):
+            return {}
+        out = {}
+        for p in prospects:
+            if not isinstance(p, dict):
+                continue
+            name = str(p.get('fullName') or '').strip()
+            if not name:
+                continue
+            raw = str(p.get('nationality') or p.get('birthCountry') or '').strip()
+            if not raw:
+                continue
+            key = _norm_name(name)
+            if key:
+                out[key] = raw
+        return out
+    except Exception:
+        return {}
+
+
+def _flag_from_any_country_code(raw: str) -> str:
+    raw = str(raw or '').strip()
+    if not raw or raw.lower() in {'nan','none','null','0','0.0','-'}:
+        return ''
+    if len(raw) == 2 and raw.isalpha():
+        return _iso2_to_flag(raw)
+    if len(raw) == 3 and raw.isalpha():
+        return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ''))
+    return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ''))
+
+
+
+
+def _country_override_flag_from_players_db(player_id: int, player_name: str | None = None) -> str:
+    """Return a flag emoji from manual Country column in hockey.players.csv, if available.
+
+    Accepts ISO2 (CA), ISO3 (CAN), or country name (Canada).
+    """
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+
+    path = _first_existing(PLAYERS_DB_FALLBACKS) if 'PLAYERS_DB_FALLBACKS' in globals() else ''
+    if not path:
+        path = os.path.join(DATA_DIR, 'hockey.players.csv')
+    if not path or not os.path.exists(path):
+        return ''
+
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        mtime = 0.0
+
+    db = load_players_db(path, mtime) if 'load_players_db' in globals() else pd.DataFrame()
+    if db is None or db.empty or 'Country' not in db.columns:
+        return ''
+
+    def _clean(v: object) -> str:
+        s = str(v or '').strip()
+        if not s or s.lower() in {'nan','none','null','0','0.0','-'}:
+            return ''
+        return s
+
+    # Match by playerId first
+    if pid > 0 and 'playerId' in db.columns:
+        try:
+            pid_series = pd.to_numeric(db['playerId'], errors='coerce').fillna(0).astype(int)
+            m = pid_series.eq(pid)
+            if bool(m.any()):
+                raw = _clean(db.loc[m, 'Country'].iloc[0])
+                f = _flag_from_any_country_code(raw)
+                if f:
+                    return f
+        except Exception:
+            pass
+
+    # Fallback by name
+    if player_name and 'Player' in db.columns:
+        try:
+            key = _norm_name(player_name)
+            # also try 'Last, First' swap if present
+            key2 = _norm_name(player_name.split(' ', 1)[-1] + ', ' + player_name.split(' ', 1)[0]) if ' ' in player_name else ''
+            for nm, raw in zip(db['Player'].astype(str).fillna('').tolist(), db['Country'].tolist()):
+                k = _norm_name(nm)
+                if k and (k == key or (key2 and k == key2)):
+                    raw = _clean(raw)
+                    f = _flag_from_any_country_code(raw)
+                    if f:
+                        return f
+        except Exception:
+            pass
+
+    return ''
+def _player_flag(player_id: int, landing: dict | None = None, player_name: str | None = None) -> str:
     """Return flag emoji for a player.
 
     Priority:
@@ -2891,6 +3002,10 @@ def _player_flag(player_id: int, landing: dict | None = None) -> str:
         pid = int(player_id or 0)
     except Exception:
         pid = 0
+    # 0) manual Country override (players DB)
+    f0 = _country_override_flag_from_players_db(pid, player_name)
+    if f0:
+        return f0
 
     # 1) landing
     if isinstance(landing, dict):
@@ -2915,6 +3030,18 @@ def _player_flag(player_id: int, landing: dict | None = None) -> str:
                 if len(raw) == 3 and raw.isalpha():
                     return _iso2_to_flag(_COUNTRY3_TO2.get(raw.upper(), ''))
                 return _iso2_to_flag(_COUNTRYNAME_TO2.get(raw.lower(), ''))
+
+    # 3) draft prospects fallback (no NHL playerId yet)
+    if player_name:
+        try:
+            mp = _draft_prospects_map_cached()
+            raw = mp.get(_norm_name(player_name), '') if isinstance(mp, dict) else ''
+            f = _flag_from_any_country_code(raw)
+            if f:
+                return f
+        except Exception:
+            pass
+
 
     return ''
 
@@ -3405,7 +3532,7 @@ def open_move_dialog():
                     weight = landing.get("weightInPounds") or landing.get("weight")
                     bdate  = str(landing.get("birthDate") or "").strip()
 
-                    flag = _player_flag(cur_pid, landing)
+                    flag = _player_flag(cur_pid, landing, joueur)
                     title = f"{flag} {full or joueur}".strip() if flag else (full or joueur)
                     st.markdown(f"**{html.escape(title)}**")
                     if st.button("👤 Profil complet", key=f"btn_profile__{cur_pid}__{nonce}"):
@@ -4092,7 +4219,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         if pid > 0:
             try:
                 landing = nhl_player_landing_cached(pid)
-                flag = _player_flag(pid, landing) if landing else ''
+                flag = _player_flag(pid, landing, player_name) if landing else _player_flag(pid, None, player_name)
             except Exception:
                 flag = ''
         display_name = f"{flag} {joueur}".strip() if flag else joueur
@@ -4137,7 +4264,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _player_flag(pid, landing)
+    flag = _player_flag(pid, landing, player_name)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
@@ -5808,6 +5935,76 @@ elif active_tab == "🛠️ Gestion Admin":
         })
 
         st.caption('Note: ces APIs NHL fournissent surtout identité/roster/stats. Les champs "Cap Hit" et "Level (ELC/STD)" restent sous ton contrôle dans hockey.players.csv.')
+
+    st.divider()
+
+    # -----------------------------
+    # 🧩 Outil — Joueurs sans drapeau (Country manquant)
+    #   Liste les joueurs présents dans ton roster actif dont le flag
+    #   ne peut pas être affiché sans une valeur Country.
+    #   ⚠️ Aucun appel API ici (simple diagnostic rapide).
+    # -----------------------------
+    st.markdown("### 🧩 Joueurs sans drapeau (Country manquant)")
+    st.caption("Affiche les joueurs du roster actif (saison sélectionnée) dont la colonne **Country** est vide dans hockey.players.csv. Remplis **Country** avec CA/US/SE/FI... pour forcer le drapeau.")
+
+    if st.button("🔎 Trouver les joueurs sans drapeau", use_container_width=True, key="admin_find_missing_flags"):
+        try:
+            # 1) roster actuel
+            df_roster = st.session_state.get("data", pd.DataFrame())
+            df_roster = clean_data(df_roster) if isinstance(df_roster, pd.DataFrame) else pd.DataFrame()
+            if df_roster.empty or "Joueur" not in df_roster.columns:
+                st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import Fantrax.")
+            else:
+                # filtre saison + owner? => on prend tout le roster de la saison en cours
+                # (si tu veux limiter à l'équipe sélectionnée, on pourra l'ajouter)
+                roster_players = (
+                    df_roster[[c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot"] if c in df_roster.columns]]
+                    .dropna(subset=["Joueur"])
+                    .copy()
+                )
+                roster_players["Joueur"] = roster_players["Joueur"].astype(str).str.strip()
+                roster_players = roster_players[roster_players["Joueur"].astype(str).str.len() > 0]
+                uniq = roster_players.drop_duplicates(subset=["Joueur"]).copy()
+
+                # 2) players DB
+                pdb = st.session_state.get("players_db")
+                if not isinstance(pdb, pd.DataFrame) or pdb.empty:
+                    # load directly
+                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                    if not pdb_path:
+                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+                    mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
+                    pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
+
+                if pdb.empty or "Player" not in pdb.columns:
+                    st.warning("Players DB introuvable ou invalide. Lance d'abord Admin → Mettre à jour Players DB.")
+                else:
+                    # index par nom normalisé
+                    pdb2 = pdb.copy()
+                    if "Country" not in pdb2.columns:
+                        pdb2["Country"] = ""
+                    pdb2["_k"] = pdb2["Player"].astype(str).apply(_norm_name)
+                    name_to_country = dict(zip(pdb2["_k"], pdb2["Country"].astype(str)))
+                    name_to_pid = dict(zip(pdb2["_k"], pdb2.get("playerId", pd.Series(dtype=object)).astype(str)))
+
+                    uniq["_k"] = uniq["Joueur"].astype(str).apply(_norm_name)
+                    uniq["Country"] = uniq["_k"].map(name_to_country).fillna("")
+                    uniq["playerId"] = uniq["_k"].map(name_to_pid).fillna("")
+                    missing = uniq[uniq["Country"].astype(str).str.strip().eq("")].copy()
+
+                    cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing.columns]
+                    missing_show = missing[cols].copy()
+                    missing_show = missing_show.sort_values(by=["Joueur"]) if "Joueur" in missing_show.columns else missing_show
+
+                    if missing_show.empty:
+                        st.success("✅ Aucun joueur du roster actif n'a Country manquant (drapeaux OK).")
+                    else:
+                        st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Remplis la colonne Country dans hockey.players.csv (ex: CA, US, SE, FI).")
+                        st.dataframe(missing_show, use_container_width=True, hide_index=True)
+
+                        st.caption("Astuce: dans hockey.players.csv, ajoute/édite la colonne **Country** pour ces joueurs. Valeurs acceptées: CA/US/SE/FI… (ISO2), ou CAN/USA/SWE… (ISO3), ou nom du pays.")
+        except Exception as e:
+            st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
 
     st.divider()
 
