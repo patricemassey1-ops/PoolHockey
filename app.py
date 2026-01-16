@@ -31,105 +31,6 @@ def _app_cfg() -> dict:
 
 PRODUCTION_MODE = bool(_app_cfg().get("production", False))
 
-# =====================================================
-# GOOGLE DRIVE — DEBUG + TEST WRITE (SAFE)
-# =====================================================
-import io
-import json
-import datetime as dt
-
-@st.cache_resource(show_spinner=False)
-def get_drive_service_debug():
-    debug = {
-        "enabled": True,
-        "ts": dt.datetime.now().isoformat(timespec="seconds"),
-    }
-
-    try:
-        from google.oauth2.service_account import Credentials
-        from googleapiclient.discovery import build
-    except Exception as e:
-        debug["enabled"] = False
-        debug["error"] = f"Deps manquantes: {e}"
-        return None, debug
-
-    # -------- folder_id
-    folder_id = ""
-    if "gdrive" in st.secrets and "folder_id" in st.secrets["gdrive"]:
-        folder_id = str(st.secrets["gdrive"]["folder_id"] or "").strip()
-    debug["folder_id"] = folder_id
-
-    # -------- service account
-    sa_info = None
-    if "gcp_service_account" in st.secrets:
-        sa_info = dict(st.secrets["gcp_service_account"])
-    elif "gdrive" in st.secrets and "service_account_json" in st.secrets["gdrive"]:
-        try:
-            sa_info = json.loads(st.secrets["gdrive"]["service_account_json"])
-        except Exception:
-            sa_info = None
-
-    if not sa_info:
-        debug["enabled"] = False
-        debug["error"] = "Service account absent dans Secrets"
-        return None, debug
-
-    debug["service_account_email"] = sa_info.get("client_email")
-
-    try:
-        creds = Credentials.from_service_account_info(
-            sa_info,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        debug["creds_type"] = type(creds).__name__
-
-        # about (best-effort)
-        try:
-            about = service.about().get(
-                fields="user(emailAddress,displayName,me)"
-            ).execute()
-            debug["about"] = about
-        except Exception as e:
-            debug["about_error"] = str(e)
-
-        return service, debug
-
-    except Exception as e:
-        debug["enabled"] = False
-        debug["error"] = str(e)
-        return None, debug
-
-
-def drive_test_write(service, folder_id: str):
-    from googleapiclient.http import MediaIoBaseUpload
-
-    payload = {
-        "test": "pms-drive-write",
-        "timestamp": dt.datetime.now().isoformat(),
-    }
-
-    content = json.dumps(payload, indent=2)
-    fh = io.BytesIO(content.encode("utf-8"))
-
-    media = MediaIoBaseUpload(
-        fh,
-        mimetype="text/plain",
-        resumable=False,
-    )
-
-    meta = {
-        "name": f"pms_drive_test_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        "parents": [folder_id],
-    }
-
-    return service.files().create(
-        body=meta,
-        media_body=media,
-        fields="id,name,webViewLink,createdTime",
-        supportsAllDrives=True,
-    ).execute()
 
 
 # =====================================================
@@ -174,7 +75,6 @@ def _gdrive_service():
     try:
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
-        
     except Exception:
         return None
 
@@ -248,7 +148,7 @@ def ensure_local_from_drive(filename: str, local_path: str) -> bool:
         return True
     except Exception:
         return False
-        
+
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
@@ -6483,35 +6383,6 @@ elif active_tab == "🛠️ Gestion Admin":
         st.caption('Note: ces APIs NHL fournissent surtout identité/roster/stats. Les champs "Cap Hit" et "Level (ELC/STD)" restent sous ton contrôle dans hockey.players.csv.')
 
     st.divider()
-    # =====================================================
-    # 🔎 GOOGLE DRIVE — TEST ÉCRITURE (ADMIN)
-    # =====================================================
-   with st.expander("🔎 Google Drive — Test écriture", expanded=False):
-       svc, dbg = get_drive_service_debug()
-
-    st.write("**Service account email**")
-    st.code(dbg.get("service_account_email") or "(inconnu)")
-
-    st.write("**Folder ID**")
-    st.code(dbg.get("folder_id") or "(vide)")
-
-    with st.expander("Debug complet"):
-        st.json(dbg)
-
-    if not dbg.get("enabled"):
-        st.error(dbg.get("error", "Drive non activé"))
-    else:
-        if st.button("✅ Test Drive write", key="admin_drive_test"):
-            try:
-                res = drive_test_write(svc, dbg["folder_id"])
-                st.success("✅ Écriture Drive réussie")
-                if res.get("webViewLink"):
-                    st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
-                st.json(res)
-            except Exception as e:
-                st.error("❌ Échec écriture Drive")
-                st.exception(e)
-
 
     # -----------------------------
     # 🧩 Outil — Joueurs sans drapeau (Country manquant)
@@ -6794,7 +6665,6 @@ elif active_tab == "🛠️ Gestion Admin":
             st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
 
     st.divider()
-
 
 
     # -----------------------------
@@ -7150,6 +7020,8 @@ elif active_tab == "🧠 Recommandations":
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
 
+
+
 # =====================================================
 # v33 — Level autoritaire depuis Hockey.Players.csv
 # =====================================================
@@ -7305,5 +7177,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.Dat
     out.loc[apply_mask, "Level_found"] = True
     out.loc[apply_mask, "Level_src"] = "Hockey.Players.csv"
     return out
-
-    
