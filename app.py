@@ -3278,7 +3278,7 @@ def open_move_dialog():
                 except Exception:
                     pass
 
-        with st.expander("ℹ️ Infos NHL (api-web.nhle.com)", expanded=False):
+        with st.expander("ℹ️ Infos NHL (api-web.nhle.com)", expanded=True):
             if cur_pid > 0:
                 landing = nhl_player_landing_cached(cur_pid)
                 if landing:
