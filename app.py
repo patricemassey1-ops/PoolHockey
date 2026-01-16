@@ -3066,9 +3066,10 @@ def open_move_dialog():
             try:
                 pdb = load_players_db()
                 if pdb is not None and not pdb.empty and "playerId" in pdb.columns and "Player" in pdb.columns:
-                    nm = _norm_player_key(joueur)
+                    # Utilise une normalisation disponible AVANT ce dialog (évite NameError)
+                    nm = _norm_name(joueur)
                     pdb2 = pdb.copy()
-                    pdb2["_k"] = pdb2["Player"].astype(str).map(_norm_player_key)
+                    pdb2["_k"] = pdb2["Player"].astype(str).map(_norm_name)
                     hit = pdb2[pdb2["_k"] == nm]
                     if not hit.empty:
                         cur_pid = int(hit.iloc[0].get("playerId", 0) or 0)
@@ -3081,7 +3082,7 @@ def open_move_dialog():
         #   - si trouvé: upsert identity dans hockey.players.csv (sans écraser Level/Cap Hit)
         # -------------------------------------------------
         if cur_pid <= 0:
-            auto_key = f"auto_pid_try__{season_lbl}__{_norm_player_key(joueur)}"
+            auto_key = f"auto_pid_try__{season_lbl}__{_norm_name(joueur)}"
             if not st.session_state.get(auto_key, False):
                 st.session_state[auto_key] = True
                 try:
