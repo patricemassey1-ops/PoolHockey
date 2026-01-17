@@ -4343,7 +4343,7 @@ st.sidebar.checkbox("📱 Mode mobile", key="mobile_view")
 _set_mobile_class(bool(st.session_state.get("mobile_view", False)))
 st.sidebar.divider()
 
-st.sidebar.header("📅 Saison")
+st.sidebar.header("📅 Saisons")
 saisons = ["2024-2025", "2025-2026", "2026-2027"]
 auto = saison_auto()
 if auto not in saisons:
