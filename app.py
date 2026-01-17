@@ -1327,6 +1327,7 @@ def format_date_fr(x) -> str:
     return f"{dt.day} {MOIS_FR[int(dt.month)]} {dt.year} {dt:%H:%M:%S}"
 
 
+
 # =====================================================
 # PATHS / CONSTANTS
 # =====================================================
