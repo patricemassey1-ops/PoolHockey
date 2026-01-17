@@ -60,6 +60,7 @@ def safe_image(image, *args, **kwargs):
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from googleapiclient.http import MediaInMemoryUpload
 
 def drive_creds_from_secrets():
     cfg = st.secrets.get("gdrive_oauth", {}) or {}
@@ -1546,6 +1547,41 @@ def gdrive_service():
         )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
+from googleapiclient.http import MediaInMemoryUpload
+
+def gdrive_save_df(df: "pd.DataFrame", filename: str, folder_id: str) -> str:
+    """
+    Save a DataFrame as CSV into a Drive folder.
+    - If a file with the same name exists in the folder: update it.
+    - Otherwise: create it.
+    Returns the file_id.
+    """
+    if df is None:
+        raise ValueError("df is None")
+    if not filename:
+        raise ValueError("filename is empty")
+    if not folder_id:
+        raise ValueError("folder_id is empty")
+
+    s = gdrive_service()
+
+    # CSV bytes
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    media = MediaInMemoryUpload(csv_bytes, mimetype="text/csv", resumable=False)
+
+    # Look for existing file by name in folder
+    q = f"'{folder_id}' in parents and trashed=false and name='{filename.replace(\"'\", \"\\'\")}'"
+    res = s.files().list(q=q, fields="files(id,name)", pageSize=1).execute()
+    files = res.get("files", [])
+
+    if files:
+        file_id = files[0]["id"]
+        s.files().update(fileId=file_id, media_body=media).execute()
+        return file_id
+
+    meta = {"name": filename, "parents": [folder_id]}
+    created = s.files().create(body=meta, media_body=media, fields="id").execute()
+    return created["id"]
 
 
 def money(v) -> str:
