@@ -6486,7 +6486,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
 
-    for i, fn in enumerateCRITICAL_FILES:
+    for i, fn in enumerate(CRITICAL_FILES):
         st.divider()
         st.markdown(f"#### 📄 `{fn}`")
 
