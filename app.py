@@ -6207,7 +6207,7 @@ else:
         )
         st.link_button("🔗 Se connecter à Google", auth_url)
 
-st.divider()
+    st.divider()
 
 
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
