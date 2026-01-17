@@ -61,7 +61,7 @@ def safe_image(image, *args, **kwargs):
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-def drive_creds_from_secrets():
+def drive_creds_from_secrets(show_error: bool = False):
     cfg = st.secrets.get("gdrive_oauth", {}) or {}
     client_id = str(cfg.get("client_id", "")).strip()
     client_secret = str(cfg.get("client_secret", "")).strip()
@@ -69,6 +69,8 @@ def drive_creds_from_secrets():
     token_uri = str(cfg.get("token_uri", "https://oauth2.googleapis.com/token")).strip()
 
     if not (client_id and client_secret and refresh_token):
+        if show_error:
+            st.error("Drive: Secrets incomplets (client_id / client_secret / refresh_token).")
         return None
 
     creds = Credentials(
@@ -80,13 +82,15 @@ def drive_creds_from_secrets():
         scopes=["https://www.googleapis.com/auth/drive.file"],
     )
 
-    # Refresh access token now
     try:
         creds.refresh(Request())
-    except Exception:
+    except Exception as e:
+        if show_error:
+            st.error(f"Drive: échec refresh token — {type(e).__name__}: {e}")
         return None
 
     return creds
+
 
 
 
