@@ -6417,6 +6417,55 @@ elif active_tab == "🛠️ Gestion Admin":
         ).execute()
         return {"file_id": created["id"], "created": True}
 
+    def _drive_kind(name: str, base_filename: str) -> str:
+        """Retourne 'v' (version), 'ts' (timestamp) ou ''."""
+        stem, ext = _split_name(base_filename)
+        pat_v = re.compile(rf"^{re.escape(stem)}_v(\d{{3}}){re.escape(ext)}$")
+        pat_ts = re.compile(rf"^{re.escape(stem)}_(\d{{4}}-\d{{2}}-\d{{2}}_\d{{4}}){re.escape(ext)}$")
+        if pat_v.match(name or ""):
+            return "v"
+        if pat_ts.match(name or ""):
+            return "ts"
+        return ""
+
+    def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
+        """
+        Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
+        Retourne un résumé.
+        """
+        backups = _drive_list_backups(s, folder_id, base_filename)
+
+        v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
+        ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
+
+        # backups sont déjà triés newest->oldest par modifiedTime
+        keep = set()
+        for b in v_list[:max(0, int(keep_v or 0))]:
+            keep.add(b.get("id"))
+        for b in ts_list[:max(0, int(keep_ts or 0))]:
+            keep.add(b.get("id"))
+
+        to_delete = [b for b in backups if b.get("id") not in keep]
+
+        deleted = 0
+        errors = []
+        for b in to_delete:
+            try:
+                s.files().delete(fileId=b["id"]).execute()
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
+
+        return {
+            "total_backups": len(backups),
+            "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
+            "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
+            "deleted": deleted,
+            "delete_errors": errors[:10],
+            "remaining": len(backups) - deleted,
+        }
+
+
     # =====================================================
     # 📌 Critical files
     # =====================================================
@@ -6496,6 +6545,58 @@ elif active_tab == "🛠️ Gestion Admin":
                             st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
                         except Exception as e:
                             st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
+
+        with st.expander("🧹 Maintenance backups", expanded=False):
+            colK1, colK2 = st.columns(2)
+            with colK1:
+                keep_v = st.number_input(
+                    "Garder (vNNN)",
+                    min_value=0, max_value=500, value=20, step=5,
+                    key=f"keepv_{fn}"
+                )
+            with colK2:
+                keep_ts = st.number_input(
+                    "Garder (timestamp)",
+                    min_value=0, max_value=500, value=20, step=5,
+                    key=f"keepts_{fn}"
+                )
+
+    st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n’est jamais supprimé.")
+
+    confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_{fn}")
+
+    if st.button("🧹 Nettoyer maintenant", key=f"clean_{fn}", use_container_width=True, disabled=(not confirm)):
+        try:
+            res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
+            st.success(
+                f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
+                f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
+            )
+            if res["delete_errors"]:
+                st.warning("Certaines suppressions ont échoué:")
+                st.write("• " + "\n• ".join(res["delete_errors"]))
+        except Exception as e:
+            st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
+
+
+    st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n’est jamais supprimé.")
+
+    confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_{fn}")
+
+    if st.button("🧹 Nettoyer maintenant", key=f"clean_{fn}", use_container_width=True, disabled=(not confirm)):
+        try:
+            res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
+            st.success(
+                f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
+                f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
+            )
+            if res["delete_errors"]:
+                st.warning("Certaines suppressions ont échoué:")
+                st.write("• " + "\n• ".join(res["delete_errors"]))
+        except Exception as e:
+            st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
+
+                    
 
     # =====================================================
     # ⬆️ Upload local backup to Drive (fast recovery)
