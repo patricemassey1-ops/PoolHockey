@@ -1569,9 +1569,17 @@ def gdrive_save_df(df: "pd.DataFrame", filename: str, folder_id: str) -> str:
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     media = MediaInMemoryUpload(csv_bytes, mimetype="text/csv", resumable=False)
 
+    # Escape filename for Drive query
+    safe_name = filename.replace("'", "\\'")
+
     # Look for existing file by name in folder
-    q = f"'{folder_id}' in parents and trashed=false and name='{filename.replace(\"'\", \"\\'\")}'"
-    res = s.files().list(q=q, fields="files(id,name)", pageSize=1).execute()
+    q = f"'{folder_id}' in parents and trashed=false and name='{safe_name}'"
+    res = s.files().list(
+        q=q,
+        fields="files(id,name)",
+        pageSize=1
+    ).execute()
+
     files = res.get("files", [])
 
     if files:
@@ -1580,8 +1588,14 @@ def gdrive_save_df(df: "pd.DataFrame", filename: str, folder_id: str) -> str:
         return file_id
 
     meta = {"name": filename, "parents": [folder_id]}
-    created = s.files().create(body=meta, media_body=media, fields="id").execute()
+    created = s.files().create(
+        body=meta,
+        media_body=media,
+        fields="id"
+    ).execute()
+
     return created["id"]
+
 
 
 def money(v) -> str:
