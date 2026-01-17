@@ -6246,76 +6246,283 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
-    # =============================
-    # =============================
-    # 🔐 Google Drive — Statut
-    # =============================
+    # =====================================================
+    # 🔐 Google Drive — Statut (refresh_token)
+    # =====================================================
     st.markdown("### 🔐 Google Drive — Statut")
-    st.caption("Connexion automatique via refresh_token dans Secrets.")
-    oauth_cfg = st.secrets.get("gdrive_oauth", {}) or {}
-    has_rt = bool(str(oauth_cfg.get("refresh_token", "")).strip())
-    if not has_rt:
-        st.warning("⚠️ refresh_token manquant dans [gdrive_oauth]. Ajoute-le dans Secrets.")
-    else:
-        try:
-            creds = drive_creds_from_secrets(show_error=True)
-        except TypeError:
-            creds = drive_creds_from_secrets()
-        if creds:
-            st.success("✅ Drive prêt (refresh_token OK).")
-        else:
-            st.error("❌ Drive non prêt (token révoqué? client_id/secret mismatch?).")
-    st.divider()
-
-    # =====================================================
-    # 🧪 TEST GOOGLE DRIVE
-    # =====================================================
-    st.markdown("### 🧪 Test Google Drive")
-    st.caption("Tests lecture / écriture dans le dossier Drive configuré.")
-
     cfg = st.secrets.get("gdrive_oauth", {}) or {}
     folder_id = str(cfg.get("folder_id", "")).strip()
 
     if not folder_id:
-        st.warning("folder_id manquant dans [gdrive_oauth] (Secrets).")
+        st.error("❌ folder_id manquant dans [gdrive_oauth] (Secrets).")
+        st.stop()
+
+    # drive_creds_from_secrets(show_error=True) may exist or not depending on your file history
+    try:
+        creds = drive_creds_from_secrets(show_error=True)
+    except TypeError:
+        creds = drive_creds_from_secrets()
+
+    if not creds:
+        st.error("❌ Drive non prêt (refresh_token/client_id/client_secret invalides, ou token révoqué).")
+        st.stop()
     else:
-        try:
-            creds = drive_creds_from_secrets(show_error=True)
-        except TypeError:
-            creds = drive_creds_from_secrets()
+        st.success("✅ Drive prêt (refresh_token OK).")
 
-        if not creds:
-            st.error("❌ Drive non prêt: refresh_token / client_id / client_secret invalides ou token révoqué.")
+    # =====================================================
+    # 🧰 Drive helpers (Admin only)
+    # =====================================================
+    import re
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from googleapiclient.http import MediaInMemoryUpload
+
+    MTL_TZ = ZoneInfo("America/Montreal")
+
+    def _drive():
+        return gdrive_service()
+
+    def _escape_name(name: str) -> str:
+        return str(name or "").replace("'", "\\'")
+
+    def _split_name(fn: str):
+        fn = str(fn or "")
+        if "." in fn:
+            stem, ext = fn.rsplit(".", 1)
+            return stem, "." + ext
+        return fn, ""
+
+    def _drive_find_file(s, folder_id: str, filename: str):
+        safe = _escape_name(filename)
+        q = f"'{folder_id}' in parents and trashed=false and name='{safe}'"
+        res = s.files().list(q=q, fields="files(id,name,modifiedTime)", pageSize=1).execute()
+        files = res.get("files", [])
+        return files[0] if files else None
+
+    def _drive_list_backups(s, folder_id: str, base_filename: str):
+        stem, ext = _split_name(base_filename)
+        safe_stem = _escape_name(stem)
+
+        # list candidates that contain stem_
+        q = f"'{folder_id}' in parents and trashed=false and name contains '{safe_stem}_'"
+        res = s.files().list(
+            q=q,
+            fields="files(id,name,modifiedTime,size)",
+            pageSize=1000
+        ).execute()
+        files = res.get("files", [])
+
+        # Keep only: stem_vNNN.ext OR stem_YYYY-MM-DD_HHMM.ext
+        pat_v = re.compile(rf"^{re.escape(stem)}_v(\d{{3}}){re.escape(ext)}$")
+        pat_ts = re.compile(rf"^{re.escape(stem)}_(\d{{4}}-\d{{2}}-\d{{2}}_\d{{4}}){re.escape(ext)}$")
+
+        out = []
+        for f in files:
+            name = f.get("name", "")
+            mv = pat_v.match(name)
+            mt = pat_ts.match(name)
+            if mv or mt:
+                out.append(f)
+
+        # Sort newest by modifiedTime (fallback)
+        def _mtime_key(f):
+            return f.get("modifiedTime", "")
+        out.sort(key=_mtime_key, reverse=True)
+        return out
+
+    def _next_v_name(s, folder_id: str, base_filename: str) -> str:
+        stem, ext = _split_name(base_filename)
+        files = _drive_list_backups(s, folder_id, base_filename)
+
+        pat_v = re.compile(rf"^{re.escape(stem)}_v(\d{{3}}){re.escape(ext)}$")
+        max_n = 0
+        for f in files:
+            m = pat_v.match(f.get("name", ""))
+            if m:
+                try:
+                    max_n = max(max_n, int(m.group(1)))
+                except Exception:
+                    pass
+        return f"{stem}_v{max_n+1:03d}{ext}"
+
+    def _ts_name(base_filename: str) -> str:
+        stem, ext = _split_name(base_filename)
+        ts = datetime.now(MTL_TZ).strftime("%Y-%m-%d_%H%M")
+        return f"{stem}_{ts}{ext}"
+
+    def _backup_copy_both(s, folder_id: str, base_filename: str):
+        """
+        Creates TWO backups of the existing Drive file:
+          - versioned: stem_vNNN.ext
+          - timestamp: stem_YYYY-MM-DD_HHMM.ext
+        Returns dict with ids/names.
+        """
+        target = _drive_find_file(s, folder_id, base_filename)
+        if not target:
+            raise FileNotFoundError(f"Fichier introuvable sur Drive: {base_filename}")
+
+        target_id = target["id"]
+        v_name = _next_v_name(s, folder_id, base_filename)
+        ts_name = _ts_name(base_filename)
+
+        v_created = s.files().copy(
+            fileId=target_id,
+            body={"name": v_name, "parents": [folder_id]},
+            fields="id,name"
+        ).execute()
+
+        ts_created = s.files().copy(
+            fileId=target_id,
+            body={"name": ts_name, "parents": [folder_id]},
+            fields="id,name"
+        ).execute()
+
+        return {
+            "target_id": target_id,
+            "v_name": v_created.get("name"),
+            "v_id": v_created.get("id"),
+            "ts_name": ts_created.get("name"),
+            "ts_id": ts_created.get("id"),
+        }
+
+    def _restore_from_backup(s, target_filename: str, backup_file_id: str):
+        """
+        Restores by downloading backup bytes and updating the target file content.
+        Target file ID stays stable.
+        """
+        target = _drive_find_file(s, folder_id, target_filename)
+        if not target:
+            raise FileNotFoundError(f"Target introuvable sur Drive: {target_filename}")
+
+        data = s.files().get_media(fileId=backup_file_id).execute()
+        media = MediaInMemoryUpload(data, mimetype="text/csv", resumable=False)
+        s.files().update(fileId=target["id"], media_body=media).execute()
+        return {"target_id": target["id"], "restored_from_id": backup_file_id}
+
+    def _upload_bytes_to_target(s, folder_id: str, target_filename: str, file_bytes: bytes, mimetype: str = "text/csv"):
+        """
+        Upload bytes into target filename:
+          - If target exists: update content (stable ID)
+          - Else: create file
+        """
+        media = MediaInMemoryUpload(file_bytes, mimetype=mimetype, resumable=False)
+        target = _drive_find_file(s, folder_id, target_filename)
+        if target:
+            s.files().update(fileId=target["id"], media_body=media).execute()
+            return {"file_id": target["id"], "created": False}
+        created = s.files().create(
+            body={"name": target_filename, "parents": [folder_id]},
+            media_body=media,
+            fields="id"
+        ).execute()
+        return {"file_id": created["id"], "created": True}
+
+    # =====================================================
+    # 📌 Critical files
+    # =====================================================
+    st.markdown("### 🧷 Backups & Restore — fichiers critiques")
+
+    season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip()
+    if not season_lbl:
+        # fallback display only; if your app uses something else, adjust here
+        season_lbl = "2025-2026"
+
+    CRITICAL_FILES = [
+        "equipes_joueurs.csv",
+        "hockey.players.csv",
+        f"transactions_{season_lbl}.csv",
+    ]
+
+    s = _drive()
+
+    st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
+
+    for fn in CRITICAL_FILES:
+        st.divider()
+        st.markdown(f"#### 📄 `{fn}`")
+
+        # quick presence info
+        existing = _drive_find_file(s, folder_id, fn)
+        if existing:
+            st.caption(f"Drive: ✅ présent — id={existing.get('id','')}")
         else:
-            if st.button("🧪 Tester Google Drive (liste)", use_container_width=True):
+            st.warning("Drive: ⚠️ fichier absent (tu peux l’uploader plus bas).")
+
+        c1, c2, c3 = st.columns([1, 1, 2], vertical_alignment="center")
+
+        with c1:
+            if st.button("🛡️ Backup now", key=f"bk_{fn}", use_container_width=True, disabled=(not existing)):
                 try:
-                    s = gdrive_service()
-                    res = s.files().list(
-                        q=f"'{folder_id}' in parents and trashed=false",
-                        pageSize=10,
-                        fields="files(id,name)"
-                    ).execute()
-
-                    files = res.get("files", [])
-                    st.success(f"✅ Drive OK — {len(files)} fichier(s) visibles.")
-                    if files:
-                        st.write([f["name"] for f in files])
-
+                    res = _backup_copy_both(s, folder_id, fn)
+                    st.success(f"✅ Backups créés: {res['v_name']} + {res['ts_name']}")
                 except Exception as e:
-                    st.error(f"❌ Drive KO — {type(e).__name__}: {e}")
+                    st.error(f"❌ Backup KO — {type(e).__name__}: {e}")
 
-            if st.button("✍️ Tester ÉCRITURE Drive (créer un fichier)", use_container_width=True):
+        with c2:
+            # restore latest: pick newest by modifiedTime among backups
+            backups = _drive_list_backups(s, folder_id, fn)
+            latest = backups[0] if backups else None
+            if st.button("⏪ Restore latest", key=f"rst_{fn}", use_container_width=True, disabled=(not existing or not latest)):
                 try:
-                    df_test = pd.DataFrame([{
-                        "ok": 1,
-                        "ts": datetime.now().isoformat()
-                    }])
-
-                    gdrive_save_df(df_test, "drive_write_test.csv", folder_id)
-                    st.success("✅ Écriture OK — 'drive_write_test.csv' créé/mis à jour.")
-
+                    _restore_from_backup(s, fn, latest["id"])
+                    st.success(f"✅ Restored depuis: {latest['name']}")
                 except Exception as e:
-                    st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+                    st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
+
+        with c3:
+            with st.expander("📚 List backups", expanded=False):
+                backups = _drive_list_backups(s, folder_id, fn)
+                if not backups:
+                    st.info("Aucun backup trouvé pour ce fichier.")
+                else:
+                    # show table + allow selecting a specific backup to restore
+                    import pandas as pd
+                    rows = []
+                    for b in backups[:200]:
+                        rows.append({
+                            "name": b.get("name",""),
+                            "modifiedTime": b.get("modifiedTime",""),
+                            "size": b.get("size",""),
+                            "id": b.get("id",""),
+                        })
+                    dfb = pd.DataFrame(rows)
+                    st.dataframe(dfb.drop(columns=["id"]), use_container_width=True, hide_index=True)
+
+                    options = {f"{r['name']}  —  {r['modifiedTime']}": r["id"] for r in rows}
+                    choice = st.selectbox("Restaurer un backup spécifique", list(options.keys()), key=f"pick_{fn}")
+                    if st.button("✅ Restore selected", key=f"rst_sel_{fn}", use_container_width=True):
+                        try:
+                            _restore_from_backup(s, fn, options[choice])
+                            st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
+                        except Exception as e:
+                            st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
+
+    # =====================================================
+    # ⬆️ Upload local backup to Drive (fast recovery)
+    # =====================================================
+    st.divider()
+    st.markdown("### ⬆️ Uploader un backup local (restore rapide)")
+
+    st.caption("Upload un CSV local et remplace le fichier cible sur Drive. On crée automatiquement 2 backups (vNNN + timestamp) avant d’écraser.")
+
+    target = st.selectbox("Fichier cible", CRITICAL_FILES, key="upl_target")
+    up = st.file_uploader("Choisir un fichier CSV", type=["csv"], key="upl_csv")
+
+    if st.button("⬆️ Upload & overwrite (avec backups)", use_container_width=True, disabled=(up is None)):
+        try:
+            # Ensure target exists? If it exists, backup first
+            if _drive_find_file(s, folder_id, target):
+                _backup_copy_both(s, folder_id, target)
+
+            file_bytes = up.getvalue() if up is not None else b""
+            if not file_bytes:
+                st.error("Fichier vide.")
+            else:
+                _upload_bytes_to_target(s, folder_id, target, file_bytes, mimetype="text/csv")
+                st.success(f"✅ Upload OK — `{target}` mis à jour sur Drive.")
+        except Exception as e:
+            st.error(f"❌ Upload KO — {type(e).__name__}: {e}")
+
 
     st.divider()
 
