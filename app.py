@@ -15,121 +15,6 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
-# =====================================================
-# APP MODE
-#   - production: locks admin tools / hides debug helpers
-#   Secrets optional:
-#     [app]
-#       production = true
-# =====================================================
-
-def _app_cfg() -> dict:
-    try:
-        return dict(st.secrets.get("app", {}) or {})
-    except Exception:
-        return {}
-
-PRODUCTION_MODE = bool(_app_cfg().get("production", False))
-
-# =====================================================
-# GOOGLE DRIVE — DEBUG + TEST WRITE (SAFE)
-# =====================================================
-import io
-import json
-import datetime as dt
-
-@st.cache_resource(show_spinner=False)
-def get_drive_service_debug():
-    debug = {
-        "enabled": True,
-        "ts": dt.datetime.now().isoformat(timespec="seconds"),
-    }
-
-    try:
-        from google.oauth2.service_account import Credentials
-        from googleapiclient.discovery import build
-    except Exception as e:
-        debug["enabled"] = False
-        debug["error"] = f"Deps manquantes: {e}"
-        return None, debug
-
-    # -------- folder_id
-    folder_id = ""
-    if "gdrive" in st.secrets and "folder_id" in st.secrets["gdrive"]:
-        folder_id = str(st.secrets["gdrive"]["folder_id"] or "").strip()
-    debug["folder_id"] = folder_id
-
-    # -------- service account
-    sa_info = None
-    if "gcp_service_account" in st.secrets:
-        sa_info = dict(st.secrets["gcp_service_account"])
-    elif "gdrive" in st.secrets and "service_account_json" in st.secrets["gdrive"]:
-        try:
-            sa_info = json.loads(st.secrets["gdrive"]["service_account_json"])
-        except Exception:
-            sa_info = None
-
-    if not sa_info:
-        debug["enabled"] = False
-        debug["error"] = "Service account absent dans Secrets"
-        return None, debug
-
-    debug["service_account_email"] = sa_info.get("client_email")
-
-    try:
-        creds = Credentials.from_service_account_info(
-            sa_info,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        debug["creds_type"] = type(creds).__name__
-
-        # about (best-effort)
-        try:
-            about = service.about().get(
-                fields="user(emailAddress,displayName,me)"
-            ).execute()
-            debug["about"] = about
-        except Exception as e:
-            debug["about_error"] = str(e)
-
-        return service, debug
-
-    except Exception as e:
-        debug["enabled"] = False
-        debug["error"] = str(e)
-        return None, debug
-
-
-def drive_test_write(service, folder_id: str):
-    from googleapiclient.http import MediaIoBaseUpload
-
-    payload = {
-        "test": "pms-drive-write",
-        "timestamp": dt.datetime.now().isoformat(),
-    }
-
-    content = json.dumps(payload, indent=2)
-    fh = io.BytesIO(content.encode("utf-8"))
-
-    media = MediaIoBaseUpload(
-        fh,
-        mimetype="text/plain",
-        resumable=False,
-    )
-
-    meta = {
-        "name": f"pms_drive_test_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        "parents": [folder_id],
-    }
-
-    return service.files().create(
-        body=meta,
-        media_body=media,
-        fields="id,name,webViewLink,createdTime",
-        supportsAllDrives=True,
-    ).execute()
 
 
 # =====================================================
@@ -174,7 +59,6 @@ def _gdrive_service():
     try:
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
-        
     except Exception:
         return None
 
@@ -248,7 +132,7 @@ def ensure_local_from_drive(filename: str, local_path: str) -> bool:
         return True
     except Exception:
         return False
-        
+
 
 # =====================================================
 # SAFE IMAGE (évite MediaFileHandler: Missing file)
@@ -4385,7 +4269,7 @@ if not season:
     st.session_state["season"] = season
 
 # --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f"pms_{season}.csv")
+DATA_FILE = os.path.join(DATA_DIR, f\"pms_{season}.csv\")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
@@ -4409,27 +4293,22 @@ st.session_state["players_db"] = players_db
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
     # --- Drive sync (best-effort): si DATA_FILE absent, tenter Drive (pms_...).
-    _pms_name = os.path.basename(DATA_FILE)
-
-    if not os.path.exists(DATA_FILE):
-        # fallback: ancien nom fantrax_<season>.csv
-        _old_local = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
-        if os.path.exists(_old_local) and not os.path.exists(DATA_FILE):
-            try:
-                import shutil
-                shutil.copyfile(_old_local, DATA_FILE)
-            except Exception:
-                pass
-
-        # tenter Drive (si configuré)
+_pms_name = os.path.basename(DATA_FILE)
+if not os.path.exists(DATA_FILE):
+    # fallback: ancien nom fantrax_<season>.csv
+    _old_local = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+    if os.path.exists(_old_local) and not os.path.exists(DATA_FILE):
         try:
-            ensure_local_from_drive(_pms_name, DATA_FILE)
+            import shutil
+            shutil.copyfile(_old_local, DATA_FILE)
         except Exception:
             pass
+    # tenter Drive
+    ensure_local_from_drive(_pms_name, DATA_FILE)
 
-    if os.path.exists(DATA_FILE):
-        try:
-            df_loaded = pd.read_csv(DATA_FILE)
+if os.path.exists(DATA_FILE):
+    try:
+        df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
             df_loaded = pd.DataFrame(columns=REQUIRED_COLS)
     else:
@@ -4442,17 +4321,17 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
     df_loaded = clean_data(df_loaded)
     df_loaded = enrich_level_from_players_db(df_loaded)  # ✅ players_db est déjà prêt
     st.session_state["data"] = df_loaded
-    st.session_state["data_season"] = season
-
-    # --- Autosave (anti-perte après reboot): si le contenu change, persiste local + Drive.
-    try:
-        _csv_bytes = df_loaded.to_csv(index=False).encode("utf-8")
-        _h = hashlib.sha1(_csv_bytes).hexdigest()
-        if st.session_state.get("last_saved_hash") != _h:
-            persist_data(df_loaded, season)
-            st.session_state["last_saved_hash"] = _h
-    except Exception:
-        pass
+st.session_state["data_season"] = season
+# --- Autosave (anti-perte après reboot): si le contenu change, persiste local + Drive.
+try:
+    import hashlib
+    _csv_bytes = df_loaded.to_csv(index=False).encode('utf-8')
+    _h = hashlib.sha1(_csv_bytes).hexdigest()
+    if st.session_state.get('last_saved_hash') != _h:
+        persist_data(df_loaded, season)
+        st.session_state['last_saved_hash'] = _h
+except Exception:
+    pass
 else:
     # sécurité: s'assurer que data est un DF + clean/enrich léger
     d0 = st.session_state.get("data")
@@ -4461,6 +4340,7 @@ else:
     d0 = enrich_level_from_players_db(d0)
     st.session_state["data"] = d0
 
+# -----------------------------------------------------
 # 2) LOAD HISTORY (CSV → session_state)
 # -----------------------------------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
@@ -4810,7 +4690,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _player_flag(pid, landing, pname)
+    flag = _player_flag(pid, landing, joueur)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
@@ -6483,34 +6363,6 @@ elif active_tab == "🛠️ Gestion Admin":
         st.caption('Note: ces APIs NHL fournissent surtout identité/roster/stats. Les champs "Cap Hit" et "Level (ELC/STD)" restent sous ton contrôle dans hockey.players.csv.')
 
     st.divider()
-    # =====================================================
-    # 🔎 GOOGLE DRIVE — TEST ÉCRITURE (ADMIN)
-    # =====================================================
-    with st.expander("🔎 Google Drive — Connexion & Test", expanded=False):
-        # 1) UI de connexion OAuth
-        oauth_connect_ui()
-
-        st.write("**Folder ID**")
-        st.code(_folder_id() or "(vide)")
-
-        # 2) Service Drive basé sur le token OAuth (user)
-        svc = get_drive_service_oauth()
-
-        if svc is None:
-            st.info("Connecte-toi d'abord via le bouton Google Drive.")
-        else:
-            if st.button("✅ Test Drive write", key="admin_drive_test_oauth"):
-                try:
-                    res = drive_test_write(svc, _folder_id())
-                    st.success("✅ Écriture Drive réussie (Mon Drive)")
-                    if res.get("webViewLink"):
-                        st.markdown(f"[Ouvrir le fichier]({res['webViewLink']})")
-                    st.json(res)
-                except Exception as e:
-                    st.error("❌ Échec écriture Drive")
-                    st.exception(e)
-
-
 
     # -----------------------------
     # 🧩 Outil — Joueurs sans drapeau (Country manquant)
@@ -6793,7 +6645,6 @@ elif active_tab == "🛠️ Gestion Admin":
             st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
 
     st.divider()
-
 
 
     # -----------------------------
@@ -7149,6 +7000,8 @@ elif active_tab == "🧠 Recommandations":
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
 
+
+
 # =====================================================
 # v33 — Level autoritaire depuis Hockey.Players.csv
 # =====================================================
@@ -7304,5 +7157,3 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.Dat
     out.loc[apply_mask, "Level_found"] = True
     out.loc[apply_mask, "Level_src"] = "Hockey.Players.csv"
     return out
-
-    
