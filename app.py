@@ -1449,6 +1449,7 @@ def _login_header():
     st.divider()
 
 
+
 def require_password():
     cfg = st.secrets.get("security", {}) or {}
 
