@@ -6197,68 +6197,24 @@ elif active_tab == "🛠️ Gestion Admin":
     st.subheader("🛠️ Gestion Admin")
 
     # =============================
-    # 🔐 Connexion Google Drive (OAuth)
     # =============================
-    st.markdown("### 🔐 Connexion Google Drive (OAuth)")
-    st.caption("But: obtenir un refresh_token une fois, puis le copier dans Secrets.")
-
+    # 🔐 Google Drive — Statut
+    # =============================
+    st.markdown("### 🔐 Google Drive — Statut")
+    st.caption("Connexion automatique via refresh_token dans Secrets.")
     oauth_cfg = st.secrets.get("gdrive_oauth", {}) or {}
     has_rt = bool(str(oauth_cfg.get("refresh_token", "")).strip())
-
-    if has_rt:
-        st.success("✅ refresh_token présent — OAuth UI désactivée.")
+    if not has_rt:
+        st.warning("⚠️ refresh_token manquant dans [gdrive_oauth]. Ajoute-le dans Secrets.")
     else:
-        # ---- Read these from Secrets (needed for connect UI)
-        CLIENT_ID = str(oauth_cfg.get("client_id", "")).strip()
-        CLIENT_SECRET = str(oauth_cfg.get("client_secret", "")).strip()
-        REDIRECT_URI = str(oauth_cfg.get("redirect_uri", "")).strip()
-
-        SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-
-        if not (CLIENT_ID and CLIENT_SECRET and REDIRECT_URI):
-            st.warning("⚠️ Secrets incomplets: gdrive_oauth.client_id / client_secret / redirect_uri")
+        try:
+            creds = drive_creds_from_secrets(show_error=True)
+        except TypeError:
+            creds = drive_creds_from_secrets()
+        if creds:
+            st.success("✅ Drive prêt (refresh_token OK).")
         else:
-            flow = Flow.from_client_config(
-                {
-                    "web": {
-                        "client_id": CLIENT_ID,
-                        "client_secret": CLIENT_SECRET,
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": [REDIRECT_URI],
-                    }
-                },
-                scopes=SCOPES,
-                redirect_uri=REDIRECT_URI,
-            )
-
-            code = _get_qp("code")
-
-            if code:
-                flow.fetch_token(code=code)
-                creds = flow.credentials
-
-                rt = getattr(creds, "refresh_token", None)
-                if rt:
-                    st.success("✅ Refresh token obtenu. Copie-le dans Secrets (gdrive_oauth.refresh_token).")
-                    st.code(rt)
-                else:
-                    st.warning(
-                        "⚠️ Pas de refresh_token reçu.\n\n"
-                        "➡️ Google le donne souvent seulement après révocation.\n"
-                        "➡️ Va dans ton compte Google → Security → Third-party access → remove access,\n"
-                        "➡️ puis reconnecte (prompt=consent)."
-                    )
-
-                st.info("Astuce: enlève ?code=... de l’URL après (ou recharge la page).")
-            else:
-                auth_url, _state = flow.authorization_url(
-                    access_type="offline",
-                    prompt="consent",
-                    include_granted_scopes="true",
-                )
-                st.link_button("🔗 Se connecter à Google", auth_url)
-
+            st.error("❌ Drive non prêt (token révoqué? client_id/secret mismatch?).")
     st.divider()
 
     # =====================================================
@@ -6273,7 +6229,10 @@ elif active_tab == "🛠️ Gestion Admin":
     if not folder_id:
         st.warning("folder_id manquant dans [gdrive_oauth] (Secrets).")
     else:
-        creds = drive_creds_from_secrets(show_error=True)
+        try:
+            creds = drive_creds_from_secrets(show_error=True)
+        except TypeError:
+            creds = drive_creds_from_secrets()
 
         if not creds:
             st.error("❌ Drive non prêt: refresh_token / client_id / client_secret invalides ou token révoqué.")
@@ -7028,10 +6987,6 @@ if active_tab == "🧠 Recommandations":
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
-
-
-
-
 
 
 # =====================================================
