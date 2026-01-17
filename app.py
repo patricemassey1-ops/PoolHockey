@@ -6883,43 +6883,43 @@ else:
                     do_rerun()
 
 
-    elif active_tab == "🧠 Recommandations":
-        st.subheader("🧠 Recommandations")
-        st.caption("Une recommandation unique par équipe (résumé).")
+elif active_tab == "🧠 Recommandations":
+    st.subheader("🧠 Recommandations")
+    st.caption("Une recommandation unique par équipe (résumé).")
 
-        plafonds0 = st.session_state.get("plafonds")
-        df = st.session_state.get("data")
-        if df is None or df.empty or plafonds0 is None or plafonds0.empty:
-            st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-            st.stop()
+    plafonds0 = st.session_state.get("plafonds")
+    df = st.session_state.get("data")
+    if df is None or df.empty or plafonds0 is None or plafonds0.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
 
-        rows = []
-        for _, r in plafonds0.iterrows():
-            owner = str(r.get("Propriétaire", "")).strip()
-            dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
-            dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
+    rows = []
+    for _, r in plafonds0.iterrows():
+        owner = str(r.get("Propriétaire", "")).strip()
+        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
+        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
 
-            # Une seule ligne par équipe
-            if dispo_gc < 2_000_000:
-                reco = "Rétrogradation recommandée (manque de marge GC)"
-                lvl = "warn"
-            elif dispo_ce > 10_000_000:
-                reco = "Rappel possible (marge CE élevée)"
-                lvl = "ok"
-            else:
-                reco = "Aucune action urgente"
-                lvl = "ok"
+        # Une seule ligne par équipe
+        if dispo_gc < 2_000_000:
+            reco = "Rétrogradation recommandée (manque de marge GC)"
+            lvl = "warn"
+        elif dispo_ce > 10_000_000:
+            reco = "Rappel possible (marge CE élevée)"
+            lvl = "ok"
+        else:
+            reco = "Aucune action urgente"
+            lvl = "ok"
 
-            rows.append({
-                "Équipe": owner,
-                "Marge GC": money(dispo_gc),
-                "Marge CE": money(dispo_ce),
-                "Recommandation": reco,
-                "_lvl": lvl
-            })
+        rows.append({
+            "Équipe": owner,
+            "Marge GC": money(dispo_gc),
+            "Marge CE": money(dispo_ce),
+            "Recommandation": reco,
+            "_lvl": lvl
+        })
 
-        out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
-        st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
+    out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
+    st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
 
 
