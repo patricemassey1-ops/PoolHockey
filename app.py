@@ -1536,6 +1536,17 @@ def _get_qp(name: str):
     except Exception:
         return None
 
+from googleapiclient.discovery import build
+
+def gdrive_service():
+    creds = drive_creds_from_secrets()
+    if not creds:
+        raise RuntimeError(
+            "Google Drive non prêt — vérifie client_id / client_secret / refresh_token dans Secrets."
+        )
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
 
 def money(v) -> str:
     try:
