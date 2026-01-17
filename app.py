@@ -6196,7 +6196,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
-   st.markdown("### 🔐 Google Drive — Statut")
+    st.markdown("### 🔐 Google Drive — Statut")
 
     creds = drive_creds_from_secrets(show_error=True)
     if creds:
