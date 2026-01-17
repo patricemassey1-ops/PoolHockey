@@ -4426,7 +4426,7 @@ if _picked_tab != st.session_state.get("active_tab"):
 active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipe")
+st.sidebar.markdown("### 🏒 Équipes")
 
 teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
 if not teams:
