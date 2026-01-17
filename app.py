@@ -6308,7 +6308,7 @@ elif active_tab == "🛠️ Gestion Admin":
                 except Exception as e:
                     st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
 
-st.divider()
+    st.divider()
 
 
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
