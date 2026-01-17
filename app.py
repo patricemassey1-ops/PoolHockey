@@ -6215,27 +6215,6 @@ elif active_tab == "🛠️ Gestion Admin":
     st.divider()
 
 
-
-def _get_qp(name: str):
-    # Streamlit new API
-    try:
-        v = st.query_params.get(name)
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
-    except Exception:
-        pass
-    # Streamlit old API
-    try:
-        qp = st.experimental_get_query_params()
-        v = qp.get(name)
-        return v[0] if isinstance(v, list) and v else None
-    except Exception:
-        return None
-
-
-
-
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
     st.caption('Met a jour data/hockey.players.csv avec les joueurs actifs (rosters NHL). Conserve Level (ELC/STD) et Cap Hit si deja presentes.')
     if st.button('🔄 Mettre a jour Players DB via NHL APIs', use_container_width=True, key='admin_update_players_db'):
