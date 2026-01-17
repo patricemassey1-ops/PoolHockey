@@ -6776,6 +6776,7 @@ else:
         # réutilise l'onglet autonomes, sans en-tête
         render_tab_autonomes(show_header=False)
 
+  
     # -----------------------------
     # 📦 Transactions (Admin) — sauvegarde proposition
     # -----------------------------
@@ -6802,7 +6803,6 @@ else:
                     except Exception:
                         amt = 0
                     if amt > 0:
-                        # clé contient déjà le nom "safe", on le garde
                         out[k] = amt
             return out
 
@@ -6845,8 +6845,14 @@ else:
             st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
 
             col_s1, col_s2 = st.columns(2)
+
             with col_s1:
-                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
+                if st.button(
+                    "💾 Sauvegarder la transaction",
+                    use_container_width=True,
+                    disabled=(not can_save),
+                    key="admin_tx_save",
+                ):
                     ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
                     row = {
                         "timestamp": ts,
@@ -6882,7 +6888,9 @@ else:
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
-
+# =====================================================
+# TAB — 🧠 Recommandations
+# =====================================================
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
@@ -6899,7 +6907,6 @@ elif active_tab == "🧠 Recommandations":
         dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
         dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
 
-        # Une seule ligne par équipe
         if dispo_gc < 2_000_000:
             reco = "Rétrogradation recommandée (manque de marge GC)"
             lvl = "warn"
@@ -6915,11 +6922,12 @@ elif active_tab == "🧠 Recommandations":
             "Marge GC": money(dispo_gc),
             "Marge CE": money(dispo_ce),
             "Recommandation": reco,
-            "_lvl": lvl
+            "_lvl": lvl,
         })
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
+
 
 
 
