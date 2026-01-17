@@ -61,7 +61,7 @@ def safe_image(image, *args, **kwargs):
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-def drive_creds_from_secrets(show_error: bool = False):
+def drive_creds_from_secrets():
     cfg = st.secrets.get("gdrive_oauth", {}) or {}
     client_id = str(cfg.get("client_id", "")).strip()
     client_secret = str(cfg.get("client_secret", "")).strip()
@@ -69,8 +69,6 @@ def drive_creds_from_secrets(show_error: bool = False):
     token_uri = str(cfg.get("token_uri", "https://oauth2.googleapis.com/token")).strip()
 
     if not (client_id and client_secret and refresh_token):
-        if show_error:
-            st.error("Drive: Secrets incomplets (client_id / client_secret / refresh_token).")
         return None
 
     creds = Credentials(
@@ -82,15 +80,13 @@ def drive_creds_from_secrets(show_error: bool = False):
         scopes=["https://www.googleapis.com/auth/drive.file"],
     )
 
+    # Refresh access token now
     try:
         creds.refresh(Request())
-    except Exception as e:
-        if show_error:
-            st.error(f"Drive: échec refresh token — {type(e).__name__}: {e}")
+    except Exception:
         return None
 
     return creds
-
 
 
 
@@ -6312,7 +6308,7 @@ elif active_tab == "🛠️ Gestion Admin":
                 except Exception as e:
                     st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
 
-    st.divider()
+st.divider()
 
 
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
