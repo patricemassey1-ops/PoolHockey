@@ -6939,6 +6939,11 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
         pass
     return df
 
+if creds and getattr(creds, "refresh_token", None):
+    st.success("✅ Refresh token obtenu. Copie-le dans Secrets.")
+    st.code(creds.refresh_token)
+else:
+    st.warning("⚠️ Pas de refresh_token reçu. Révoque l’accès Google et reconnecte avec prompt=consent.")
 
 
 # =====================================================
