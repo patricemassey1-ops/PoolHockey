@@ -6124,6 +6124,7 @@ elif active_tab == "⚖️ Transactions":
         st.toast("✅ Marché sauvegardé", icon="✅")
         do_rerun()
 
+from google_auth_oauthlib.flow import Flow
 
 elif active_tab == "🛠️ Gestion Admin":
     if not is_admin:
@@ -6188,7 +6189,7 @@ else:
         st.link_button("🔗 Se connecter à Google", auth_url)
 
     st.divider()
-from google_auth_oauthlib.flow import Flow
+
 
 def _get_qp(name: str):
     # Streamlit new API
