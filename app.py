@@ -53,6 +53,11 @@ def safe_image(image, *args, **kwargs):
 # =====================================================
 # IMPORTS
 
+try:
+    from google_auth_oauthlib.flow import Flow
+except Exception:
+    Flow = None
+
 
 # =====================================================
 
@@ -1483,6 +1488,24 @@ def do_rerun():
             st.experimental_rerun()
         except Exception:
             pass
+
+def _get_qp(name: str):
+    # Streamlit new API
+    try:
+        v = st.query_params.get(name)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    except Exception:
+        pass
+    # Streamlit old API
+    try:
+        qp = st.experimental_get_query_params()
+        v = qp.get(name)
+        return v[0] if isinstance(v, list) and v else None
+    except Exception:
+        return None
+
 
 def money(v) -> str:
     try:
@@ -6124,7 +6147,6 @@ elif active_tab == "⚖️ Transactions":
         st.toast("✅ Marché sauvegardé", icon="✅")
         do_rerun()
 
-from google_auth_oauthlib.flow import Flow
 
 elif active_tab == "🛠️ Gestion Admin":
     if not is_admin:
@@ -6132,63 +6154,66 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
-st.markdown("### 🔐 Connexion Google Drive (OAuth)")
-st.caption("But: obtenir un refresh_token une fois, puis le copier dans Secrets.")
 
-# ---- Read these from Secrets
-oauth_cfg = st.secrets.get("gdrive_oauth", {}) or {}
-CLIENT_ID = str(oauth_cfg.get("client_id", "")).strip()
-CLIENT_SECRET = str(oauth_cfg.get("client_secret", "")).strip()
-REDIRECT_URI = str(oauth_cfg.get("redirect_uri", "")).strip()
+    # =============================
+    # 🔐 Connexion Google Drive (OAuth)
+    # =============================
+    st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+    st.caption("But: obtenir un refresh_token une fois, puis le copier dans Secrets.")
 
-SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
-]
+    oauth_cfg = st.secrets.get("gdrive_oauth", {}) or {}
+    CLIENT_ID = str(oauth_cfg.get("client_id", "")).strip()
+    CLIENT_SECRET = str(oauth_cfg.get("client_secret", "")).strip()
+    REDIRECT_URI = str(oauth_cfg.get("redirect_uri", "")).strip()
 
-if not (CLIENT_ID and CLIENT_SECRET and REDIRECT_URI):
-    st.warning("⚠️ Secrets incomplets: gdrive_oauth.client_id / client_secret / redirect_uri")
-else:
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [REDIRECT_URI],
-            }
-        },
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI,
-    )
+    SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
-    code = _get_qp("code")
-
-    if code:
-        flow.fetch_token(code=code)
-        creds = flow.credentials  # ✅ creds exists NOW
-
-        rt = getattr(creds, "refresh_token", None)
-        if rt:
-            st.success("✅ Refresh token obtenu. Copie-le dans Secrets (gdrive_oauth.refresh_token).")
-            st.code(rt)
-        else:
-            st.warning(
-                "⚠️ Pas de refresh_token reçu.\n\n"
-                "➡️ Va dans ton compte Google → Security → Third-party access → remove access pour cette app,\n"
-                "➡️ puis reconnecte. Google redonne souvent le refresh_token seulement après révocation."
-            )
-
-        st.info("Astuce: enlève ?code=... de l’URL après (ou recharge la page).")
+    if not (CLIENT_ID and CLIENT_SECRET and REDIRECT_URI):
+        st.warning("⚠️ Secrets incomplets: gdrive_oauth.client_id / client_secret / redirect_uri")
     else:
-        auth_url, _state = flow.authorization_url(
-            access_type="offline",
-            prompt="consent",  # ✅ forces refresh_token to be re-issued
-            include_granted_scopes="true",
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [REDIRECT_URI],
+                }
+            },
+            scopes=SCOPES,
+            redirect_uri=REDIRECT_URI,
         )
-        st.link_button("🔗 Se connecter à Google", auth_url)
+
+        code = _get_qp("code")
+
+        if code:
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+
+            rt = getattr(creds, "refresh_token", None)
+            if rt:
+                st.success("✅ Refresh token obtenu. Copie-le dans Secrets (gdrive_oauth.refresh_token).")
+                st.code(rt)
+            else:
+                st.warning(
+                    "⚠️ Pas de refresh_token reçu.\n\n"
+                    "➡️ Google le donne souvent seulement après révocation.\n"
+                    "➡️ Va dans ton compte Google → Security → Third-party access → remove access,\n"
+                    "➡️ puis reconnecte (prompt=consent)."
+                )
+
+            st.info("Astuce: enlève ?code=... de l’URL après (ou recharge la page).")
+        else:
+            auth_url, _state = flow.authorization_url(
+                access_type="offline",
+                prompt="consent",
+                include_granted_scopes="true",
+            )
+            st.link_button("🔗 Se connecter à Google", auth_url)
 
     st.divider()
+
 
 
 def _get_qp(name: str):
