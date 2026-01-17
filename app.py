@@ -6891,7 +6891,7 @@ else:
 # =====================================================
 # TAB — 🧠 Recommandations
 # =====================================================
-elif active_tab == "🧠 Recommandations":
+if active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
 
