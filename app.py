@@ -6261,6 +6261,54 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
 
+    # =====================================================
+    # 🧪 TEST GOOGLE DRIVE
+    # =====================================================
+    st.markdown("### 🧪 Test Google Drive")
+    st.caption("Tests lecture / écriture dans le dossier Drive configuré.")
+
+    cfg = st.secrets.get("gdrive_oauth", {}) or {}
+    folder_id = str(cfg.get("folder_id", "")).strip()
+
+    if not folder_id:
+        st.warning("folder_id manquant dans [gdrive_oauth] (Secrets).")
+    else:
+        creds = drive_creds_from_secrets(show_error=True)
+
+        if not creds:
+            st.error("❌ Drive non prêt: refresh_token / client_id / client_secret invalides ou token révoqué.")
+        else:
+            if st.button("🧪 Tester Google Drive (liste)", use_container_width=True):
+                try:
+                    s = gdrive_service()
+                    res = s.files().list(
+                        q=f"'{folder_id}' in parents and trashed=false",
+                        pageSize=10,
+                        fields="files(id,name)"
+                    ).execute()
+
+                    files = res.get("files", [])
+                    st.success(f"✅ Drive OK — {len(files)} fichier(s) visibles.")
+                    if files:
+                        st.write([f["name"] for f in files])
+
+                except Exception as e:
+                    st.error(f"❌ Drive KO — {type(e).__name__}: {e}")
+
+            if st.button("✍️ Tester ÉCRITURE Drive (créer un fichier)", use_container_width=True):
+                try:
+                    df_test = pd.DataFrame([{
+                        "ok": 1,
+                        "ts": datetime.now().isoformat()
+                    }])
+
+                    gdrive_save_df(df_test, "drive_write_test.csv", folder_id)
+                    st.success("✅ Écriture OK — 'drive_write_test.csv' créé/mis à jour.")
+
+                except Exception as e:
+                    st.error(f"❌ Écriture KO — {type(e).__name__}: {e}")
+
+    st.divider()
 
 
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
