@@ -6131,26 +6131,6 @@ elif active_tab == "🛠️ Gestion Admin":
         st.stop()
 
     st.subheader("🛠️ Gestion Admin")
-
-from google_auth_oauthlib.flow import Flow
-
-def _get_qp(name: str):
-    # Streamlit new API
-    try:
-        v = st.query_params.get(name)
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
-    except Exception:
-        pass
-    # Streamlit old API
-    try:
-        qp = st.experimental_get_query_params()
-        v = qp.get(name)
-        return v[0] if isinstance(v, list) and v else None
-    except Exception:
-        return None
-
 st.markdown("### 🔐 Connexion Google Drive (OAuth)")
 st.caption("But: obtenir un refresh_token une fois, puis le copier dans Secrets.")
 
@@ -6208,6 +6188,26 @@ else:
         st.link_button("🔗 Se connecter à Google", auth_url)
 
     st.divider()
+from google_auth_oauthlib.flow import Flow
+
+def _get_qp(name: str):
+    # Streamlit new API
+    try:
+        v = st.query_params.get(name)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    except Exception:
+        pass
+    # Streamlit old API
+    try:
+        qp = st.experimental_get_query_params()
+        v = qp.get(name)
+        return v[0] if isinstance(v, list) and v else None
+    except Exception:
+        return None
+
+
 
 
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
