@@ -6486,7 +6486,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
 
-    for fn in CRITICAL_FILES:
+    for i, fn in enumerateCRITICAL_FILES:
         st.divider()
         st.markdown(f"#### 📄 `{fn}`")
 
@@ -6552,31 +6552,40 @@ elif active_tab == "🛠️ Gestion Admin":
                 keep_v = st.number_input(
                     "Garder (vNNN)",
                     min_value=0, max_value=500, value=20, step=5,
-                    key=f"keepv_{fn}"
+                    key=f"keepv_{i}_{fn}"
                 )
             with colK2:
                 keep_ts = st.number_input(
                     "Garder (timestamp)",
                     min_value=0, max_value=500, value=20, step=5,
-                    key=f"keepts_{fn}"
+                    key=f"keepts_{i}_{fn}"
                 )
 
-    st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n’est jamais supprimé.")
+            st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n’est jamais supprimé.")
 
-    confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_{fn}")
-
-    if st.button("🧹 Nettoyer maintenant", key=f"clean_{fn}", use_container_width=True, disabled=(not confirm)):
-        try:
-            res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
-            st.success(
-                f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
-                f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
+            confirm = st.checkbox(
+                "✅ Je confirme supprimer les anciens backups",
+                key=f"confirm_clean_{i}_{fn}"
             )
-            if res["delete_errors"]:
-                st.warning("Certaines suppressions ont échoué:")
-                st.write("• " + "\n• ".join(res["delete_errors"]))
-        except Exception as e:
-            st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
+
+            if st.button(
+                "🧹 Nettoyer maintenant",
+                key=f"clean_{i}_{fn}",
+                use_container_width=True,
+                disabled=(not confirm)
+            ):
+                try:
+                    res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
+                    st.success(
+                        f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
+                        f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
+                    )
+                    if res["delete_errors"]:
+                        st.warning("Certaines suppressions ont échoué:")
+                        st.write("• " + "\n• ".join(res["delete_errors"]))
+                except Exception as e:
+                    st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
+
 
 
     st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n’est jamais supprimé.")
