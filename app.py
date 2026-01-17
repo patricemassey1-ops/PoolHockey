@@ -70,10 +70,6 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
-
-
-
 # =====================================================
 # NHL APIs - Enrich / Build Players DB (Admin action)
 #   - api-web.nhle.com (roster + player landing)
@@ -6136,6 +6132,84 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
+from google_auth_oauthlib.flow import Flow
+
+def _get_qp(name: str):
+    # Streamlit new API
+    try:
+        v = st.query_params.get(name)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    except Exception:
+        pass
+    # Streamlit old API
+    try:
+        qp = st.experimental_get_query_params()
+        v = qp.get(name)
+        return v[0] if isinstance(v, list) and v else None
+    except Exception:
+        return None
+
+st.markdown("### 🔐 Connexion Google Drive (OAuth)")
+st.caption("But: obtenir un refresh_token une fois, puis le copier dans Secrets.")
+
+# ---- Read these from Secrets
+oauth_cfg = st.secrets.get("gdrive_oauth", {}) or {}
+CLIENT_ID = str(oauth_cfg.get("client_id", "")).strip()
+CLIENT_SECRET = str(oauth_cfg.get("client_secret", "")).strip()
+REDIRECT_URI = str(oauth_cfg.get("redirect_uri", "")).strip()
+
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",
+]
+
+if not (CLIENT_ID and CLIENT_SECRET and REDIRECT_URI):
+    st.warning("⚠️ Secrets incomplets: gdrive_oauth.client_id / client_secret / redirect_uri")
+else:
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI],
+            }
+        },
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI,
+    )
+
+    code = _get_qp("code")
+
+    if code:
+        flow.fetch_token(code=code)
+        creds = flow.credentials  # ✅ creds exists NOW
+
+        rt = getattr(creds, "refresh_token", None)
+        if rt:
+            st.success("✅ Refresh token obtenu. Copie-le dans Secrets (gdrive_oauth.refresh_token).")
+            st.code(rt)
+        else:
+            st.warning(
+                "⚠️ Pas de refresh_token reçu.\n\n"
+                "➡️ Va dans ton compte Google → Security → Third-party access → remove access pour cette app,\n"
+                "➡️ puis reconnecte. Google redonne souvent le refresh_token seulement après révocation."
+            )
+
+        st.info("Astuce: enlève ?code=... de l’URL après (ou recharge la page).")
+    else:
+        auth_url, _state = flow.authorization_url(
+            access_type="offline",
+            prompt="consent",  # ✅ forces refresh_token to be re-issued
+            include_granted_scopes="true",
+        )
+        st.link_button("🔗 Se connecter à Google", auth_url)
+
+st.divider()
+
+
     st.markdown('### 🔄 Compléter les données (NHL APIs)')
     st.caption('Met a jour data/hockey.players.csv avec les joueurs actifs (rosters NHL). Conserve Level (ELC/STD) et Cap Hit si deja presentes.')
     if st.button('🔄 Mettre a jour Players DB via NHL APIs', use_container_width=True, key='admin_update_players_db'):
@@ -6931,19 +7005,13 @@ def _players_level_map(pdb_path: str) -> dict[str, str]:
 
     return m
 def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
-    """Compat helper (v38→v39): applique l'enrichissement Level (STD/ELC) depuis /data/Hockey.players.csv."""
+    """Compat helper (v38→v39): applique l'enrichissement Level (STD/ELC) depuis /data/hockey.players.csv."""
     try:
         if "apply_players_level" in globals() and callable(globals()["apply_players_level"]):
             return apply_players_level(df)
     except Exception:
         pass
     return df
-
-    if creds and getattr(creds, "refresh_token", None):
-        st.success("✅ Refresh token obtenu. Copie-le dans Secrets.")
-        st.code(creds.refresh_token)
-    else:
-        st.warning("⚠️ Pas de refresh_token reçu. Révoque l’accès Google et reconnecte avec prompt=consent.")
 
 
 # =====================================================
