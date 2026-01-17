@@ -1333,16 +1333,15 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.players.csv")  # source: /data/Hockey.players.csv
+PLAYERS_DB_FILE = os.path.join(DATA_DIR, "hockey.players.csv")  # source: /data/hockey.players.csv
 PLAYERS_DB_FALLBACKS = [
     "data/hockey.players.csv",
     "/data/hockey.players.csv",
-    "data/Hockey.players.csv",
-    "/data/Hockey.players.csv",
-    "data/Hockey.Players.csv",
-    "/data/Hockey.Players.csv",
-    "Hockey.players.csv",
-    "Hockey.Players.csv",
+    "data/hockey.players.csv",
+    "/data/hockey.players.csv",
+    "data/hockey.Players.csv",
+    "/data/hockey.Players.csv",
+    "hockey.players.csv",
 ]
 
 # (v18) Logos critiques chargés localement (à côté de app.py)
