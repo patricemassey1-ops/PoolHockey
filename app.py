@@ -6783,6 +6783,67 @@ elif active_tab == "🛠️ Gestion Admin":
     else:
         st.info("Backups Drive désactivés (Drive non prêt ou folder_id manquant).")
 
+
+
+    # -----------------------------
+    # 🗃️ Players DB (hockey.players.csv) — Admin
+    #   - sert de source pour Country (drapeaux) et parfois Level/Expiry
+    # -----------------------------
+    with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
+        st.caption("Source de vérité pour **Country** (drapeaux), et souvent **Level/Expiry** selon ta config.")
+
+        # Local path (fallback)
+        pdb_path = ""
+        try:
+            if "PLAYERS_DB_FALLBACKS" in globals() and isinstance(PLAYERS_DB_FALLBACKS, (list, tuple)):
+                pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
+        except Exception:
+            pdb_path = ""
+        if not pdb_path:
+            pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+        st.caption(f"Chemin utilisé : `{pdb_path}`")
+
+        cA, cB, cC = st.columns([1, 1, 2], vertical_alignment="center")
+
+        with cA:
+            if st.button("🔄 Recharger Players DB", use_container_width=True, key="admin_reload_players_db"):
+                try:
+                    mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
+                    if "load_players_db" in globals() and callable(globals()["load_players_db"]) and mtime:
+                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
+                    else:
+                        st.session_state["players_db"] = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+                    st.success("✅ Players DB rechargée.")
+                except Exception as e:
+                    st.error(f"❌ Rechargement KO — {type(e).__name__}: {e}")
+
+        with cB:
+            if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
+                try:
+                    # Si ton app a une fonction dédiée, on la déclenche. Sinon, on garde juste le bouton.
+                    if "update_players_db" in globals() and callable(globals()["update_players_db"]):
+                        try:
+                            update_players_db(pdb_path)
+                        except TypeError:
+                            update_players_db()
+                        st.success("✅ Mise à jour lancée.")
+                    else:
+                        st.info("Aucune fonction `update_players_db()` détectée dans ton app (bouton disponible quand même).")
+                except Exception as e:
+                    st.error(f"❌ Update KO — {type(e).__name__}: {e}")
+
+        with cC:
+            st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
+
+        # Aperçu rapide
+        pdb = st.session_state.get("players_db")
+        if isinstance(pdb, pd.DataFrame) and not pdb.empty:
+            cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
+            with st.expander("👀 Aperçu Players DB (20 lignes)", expanded=False):
+                st.dataframe(pdb[cols_show].head(20) if cols_show else pdb.head(20), use_container_width=True, hide_index=True)
+        else:
+            st.warning("Players DB non chargée. Clique **Recharger Players DB**.")
     # 🧩 Outil — Joueurs sans drapeau (Country manquant)
     #   Liste les joueurs présents dans le roster actif dont le flag
     #   ne peut pas être affiché sans une valeur Country.
