@@ -2726,11 +2726,29 @@ def save_init_manifest(manifest: dict) -> None:
 # =====================================================
 def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
-    path = os.path.join(DATA_DIR, f"fantrax_{season_lbl}.csv")
+    # Main roster file (must survive Streamlit Cloud disk resets)
+    # Requested naming: equipes_joueurs_2025-2026.csv
+    path = os.path.join(DATA_DIR, f"equipes_joueurs_{season_lbl}.csv")
     st.session_state["DATA_FILE"] = path
+
+    # Local atomic write
     try:
-        df.to_csv(path, index=False)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, path)
     except Exception:
+        pass
+
+    # Mirror to Drive (if configured) so it survives disk resets
+    try:
+        cfg = st.secrets.get("gdrive_oauth", {}) or {}
+        folder_id = str(cfg.get("folder_id", "")).strip()
+        if folder_id:
+            s = _drive()
+            _drive_upsert_csv_bytes(s, folder_id, os.path.basename(path), df.to_csv(index=False).encode("utf-8"))
+    except Exception:
+        # Never crash the app on Drive issues.
         pass
 
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
@@ -2741,6 +2759,32 @@ def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
         h.to_csv(path, index=False)
     except Exception:
         pass
+
+
+def _ensure_local_csv_from_drive(local_path: str) -> bool:
+    """If local_path is missing (Streamlit Cloud disk reset), try to restore it from Drive.
+
+    Returns True if the file exists locally after this call.
+    Never raises.
+    """
+    try:
+        if local_path and os.path.exists(local_path):
+            return True
+        cfg = st.secrets.get("gdrive_oauth", {}) or {}
+        folder_id = str(cfg.get("folder_id", "")).strip()
+        if not folder_id:
+            return False
+        s = _drive()
+        df = _drive_download_csv_df(s, folder_id, os.path.basename(local_path))
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return False
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        tmp = local_path + ".tmp"
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, local_path)
+        return True
+    except Exception:
+        return bool(local_path and os.path.exists(local_path))
 
 
 # =====================================================
@@ -4718,7 +4762,7 @@ if not season:
     st.session_state["season"] = season
 
 # --- Paths
-DATA_FILE = os.path.join(DATA_DIR, f"fantrax_{season}.csv")
+DATA_FILE = os.path.join(DATA_DIR, f"equipes_joueurs_{season}.csv")
 HISTORY_FILE = os.path.join(DATA_DIR, f"history_{season}.csv")
 st.session_state["DATA_FILE"] = DATA_FILE
 st.session_state["HISTORY_FILE"] = HISTORY_FILE
@@ -4741,6 +4785,8 @@ st.session_state["players_db"] = players_db
 # 1) LOAD DATA (CSV → session_state) puis enrich Level
 # -----------------------------------------------------
 if "data_season" not in st.session_state or st.session_state["data_season"] != season:
+    # Streamlit Cloud can reset local disk: restore roster file from Drive if missing.
+    _ensure_local_csv_from_drive(DATA_FILE)
     if os.path.exists(DATA_FILE):
         try:
             df_loaded = pd.read_csv(DATA_FILE)
@@ -4769,6 +4815,7 @@ else:
 # 2) LOAD HISTORY (CSV → session_state)
 # -----------------------------------------------------
 if "history_season" not in st.session_state or st.session_state["history_season"] != season:
+    _ensure_local_csv_from_drive(HISTORY_FILE)
     st.session_state["history"] = load_history_file(HISTORY_FILE)
     st.session_state["history_season"] = season
 else:
@@ -6747,7 +6794,7 @@ elif active_tab == "🛠️ Gestion Admin":
             
             # Fichiers critiques (inclut historique + log des backups)
             CRITICAL_FILES = [
-                "equipes_joueurs.csv",
+                f"equipes_joueurs_{season_lbl}.csv",
                 "hockey.players.csv",
                 f"transactions_{season_lbl}.csv",
                 "historique_fantrax_v2.csv",
