@@ -243,46 +243,93 @@ def _restore_from_backup(s, folder_id: str, base_filename: str, backup_id: str) 
 
 
 def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
-    'Delete old backups keeping newest keep_v (vNNN) and keep_ts (timestamp).' 
+    """
+    Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
+    Retourne un résumé.
+    """
     backups = _drive_list_backups(s, folder_id, base_filename)
 
-    def kind(name: str) -> str:
-        base = str(base_filename)
-        n = str(name or '')
-        if n.startswith(base + '_v'):
-            return 'v'
-        if n.startswith(base + '_20'):
-            return 'ts'
-        return ''
-
-    v_list = [b for b in backups if kind(b.get('name','')) == 'v']
-    ts_list = [b for b in backups if kind(b.get('name','')) == 'ts']
+    v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
+    ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
 
     keep = set()
     for b in v_list[:max(0, int(keep_v or 0))]:
-        keep.add(b.get('id'))
+        keep.add(b.get("id"))
     for b in ts_list[:max(0, int(keep_ts or 0))]:
-        keep.add(b.get('id'))
+        keep.add(b.get("id"))
 
-    to_delete = [b for b in backups if b.get('id') not in keep]
+    to_delete = [b for b in backups if b.get("id") not in keep]
 
     deleted = 0
     errors = []
     for b in to_delete:
         try:
-            s.files().delete(fileId=b['id']).execute()
+            s.files().delete(fileId=b["id"]).execute()
             deleted += 1
         except Exception as e:
             errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
 
     return {
-        'total_backups': len(backups),
-        'kept_v': len(v_list[:max(0, int(keep_v or 0))]),
-        'kept_ts': len(ts_list[:max(0, int(keep_ts or 0))]),
-        'deleted': deleted,
-        'delete_errors': errors[:10],
-        'remaining': len(backups) - deleted,
+        "total_backups": len(backups),
+        "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
+        "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
+        "deleted": deleted,
+        "delete_errors": errors[:10],
+        "remaining": len(backups) - deleted,
     }
+
+def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
+    """
+    Runs at most once per calendar day after hour_mtl (MTL time).
+    Uses a small marker file on Drive to avoid repeating.
+    """
+    now = datetime.now(MTL_TZ)
+    if now.hour < int(hour_mtl):
+        return {"ran": False, "reason": "before_hour"}
+
+    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
+    if _drive_find_file(s, folder_id, marker):
+        return {"ran": False, "reason": "already_done"}
+
+    # Create marker FIRST (prevents double-run if reruns happen)
+    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
+
+    ok = 0
+    fail = 0
+    for fn in files:
+        existing = _drive_find_file(s, folder_id, fn)
+        if not existing:
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "SKIP (missing)",
+                "note": "fichier absent sur Drive",
+                "by": "nightly",
+            })
+            continue
+        try:
+            res = _backup_copy_both(s, folder_id, fn)
+            ok += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "OK",
+                "v_name": res.get("v_name",""),
+                "ts_name": res.get("ts_name",""),
+                "by": "nightly",
+            })
+        except Exception as e:
+            fail += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": f"FAIL ({type(e).__name__})",
+                "note": str(e),
+                "by": "nightly",
+            })
+
+    return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
+
 
 
 BACKUP_HISTORY_FILE = 'backup_history.csv'
@@ -323,55 +370,6 @@ def log_backup_event(s, folder_id: str, event: dict):
     df = _drive_download_csv_df(s, folder_id, BACKUP_HISTORY_FILE)
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     _drive_upsert_csv_bytes(s, folder_id, BACKUP_HISTORY_FILE, df.to_csv(index=False).encode('utf-8'))
-
-
-def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
-    now = datetime.now(MTL_TZ)
-    if now.hour < int(hour_mtl):
-        return {'ran': False, 'reason': 'before_hour'}
-
-    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
-    if _drive_find_file(s, folder_id, marker):
-        return {'ran': False, 'reason': 'already_done'}
-
-    # create marker first (as a tiny text file)
-    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
-
-    ok = 0
-    fail = 0
-    for fn in files:
-        existing = _drive_find_file(s, folder_id, fn)
-        if not existing:
-            log_backup_event(s, folder_id, {
-                'action': 'nightly_backup',
-                'file': fn,
-                'result': 'SKIP (missing)',
-                'note': 'fichier absent sur Drive',
-                'by': 'nightly',
-            })
-            continue
-        try:
-            res = _backup_copy_both(s, folder_id, fn)
-            ok += 1
-            log_backup_event(s, folder_id, {
-                'action': 'nightly_backup',
-                'file': fn,
-                'result': 'OK',
-                'v_name': res.get('v_name',''),
-                'ts_name': res.get('ts_name',''),
-                'by': 'nightly',
-            })
-        except Exception as e:
-            fail += 1
-            log_backup_event(s, folder_id, {
-                'action': 'nightly_backup',
-                'file': fn,
-                'result': f"FAIL ({type(e).__name__})",
-                'note': str(e),
-                'by': 'nightly',
-            })
-
-    return {'ran': True, 'ok': ok, 'fail': fail, 'marker': marker}
 
 
 def send_slack_alert(msg: str) -> bool:
@@ -6468,982 +6466,94 @@ elif active_tab == "⚖️ Transactions":
         do_rerun()
 
 
-elif active_tab == "🛠️ Gestion Admin":
-    if not is_admin:
-        st.warning("Accès admin requis.")
-        st.stop()
+def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
+    """
+    Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
+    Retourne un résumé.
+    """
+    backups = _drive_list_backups(s, folder_id, base_filename)
 
-    st.subheader("🛠️ Gestion Admin")
+    v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
+    ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
 
+    keep = set()
+    for b in v_list[:max(0, int(keep_v or 0))]:
+        keep.add(b.get("id"))
+    for b in ts_list[:max(0, int(keep_ts or 0))]:
+        keep.add(b.get("id"))
 
-    # =====================================================
-    # 🔐 Google Drive — Statut + Backups & Restore (Admin only)
-    # =====================================================
-    st.markdown('### 🔐 Google Drive — Statut')
+    to_delete = [b for b in backups if b.get("id") not in keep]
 
-    cfg_o = st.secrets.get('gdrive_oauth', {}) or {}
-    folder_id = str(cfg_o.get('folder_id', '')).strip()
-
-    creds_ok = False
-    try:
-        _ = drive_creds_from_secrets(show_error=True)
-        creds_ok = bool(_)
-    except TypeError:
-        # compat older signatures
-        _ = drive_creds_from_secrets()
-        creds_ok = bool(_)
-
-    if not folder_id:
-        st.warning('⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).')
-    if creds_ok and folder_id:
-        st.success('✅ Drive prêt (refresh_token OK).')
-    else:
-        st.error('❌ Drive non prêt (vérifie refresh_token / client_id / client_secret / folder_id).')
-
-    # Backups only if ready
-    if creds_ok and folder_id:
+    deleted = 0
+    errors = []
+    for b in to_delete:
         try:
-            s = _drive()
+            s.files().delete(fileId=b["id"]).execute()
+            deleted += 1
         except Exception as e:
-            st.error(f'❌ Drive service KO — {type(e).__name__}: {e}')
-            s = None
+            errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
 
-        if s is not None:
-            with st.expander('🧷 Backups & Restore (Drive)', expanded=False):
-                st.caption("Tout ce qui touche aux **backups / restore** est regroupé ici. Le fichier principal n'est jamais supprimé.")
+    return {
+        "total_backups": len(backups),
+        "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
+        "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
+        "deleted": deleted,
+        "delete_errors": errors[:10],
+        "remaining": len(backups) - deleted,
+    }
 
-                season_lbl = str(st.session_state.get('season') or st.session_state.get('season_lbl') or '').strip() or '2025-2026'
+def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
+    """
+    Runs at most once per calendar day after hour_mtl (MTL time).
+    Uses a small marker file on Drive to avoid repeating.
+    """
+    now = datetime.now(MTL_TZ)
+    if now.hour < int(hour_mtl):
+        return {"ran": False, "reason": "before_hour"}
 
-                CRITICAL_FILES = [
-                    'equipes_joueurs.csv',
-                    'hockey.players.csv',
-                    f'transactions_{season_lbl}.csv',
-                ]
+    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
+    if _drive_find_file(s, folder_id, marker):
+        return {"ran": False, "reason": "already_done"}
 
-                # Nightly auto-backup (once/day) after hour
-                hour_mtl = int((st.secrets.get('alerts', {}) or {}).get('nightly_hour_mtl', 3) or 3)
-                auto = nightly_backup_once_per_day(s, folder_id, CRITICAL_FILES, hour_mtl=hour_mtl)
-                if auto.get('ran'):
-                    st.info(f"🌙 Nightly backup exécuté — OK: {auto.get('ok',0)} | FAIL: {auto.get('fail',0)}")
-                    # Alerts if failures
-                    if int(auto.get('fail', 0) or 0) > 0:
-                        msg = f"🌙 Nightly backup: FAIL={auto.get('fail')} OK={auto.get('ok')} ({season_lbl})"
-                        send_slack_alert(msg)
-                        send_email_alert('Nightly backup failures', msg)
+    # Create marker FIRST (prevents double-run if reruns happen)
+    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
 
-                st.divider()
-
-                # Global Backup ALL
-                st.markdown('### 🛡️ Backup global')
-                if st.button('🛡️ Backup ALL (vNNN + timestamp)', use_container_width=True, key='backup_all_global'):
-                    ok = 0
-                    fail = 0
-                    for fn in CRITICAL_FILES:
-                        existing = _drive_find_file(s, folder_id, fn)
-                        if not existing:
-                            log_backup_event(s, folder_id, {
-                                'action': 'backup_all',
-                                'file': fn,
-                                'result': 'SKIP (missing)',
-                                'note': 'fichier absent sur Drive',
-                                'by': str(get_selected_team() or 'admin'),
-                            })
-                            continue
-                        try:
-                            res = _backup_copy_both(s, folder_id, fn)
-                            ok += 1
-                            log_backup_event(s, folder_id, {
-                                'action': 'backup_all',
-                                'file': fn,
-                                'result': 'OK',
-                                'v_name': res.get('v_name',''),
-                                'ts_name': res.get('ts_name',''),
-                                'by': str(get_selected_team() or 'admin'),
-                            })
-                        except Exception as e:
-                            fail += 1
-                            log_backup_event(s, folder_id, {
-                                'action': 'backup_all',
-                                'file': fn,
-                                'result': f"FAIL ({type(e).__name__})",
-                                'note': str(e),
-                                'by': str(get_selected_team() or 'admin'),
-                            })
-
-                    if fail:
-                        st.warning(f"⚠️ Backup ALL terminé avec erreurs — OK: {ok} | FAIL: {fail}")
-                        msg = f"🛡️ Backup ALL: FAIL={fail} OK={ok} ({season_lbl})"
-                        send_slack_alert(msg)
-                        send_email_alert('Backup ALL failures', msg)
-                    else:
-                        st.success(f"✅ Backup ALL terminé — OK: {ok}")
-
-                st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l'app tombe).")
-
-                # Per-file controls
-                for i, fn in enumerate(CRITICAL_FILES):
-                    st.divider()
-                    st.markdown(f"#### 📄 `{fn}`")
-
-                    existing = _drive_find_file(s, folder_id, fn)
-                    if existing:
-                        st.caption(f"Drive: ✅ présent — id={existing.get('id','')}")
-                    else:
-                        st.warning("Drive: ⚠️ fichier absent (tu peux l'uploader via Drive).")
-
-                    c1, c2, c3 = st.columns([1, 1, 2], vertical_alignment='center')
-
-                    with c1:
-                        if st.button('🛡️ Backup now', key=f"bk_{i}_{fn}", use_container_width=True, disabled=(not existing)):
-                            try:
-                                res = _backup_copy_both(s, folder_id, fn)
-                                log_backup_event(s, folder_id, {
-                                    'action': 'backup_now',
-                                    'file': fn,
-                                    'result': 'OK',
-                                    'v_name': res.get('v_name',''),
-                                    'ts_name': res.get('ts_name',''),
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.success(f"✅ Backups créés: {res['v_name']} + {res['ts_name']}")
-                            except Exception as e:
-                                log_backup_event(s, folder_id, {
-                                    'action': 'backup_now',
-                                    'file': fn,
-                                    'result': f"FAIL ({type(e).__name__})",
-                                    'note': str(e),
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.error(f"❌ Backup KO — {type(e).__name__}: {e}")
-
-                    with c2:
-                        backups = _drive_list_backups(s, folder_id, fn)
-                        latest = backups[0] if backups else None
-                        if st.button('⏪ Restore latest', key=f"rst_{i}_{fn}", use_container_width=True, disabled=(not existing or not latest)):
-                            try:
-                                _restore_from_backup(s, folder_id, fn, latest['id'])
-                                log_backup_event(s, folder_id, {
-                                    'action': 'restore_latest',
-                                    'file': fn,
-                                    'result': 'OK',
-                                    'note': latest.get('name',''),
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.success(f"✅ Restored depuis: {latest.get('name','')}")
-                            except Exception as e:
-                                log_backup_event(s, folder_id, {
-                                    'action': 'restore_latest',
-                                    'file': fn,
-                                    'result': f"FAIL ({type(e).__name__})",
-                                    'note': str(e),
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-
-                    with c3:
-                        with st.expander('📚 List backups', expanded=False):
-                            backups = _drive_list_backups(s, folder_id, fn)
-                            if not backups:
-                                st.info('Aucun backup trouvé pour ce fichier.')
-                            else:
-                                rows = []
-                                for b in backups[:200]:
-                                    rows.append({
-                                        'name': b.get('name',''),
-                                        'modifiedTime': b.get('modifiedTime',''),
-                                        'size': b.get('size',''),
-                                        'id': b.get('id',''),
-                                    })
-                                dfb = pd.DataFrame(rows)
-                                st.dataframe(dfb.drop(columns=['id']), use_container_width=True, hide_index=True)
-                                options = {f"{r['name']}  —  {r['modifiedTime']}": r['id'] for r in rows}
-                                choice = st.selectbox('Restaurer un backup spécifique', list(options.keys()), key=f"pick_{i}_{fn}")
-                                if st.button('✅ Restore selected', key=f"rst_sel_{i}_{fn}", use_container_width=True):
-                                    try:
-                                        _restore_from_backup(s, folder_id, fn, options[choice])
-                                        log_backup_event(s, folder_id, {
-                                            'action': 'restore_selected',
-                                            'file': fn,
-                                            'result': 'OK',
-                                            'note': choice,
-                                            'by': str(get_selected_team() or 'admin'),
-                                        })
-                                        st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
-                                    except Exception as e:
-                                        log_backup_event(s, folder_id, {
-                                            'action': 'restore_selected',
-                                            'file': fn,
-                                            'result': f"FAIL ({type(e).__name__})",
-                                            'note': str(e),
-                                            'by': str(get_selected_team() or 'admin'),
-                                        })
-                                        st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-
-                    with st.expander('🧹 Maintenance backups', expanded=False):
-                        colK1, colK2 = st.columns(2)
-                        with colK1:
-                            keep_v = st.number_input('Garder (vNNN)', min_value=0, max_value=500, value=20, step=5, key=f"keepv_{i}_{fn}")
-                        with colK2:
-                            keep_ts = st.number_input('Garder (timestamp)', min_value=0, max_value=500, value=20, step=5, key=f"keepts_{i}_{fn}")
-
-                        st.warning("⚠️ Supprime les backups plus vieux. Le fichier principal n'est jamais supprimé.")
-                        confirm = st.checkbox('✅ Je confirme supprimer les anciens backups', key=f"confirm_clean_{i}_{fn}")
-                        if st.button('🧹 Nettoyer maintenant', key=f"clean_{i}_{fn}", use_container_width=True, disabled=(not confirm)):
-                            try:
-                                res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
-                                log_backup_event(s, folder_id, {
-                                    'action': 'cleanup',
-                                    'file': fn,
-                                    'result': 'OK',
-                                    'note': f"deleted={res.get('deleted')} remaining={res.get('remaining')}",
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.success(
-                                    f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
-                                    f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
-                                )
-                                if res.get('delete_errors'):
-                                    st.warning('Certaines suppressions ont échoué:')
-                                    st.write("• " + "\n• ".join(res['delete_errors']))
-                            except Exception as e:
-                                log_backup_event(s, folder_id, {
-                                    'action': 'cleanup',
-                                    'file': fn,
-                                    'result': f"FAIL ({type(e).__name__})",
-                                    'note': str(e),
-                                    'by': str(get_selected_team() or 'admin'),
-                                })
-                                st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
-
-                st.divider()
-                st.markdown('### 🧾 Historique des backups (Drive)')
-                try:
-                    hist = _drive_download_csv_df(s, folder_id, BACKUP_HISTORY_FILE)
-                    if hist is None or hist.empty:
-                        st.info("Aucun historique pour l'instant.")
-                    else:
-                        st.dataframe(hist.sort_values('ts', ascending=False), use_container_width=True, hide_index=True)
-                except Exception as e:
-                    st.error(f"❌ Impossible de charger l'historique — {type(e).__name__}: {e}")
-
-                st.divider()
-                st.markdown('### 📣 Alerts (Slack / Email)')
-                a1, a2 = st.columns(2)
-                with a1:
-                    if st.button('🧪 Tester Slack', key='test_slack', use_container_width=True):
-                        ok = send_slack_alert('✅ Test Slack — backups admin')
-                        st.success('Slack OK') if ok else st.warning('Slack non configuré / KO')
-                with a2:
-                    if st.button('🧪 Tester Email', key='test_email', use_container_width=True):
-                        ok = send_email_alert('Test Email — backups admin', '✅ Test Email — backups admin')
-                        st.success('Email OK') if ok else st.warning('Email non configuré / KO')
-
-    st.divider()
-
-    st.markdown('### 🔄 Compléter les données (NHL APIs)')
-    st.caption('Met a jour data/hockey.players.csv avec les joueurs actifs (rosters NHL). Conserve Level (ELC/STD) et Cap Hit si deja presentes.')
-    if st.button('🔄 Mettre a jour Players DB via NHL APIs', use_container_width=True, key='admin_update_players_db'):
-        with st.spinner('Mise a jour en cours...'):
-            try:
-                df_upd, stx = update_players_db_via_nhl_apis(season_lbl=str(season_pick))
-                st.success(f"✅ Players DB mis a jour: +{stx.get('added_rows',0)} ajout(s), {stx.get('updated_rows',0)} maj. Total API players: {stx.get('unique_player_ids',0)}")
-                st.info(f"Landing ok: {stx.get('landing_ok',0)} | Landing fail: {stx.get('landing_fail',0)}")
-                st.session_state['players_db_last_update'] = datetime.now(TZ_TOR).isoformat(timespec='seconds')
-
-                # Recharge immédiatement le Players DB en mémoire (pour les popups Alignement)
-                try:
-                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                    if not pdb_path:
-                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-                    mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
-                    # Invalide le cache Streamlit (best effort)
-                    try:
-                        st.cache_data.clear()
-                    except Exception:
-                        pass
-                    st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                except Exception:
-                    pass
-            except Exception as e:
-                st.error(f"❌ Echec mise a jour Players DB: {type(e).__name__}: {e}")
-
-    last_upd = st.session_state.get('players_db_last_update','')
-    if last_upd:
-        st.caption(f"Derniere mise a jour Players DB: {format_date_fr(last_upd) or last_upd}")
-
-    with st.expander('📦 Exemples de contenu des APIs NHL', expanded=False):
-        st.caption('Extraits simplifiés (format JSON) — utiles pour comprendre quelles données sont disponibles et comment elles sont fusionnées dans hockey.players.csv.')
-
-        st.markdown('**1) api-web.nhle.com — Player landing**')
-        st.json({
-            'playerId': 8478402,
-            'firstName': {'default': 'Connor'},
-            'lastName': {'default': 'McDavid'},
-            'position': 'C',
-            'shootsCatches': 'L',
-            'currentTeamId': 22,
-            'currentTeamAbbrev': 'EDM',
-            'heightInInches': 73,
-            'weightInPounds': 193,
-            'birthDate': '1997-01-13',
-            'isActive': True,
-            'headshot': 'https://assets.nhle.com/mugs/nhl/20242025/EDM/8478402.png'
-        })
-
-        st.markdown('**2) statsapi.web.nhl.com — Team roster**')
-        st.json({
-            'roster': [
-                {
-                    'person': {'id': 8478402, 'fullName': 'Connor McDavid'},
-                    'position': {'code': 'C', 'name': 'Center'},
-                    'jerseyNumber': '97'
-                }
-            ]
-        })
-
-        st.markdown('**3) api.nhle.com/stats/rest — Skater summary**')
-        st.json({
-            'data': [
-                {
-                    'playerId': 8478402,
-                    'skaterFullName': 'Connor McDavid',
-                    'teamAbbrev': 'EDM',
-                    'gamesPlayed': 76,
-                    'goals': 32,
-                    'assists': 89,
-                    'points': 121
-                }
-            ]
-        })
-
-        st.caption('Note: ces APIs NHL fournissent surtout identité/roster/stats. Les champs "Cap Hit" et "Level (ELC/STD)" restent sous ton contrôle dans hockey.players.csv.')
-
-    st.divider()
-
-    # -----------------------------
-    # 🧩 Outil — Joueurs sans drapeau (Country manquant)
-    #   Liste les joueurs présents dans ton roster actif dont le flag
-    #   ne peut pas être affiché sans une valeur Country.
-    #   ⚠️ Aucun appel API ici (simple diagnostic rapide).
-    # -----------------------------
-    st.markdown("### 🧩 Joueurs sans drapeau (Country manquant)")
-    st.caption("Affiche les joueurs du roster actif (saison sélectionnée) dont la colonne **Country** est vide dans hockey.players.csv. Remplis **Country** avec CA/US/SE/FI... pour forcer le drapeau.")
-
-    if st.checkbox("🔎 Trouver les joueurs sans drapeau", value=False, key="admin_find_missing_flags"):
+    ok = 0
+    fail = 0
+    for fn in files:
+        existing = _drive_find_file(s, folder_id, fn)
+        if not existing:
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "SKIP (missing)",
+                "note": "fichier absent sur Drive",
+                "by": "nightly",
+            })
+            continue
         try:
-            # 1) roster actuel
-            df_roster = st.session_state.get("data", pd.DataFrame())
-            df_roster = clean_data(df_roster) if isinstance(df_roster, pd.DataFrame) else pd.DataFrame()
-            if df_roster.empty or "Joueur" not in df_roster.columns:
-                st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import Fantrax.")
-            else:
-                # filtre saison + owner? => on prend tout le roster de la saison en cours
-                # (si tu veux limiter à l'équipe sélectionnée, on pourra l'ajouter)
-                roster_players = (
-                    df_roster[[c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot"] if c in df_roster.columns]]
-                    .dropna(subset=["Joueur"])
-                    .copy()
-                )
-                roster_players["Joueur"] = roster_players["Joueur"].astype(str).str.strip()
-                roster_players = roster_players[roster_players["Joueur"].astype(str).str.len() > 0]
-                uniq = roster_players.drop_duplicates(subset=["Joueur"]).copy()
-
-                # 2) players DB
-                pdb = st.session_state.get("players_db")
-                if not isinstance(pdb, pd.DataFrame) or pdb.empty:
-                    # load directly
-                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                    if not pdb_path:
-                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-                    mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
-                    pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
-
-                if pdb.empty or "Player" not in pdb.columns:
-                    st.warning("Players DB introuvable ou invalide. Lance d'abord Admin → Mettre à jour Players DB.")
-                else:
-                    # index par nom normalisé
-                    pdb2 = pdb.copy()
-                    if "Country" not in pdb2.columns:
-                        pdb2["Country"] = ""
-                    pdb2["_k"] = pdb2["Player"].astype(str).apply(_norm_name)
-                    name_to_country = dict(zip(pdb2["_k"], pdb2["Country"].astype(str)))
-                    name_to_pid = dict(zip(pdb2["_k"], pdb2.get("playerId", pd.Series(dtype=object)).astype(str)))
-
-                    uniq["_k"] = uniq["Joueur"].astype(str).apply(_norm_name)
-                    uniq["Country"] = uniq["_k"].map(name_to_country).fillna("")
-                    uniq["playerId"] = uniq["_k"].map(name_to_pid).fillna("")
-                    missing = uniq[uniq["Country"].astype(str).str.strip().eq("")].copy()
-
-                    cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing.columns]
-                    missing_show = missing[cols].copy()
-                    missing_show = missing_show.sort_values(by=["Joueur"]) if "Joueur" in missing_show.columns else missing_show
-
-                    if missing_show.empty:
-                        st.success("✅ Aucun joueur du roster actif n'a Country manquant (drapeaux OK).")
-                    else:
-                        st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Tu peux le remplir ici (inline) ou dans hockey.players.csv.")
-
-                        # --- Auto-fill (Mode C): NHL APIs + Draft Prospects + Wikipedia+Wikidata
-                        #     Remplit des SUGGESTIONS (ne sauvegarde rien sans clic 'Appliquer Country')
-                        sug_key = f"country_suggestions__{season_pick}"
-                        if sug_key not in st.session_state:
-                            st.session_state[sug_key] = {}
-
-                        def _best_country_suggest(name: str, pid_raw: str) -> tuple[str, str, float]:
-                            nm = str(name or '').strip()
-                            if not nm:
-                                return ('', '', 0.0)
-                            # 1) statsapi people if pid
-                            try:
-                                pid = int(float(pid_raw)) if str(pid_raw).strip() else 0
-                            except Exception:
-                                pid = 0
-                            if pid > 0:
-                                try:
-                                    j = _statsapi_people_cached(pid)
-                                    ppl = (j.get('people') or []) if isinstance(j, dict) else []
-                                    if ppl and isinstance(ppl, list) and isinstance(ppl[0], dict):
-                                        p0 = ppl[0]
-                                        raw = str(p0.get('nationality') or p0.get('birthCountry') or '').strip()
-                                        if raw and raw.lower() not in {'nan','none','null','0','0.0','-'}:
-                                            if len(raw) == 2 and raw.isalpha():
-                                                return (raw.upper(), 'NHL statsapi people', 0.95)
-                                            if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
-                                                return (_COUNTRY3_TO2[raw.upper()], 'NHL statsapi people', 0.95)
-                                            if raw.lower() in _COUNTRYNAME_TO2:
-                                                return (_COUNTRYNAME_TO2[raw.lower()], 'NHL statsapi people', 0.90)
-                                except Exception:
-                                    pass
-
-                            # 2) Draft prospects list
-                            try:
-                                mp = _draft_prospects_map_cached()
-                                raw = mp.get(_norm_name(nm), '') if isinstance(mp, dict) else ''
-                                if raw:
-                                    if len(raw) == 2 and raw.isalpha():
-                                        return (raw.upper(), 'NHL prospects', 0.90)
-                                    if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
-                                        return (_COUNTRY3_TO2[raw.upper()], 'NHL prospects', 0.90)
-                                    if raw.lower() in _COUNTRYNAME_TO2:
-                                        return (_COUNTRYNAME_TO2[raw.lower()], 'NHL prospects', 0.85)
-                            except Exception:
-                                pass
-
-                            # 3) Wikipedia + Wikidata
-                            try:
-                                iso2, src, conf = suggest_country_web(nm)
-                                if iso2:
-                                    return (iso2, src, conf)
-                            except Exception:
-                                pass
-
-                            return ('', '', 0.0)
-
-                        c_auto, c_hint = st.columns([1, 2])
-                        with c_auto:
-                            if st.button("🌍 Suggestion auto (Web + API)", use_container_width=True, key=f"admin_autofill_country__{season_pick}"):
-                                sug = st.session_state.get(sug_key, {}) or {}
-                                for r in missing_show.to_dict(orient='records'):
-                                    nm = str(r.get('Joueur', '') or '').strip()
-                                    if not nm:
-                                        continue
-                                    k = _norm_name(nm)
-                                    if k in sug and str(sug.get(k, {}).get('iso2') or '').strip():
-                                        continue
-                                    iso2, src, conf = _best_country_suggest(nm, str(r.get('playerId', '') or '').strip())
-                                    if iso2:
-                                        sug[k] = {'iso2': iso2, 'src': src, 'conf': conf}
-                                st.session_state[sug_key] = sug
-                                st.success("✅ Suggestions générées. Vérifie/ajuste puis clique 'Appliquer Country'.")
-
-                        with c_hint:
-                            st.caption("Les suggestions utilisent: NHL APIs (people/prospects) + Wikipedia/Wikidata. Rien n'est écrit dans hockey.players.csv tant que tu ne cliques pas **Appliquer Country**.")
-
-                        # --- Suggestions (soft) : pré-remplir CA pour quelques prospects connus
-                        # (tu peux ajouter des noms ici au besoin)
-                        known_ca = {
-                            _norm_name("Tij Iginla"),
-                            _norm_name("Matthew Poitras"),
-                            _norm_name("Ryan Suzuki"),
-                            _norm_name("Michael Hage"),
-                            _norm_name("Isaiah George"),
-                        }
-
-                        # build editable table
-                        edit_cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing_show.columns]
-                        editor = missing_show[edit_cols].copy()
-                        editor["Country"] = ""
-
-                        # auto-suggest (from cache + web/API) + known CA fallback
-                        editor["_k"] = editor.get("Joueur", "").astype(str).apply(_norm_name)
-                        sug = st.session_state.get(sug_key, {}) or {}
-                        # suggestions from session
-                        for i, k in enumerate(editor["_k"].tolist()):
-                            try:
-                                iso2 = str((sug.get(k) or {}).get('iso2') or '').strip()
-                                if iso2:
-                                    editor.at[i, 'Country'] = iso2
-                            except Exception:
-                                pass
-                        # known CA fallback
-                        editor.loc[editor["_k"].isin(known_ca) & editor["Country"].astype(str).str.strip().eq(""), "Country"] = "CA"
-
-                        # show editor
-                        st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
-                        editor_view = st.data_editor(
-                            editor.drop(columns=["_k"], errors="ignore"),
-                            use_container_width=True,
-                            hide_index=True,
-                            num_rows="fixed",
-                            column_config={
-                                "Country": st.column_config.TextColumn(
-                                    "Country",
-                                    help="ISO2 (CA/US/SE/FI) ou ISO3 (CAN/USA/SWE) ou nom du pays.",
-                                    max_chars=24,
-                                )
-                            },
-                            disabled=[c for c in editor.columns if c not in {"Country"} and c != "_k"],
-                            key=f"admin_missing_flags_editor__{season_pick}",
-                        )
-
-                        c_apply, c_export = st.columns([1, 1])
-                        with c_apply:
-                            if st.button("💾 Appliquer Country", use_container_width=True, key=f"admin_apply_country__{season_pick}"):
-                                try:
-                                    # load current players db
-                                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                                    if not pdb_path:
-                                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-
-                                    import pandas as _pd
-                                    pdb_df = _pd.read_csv(pdb_path) if os.path.exists(pdb_path) else _pd.DataFrame()
-                                    if pdb_df.empty:
-                                        pdb_df = _pd.DataFrame(columns=["Player", "Country", "playerId"])
-
-                                    if "Player" not in pdb_df.columns:
-                                        pdb_df["Player"] = ""
-                                    if "Country" not in pdb_df.columns:
-                                        pdb_df["Country"] = ""
-
-                                    pdb_df["_k"] = pdb_df["Player"].astype(str).apply(_norm_name)
-                                    idx_by_k = {k: i for i, k in enumerate(pdb_df["_k"].tolist())}
-
-                                    applied = 0
-                                    for row in editor_view.to_dict(orient="records"):
-                                        name = str(row.get("Joueur", "") or "").strip()
-                                        ctry = str(row.get("Country", "") or "").strip()
-                                        if not name or not ctry:
-                                            continue
-                                        k = _norm_name(name)
-                                        if k in idx_by_k:
-                                            i = idx_by_k[k]
-                                            # ne remplace pas si déjà rempli
-                                            cur = str(pdb_df.at[i, "Country"] or "").strip()
-                                            if not cur:
-                                                pdb_df.at[i, "Country"] = ctry
-                                                applied += 1
-                                        else:
-                                            # append minimal row
-                                            new_row = {col: "" for col in pdb_df.columns}
-                                            new_row["Player"] = name
-                                            new_row["Country"] = ctry
-                                            pdb_df = _pd.concat([pdb_df, _pd.DataFrame([new_row])], ignore_index=True)
-                                            applied += 1
-
-                                    # save back
-                                    pdb_df = pdb_df.drop(columns=["_k"], errors="ignore")
-                                    pdb_df.to_csv(pdb_path, index=False)
-
-                                    # refresh cached players_db
-                                    try:
-                                        try:
-                                            st.cache_data.clear()
-                                        except Exception:
-                                            pass
-                                        mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
-                                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                                    except Exception:
-                                        pass
-
-                                    st.success(f"✅ Country appliqué pour {applied} joueur(s).")
-                                    do_rerun()
-                                except Exception as _e:
-                                    st.error(f"Erreur écriture hockey.players.csv: {type(_e).__name__}: {_e}")
-
-                        with c_export:
-                            try:
-                                import pandas as _pd
-                                out_df = editor_view.copy()
-                                csv_bytes = out_df.to_csv(index=False).encode("utf-8")
-                                st.download_button(
-                                    "📤 Export CSV",
-                                    data=csv_bytes,
-                                    file_name=f"joueurs_sans_drapeau_{season_pick}.csv",
-                                    mime="text/csv",
-                                    use_container_width=True,
-                                    key=f"admin_export_missing_flags__{season_pick}",
-                                )
-                            except Exception:
-                                pass
-
-                        st.caption("Astuce: tu peux aussi éditer directement hockey.players.csv. Valeurs acceptées: CA/US/SE/FI… (ISO2), ou CAN/USA/SWE… (ISO3), ou nom du pays.")
+            res = _backup_copy_both(s, folder_id, fn)
+            ok += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "OK",
+                "v_name": res.get("v_name",""),
+                "ts_name": res.get("ts_name",""),
+                "by": "nightly",
+            })
         except Exception as e:
-            st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
+            fail += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": f"FAIL ({type(e).__name__})",
+                "note": str(e),
+                "by": "nightly",
+            })
 
-    st.divider()
+    return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
 
-
-    # -----------------------------
-    # 📥 Importation CSV Fantrax (Admin)
-    #   (sorti de l'expander Ajout de joueurs)
-    # -----------------------------
-    manifest = load_init_manifest() or {}
-    if "fantrax_by_team" not in manifest:
-        manifest["fantrax_by_team"] = {}
-
-    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
-    default_owner = get_selected_team().strip() or teams[0]
-    if default_owner not in teams:
-        default_owner = teams[0]
-
-    chosen_owner = st.selectbox(
-        "Importer l'alignement dans quelle équipe ?",
-        teams,
-        index=teams.index(default_owner),
-        key="admin_import_team_pick",
-    )
-
-    clear_team_before = st.checkbox(
-        f"Vider l’alignement de {chosen_owner} avant import",
-        value=True,
-        help="Recommandé si tu réimportes la même équipe.",
-        key="admin_clear_team_before",
-    )
-
-    u_nonce = int(st.session_state.get("uploader_nonce", 0))
-    c_init1, c_init2 = st.columns(2)
-    with c_init1:
-        init_align = st.file_uploader(
-            "CSV — Alignement (Fantrax)",
-            type=["csv", "txt"],
-            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-    with c_init2:
-        init_hist = st.file_uploader(
-            "CSV — Historique (optionnel)",
-            type=["csv", "txt"],
-            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-
-    c_btn1, c_btn2 = st.columns([1, 1])
-
-    with c_btn1:
-        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-            if init_align is None:
-                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
-            else:
-                try:
-                    buf = io.BytesIO(init_align.getbuffer())
-                    buf.name = init_align.name
-                    df_import = parse_fantrax(buf)
-                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
-                    df_import["Propriétaire"] = str(chosen_owner).strip()
-                    df_import = clean_data(df_import)
-                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
-
-                    st.session_state["init_preview_df"] = df_import
-                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                    st.session_state["init_preview_filename"] = init_align.name
-                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
-                except Exception as e:
-                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
-
-    preview_df = st.session_state.get("init_preview_df")
-    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
-        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
-            st.dataframe(preview_df.head(20), use_container_width=True)
-
-    with c_btn2:
-        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
-        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
-            df_team = st.session_state.get("init_preview_df")
-            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
-            filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
-
-            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-
-            df_team = clean_data(df_team.copy())
-            df_team["Propriétaire"] = owner_final
-            df_team = clean_data(df_team)
-
-            if clear_team_before:
-                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
-                df_new = pd.concat([keep, df_team], ignore_index=True)
-            else:
-                df_new = pd.concat([df_cur, df_team], ignore_index=True)
-
-            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
-                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
-                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
-                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-
-            df_new = clean_data(df_new)
-            st.session_state["data"] = df_new
-            persist_data(df_new, season_pick)
-
-            st.session_state["plafonds"] = rebuild_plafonds(df_new)
-
-            st.session_state["selected_team"] = owner_final
-            st.session_state["align_owner"] = owner_final
-            clear_move_ctx()
-
-            manifest["fantrax_by_team"][owner_final] = {
-                "uploaded_name": filename_final,
-                "season": season_pick,
-                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
-                "team": owner_final,
-            }
-            save_init_manifest(manifest)
-
-            if init_hist is not None:
-                try:
-                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
-                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
-                        h0["proprietaire"] = h0["Propriétaire"]
-                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
-                        h0["joueur"] = h0["Joueur"]
-                    for c in _history_expected_cols():
-                        if c not in h0.columns:
-                            h0[c] = ""
-                    h0 = h0[_history_expected_cols()].copy()
-                    st.session_state["history"] = h0
-                    persist_history(h0, season_pick)
-                except Exception as e:
-                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
-
-            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
-            st.session_state.pop("init_preview_df", None)
-            st.session_state.pop("init_preview_owner", None)
-            st.session_state.pop("init_preview_filename", None)
-
-            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
-            do_rerun()
-
-    st.divider()
-    st.markdown("### 📌 Derniers imports par équipe")
-
-    by_team = manifest.get("fantrax_by_team", {}) or {}
-    if not by_team:
-        st.caption("— Aucun import enregistré —")
-    else:
-        if "admin_imports_desc" not in st.session_state:
-            st.session_state["admin_imports_desc"] = True
-
-        c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
-        with c1:
-            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
-            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
-                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
-                do_rerun()
-        with c2:
-            st.caption("Tri par date")
-
-        rows = []
-        for team, info in by_team.items():
-            rows.append(
-                {
-                    "Équipe": str(team).strip(),
-                    "Fichier": str(info.get("uploaded_name", "") or "").strip(),
-                    "Date": str(info.get("saved_at", "") or "").strip(),
-                }
-            )
-
-        df_imports = pd.DataFrame(rows)
-        df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
-
-        df_imports = df_imports.sort_values(
-            by="_dt",
-            ascending=(not st.session_state["admin_imports_desc"]),
-            na_position="last",
-        )
-
-        df_imports["Date"] = df_imports["_dt"].apply(format_date_fr)
-        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
-
-        st.dataframe(df_imports, use_container_width=True, hide_index=True)
-
-
-
-    # -----------------------------
-    # 💰 Plafonds (édition admin)
-    # -----------------------------
-    with st.expander("💰 Plafonds (Admin)", expanded=False):
-        locked = bool(st.session_state.get("LOCKED", False))
-        if locked:
-            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
-
-        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
-        st.session_state["PLAFOND_GC"] = st.number_input(
-            "Plafond Grand Club",
-            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
-            step=500_000,
-            key="admin_plafond_gc",
-            disabled=locked,
-        )
-        st.session_state["PLAFOND_CE"] = st.number_input(
-            "Plafond Club École",
-            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
-            step=250_000,
-            key="admin_plafond_ce",
-            disabled=locked,
-        )
-
-
-    # -----------------------------
-    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
-    # -----------------------------
-    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
-        # réutilise l'onglet autonomes, sans en-tête
-        render_tab_autonomes(show_header=False)
-
-    # -----------------------------
-    # 📦 Transactions (Admin) — sauvegarde proposition
-    # -----------------------------
-    with st.expander("📦 Transactions (Admin)", expanded=False):
-        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
-
-        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
-        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
-
-        a_players = st.session_state.get("tx_players_A", []) or []
-        b_players = st.session_state.get("tx_players_B", []) or []
-        a_picks = st.session_state.get("tx_picks_A", []) or []
-        b_picks = st.session_state.get("tx_picks_B", []) or []
-        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
-        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
-
-        # Retenues (si présentes)
-        def _collect_ret(side: str) -> dict:
-            out = {}
-            for k, v in st.session_state.items():
-                if k.startswith(f"tx_ret_{side}_"):
-                    try:
-                        amt = int(v or 0)
-                    except Exception:
-                        amt = 0
-                    if amt > 0:
-                        # clé contient déjà le nom "safe", on le garde
-                        out[k] = amt
-            return out
-
-        a_retained = _collect_ret("A")
-        b_retained = _collect_ret("B")
-
-        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
-        if not has_any:
-            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
-        else:
-            # Validations : Level (STD/ELC) et Expiry Year doivent exister pour les joueurs sélectionnés
-            df_all = st.session_state.get("data", pd.DataFrame()).copy()
-
-            missing = []
-            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
-                for j in plist:
-                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
-                    if d.empty:
-                        missing.append(f"{owner or side} — {j} (introuvable)")
-                        continue
-                    lvl = str(d.iloc[0].get("Level", "")).strip()
-                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
-                    if not lvl or lvl.upper() not in ("STD", "ELC"):
-                        missing.append(f"{owner or side} — {j} (Level manquant)")
-                    if not exp:
-                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
-
-            if missing:
-                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
-                st.write("• " + "\n• ".join(missing[:12]))
-                if len(missing) > 12:
-                    st.caption(f"+ {len(missing)-12} autres…")
-                can_save = False
-            else:
-                can_save = True
-
-            # Preview compact
-            st.markdown("**Résumé**")
-            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
-            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
-
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
-                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
-                    row = {
-                        "timestamp": ts,
-                        "owner_a": owner_a,
-                        "owner_b": owner_b,
-                        "a_players": " | ".join([str(x).strip() for x in a_players]),
-                        "b_players": " | ".join([str(x).strip() for x in b_players]),
-                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
-                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
-                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
-                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
-                        "a_cash": int(a_cash or 0),
-                        "b_cash": int(b_cash or 0),
-                        "status": "En attente",
-                        "approved_a": True,
-                        "approved_b": False,
-                        "submitted_by": str(get_selected_team() or "").strip(),
-                        "approved_at_a": ts,
-                        "approved_at_b": "",
-                        "completed_at": "",
-                    }
-                    append_transaction(season, row)
-                    st.toast("✅ Transaction sauvegardée", icon="✅")
-
-            with col_s2:
-                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
-                    for k in list(st.session_state.keys()):
-                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
-                            try:
-                                del st.session_state[k]
-                            except Exception:
-                                pass
-                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
-                    do_rerun()
-
-
-elif active_tab == "🧠 Recommandations":
-    st.subheader("🧠 Recommandations")
-    st.caption("Une recommandation unique par équipe (résumé).")
-
-    plafonds0 = st.session_state.get("plafonds")
-    df = st.session_state.get("data")
-    if df is None or df.empty or plafonds0 is None or plafonds0.empty:
-        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
-        st.stop()
-
-    rows = []
-    for _, r in plafonds0.iterrows():
-        owner = str(r.get("Propriétaire", "")).strip()
-        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
-        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
-
-        # Une seule ligne par équipe
-        if dispo_gc < 2_000_000:
-            reco = "Rétrogradation recommandée (manque de marge GC)"
-            lvl = "warn"
-        elif dispo_ce > 10_000_000:
-            reco = "Rappel possible (marge CE élevée)"
-            lvl = "ok"
-        else:
-            reco = "Aucune action urgente"
-            lvl = "ok"
-
-        rows.append({"Équipe": owner, "Marge GC": money(dispo_gc), "Marge CE": money(dispo_ce), "Recommandation": reco, "_lvl": lvl})
-
-    out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
-    st.dataframe(out.drop(columns=["_lvl"]), use_container_width=True, hide_index=True)
 
 
 
