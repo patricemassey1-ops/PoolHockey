@@ -6836,12 +6836,22 @@ elif active_tab == "🛠️ Gestion Admin":
         with cC:
             st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
 
-        # Aperçu rapide
+
+        # Aperçu rapide (PAS d'expander dans un expander -> Streamlit interdit)
         pdb = st.session_state.get("players_db")
         if isinstance(pdb, pd.DataFrame) and not pdb.empty:
             cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
-            with st.expander("👀 Aperçu Players DB (20 lignes)", expanded=False):
-                st.dataframe(pdb[cols_show].head(20) if cols_show else pdb.head(20), use_container_width=True, hide_index=True)
+            show_preview = st.checkbox(
+                "👀 Afficher un aperçu (20 lignes)",
+                value=False,
+                key="admin_playersdb_preview",
+            )
+            if show_preview:
+                st.dataframe(
+                    pdb[cols_show].head(20) if cols_show else pdb.head(20),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         else:
             st.warning("Players DB non chargée. Clique **Recharger Players DB**.")
     # 🧩 Outil — Joueurs sans drapeau (Country manquant)
