@@ -6733,6 +6733,326 @@ elif active_tab == "🛠️ Gestion Admin":
                     ok = send_email_alert("PMS backups test", "✅ Test email — PMS backups")
                     st.success("Email OK") if ok else st.error("Email KO")
 
+    # -----------------------------
+    # 📥 Importation CSV Fantrax (Admin)
+    #   (sorti de l'expander Ajout de joueurs)
+    # -----------------------------
+    manifest = load_init_manifest() or {}
+    if "fantrax_by_team" not in manifest:
+        manifest["fantrax_by_team"] = {}
+
+    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
+    default_owner = get_selected_team().strip() or teams[0]
+    if default_owner not in teams:
+        default_owner = teams[0]
+
+    chosen_owner = st.selectbox(
+        "Importer l'alignement dans quelle équipe ?",
+        teams,
+        index=teams.index(default_owner),
+        key="admin_import_team_pick",
+    )
+
+    clear_team_before = st.checkbox(
+        f"Vider l’alignement de {chosen_owner} avant import",
+        value=True,
+        help="Recommandé si tu réimportes la même équipe.",
+        key="admin_clear_team_before",
+    )
+
+    u_nonce = int(st.session_state.get("uploader_nonce", 0))
+    c_init1, c_init2 = st.columns(2)
+    with c_init1:
+        init_align = st.file_uploader(
+            "CSV — Alignement (Fantrax)",
+            type=["csv", "txt"],
+            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+    with c_init2:
+        init_hist = st.file_uploader(
+            "CSV — Historique (optionnel)",
+            type=["csv", "txt"],
+            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+
+    c_btn1, c_btn2 = st.columns([1, 1])
+
+    with c_btn1:
+        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
+            if init_align is None:
+                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
+            else:
+                try:
+                    buf = io.BytesIO(init_align.getbuffer())
+                    buf.name = init_align.name
+                    df_import = parse_fantrax(buf)
+                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                    df_import["Propriétaire"] = str(chosen_owner).strip()
+                    df_import = clean_data(df_import)
+                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
+
+                    st.session_state["init_preview_df"] = df_import
+                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
+                    st.session_state["init_preview_filename"] = init_align.name
+                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                except Exception as e:
+                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
+
+    preview_df = st.session_state.get("init_preview_df")
+    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
+            st.dataframe(preview_df.head(20), use_container_width=True)
+
+    with c_btn2:
+        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
+        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
+            df_team = st.session_state.get("init_preview_df")
+            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
+            filename_final = st.session_state.get("init_preview_filename", "") or (init_align.name if init_align else "")
+
+            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+
+            df_team = clean_data(df_team.copy())
+            df_team["Propriétaire"] = owner_final
+            df_team = clean_data(df_team)
+
+            if clear_team_before:
+                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                df_new = pd.concat([keep, df_team], ignore_index=True)
+            else:
+                df_new = pd.concat([df_cur, df_team], ignore_index=True)
+
+            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
+                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+            df_new = clean_data(df_new)
+            st.session_state["data"] = df_new
+            persist_data(df_new, season_pick)
+
+            st.session_state["plafonds"] = rebuild_plafonds(df_new)
+
+            st.session_state["selected_team"] = owner_final
+            st.session_state["align_owner"] = owner_final
+            clear_move_ctx()
+
+            manifest["fantrax_by_team"][owner_final] = {
+                "uploaded_name": filename_final,
+                "season": season_pick,
+                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
+                "team": owner_final,
+            }
+            save_init_manifest(manifest)
+
+            if init_hist is not None:
+                try:
+                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
+                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
+                        h0["proprietaire"] = h0["Propriétaire"]
+                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
+                        h0["joueur"] = h0["Joueur"]
+                    for c in _history_expected_cols():
+                        if c not in h0.columns:
+                            h0[c] = ""
+                    h0 = h0[_history_expected_cols()].copy()
+                    st.session_state["history"] = h0
+                    persist_history(h0, season_pick)
+                except Exception as e:
+                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
+
+            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
+            st.session_state.pop("init_preview_df", None)
+            st.session_state.pop("init_preview_owner", None)
+            st.session_state.pop("init_preview_filename", None)
+
+            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
+            do_rerun()
+
+    st.divider()
+    st.markdown("### 📌 Derniers imports par équipe")
+
+    by_team = manifest.get("fantrax_by_team", {}) or {}
+    if not by_team:
+        st.caption("— Aucun import enregistré —")
+    else:
+        if "admin_imports_desc" not in st.session_state:
+            st.session_state["admin_imports_desc"] = True
+
+        c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
+        with c1:
+            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
+            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
+                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
+                do_rerun()
+        with c2:
+            st.caption("Tri par date")
+
+        rows = []
+        for team, info in by_team.items():
+            rows.append(
+                {
+                    "Équipe": str(team).strip(),
+                    "Fichier": str(info.get("uploaded_name", "") or "").strip(),
+                    "Date": str(info.get("saved_at", "") or "").strip(),
+                }
+            )
+
+        df_imports = pd.DataFrame(rows)
+        df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
+
+        df_imports = df_imports.sort_values(
+            by="_dt",
+            ascending=(not st.session_state["admin_imports_desc"]),
+            na_position="last",
+        )
+
+        df_imports["Date"] = df_imports["_dt"].apply(format_date_fr)
+        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
+
+        st.dataframe(df_imports, use_container_width=True, hide_index=True)
+
+
+
+    # -----------------------------
+    # 💰 Plafonds (édition admin)
+    # -----------------------------
+    with st.expander("💰 Plafonds (Admin)", expanded=False):
+        locked = bool(st.session_state.get("LOCKED", False))
+        if locked:
+            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
+
+        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
+        st.session_state["PLAFOND_GC"] = st.number_input(
+            "Plafond Grand Club",
+            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
+            step=500_000,
+            key="admin_plafond_gc",
+            disabled=locked,
+        )
+        st.session_state["PLAFOND_CE"] = st.number_input(
+            "Plafond Club École",
+            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
+            step=250_000,
+            key="admin_plafond_ce",
+            disabled=locked,
+        )
+
+
+    # -----------------------------
+    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
+    # -----------------------------
+    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
+        # réutilise l'onglet autonomes, sans en-tête
+        render_tab_autonomes(show_header=False)
+
+    # -----------------------------
+    # 📦 Transactions (Admin) — sauvegarde proposition
+    # -----------------------------
+    with st.expander("📦 Transactions (Admin)", expanded=False):
+        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
+
+        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
+        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
+
+        a_players = st.session_state.get("tx_players_A", []) or []
+        b_players = st.session_state.get("tx_players_B", []) or []
+        a_picks = st.session_state.get("tx_picks_A", []) or []
+        b_picks = st.session_state.get("tx_picks_B", []) or []
+        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
+        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
+
+        # Retenues (si présentes)
+        def _collect_ret(side: str) -> dict:
+            out = {}
+            for k, v in st.session_state.items():
+                if k.startswith(f"tx_ret_{side}_"):
+                    try:
+                        amt = int(v or 0)
+                    except Exception:
+                        amt = 0
+                    if amt > 0:
+                        # clé contient déjà le nom "safe", on le garde
+                        out[k] = amt
+            return out
+
+        a_retained = _collect_ret("A")
+        b_retained = _collect_ret("B")
+
+        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
+        if not has_any:
+            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
+        else:
+            # Validations : Level (STD/ELC) et Expiry Year doivent exister pour les joueurs sélectionnés
+            df_all = st.session_state.get("data", pd.DataFrame()).copy()
+
+            missing = []
+            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
+                for j in plist:
+                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
+                    if d.empty:
+                        missing.append(f"{owner or side} — {j} (introuvable)")
+                        continue
+                    lvl = str(d.iloc[0].get("Level", "")).strip()
+                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
+                    if not lvl or lvl.upper() not in ("STD", "ELC"):
+                        missing.append(f"{owner or side} — {j} (Level manquant)")
+                    if not exp:
+                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
+
+            if missing:
+                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
+                st.write("• " + "\n• ".join(missing[:12]))
+                if len(missing) > 12:
+                    st.caption(f"+ {len(missing)-12} autres…")
+                can_save = False
+            else:
+                can_save = True
+
+            # Preview compact
+            st.markdown("**Résumé**")
+            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
+            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
+
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
+                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
+                    row = {
+                        "timestamp": ts,
+                        "owner_a": owner_a,
+                        "owner_b": owner_b,
+                        "a_players": " | ".join([str(x).strip() for x in a_players]),
+                        "b_players": " | ".join([str(x).strip() for x in b_players]),
+                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
+                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
+                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
+                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
+                        "a_cash": int(a_cash or 0),
+                        "b_cash": int(b_cash or 0),
+                        "status": "En attente",
+                        "approved_a": True,
+                        "approved_b": False,
+                        "submitted_by": str(get_selected_team() or "").strip(),
+                        "approved_at_a": ts,
+                        "approved_at_b": "",
+                        "completed_at": "",
+                    }
+                    append_transaction(season, row)
+                    st.toast("✅ Transaction sauvegardée", icon="✅")
+
+            with col_s2:
+                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
+                            try:
+                                del st.session_state[k]
+                            except Exception:
+                                pass
+                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
+                    do_rerun()
+
+
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
@@ -6923,3 +7243,627 @@ def apply_players_level(df: pd.DataFrame, pdb_path: str | None = None) -> pd.Dat
     out.loc[apply_mask, "Level_found"] = True
     out.loc[apply_mask, "Level_src"] = "Hockey.Players.csv"
     return out
+
+# =====================================================
+# NHL APIs - Enrich / Build Players DB (Admin action)
+#   - api-web.nhle.com (roster + player landing)
+#   - statsapi.web.nhl.com (fallback roster + teams)
+#   - api.nhle.com/stats/rest (optional, not required for identity)
+#
+# Design goals:
+#   - One button in Admin to update data/hockey.players.csv
+#   - Cache on disk (CSV) so app works even if API is down
+#   - Preserve user's columns: Level (ELC/STD) + Cap Hit (contracts)
+# =====================================================
+
+NHL_APIWEB_BASE = "https://api-web.nhle.com"
+NHL_STATSAPI_BASE = "https://statsapi.web.nhl.com"
+NHL_STATSREST_BASE = "https://api.nhle.com/stats/rest"
+
+
+def _soft_player_key(name: str) -> str:
+    """Soft normalize for matching when playerId is missing."""
+    s = str(name or "").strip()
+    # Remove team suffixes like " (COL)" or " - COL" if present
+    s = re.sub(r"\s*\([^\)]*\)\s*$", "", s)
+    s = re.sub(r"\s*[-\u2013\u2014]\s*[A-Z]{2,4}\s*$", "", s)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    # Handle "Last, First" to "First Last"
+    if "," in s:
+        parts = [x.strip() for x in s.split(",", 1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            s = f"{parts[1]} {parts[0]}".strip()
+    return s
+
+
+def _http_get_json(url: str, timeout: int = 20):
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; PMSPool/1.0; +https://streamlit.app)",
+    }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def _nhl_get_teams() -> list[dict]:
+    """Get team list from StatsAPI (stable)."""
+    try:
+        j = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams")
+        teams = j.get("teams", []) if isinstance(j, dict) else []
+        out = []
+        for t in teams:
+            out.append(
+                {
+                    "teamId": t.get("id"),
+                    "abbrev": t.get("abbreviation") or (t.get("triCode") if isinstance(t.get("triCode"), str) else None),
+                    "name": t.get("name") or t.get("teamName") or "",
+                }
+            )
+        return [x for x in out if x.get("teamId") and x.get("abbrev")]
+    except Exception:
+        return []
+
+
+def _apiweb_roster_current(abbrev: str) -> list[int]:
+    """api-web roster may be incomplete sometimes; we treat it as one source."""
+    ids: set[int] = set()
+    try:
+        j = _http_get_json(f"{NHL_APIWEB_BASE}/v1/roster/{abbrev}/current")
+        if isinstance(j, dict):
+            # The response typically contains keys like forwards/defensemen/goalies
+            for v in j.values():
+                if isinstance(v, list):
+                    for row in v:
+                        if not isinstance(row, dict):
+                            continue
+                        pid = row.get("id") or row.get("playerId") or (row.get("person", {}) or {}).get("id")
+                        try:
+                            if pid is not None:
+                                ids.add(int(pid))
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+    return sorted(ids)
+
+
+def _statsapi_roster(team_id: int) -> list[int]:
+    ids: set[int] = set()
+    try:
+        j = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams/{int(team_id)}/roster")
+        roster = (j.get("roster") if isinstance(j, dict) else None) or []
+        for r0 in roster:
+            if not isinstance(r0, dict):
+                continue
+            person = r0.get("person") or {}
+            pid = person.get("id")
+            try:
+                if pid is not None:
+                    ids.add(int(pid))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return sorted(ids)
+
+
+def _apiweb_player_landing(player_id: int) -> dict:
+    try:
+        return _http_get_json(f"{NHL_APIWEB_BASE}/v1/player/{int(player_id)}/landing")
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def nhl_player_landing_cached(player_id: int) -> dict:
+    """Cache 24h: player landing from api-web.nhle.com.
+    Avoids repeated HTTP calls on reruns / dialogs."""
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+    if pid <= 0:
+        return {}
+    return _apiweb_player_landing(pid) or {}
+
+
+# -------------------------------------------------
+# NHL playerId lookup by name (fallback) + single-player DB upsert
+# -------------------------------------------------
+
+def _norm_fullname_for_match(s: str) -> str:
+    s = str(s or "").strip().lower()
+    # remove team suffixes like "(COL)" or "- COL"
+    s = re.sub(r"\([^\)]*\)", " ", s)
+    s = re.sub(r"\s+-\s+[a-z]{2,4}\s*$", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    # remove punctuation
+    s = re.sub(r"[^a-z0-9\s'-]", "", s)
+    return s
+
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def nhl_statsrest_all_players_cached(season_lbl: str | None) -> list[dict]:
+    """Liste globale des joueurs via api.nhle.com/stats/rest (skaters + goalies).
+    Retourne une liste de dicts contenant au moins: playerId, fullName, teamAbbrev, position.
+    Cache 24h.
+    """
+    season_id = _nhl_season_id_from_label(season_lbl)
+    if not season_id:
+        return []
+
+    def _fetch(kind: str) -> list[dict]:
+        base = f"{NHL_STATSREST_BASE}/stats/rest/en/{kind}/summary"
+        params = {
+            "cayenneExp": f"seasonId={season_id}",
+        }
+        try:
+            j = _http_get_json(base, params=params)
+        except Exception:
+            j = {}
+        rows = (j.get("data") if isinstance(j, dict) else None) or []
+        out = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            pid = r.get("playerId")
+            if not pid:
+                continue
+            full = r.get("skaterFullName") or r.get("goalieFullName") or r.get("playerFullName") or r.get("fullName")
+            full = str(full or "").strip()
+            team = str(r.get("teamAbbrev") or "").strip()
+            pos = str(r.get("positionCode") or r.get("position") or ("G" if kind=="goalie" else "") or "").strip()
+            try:
+                out.append({"playerId": int(pid), "fullName": full, "teamAbbrev": team, "position": pos})
+            except Exception:
+                continue
+        return out
+
+    # skaters + goalies
+    players = _fetch("skater") + _fetch("goalie")
+    return players
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def nhl_find_playerid_by_name_cached(full_name: str, season_lbl: str | None = None) -> int:
+    """Best-effort playerId lookup by player full name.
+
+    ✅ Utilise api.nhle.com/stats/rest (liste globale skaters+goalies) plutôt que les rosters,
+    car les endpoints roster sont parfois vides/instables.
+
+    Retourne 0 si non trouvé.
+    """
+    target = _norm_fullname_for_match(full_name)
+    if not target:
+        return 0
+    try:
+        players = nhl_statsrest_all_players_cached(season_lbl)
+        for p in players:
+            nm = _norm_fullname_for_match(p.get("fullName",""))
+            if nm and nm == target:
+                try:
+                    return int(p.get("playerId") or 0)
+                except Exception:
+                    return 0
+    except Exception:
+        return 0
+    return 0
+    try:
+        teams_json = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams")
+        teams = (teams_json.get("teams") if isinstance(teams_json, dict) else None) or []
+        for t in teams:
+            if not isinstance(t, dict):
+                continue
+            tid = t.get("id")
+            if tid is None:
+                continue
+            roster_json = _http_get_json(f"{NHL_STATSAPI_BASE}/api/v1/teams/{int(tid)}/roster")
+            roster = (roster_json.get("roster") if isinstance(roster_json, dict) else None) or []
+            for r0 in roster:
+                if not isinstance(r0, dict):
+                    continue
+                person = r0.get("person") or {}
+                pid = person.get("id")
+                nm = person.get("fullName")
+                if not pid or not nm:
+                    continue
+                if _norm_fullname_for_match(nm) == target:
+                    try:
+                        return int(pid)
+                    except Exception:
+                        return 0
+    except Exception:
+        return 0
+    return 0
+
+def upsert_single_player_from_api(player_id: int) -> bool:
+    """Fetch landing and upsert minimal identity fields into hockey.players.csv.
+
+    Preserves existing Level/Cap Hit if present.
+    """
+    try:
+        pid = int(player_id or 0)
+    except Exception:
+        pid = 0
+    if pid <= 0:
+        return False
+
+    landing = nhl_player_landing_cached(pid)
+    if not landing:
+        return False
+
+    ident = _extract_player_identity(pid, landing)
+    if not ident or not ident.get("Player"):
+        return False
+
+    # Load existing DB
+    path = _first_existing(PLAYERS_DB_FALLBACKS)
+    if not path:
+        path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            df = pd.DataFrame()
+    else:
+        df = pd.DataFrame()
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["playerId","Player","Pos","Equipe","Shoots","Country","Level","Cap Hit"])
+
+    # Ensure columns
+    for col in ["playerId","Player","Pos","Equipe","Shoots","Country","Level","Cap Hit"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Match by playerId first
+    try:
+        df_pid = pd.to_numeric(df["playerId"], errors="coerce").fillna(0).astype(int)
+    except Exception:
+        df_pid = pd.Series([0]*len(df), dtype=int)
+
+    mask = df_pid.eq(pid)
+    if mask.any():
+        i = int(df.index[mask][0])
+        # Preserve Country/Level/Cap Hit
+        ctry = df.at[i, "Country"] if "Country" in df.columns else ""
+        lvl = df.at[i, "Level"] if "Level" in df.columns else ""
+        cap = df.at[i, "Cap Hit"] if "Cap Hit" in df.columns else ""
+        df.at[i, "playerId"] = pid
+        df.at[i, "Player"] = ident.get("Player","")
+        df.at[i, "Pos"] = ident.get("Pos","")
+        df.at[i, "Equipe"] = ident.get("Equipe","")
+        df.at[i, "Shoots"] = ident.get("Shoots","")
+        df.at[i, "Country"] = ctry
+        df.at[i, "Level"] = lvl
+        df.at[i, "Cap Hit"] = cap
+    else:
+        # Append new row
+        df = pd.concat([df, pd.DataFrame([{
+            "playerId": pid,
+            "Player": ident.get("Player",""),
+            "Pos": ident.get("Pos",""),
+            "Equipe": ident.get("Equipe",""),
+            "Shoots": ident.get("Shoots",""),
+            "Country": "",
+            "Level": "",
+            "Cap Hit": "",
+        }])], ignore_index=True)
+
+    try:
+        df.to_csv(path, index=False)
+        return True
+    except Exception:
+        return False
+
+def _landing_field(landing: dict, path: list, default=""):
+    cur = landing
+    for key in path:
+        if isinstance(cur, dict):
+            cur = cur.get(key)
+        else:
+            return default
+    return cur if cur is not None else default
+
+
+def _extract_player_identity(player_id: int, landing: dict) -> dict:
+    """Best-effort extraction. We keep it flexible because NHL may evolve payloads."""
+    def _g(path, default=""):
+        cur = landing
+        for key in path:
+            if isinstance(cur, dict):
+                cur = cur.get(key)
+            else:
+                return default
+        return cur if cur is not None else default
+
+    first = _g(["firstName", "default"], "") or _g(["firstName"], "")
+    last = _g(["lastName", "default"], "") or _g(["lastName"], "")
+    full = ("%s %s" % (str(first).strip(), str(last).strip())).strip() or str(_g(["fullName"], "") or "").strip()
+
+    pos = str(_g(["position"], "") or _g(["positionCode"], "") or "").strip()
+    shoots = str(_g(["shootsCatches"], "") or "").strip()
+
+    team_abbrev = ""
+    team = landing.get("currentTeam") if isinstance(landing, dict) else None
+    if isinstance(team, dict):
+        team_abbrev = str(team.get("abbrev") or team.get("triCode") or "").strip()
+
+    return {
+        "playerId": int(player_id),
+        "Player": full,
+        "Pos": pos,
+        "Equipe": team_abbrev,
+        "Shoots": shoots,
+        "_player_key": _soft_player_key(full),
+    }
+
+
+def _nhl_season_id_from_label(season_lbl: str | None) -> str | None:
+    """Convertit une saison UI (ex: '2025' ou '2025-2026') en seasonId NHL (ex: '20242025').
+    Retourne None si impossible.
+    """
+    s = str(season_lbl or "").strip()
+    if not s:
+        return None
+    # formats possibles: '2025', '2026', '2025-2026', '2025/2026', '2025 2026'
+    s2 = re.sub(r"[^0-9]+", " ", s).strip()
+    parts = [x for x in s2.split() if x.isdigit()]
+    try:
+        if len(parts) >= 2:
+            y1, y2 = int(parts[0]), int(parts[1])
+            if 1900 < y1 < 3000 and 1900 < y2 < 3000:
+                return f"{y1:04d}{y2:04d}"
+        if len(parts) == 1:
+            y = int(parts[0])
+            if 1900 < y < 3000:
+                # convention: label '2025' => saison NHL 2024-2025
+                return f"{y-1:04d}{y:04d}"
+    except Exception:
+        return None
+    return None
+
+
+def _statsrest_fetch_summary(kind: str, season_id: str) -> list[dict]:
+    """Récupère un résumé (skater/goalie) via api.nhle.com/stats/rest.
+    kind: 'skater' ou 'goalie'
+    """
+    kind = str(kind or "").strip().lower()
+    if kind not in {"skater", "goalie"}:
+        return []
+    # Endpoint stats/rest (tables)
+    # NOTE: l'API applique souvent un plafond de page (ex: 100) même si "limit" est plus grand.
+    # => On pagine avec start/limit et on concatène.
+    base = f"https://api.nhle.com/stats/rest/en/{kind}/summary"
+    page_size = 100
+    out: list[dict] = []
+
+    start = 0
+    # garde-fou (au cas où l'API boucle)
+    for _ in range(0, 500):
+        params = {
+            "cayenneExp": f"seasonId={season_id}",
+            "limit": str(page_size),
+            "start": str(start),
+        }
+        try:
+            r = requests.get(base, params=params, timeout=20)
+            if r.status_code != 200:
+                break
+            js = r.json()
+            data = js.get("data") if isinstance(js, dict) else None
+            if not isinstance(data, list) or not data:
+                break
+            out.extend([d for d in data if isinstance(d, dict)])
+            # dernière page
+            if len(data) < page_size:
+                break
+            start += page_size
+        except Exception:
+            break
+
+    return out
+
+
+def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
+    """Met à jour data/hockey.players.csv en fusionnant des APIs NHL publiques.
+
+    Source robuste (2026): api.nhle.com/stats/rest (skater/goalie summary) pour la liste des joueurs actifs.
+
+    - Ajoute/MAJ identité: playerId, Player, Pos, Equipe
+    - Préserve: Level (ELC/STD) et Cap Hit (ne jamais écraser si déjà présent)
+
+    Retourne: (df_updated, stats)
+    """
+    # Load existing DB if present
+    path = _first_existing(PLAYERS_DB_FALLBACKS)
+    if not path:
+        path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    if os.path.exists(path):
+        try:
+            df0 = pd.read_csv(path)
+        except Exception:
+            df0 = pd.DataFrame()
+    else:
+        df0 = pd.DataFrame()
+
+    # Normalize columns
+    if "Player" not in df0.columns:
+        for alt in ["Joueur", "Name", "Nom"]:
+            if alt in df0.columns:
+                df0["Player"] = df0[alt]
+                break
+    if "Player" not in df0.columns:
+        df0["Player"] = ""
+
+    if "Level" not in df0.columns:
+        df0["Level"] = ""
+    if "Cap Hit" not in df0.columns:
+        for alt in ["Salaire", "Salary", "CapHit", "AAV"]:
+            if alt in df0.columns:
+                df0["Cap Hit"] = df0[alt]
+                break
+        if "Cap Hit" not in df0.columns:
+            df0["Cap Hit"] = ""
+
+    if "playerId" not in df0.columns:
+        df0["playerId"] = pd.NA
+
+    for c in ["Pos", "Equipe", "Shoots"]:
+        if c not in df0.columns:
+            df0[c] = ""
+
+    df0["Player"] = df0["Player"].astype(str).fillna("").map(lambda x: x.strip())
+    df0["_player_key"] = df0["Player"].map(_soft_player_key)
+
+    # Index existant par playerId
+    existing_by_id: dict[int, int] = {}
+    for i, row in df0.iterrows():
+        pid = row.get("playerId")
+        try:
+            if pd.notna(pid):
+                existing_by_id[int(pid)] = i
+        except Exception:
+            pass
+
+    # SeasonId NHL
+    season_id = _nhl_season_id_from_label(season_lbl) or _nhl_season_id_from_label(st.session_state.get("season"))
+
+    stats = {
+        "season_lbl": str(season_lbl or "").strip(),
+        "season_id": season_id or "",
+        "unique_player_ids": 0,
+        "from_statsrest_skaters": 0,
+        "from_statsrest_goalies": 0,
+        "updated_rows": 0,
+        "added_rows": 0,
+        "kept_level": 0,
+        "kept_cap_hit": 0,
+        "landing_ok": 0,
+        "landing_fail": 0,
+    }
+
+    if not season_id:
+        # Pas de seasonId => on ne peut pas requêter stats/rest
+        if "_player_key" in df0.columns:
+            df0 = df0.drop(columns=["_player_key"], errors="ignore")
+        out_path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
+        df0.to_csv(out_path, index=False)
+        return df0, stats
+
+    skaters = _statsrest_fetch_summary("skater", season_id)
+    goalies = _statsrest_fetch_summary("goalie", season_id)
+    stats["from_statsrest_skaters"] = len(skaters)
+    stats["from_statsrest_goalies"] = len(goalies)
+
+    def _row_from_statsrest(d: dict, is_goalie: bool) -> dict | None:
+        if not isinstance(d, dict):
+            return None
+        pid = d.get("playerId")
+        try:
+            pid = int(pid)
+        except Exception:
+            return None
+
+        name = str(d.get("skaterFullName") or d.get("goalieFullName") or d.get("playerName") or d.get("fullName") or "").strip()
+        team = str(d.get("teamAbbrev") or d.get("team" ) or "").strip()
+        pos = str(d.get("positionCode") or d.get("position") or ("G" if is_goalie else "")).strip()
+        if is_goalie:
+            pos = "G"
+
+        return {
+            "playerId": pid,
+            "Player": name,
+            "Pos": pos,
+            "Equipe": team,
+            "Shoots": "",  # pas fourni par stats/rest summary
+            "_player_key": _soft_player_key(name),
+        }
+
+    api_rows: dict[int, dict] = {}
+    for d in skaters:
+        r = _row_from_statsrest(d, is_goalie=False)
+        if r:
+            api_rows[r["playerId"]] = r
+    for d in goalies:
+        r = _row_from_statsrest(d, is_goalie=True)
+        if r:
+            api_rows[r["playerId"]] = r
+
+    all_ids = sorted(api_rows.keys())
+    stats["unique_player_ids"] = len(all_ids)
+
+    new_rows = []
+
+    for pid in all_ids:
+        info = api_rows[pid]
+        if pid in existing_by_id:
+            i = existing_by_id[pid]
+            level_before = str(df0.at[i, "Level"] if "Level" in df0.columns else "").strip()
+            cap_before = str(df0.at[i, "Cap Hit"] if "Cap Hit" in df0.columns else "").strip()
+
+            df0.at[i, "playerId"] = pid
+            df0.at[i, "Player"] = info.get("Player", "")
+            df0.at[i, "Pos"] = info.get("Pos", "")
+            df0.at[i, "Equipe"] = info.get("Equipe", "")
+            df0.at[i, "Shoots"] = info.get("Shoots", "")
+
+            if level_before:
+                df0.at[i, "Level"] = level_before
+                stats["kept_level"] += 1
+            if cap_before:
+                df0.at[i, "Cap Hit"] = cap_before
+                stats["kept_cap_hit"] += 1
+
+            stats["updated_rows"] += 1
+        else:
+            # Match par nom (fallback) si déjà dans DB sans playerId
+            key = info.get("_player_key", "")
+            matched_i = None
+            if key:
+                hits = df0.index[df0.get("_player_key", pd.Series([], dtype=str)).astype(str) == key].tolist()
+                if hits:
+                    matched_i = hits[0]
+            if matched_i is not None:
+                i = matched_i
+                df0.at[i, "playerId"] = pid
+                df0.at[i, "Player"] = info.get("Player", "")
+                df0.at[i, "Pos"] = info.get("Pos", "")
+                df0.at[i, "Equipe"] = info.get("Equipe", "")
+                df0.at[i, "Shoots"] = info.get("Shoots", "")
+                stats["updated_rows"] += 1
+            else:
+                new_rows.append(
+                    {
+                        "playerId": pid,
+                        "Player": info.get("Player", ""),
+                        "Pos": info.get("Pos", ""),
+                        "Equipe": info.get("Equipe", ""),
+                        "Shoots": info.get("Shoots", ""),
+                        "Level": "",
+                        "Cap Hit": "",
+                    }
+                )
+                stats["added_rows"] += 1
+
+    if new_rows:
+        df_add = pd.DataFrame(new_rows)
+        df0 = pd.concat([df0.drop(columns=[c for c in ["_player_key"] if c in df0.columns]), df_add], ignore_index=True)
+    else:
+        df0 = df0.drop(columns=["_player_key"], errors="ignore")
+
+    # Final cleanup
+    for c in ["Player", "Level", "Cap Hit", "Pos", "Equipe", "Shoots"]:
+        if c not in df0.columns:
+            df0[c] = ""
+        df0[c] = df0[c].astype(str).fillna("").map(lambda x: x.strip())
+
+    df0["Level"] = df0["Level"].astype(str).map(lambda x: (x or "").strip().upper())
+    df0.loc[~df0["Level"].isin(["ELC", "STD"]), "Level"] = ""
+
+    out_path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
+    df0.to_csv(out_path, index=False)
+    return df0, stats
