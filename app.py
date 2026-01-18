@@ -6246,6 +6246,13 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
+    # ✅ Drive status block (refresh_token)
+    # ✅ Backups & Restore expander (everything collapsible)
+    # ✅ Alerts (Slack/email) + Test buttons
+    # ✅ Nightly backup (once/day) marker
+    # ✅ Your existing Admin tools can remain BELOW
+
+
     # =====================================================
     # 🔐 Google Drive — Statut (refresh_token)
     # =====================================================
@@ -6385,6 +6392,62 @@ elif active_tab == "🛠️ Gestion Admin":
             "ts_id": ts_created.get("id"),
         }
 
+    BACKUP_HISTORY_FILE = "backup_history.csv"
+
+    def _now_mtl_str():
+        return datetime.now(MTL_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _drive_download_csv_df(s, folder_id: str, filename: str):
+        """Download a CSV from Drive into a DataFrame; returns empty df if not found."""
+        import pandas as pd
+        f = _drive_find_file(s, folder_id, filename)
+        if not f:
+            return pd.DataFrame()
+        data = s.files().get_media(fileId=f["id"]).execute()
+        try:
+            return pd.read_csv(io.BytesIO(data))
+        except Exception:
+            # If corrupted, start fresh (but keep file; you'll overwrite it)
+            return pd.DataFrame()
+
+    def _drive_upsert_csv_bytes(s, folder_id: str, filename: str, csv_bytes: bytes):
+        """Create or update a CSV file on Drive by filename."""
+        media = MediaInMemoryUpload(csv_bytes, mimetype="text/csv", resumable=False)
+        f = _drive_find_file(s, folder_id, filename)
+        if f:
+            s.files().update(fileId=f["id"], media_body=media).execute()
+            return f["id"]
+        created = s.files().create(
+            body={"name": filename, "parents": [folder_id]},
+            media_body=media,
+            fields="id"
+        ).execute()
+    return created["id"]
+
+    def log_backup_event(s, folder_id: str, event: dict):
+        """
+        Append one row into backup_history.csv on Drive.
+        event keys suggested:
+          ts, action, file, result, v_name, ts_name, note, by
+        """
+        import pandas as pd
+        df = _drive_download_csv_df(s, folder_id, BACKUP_HISTORY_FILE)
+        row = {
+            "ts": event.get("ts", _now_mtl_str()),
+            "action": event.get("action", ""),
+            "file": event.get("file", ""),
+            "result": event.get("result", ""),
+            "v_name": event.get("v_name", ""),
+            "ts_name": event.get("ts_name", ""),
+            "note": event.get("note", ""),
+            "by": event.get("by", ""),
+        }
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        _drive_upsert_csv_bytes(s, folder_id, BACKUP_HISTORY_FILE, csv_bytes)
+
+
+
     def _restore_from_backup(s, target_filename: str, backup_file_id: str):
         """
         Restores by downloading backup bytes and updating the target file content.
@@ -6429,66 +6492,172 @@ elif active_tab == "🛠️ Gestion Admin":
         return ""
 
     def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
-        """
-        Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
-        Retourne un résumé.
-        """
-        backups = _drive_list_backups(s, folder_id, base_filename)
+    """
+    Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
+    Retourne un résumé.
+    """
+    backups = _drive_list_backups(s, folder_id, base_filename)
 
-        v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
-        ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
+    v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
+    ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
 
-        # backups sont déjà triés newest->oldest par modifiedTime
-        keep = set()
-        for b in v_list[:max(0, int(keep_v or 0))]:
-            keep.add(b.get("id"))
-        for b in ts_list[:max(0, int(keep_ts or 0))]:
-            keep.add(b.get("id"))
+    keep = set()
+    for b in v_list[:max(0, int(keep_v or 0))]:
+        keep.add(b.get("id"))
+    for b in ts_list[:max(0, int(keep_ts or 0))]:
+        keep.add(b.get("id"))
 
-        to_delete = [b for b in backups if b.get("id") not in keep]
+    to_delete = [b for b in backups if b.get("id") not in keep]
 
-        deleted = 0
-        errors = []
-        for b in to_delete:
-            try:
-                s.files().delete(fileId=b["id"]).execute()
-                deleted += 1
-            except Exception as e:
-                errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
+    deleted = 0
+    errors = []
+    for b in to_delete:
+        try:
+            s.files().delete(fileId=b["id"]).execute()
+            deleted += 1
+        except Exception as e:
+            errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
 
-        return {
-            "total_backups": len(backups),
-            "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
-            "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
-            "deleted": deleted,
-            "delete_errors": errors[:10],
-            "remaining": len(backups) - deleted,
-        }
+    return {
+        "total_backups": len(backups),
+        "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
+        "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
+        "deleted": deleted,
+        "delete_errors": errors[:10],
+        "remaining": len(backups) - deleted,
+    }
+
+def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
+    """
+    Runs at most once per calendar day after hour_mtl (MTL time).
+    Uses a small marker file on Drive to avoid repeating.
+    """
+    now = datetime.now(MTL_TZ)
+    if now.hour < int(hour_mtl):
+        return {"ran": False, "reason": "before_hour"}
+
+    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
+    if _drive_find_file(s, folder_id, marker):
+        return {"ran": False, "reason": "already_done"}
+
+    # Create marker FIRST (prevents double-run if reruns happen)
+    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
+
+    ok = 0
+    fail = 0
+    for fn in files:
+        existing = _drive_find_file(s, folder_id, fn)
+        if not existing:
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "SKIP (missing)",
+                "note": "fichier absent sur Drive",
+                "by": "nightly",
+            })
+            continue
+        try:
+            res = _backup_copy_both(s, folder_id, fn)
+            ok += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": "OK",
+                "v_name": res.get("v_name",""),
+                "ts_name": res.get("ts_name",""),
+                "by": "nightly",
+            })
+        except Exception as e:
+            fail += 1
+            log_backup_event(s, folder_id, {
+                "action": "nightly_backup",
+                "file": fn,
+                "result": f"FAIL ({type(e).__name__})",
+                "note": str(e),
+                "by": "nightly",
+            })
+
+    return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
 
 
-    # =====================================================
-    # 📌 Critical files
-    # =====================================================
-    st.markdown("### 🧷 Backups & Restore — fichiers critiques")
 
-    season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip()
-    if not season_lbl:
-        # fallback display only; if your app uses something else, adjust here
-        season_lbl = "2025-2026"
+# =====================================================
+# 📌 Critical files
+# =====================================================
+st.markdown("### 🧷 Backups & Restore — fichiers critiques")
 
-    CRITICAL_FILES = [
-        "equipes_joueurs.csv",
-        "hockey.players.csv",
-        f"transactions_{season_lbl}.csv",
-    ]
+season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip()
+if not season_lbl:
+    season_lbl = "2025-2026"
 
-    s = _drive()
+CRITICAL_FILES = [
+    "equipes_joueurs.csv",
+    "hockey.players.csv",
+    f"transactions_{season_lbl}.csv",
+]
 
-    st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
+s = _drive()
 
-    for i, fn in enumerate(CRITICAL_FILES):
-        st.divider()
-        st.markdown(f"#### 📄 `{fn}`")
+# =====================================================
+# 🛡️ Backup ALL
+# =====================================================
+st.markdown("### 🛡️ Backup global")
+
+if st.button(
+    "🛡️ Backup ALL (vNNN + timestamp pour chaque fichier)",
+    use_container_width=True,
+    key="backup_all_global"
+):
+    ok = 0
+    fail = 0
+
+    for fn in CRITICAL_FILES:
+        existing = _drive_find_file(s, folder_id, fn)
+        if not existing:
+            log_backup_event(s, folder_id, {
+                "action": "backup_all",
+                "file": fn,
+                "result": "SKIP (missing)",
+                "note": "fichier absent sur Drive",
+                "by": str(get_selected_team() or "admin"),
+            })
+            continue
+
+        try:
+            res = _backup_copy_both(s, folder_id, fn)
+            ok += 1
+            log_backup_event(s, folder_id, {
+                "action": "backup_all",
+                "file": fn,
+                "result": "OK",
+                "v_name": res.get("v_name", ""),
+                "ts_name": res.get("ts_name", ""),
+                "by": str(get_selected_team() or "admin"),
+            })
+
+        except Exception as e:
+            fail += 1
+            log_backup_event(s, folder_id, {
+                "action": "backup_all",
+                "file": fn,
+                "result": f"FAIL ({type(e).__name__})",
+                "note": str(e),
+                "by": str(get_selected_team() or "admin"),
+            })
+
+    if fail:
+        st.warning(f"⚠️ Backup ALL terminé avec erreurs — OK: {ok} | FAIL: {fail}")
+    else:
+        st.success(f"✅ Backup ALL terminé — OK: {ok}")
+
+st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
+
+for i, fn in enumerate(CRITICAL_FILES):
+    st.divider()
+    st.markdown(f"#### 📄 `{fn}`")
+    # ... per-file UI continues here ...
+
+
 
         # quick presence info
         existing = _drive_find_file(s, folder_id, fn)
