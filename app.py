@@ -4654,7 +4654,7 @@ if _picked_tab != st.session_state.get("active_tab"):
 active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipe")
+st.sidebar.markdown("### 🏒 Équipes")
 
 teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
 if not teams:
@@ -6732,6 +6732,279 @@ elif active_tab == "🛠️ Gestion Admin":
                 if st.button("✉️ Test Email", use_container_width=True, key="test_email"):
                     ok = send_email_alert("PMS backups test", "✅ Test email — PMS backups")
                     st.success("Email OK") if ok else st.error("Email KO")
+
+# -----------------------------
+    # 🧩 Outil — Joueurs sans drapeau (Country manquant)
+    #   Liste les joueurs présents dans ton roster actif dont le flag
+    #   ne peut pas être affiché sans une valeur Country.
+    #   ⚠️ Aucun appel API ici (simple diagnostic rapide).
+    # -----------------------------
+    st.markdown("### 🧩 Joueurs sans drapeau (Country manquant)")
+    st.caption("Affiche les joueurs du roster actif (saison sélectionnée) dont la colonne **Country** est vide dans hockey.players.csv. Remplis **Country** avec CA/US/SE/FI... pour forcer le drapeau.")
+
+    if st.checkbox("🔎 Trouver les joueurs sans drapeau", value=False, key="admin_find_missing_flags"):
+        try:
+            # 1) roster actuel
+            df_roster = st.session_state.get("data", pd.DataFrame())
+            df_roster = clean_data(df_roster) if isinstance(df_roster, pd.DataFrame) else pd.DataFrame()
+            if df_roster.empty or "Joueur" not in df_roster.columns:
+                st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import Fantrax.")
+            else:
+                # filtre saison + owner? => on prend tout le roster de la saison en cours
+                # (si tu veux limiter à l'équipe sélectionnée, on pourra l'ajouter)
+                roster_players = (
+                    df_roster[[c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot"] if c in df_roster.columns]]
+                    .dropna(subset=["Joueur"])
+                    .copy()
+                )
+                roster_players["Joueur"] = roster_players["Joueur"].astype(str).str.strip()
+                roster_players = roster_players[roster_players["Joueur"].astype(str).str.len() > 0]
+                uniq = roster_players.drop_duplicates(subset=["Joueur"]).copy()
+
+                # 2) players DB
+                pdb = st.session_state.get("players_db")
+                if not isinstance(pdb, pd.DataFrame) or pdb.empty:
+                    # load directly
+                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                    if not pdb_path:
+                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+                    mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
+                    pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
+
+                if pdb.empty or "Player" not in pdb.columns:
+                    st.warning("Players DB introuvable ou invalide. Lance d'abord Admin → Mettre à jour Players DB.")
+                else:
+                    # index par nom normalisé
+                    pdb2 = pdb.copy()
+                    if "Country" not in pdb2.columns:
+                        pdb2["Country"] = ""
+                    pdb2["_k"] = pdb2["Player"].astype(str).apply(_norm_name)
+                    name_to_country = dict(zip(pdb2["_k"], pdb2["Country"].astype(str)))
+                    name_to_pid = dict(zip(pdb2["_k"], pdb2.get("playerId", pd.Series(dtype=object)).astype(str)))
+
+                    uniq["_k"] = uniq["Joueur"].astype(str).apply(_norm_name)
+                    uniq["Country"] = uniq["_k"].map(name_to_country).fillna("")
+                    uniq["playerId"] = uniq["_k"].map(name_to_pid).fillna("")
+                    missing = uniq[uniq["Country"].astype(str).str.strip().eq("")].copy()
+
+                    cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing.columns]
+                    missing_show = missing[cols].copy()
+                    missing_show = missing_show.sort_values(by=["Joueur"]) if "Joueur" in missing_show.columns else missing_show
+
+                    if missing_show.empty:
+                        st.success("✅ Aucun joueur du roster actif n'a Country manquant (drapeaux OK).")
+                    else:
+                        st.warning(f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. Tu peux le remplir ici (inline) ou dans hockey.players.csv.")
+
+                        # --- Auto-fill (Mode C): NHL APIs + Draft Prospects + Wikipedia+Wikidata
+                        #     Remplit des SUGGESTIONS (ne sauvegarde rien sans clic 'Appliquer Country')
+                        sug_key = f"country_suggestions__{season_pick}"
+                        if sug_key not in st.session_state:
+                            st.session_state[sug_key] = {}
+
+                        def _best_country_suggest(name: str, pid_raw: str) -> tuple[str, str, float]:
+                            nm = str(name or '').strip()
+                            if not nm:
+                                return ('', '', 0.0)
+                            # 1) statsapi people if pid
+                            try:
+                                pid = int(float(pid_raw)) if str(pid_raw).strip() else 0
+                            except Exception:
+                                pid = 0
+                            if pid > 0:
+                                try:
+                                    j = _statsapi_people_cached(pid)
+                                    ppl = (j.get('people') or []) if isinstance(j, dict) else []
+                                    if ppl and isinstance(ppl, list) and isinstance(ppl[0], dict):
+                                        p0 = ppl[0]
+                                        raw = str(p0.get('nationality') or p0.get('birthCountry') or '').strip()
+                                        if raw and raw.lower() not in {'nan','none','null','0','0.0','-'}:
+                                            if len(raw) == 2 and raw.isalpha():
+                                                return (raw.upper(), 'NHL statsapi people', 0.95)
+                                            if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
+                                                return (_COUNTRY3_TO2[raw.upper()], 'NHL statsapi people', 0.95)
+                                            if raw.lower() in _COUNTRYNAME_TO2:
+                                                return (_COUNTRYNAME_TO2[raw.lower()], 'NHL statsapi people', 0.90)
+                                except Exception:
+                                    pass
+
+                            # 2) Draft prospects list
+                            try:
+                                mp = _draft_prospects_map_cached()
+                                raw = mp.get(_norm_name(nm), '') if isinstance(mp, dict) else ''
+                                if raw:
+                                    if len(raw) == 2 and raw.isalpha():
+                                        return (raw.upper(), 'NHL prospects', 0.90)
+                                    if len(raw) == 3 and raw.isalpha() and raw.upper() in _COUNTRY3_TO2:
+                                        return (_COUNTRY3_TO2[raw.upper()], 'NHL prospects', 0.90)
+                                    if raw.lower() in _COUNTRYNAME_TO2:
+                                        return (_COUNTRYNAME_TO2[raw.lower()], 'NHL prospects', 0.85)
+                            except Exception:
+                                pass
+
+                            # 3) Wikipedia + Wikidata
+                            try:
+                                iso2, src, conf = suggest_country_web(nm)
+                                if iso2:
+                                    return (iso2, src, conf)
+                            except Exception:
+                                pass
+
+                            return ('', '', 0.0)
+
+                        c_auto, c_hint = st.columns([1, 2])
+                        with c_auto:
+                            if st.button("🌍 Suggestion auto (Web + API)", use_container_width=True, key=f"admin_autofill_country__{season_pick}"):
+                                sug = st.session_state.get(sug_key, {}) or {}
+                                for r in missing_show.to_dict(orient='records'):
+                                    nm = str(r.get('Joueur', '') or '').strip()
+                                    if not nm:
+                                        continue
+                                    k = _norm_name(nm)
+                                    if k in sug and str(sug.get(k, {}).get('iso2') or '').strip():
+                                        continue
+                                    iso2, src, conf = _best_country_suggest(nm, str(r.get('playerId', '') or '').strip())
+                                    if iso2:
+                                        sug[k] = {'iso2': iso2, 'src': src, 'conf': conf}
+                                st.session_state[sug_key] = sug
+                                st.success("✅ Suggestions générées. Vérifie/ajuste puis clique 'Appliquer Country'.")
+
+                        with c_hint:
+                            st.caption("Les suggestions utilisent: NHL APIs (people/prospects) + Wikipedia/Wikidata. Rien n'est écrit dans hockey.players.csv tant que tu ne cliques pas **Appliquer Country**.")
+
+                        # --- Suggestions (soft) : pré-remplir CA pour quelques prospects connus
+                        # (tu peux ajouter des noms ici au besoin)
+                        known_ca = {
+                            _norm_name("Tij Iginla"),
+                            _norm_name("Matthew Poitras"),
+                            _norm_name("Ryan Suzuki"),
+                            _norm_name("Michael Hage"),
+                            _norm_name("Isaiah George"),
+                        }
+
+                        # build editable table
+                        edit_cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing_show.columns]
+                        editor = missing_show[edit_cols].copy()
+                        editor["Country"] = ""
+
+                        # auto-suggest (from cache + web/API) + known CA fallback
+                        editor["_k"] = editor.get("Joueur", "").astype(str).apply(_norm_name)
+                        sug = st.session_state.get(sug_key, {}) or {}
+                        # suggestions from session
+                        for i, k in enumerate(editor["_k"].tolist()):
+                            try:
+                                iso2 = str((sug.get(k) or {}).get('iso2') or '').strip()
+                                if iso2:
+                                    editor.at[i, 'Country'] = iso2
+                            except Exception:
+                                pass
+                        # known CA fallback
+                        editor.loc[editor["_k"].isin(known_ca) & editor["Country"].astype(str).str.strip().eq(""), "Country"] = "CA"
+
+                        # show editor
+                        st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI). Aucun écrasement des valeurs existantes.")
+                        editor_view = st.data_editor(
+                            editor.drop(columns=["_k"], errors="ignore"),
+                            use_container_width=True,
+                            hide_index=True,
+                            num_rows="fixed",
+                            column_config={
+                                "Country": st.column_config.TextColumn(
+                                    "Country",
+                                    help="ISO2 (CA/US/SE/FI) ou ISO3 (CAN/USA/SWE) ou nom du pays.",
+                                    max_chars=24,
+                                )
+                            },
+                            disabled=[c for c in editor.columns if c not in {"Country"} and c != "_k"],
+                            key=f"admin_missing_flags_editor__{season_pick}",
+                        )
+
+                        c_apply, c_export = st.columns([1, 1])
+                        with c_apply:
+                            if st.button("💾 Appliquer Country", use_container_width=True, key=f"admin_apply_country__{season_pick}"):
+                                try:
+                                    # load current players db
+                                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+                                    if not pdb_path:
+                                        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+                                    import pandas as _pd
+                                    pdb_df = _pd.read_csv(pdb_path) if os.path.exists(pdb_path) else _pd.DataFrame()
+                                    if pdb_df.empty:
+                                        pdb_df = _pd.DataFrame(columns=["Player", "Country", "playerId"])
+
+                                    if "Player" not in pdb_df.columns:
+                                        pdb_df["Player"] = ""
+                                    if "Country" not in pdb_df.columns:
+                                        pdb_df["Country"] = ""
+
+                                    pdb_df["_k"] = pdb_df["Player"].astype(str).apply(_norm_name)
+                                    idx_by_k = {k: i for i, k in enumerate(pdb_df["_k"].tolist())}
+
+                                    applied = 0
+                                    for row in editor_view.to_dict(orient="records"):
+                                        name = str(row.get("Joueur", "") or "").strip()
+                                        ctry = str(row.get("Country", "") or "").strip()
+                                        if not name or not ctry:
+                                            continue
+                                        k = _norm_name(name)
+                                        if k in idx_by_k:
+                                            i = idx_by_k[k]
+                                            # ne remplace pas si déjà rempli
+                                            cur = str(pdb_df.at[i, "Country"] or "").strip()
+                                            if not cur:
+                                                pdb_df.at[i, "Country"] = ctry
+                                                applied += 1
+                                        else:
+                                            # append minimal row
+                                            new_row = {col: "" for col in pdb_df.columns}
+                                            new_row["Player"] = name
+                                            new_row["Country"] = ctry
+                                            pdb_df = _pd.concat([pdb_df, _pd.DataFrame([new_row])], ignore_index=True)
+                                            applied += 1
+
+                                    # save back
+                                    pdb_df = pdb_df.drop(columns=["_k"], errors="ignore")
+                                    pdb_df.to_csv(pdb_path, index=False)
+
+                                    # refresh cached players_db
+                                    try:
+                                        try:
+                                            st.cache_data.clear()
+                                        except Exception:
+                                            pass
+                                        mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
+                                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
+                                    except Exception:
+                                        pass
+
+                                    st.success(f"✅ Country appliqué pour {applied} joueur(s).")
+                                    do_rerun()
+                                except Exception as _e:
+                                    st.error(f"Erreur écriture hockey.players.csv: {type(_e).__name__}: {_e}")
+
+                        with c_export:
+                            try:
+                                import pandas as _pd
+                                out_df = editor_view.copy()
+                                csv_bytes = out_df.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    "📤 Export CSV",
+                                    data=csv_bytes,
+                                    file_name=f"joueurs_sans_drapeau_{season_pick}.csv",
+                                    mime="text/csv",
+                                    use_container_width=True,
+                                    key=f"admin_export_missing_flags__{season_pick}",
+                                )
+                            except Exception:
+                                pass
+
+                        st.caption("Astuce: tu peux aussi éditer directement hockey.players.csv. Valeurs acceptées: CA/US/SE/FI… (ISO2), ou CAN/USA/SWE… (ISO3), ou nom du pays.")
+        except Exception as e:
+            st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
+
+    st.divider()
+
 
     # -----------------------------
     # 📥 Importation CSV Fantrax (Admin)
