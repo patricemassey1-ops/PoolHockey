@@ -1066,6 +1066,203 @@ def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.Da
 
 
 # =====================================================
+# PLAYERS DB — wrappers (used by Admin UI + other tabs)
+#   ✅ expose update_players_db() so older UI/buttons work
+#   ✅ fill missing playerId via NHL search as fallback
+#   ✅ (optionnel) fill Country using player landing endpoint
+# =====================================================
+
+_COUNTRYNAME_TO2 = {
+    "canada": "CA",
+    "united states": "US",
+    "usa": "US",
+    "sweden": "SE",
+    "finland": "FI",
+    "czechia": "CZ",
+    "czech republic": "CZ",
+    "slovakia": "SK",
+    "switzerland": "CH",
+    "germany": "DE",
+    "russia": "RU",
+    "latvia": "LV",
+    "norway": "NO",
+    "denmark": "DK",
+    "austria": "AT",
+    "france": "FR",
+}
+
+_COUNTRY3_TO2 = {
+    "CAN": "CA",
+    "USA": "US",
+    "SWE": "SE",
+    "FIN": "FI",
+    "CZE": "CZ",
+    "SVK": "SK",
+    "CHE": "CH",
+    "DEU": "DE",
+    "RUS": "RU",
+    "LVA": "LV",
+    "NOR": "NO",
+    "DNK": "DK",
+    "AUT": "AT",
+    "FRA": "FR",
+}
+
+
+def _to_iso2_country(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s or s.lower() in {"nan", "none", "null", "0", "-"}:
+        return ""
+    # already ISO2
+    if len(s) == 2 and s.isalpha():
+        return s.upper()
+    # ISO3
+    if len(s) == 3 and s.isalpha():
+        return _COUNTRY3_TO2.get(s.upper(), "")
+    # country name
+    return _COUNTRYNAME_TO2.get(s.lower(), "")
+
+
+def _nhl_search_playerid(name: str) -> int | None:
+    """Fallback search when playerId is missing.
+
+    Uses NHL public search endpoint (best-effort).
+    Returns best-matching playerId or None.
+    """
+    q = str(name or "").strip()
+    if not q:
+        return None
+    # Endpoint used by nhl.com search (stable-ish)
+    url = "https://search.d3.nhle.com/api/v1/search/player"
+    try:
+        r = requests.get(url, params={"culture": "en-us", "limit": "10", "q": q}, timeout=15)
+        if r.status_code != 200:
+            return None
+        js = r.json()
+        items = js.get("players") if isinstance(js, dict) else js
+        if not isinstance(items, list) or not items:
+            return None
+        # Pick first exact-ish match by normalized name
+        nk = _soft_player_key(q)
+        best = None
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            pid = it.get("playerId") or it.get("id")
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            nm = str(it.get("name") or it.get("playerName") or "").strip()
+            if nm and _soft_player_key(nm) == nk:
+                return pid_i
+            if best is None:
+                best = pid_i
+        return best
+    except Exception:
+        return None
+
+
+def _nhl_landing_country(pid: int) -> str:
+    """Get Country from player landing endpoint (best-effort)."""
+    try:
+        pid_i = int(pid)
+    except Exception:
+        return ""
+    url = f"https://api-web.nhle.com/v1/player/{pid_i}/landing"
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            return ""
+        js = r.json() if r.text else {}
+        if not isinstance(js, dict):
+            return ""
+        raw = (
+            js.get("nationality")
+            or js.get("birthCountry")
+            or (js.get("birthPlace") or {}).get("country")
+            or ""
+        )
+        return _to_iso2_country(raw)
+    except Exception:
+        return ""
+
+
+def update_players_db(path: str | None = None, season_lbl: str | None = None, fill_country: bool = True) -> tuple[pd.DataFrame, dict]:
+    """Wrapper attendu par l'UI Admin.
+
+    - Met à jour via stats/rest (skaters+goalies)
+    - Puis complète les playerId manquants par search (fallback)
+    - Puis (optionnel) complète Country via landing endpoint
+    """
+    # 1) Base update
+    df_upd, stats = update_players_db_via_nhl_apis(season_lbl=season_lbl)
+
+    # Determine path
+    if not path:
+        path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
+
+    df = df_upd.copy() if isinstance(df_upd, pd.DataFrame) else pd.DataFrame()
+    if df.empty:
+        try:
+            df.to_csv(path, index=False)
+        except Exception:
+            pass
+        return df, stats
+
+    # Ensure columns
+    if "Player" not in df.columns:
+        df["Player"] = ""
+    if "playerId" not in df.columns:
+        df["playerId"] = pd.NA
+    if "Country" not in df.columns:
+        df["Country"] = ""
+
+    # 2) Fill missing playerId using search
+    missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
+    stats["filled_playerid_search"] = 0
+    if missing_pid.any():
+        for i in df.index[missing_pid].tolist():
+            nm = str(df.at[i, "Player"] or "").strip()
+            if not nm:
+                continue
+            pid = _nhl_search_playerid(nm)
+            if pid:
+                df.at[i, "playerId"] = int(pid)
+                stats["filled_playerid_search"] += 1
+
+    # 3) Fill Country (only if empty) using landing
+    stats["filled_country_landing"] = 0
+    if fill_country:
+        miss_cty = df["Country"].astype(str).str.strip().eq("")
+        if miss_cty.any():
+            for i in df.index[miss_cty].tolist():
+                pid = df.at[i, "playerId"]
+                try:
+                    pid_i = int(pid)
+                except Exception:
+                    continue
+                iso2 = _nhl_landing_country(pid_i)
+                if iso2:
+                    df.at[i, "Country"] = iso2
+                    stats["filled_country_landing"] += 1
+
+    # Save back
+    try:
+        df.to_csv(path, index=False)
+    except Exception:
+        pass
+
+    # Refresh session cache if present
+    try:
+        st.session_state["players_db"] = df
+    except Exception:
+        pass
+
+    return df, stats
+
+
+# =====================================================
 # PATHS — repo local (Streamlit Cloud safe)
 #   ✅ Place tes logos à côté de app.py:
 #      - logo_pool.png
@@ -4147,17 +4344,28 @@ def open_move_dialog():
                 except Exception:
                     pass
 
+        # Pré-fetch landing (si possible) pour afficher la photo dès l'ouverture du dialog
+        landing = None
+        headshot = ""
+        if cur_pid > 0:
+            try:
+                landing = nhl_player_landing_cached(cur_pid)
+                if isinstance(landing, dict):
+                    headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot", "default"], "") or "").strip()
+            except Exception:
+                landing = None
+
+        # Photo du joueur (affichée tout de suite quand on clique son nom)
+        if headshot:
+            try:
+                st.image(headshot, width=140)
+            except Exception:
+                st.caption(headshot)
+
+        # Infos NHL (toujours expanded)
         with st.expander("ℹ️ Infos NHL (api-web.nhle.com)", expanded=True):
             if cur_pid > 0:
-                landing = nhl_player_landing_cached(cur_pid)
-                if landing:
-                    headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot", "default"], "") or "").strip()
-                    if headshot:
-                        try:
-                            st.image(headshot, width=120)
-                        except Exception:
-                            st.caption(headshot)
-
+                if isinstance(landing, dict) and landing:
                     first = str(_landing_field(landing, ["firstName", "default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
                     last  = str(_landing_field(landing, ["lastName", "default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
                     full  = (first + " " + last).strip() or str(landing.get("fullName") or "").strip()
@@ -4184,6 +4392,7 @@ def open_move_dialog():
                         st.session_state["move_ctx"] = None
                         st.session_state["active_tab"] = "👤 Profil joueur"
                         do_rerun()
+
                     cols = st.columns(3)
                     cols[0].caption(f"playerId: {cur_pid}")
                     cols[1].caption(f"Pos: {pos or cur_pos}")
@@ -4197,7 +4406,6 @@ def open_move_dialog():
                         st.caption(f"Born: {bdate}")
                 else:
                     st.info("Aucune donnée retournée pour ce playerId (API indisponible ou joueur introuvable).")
-
             else:
                 st.info("playerId introuvable pour ce joueur.")
 
