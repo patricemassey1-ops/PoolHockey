@@ -6967,6 +6967,317 @@ elif active_tab == "🛠️ Gestion Admin":
     except Exception as e:
         st.error(f"Erreur outil drapeaux: {type(e).__name__}: {e}")
 
+    # -----------------------------
+    # 📥 Importation CSV Fantrax (Admin)
+    # -----------------------------
+    manifest = load_init_manifest() or {}
+    if "fantrax_by_team" not in manifest:
+        manifest["fantrax_by_team"] = {}
+
+    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
+    default_owner = str(get_selected_team() or "").strip() or teams[0]
+    if default_owner not in teams:
+        default_owner = teams[0]
+
+    chosen_owner = st.selectbox(
+        "Importer l'alignement dans quelle équipe ?",
+        teams,
+        index=teams.index(default_owner),
+        key="admin_import_team_pick",
+    )
+
+    clear_team_before = st.checkbox(
+        f"Vider l’alignement de {chosen_owner} avant import",
+        value=True,
+        help="Recommandé si tu réimportes la même équipe.",
+        key="admin_clear_team_before",
+    )
+
+    u_nonce = int(st.session_state.get("uploader_nonce", 0))
+    c_init1, c_init2 = st.columns(2)
+    with c_init1:
+        init_align = st.file_uploader(
+            "CSV — Alignement (Fantrax)",
+            type=["csv", "txt"],
+            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+    with c_init2:
+        init_hist = st.file_uploader(
+            "CSV — Historique (optionnel)",
+            type=["csv", "txt"],
+            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
+        )
+
+    c_btn1, c_btn2 = st.columns([1, 1])
+
+    with c_btn1:
+        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
+            if init_align is None:
+                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
+            else:
+                try:
+                    buf = io.BytesIO(init_align.getbuffer())
+                    buf.name = getattr(init_align, "name", "alignement.csv")
+                    df_import = parse_fantrax(buf)
+                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
+                    df_import["Propriétaire"] = str(chosen_owner).strip()
+                    df_import = clean_data(df_import)
+                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
+
+                    st.session_state["init_preview_df"] = df_import
+                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
+                    st.session_state["init_preview_filename"] = getattr(init_align, "name", "")
+                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
+                except Exception as e:
+                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
+
+    preview_df = st.session_state.get("init_preview_df")
+    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
+            st.dataframe(preview_df.head(20), use_container_width=True)
+
+    with c_btn2:
+        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
+        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
+            df_team = st.session_state.get("init_preview_df")
+            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
+            filename_final = st.session_state.get("init_preview_filename", "") or (getattr(init_align, "name", "") if init_align else "")
+
+            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
+
+            df_team = clean_data(df_team.copy())
+            df_team["Propriétaire"] = owner_final
+            df_team = clean_data(df_team)
+
+            if clear_team_before:
+                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
+                df_new = pd.concat([keep, df_team], ignore_index=True)
+            else:
+                df_new = pd.concat([df_cur, df_team], ignore_index=True)
+
+            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
+                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
+                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
+                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
+
+            df_new = clean_data(df_new)
+            st.session_state["data"] = df_new
+            persist_data(df_new, season_pick)
+
+            st.session_state["plafonds"] = rebuild_plafonds(df_new)
+
+            st.session_state["selected_team"] = owner_final
+            st.session_state["align_owner"] = owner_final
+            clear_move_ctx()
+
+            manifest["fantrax_by_team"][owner_final] = {
+                "uploaded_name": filename_final,
+                "season": season_pick,
+                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
+                "team": owner_final,
+            }
+            save_init_manifest(manifest)
+
+            if init_hist is not None:
+                try:
+                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
+                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
+                        h0["proprietaire"] = h0["Propriétaire"]
+                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
+                        h0["joueur"] = h0["Joueur"]
+                    for c in _history_expected_cols():
+                        if c not in h0.columns:
+                            h0[c] = ""
+                    h0 = h0[_history_expected_cols()].copy()
+                    st.session_state["history"] = h0
+                    persist_history(h0, season_pick)
+                except Exception as e:
+                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
+
+            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
+            st.session_state.pop("init_preview_df", None)
+            st.session_state.pop("init_preview_owner", None)
+            st.session_state.pop("init_preview_filename", None)
+
+            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
+            do_rerun()
+
+    st.divider()
+    st.markdown("### 📌 Derniers imports par équipe")
+
+    by_team = manifest.get("fantrax_by_team", {}) or {}
+    if not by_team:
+        st.caption("— Aucun import enregistré —")
+    else:
+        if "admin_imports_desc" not in st.session_state:
+            st.session_state["admin_imports_desc"] = True
+
+        c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
+        with c1:
+            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
+            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
+                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
+                do_rerun()
+        with c2:
+            st.caption("Tri par date")
+
+        rows = []
+        for team, info in by_team.items():
+            rows.append({
+                "Équipe": str(team).strip(),
+                "Fichier": str(info.get("uploaded_name", "") or "").strip(),
+                "Date": str(info.get("saved_at", "") or "").strip(),
+            })
+
+        df_imports = pd.DataFrame(rows)
+        df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
+
+        df_imports = df_imports.sort_values(
+            by="_dt",
+            ascending=(not st.session_state["admin_imports_desc"]),
+            na_position="last",
+        )
+
+        df_imports["Date"] = df_imports["_dt"].apply(format_date_fr)
+        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
+
+        st.dataframe(df_imports, use_container_width=True, hide_index=True)
+
+    # -----------------------------
+    # 💰 Plafonds (édition admin)
+    # -----------------------------
+    with st.expander("💰 Plafonds (Admin)", expanded=False):
+        locked = bool(st.session_state.get("LOCKED", False))
+        if locked:
+            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
+
+        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
+        st.session_state["PLAFOND_GC"] = st.number_input(
+            "Plafond Grand Club",
+            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
+            step=500_000,
+            key="admin_plafond_gc",
+            disabled=locked,
+        )
+        st.session_state["PLAFOND_CE"] = st.number_input(
+            "Plafond Club École",
+            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
+            step=250_000,
+            key="admin_plafond_ce",
+            disabled=locked,
+        )
+
+    # -----------------------------
+    # ➕ Ajout de joueurs (même UI que Joueurs autonomes)
+    # -----------------------------
+    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
+        render_tab_autonomes(show_header=False)
+
+    # -----------------------------
+    # 📦 Transactions (Admin) — sauvegarde proposition
+    # -----------------------------
+    with st.expander("📦 Transactions (Admin)", expanded=False):
+        st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
+
+        owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
+        owner_b = str(st.session_state.get("tx_owner_b", "") or "").strip()
+
+        a_players = st.session_state.get("tx_players_A", []) or []
+        b_players = st.session_state.get("tx_players_B", []) or []
+        a_picks = st.session_state.get("tx_picks_A", []) or []
+        b_picks = st.session_state.get("tx_picks_B", []) or []
+        a_cash = int(st.session_state.get("tx_cash_A", 0) or 0)
+        b_cash = int(st.session_state.get("tx_cash_B", 0) or 0)
+
+        def _collect_ret(side: str) -> dict:
+            out = {}
+            for k, v in st.session_state.items():
+                if k.startswith(f"tx_ret_{side}_"):
+                    try:
+                        amt = int(v or 0)
+                    except Exception:
+                        amt = 0
+                    if amt > 0:
+                        out[k] = amt
+            return out
+
+        a_retained = _collect_ret("A")
+        b_retained = _collect_ret("B")
+
+        has_any = bool(a_players or b_players or a_picks or b_picks or a_cash or b_cash)
+        if not has_any:
+            st.info("Aucune transaction en cours. Va dans ⚖️ Transactions pour en construire une.")
+        else:
+            df_all = st.session_state.get("data", pd.DataFrame()).copy()
+
+            missing = []
+            for side, owner, plist in [("A", owner_a, a_players), ("B", owner_b, b_players)]:
+                for j in plist:
+                    if "Joueur" not in df_all.columns:
+                        missing.append(f"{owner or side} — {j} (colonnes roster manquantes)")
+                        continue
+                    d = df_all[df_all["Joueur"].astype(str).str.strip().eq(str(j).strip())].copy()
+                    if d.empty:
+                        missing.append(f"{owner or side} — {j} (introuvable)")
+                        continue
+                    lvl = str(d.iloc[0].get("Level", "")).strip()
+                    exp = str(d.iloc[0].get("Expiry Year", "")).strip()
+                    if not lvl or lvl.upper() not in ("STD", "ELC"):
+                        missing.append(f"{owner or side} — {j} (Level manquant)")
+                    if not exp:
+                        missing.append(f"{owner or side} — {j} (Expiry Year manquant)")
+
+            if missing:
+                st.error("Impossible de sauvegarder : il manque Level (STD/ELC) et/ou Expiry Year pour certains joueurs.")
+                st.write("• " + "\n• ".join(missing[:12]))
+                if len(missing) > 12:
+                    st.caption(f"+ {len(missing)-12} autres…")
+                can_save = False
+            else:
+                can_save = True
+
+            st.markdown("**Résumé**")
+            st.write(f"**{owner_a or 'Équipe A'}** : {len(a_players)} joueur(s), {len(a_picks)} pick(s), cash {money(a_cash)}")
+            st.write(f"**{owner_b or 'Équipe B'}** : {len(b_players)} joueur(s), {len(b_picks)} pick(s), cash {money(b_cash)}")
+
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button("💾 Sauvegarder la transaction", use_container_width=True, disabled=(not can_save), key="admin_tx_save"):
+                    ts = datetime.now(ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M:%S")
+                    row = {
+                        "timestamp": ts,
+                        "owner_a": owner_a,
+                        "owner_b": owner_b,
+                        "a_players": " | ".join([str(x).strip() for x in a_players]),
+                        "b_players": " | ".join([str(x).strip() for x in b_players]),
+                        "a_picks": " | ".join([str(x).strip() for x in a_picks]),
+                        "b_picks": " | ".join([str(x).strip() for x in b_picks]),
+                        "a_retained": json.dumps(a_retained, ensure_ascii=False),
+                        "b_retained": json.dumps(b_retained, ensure_ascii=False),
+                        "a_cash": int(a_cash or 0),
+                        "b_cash": int(b_cash or 0),
+                        "status": "En attente",
+                        "approved_a": True,
+                        "approved_b": False,
+                        "submitted_by": str(get_selected_team() or "").strip(),
+                        "approved_at_a": ts,
+                        "approved_at_b": "",
+                        "completed_at": "",
+                    }
+                    append_transaction(season_pick, row)
+                    st.toast("✅ Transaction sauvegardée", icon="✅")
+
+            with col_s2:
+                if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
+                            try:
+                                del st.session_state[k]
+                            except Exception:
+                                pass
+                    st.toast("🧹 Transaction réinitialisée", icon="🧹")
+                    do_rerun()
+
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
