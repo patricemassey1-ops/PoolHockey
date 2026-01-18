@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
+st.set_page_config(page_title="PMS", layout="wide")
+
 import streamlit.components.v1 as components
 import requests
 
@@ -1067,7 +1069,6 @@ GM_LOGO_FILE = _resolve_local_logo(["gm_logo.png","GM_LOGO.png","gm_logo.jpg"])
 # =====================================================
 # STREAMLIT CONFIG (MUST BE FIRST STREAMLIT COMMAND)
 # =====================================================
-st.set_page_config(page_title="PMS", layout="wide")
 # --- plafonds par défaut (évite cap=0)
 if "PLAFOND_GC" not in st.session_state or int(st.session_state.get("PLAFOND_GC") or 0) <= 0:
     st.session_state["PLAFOND_GC"] = 95_500_000
@@ -6466,96 +6467,305 @@ elif active_tab == "⚖️ Transactions":
         do_rerun()
 
 
-def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
-    """
-    Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
-    Retourne un résumé.
-    """
-    backups = _drive_list_backups(s, folder_id, base_filename)
 
-    v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
-    ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
 
-    keep = set()
-    for b in v_list[:max(0, int(keep_v or 0))]:
-        keep.add(b.get("id"))
-    for b in ts_list[:max(0, int(keep_ts or 0))]:
-        keep.add(b.get("id"))
 
-    to_delete = [b for b in backups if b.get("id") not in keep]
 
-    deleted = 0
-    errors = []
-    for b in to_delete:
+
+
+
+elif active_tab == "🛠️ Gestion Admin":
+    if not is_admin:
+        st.warning("Accès admin requis.")
+        st.stop()
+
+    st.subheader("🛠️ Gestion Admin")
+
+    # --- Drive status
+    cfg = st.secrets.get("gdrive_oauth", {}) or {}
+    folder_id = str(cfg.get("folder_id", "")).strip()
+
+    st.markdown("### 🔐 Google Drive — Statut")
+    creds = drive_creds_from_secrets(show_error=False)
+    if creds:
+        st.success("✅ Drive prêt (refresh_token OK).")
+    else:
+        st.error("❌ Drive non prêt. Vérifie client_id / client_secret / refresh_token dans Secrets.")
+
+    if not folder_id:
+        st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
+        st.stop()
+
+    # =====================================================
+    # 🧷 Backups & Restore (Drive) — TOUT dans un seul expander
+    # =====================================================
+    with st.expander("🧷 Backups & Restore (Drive)", expanded=False):
+        st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
+
+        # Season label
+        season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip() or "2025-2026"
+
+        # Fichiers critiques (inclut historique + log des backups)
+        CRITICAL_FILES = [
+            "equipes_joueurs.csv",
+            "hockey.players.csv",
+            f"transactions_{season_lbl}.csv",
+            "historique_fantrax_v2.csv",
+            "rachats_v2.csv",
+            "backup_history.csv",
+        ]
+
+        # Drive service (OAuth)
         try:
-            s.files().delete(fileId=b["id"]).execute()
-            deleted += 1
+            s = _drive()
         except Exception as e:
-            errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
+            st.error(f"❌ Impossible d'initialiser Drive — {type(e).__name__}: {e}")
+            st.stop()
 
-    return {
-        "total_backups": len(backups),
-        "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
-        "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
-        "deleted": deleted,
-        "delete_errors": errors[:10],
-        "remaining": len(backups) - deleted,
-    }
+        tabs = st.tabs(["🛡️ Backup ALL", "📄 Fichiers", "🕘 Historique", "🌙 Nightly", "🔔 Alerts"]) 
 
-def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
-    """
-    Runs at most once per calendar day after hour_mtl (MTL time).
-    Uses a small marker file on Drive to avoid repeating.
-    """
-    now = datetime.now(MTL_TZ)
-    if now.hour < int(hour_mtl):
-        return {"ran": False, "reason": "before_hour"}
+        # ------------------
+        # 🛡️ Backup ALL
+        # ------------------
+        with tabs[0]:
+            st.markdown("### 🛡️ Backup global")
+            if st.button(
+                "🛡️ Backup ALL (vNNN + timestamp pour chaque fichier)",
+                use_container_width=True,
+                key="backup_all_global"
+            ):
+                ok = 0
+                fail = 0
+                for fn in CRITICAL_FILES:
+                    existing = _drive_find_file(s, folder_id, fn)
+                    if not existing:
+                        log_backup_event(s, folder_id, {
+                            "action": "backup_all",
+                            "file": fn,
+                            "result": "SKIP (missing)",
+                            "note": "fichier absent sur Drive",
+                            "by": str(get_selected_team() or "admin"),
+                        })
+                        continue
+                    try:
+                        res = _backup_copy_both(s, folder_id, fn)
+                        ok += 1
+                        log_backup_event(s, folder_id, {
+                            "action": "backup_all",
+                            "file": fn,
+                            "result": "OK",
+                            "v_name": res.get("v_name", ""),
+                            "ts_name": res.get("ts_name", ""),
+                            "by": str(get_selected_team() or "admin"),
+                        })
+                    except Exception as e:
+                        fail += 1
+                        log_backup_event(s, folder_id, {
+                            "action": "backup_all",
+                            "file": fn,
+                            "result": f"FAIL ({type(e).__name__})",
+                            "note": str(e),
+                            "by": str(get_selected_team() or "admin"),
+                        })
 
-    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
-    if _drive_find_file(s, folder_id, marker):
-        return {"ran": False, "reason": "already_done"}
+                if fail:
+                    st.warning(f"⚠️ Backup ALL terminé avec erreurs — OK: {ok} | FAIL: {fail}")
+                else:
+                    st.success(f"✅ Backup ALL terminé — OK: {ok}")
 
-    # Create marker FIRST (prevents double-run if reruns happen)
-    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
+        # ------------------
+        # 📄 Fichiers
+        # ------------------
+        with tabs[1]:
+            st.markdown("### 📄 Backups & Restore — fichiers")
+            chosen = st.selectbox("Fichier", CRITICAL_FILES, key="backup_file_pick")
+            fn = str(chosen)
 
-    ok = 0
-    fail = 0
-    for fn in files:
-        existing = _drive_find_file(s, folder_id, fn)
-        if not existing:
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": "SKIP (missing)",
-                "note": "fichier absent sur Drive",
-                "by": "nightly",
-            })
-            continue
-        try:
-            res = _backup_copy_both(s, folder_id, fn)
-            ok += 1
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": "OK",
-                "v_name": res.get("v_name",""),
-                "ts_name": res.get("ts_name",""),
-                "by": "nightly",
-            })
-        except Exception as e:
-            fail += 1
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": f"FAIL ({type(e).__name__})",
-                "note": str(e),
-                "by": "nightly",
-            })
+            existing = _drive_find_file(s, folder_id, fn)
+            if existing:
+                st.caption(f"Drive: ✅ présent — id={existing.get('id','')}")
+            else:
+                st.warning("Drive: ⚠️ fichier absent (tu peux l’uploader au besoin).")
 
-    return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
+            a1, a2, a3 = st.columns([1,1,2], vertical_alignment="center")
+            with a1:
+                if st.button("🛡️ Backup now", key=f"bk_one__{fn}", use_container_width=True, disabled=(not existing)):
+                    try:
+                        res = _backup_copy_both(s, folder_id, fn)
+                        st.success(f"✅ Backups créés: {res['v_name']} + {res['ts_name']}")
+                        log_backup_event(s, folder_id, {
+                            "action": "backup_now",
+                            "file": fn,
+                            "result": "OK",
+                            "v_name": res.get("v_name",""),
+                            "ts_name": res.get("ts_name",""),
+                            "by": str(get_selected_team() or "admin"),
+                        })
+                    except Exception as e:
+                        st.error(f"❌ Backup KO — {type(e).__name__}: {e}")
+
+            with a2:
+                backups = _drive_list_backups(s, folder_id, fn)
+                latest = backups[0] if backups else None
+                if st.button("⏪ Restore latest", key=f"rst_latest__{fn}", use_container_width=True, disabled=(not existing or not latest)):
+                    try:
+                        _restore_from_backup(s, fn, latest["id"], folder_id=folder_id)
+                        st.success(f"✅ Restored depuis: {latest['name']}")
+                        log_backup_event(s, folder_id, {
+                            "action": "restore_latest",
+                            "file": fn,
+                            "result": "OK",
+                            "note": latest.get("name",""),
+                            "by": str(get_selected_team() or "admin"),
+                        })
+                    except Exception as e:
+                        st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
+
+            with a3:
+                st.caption("Liste/Restore spécifique et maintenance ci-dessous.")
+
+            st.divider()
+            st.markdown("#### 📚 Liste des backups")
+            backups = _drive_list_backups(s, folder_id, fn)
+            if not backups:
+                st.info("Aucun backup trouvé pour ce fichier.")
+            else:
+                rows = []
+                for b in backups[:200]:
+                    rows.append({
+                        "name": b.get("name", ""),
+                        "modifiedTime": b.get("modifiedTime", ""),
+                        "size": b.get("size", ""),
+                        "id": b.get("id", ""),
+                    })
+                dfb = pd.DataFrame(rows)
+                st.dataframe(dfb.drop(columns=["id"]), use_container_width=True, hide_index=True)
+
+                options = {f"{r['name']}  —  {r['modifiedTime']}": r["id"] for r in rows}
+                choice = st.selectbox("Restaurer un backup spécifique", list(options.keys()), key=f"pick_one__{fn}")
+                if st.button("✅ Restore selected", key=f"rst_sel_one__{fn}", use_container_width=True):
+                    try:
+                        _restore_from_backup(s, fn, options[choice], folder_id=folder_id)
+                        st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
+                        log_backup_event(s, folder_id, {
+                            "action": "restore_selected",
+                            "file": fn,
+                            "result": "OK",
+                            "note": choice.split('  —  ')[0],
+                            "by": str(get_selected_team() or "admin"),
+                        })
+                    except Exception as e:
+                        st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
+
+            st.divider()
+            st.markdown("#### 🧹 Maintenance backups")
+            k1, k2 = st.columns(2)
+            with k1:
+                keep_v = st.number_input("Garder (vNNN)", min_value=0, max_value=500, value=20, step=5, key=f"keepv_one__{fn}")
+            with k2:
+                keep_ts = st.number_input("Garder (timestamp)", min_value=0, max_value=500, value=20, step=5, key=f"keepts_one__{fn}")
+
+            confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_one__{fn}")
+            if st.button("🧹 Nettoyer maintenant", key=f"clean_one__{fn}", use_container_width=True, disabled=(not confirm)):
+                try:
+                    res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
+                    st.success(
+                        f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
+                        f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
+                    )
+                    if res.get("delete_errors"):
+                        st.warning("Certaines suppressions ont échoué:")
+                        st.write("• " + "\n• ".join(res["delete_errors"]))
+                except Exception as e:
+                    st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
+
+        # ------------------
+        # 🕘 Historique
+        # ------------------
+        with tabs[2]:
+            st.markdown("### 🕘 Historique des backups")
+            try:
+                hist = _drive_download_csv_df(s, folder_id, "backup_history.csv")
+            except Exception:
+                hist = pd.DataFrame()
+            if hist is None or hist.empty:
+                st.info("Aucun log encore. Fais un Backup now / Backup ALL.")
+            else:
+                st.dataframe(hist.tail(500).iloc[::-1], use_container_width=True, hide_index=True)
+
+        # ------------------
+        # 🌙 Nightly
+        # ------------------
+        with tabs[3]:
+            st.markdown("### 🌙 Nightly backup (once/day)")
+            alerts_cfg = st.secrets.get("alerts", {}) or {}
+            hour_mtl = int(alerts_cfg.get("nightly_hour_mtl", 3) or 3)
+            st.caption(f"Exécute au plus une fois par jour après {hour_mtl}:00 (America/Montreal) via un marker Drive.")
+
+            if st.button("🌙 Lancer maintenant (si éligible)", use_container_width=True, key="nightly_run_now"):
+                try:
+                    res = nightly_backup_once_per_day(s, folder_id, CRITICAL_FILES, hour_mtl=hour_mtl)
+                    st.write(res)
+                    if res.get("ran") and int(res.get("fail", 0) or 0) > 0:
+                        msg = f"Nightly backup: FAIL={res.get('fail')} OK={res.get('ok')} (marker {res.get('marker')})"
+                        send_slack_alert(msg)
+                        send_email_alert("PMS Nightly backup errors", msg)
+                except Exception as e:
+                    st.error(f"❌ Nightly KO — {type(e).__name__}: {e}")
+
+            st.info(
+                "Astuce: pour un vrai cron même si personne n’ouvre l’app, utilise GitHub Actions pour ping ton URL Streamlit chaque nuit."
+            )
+
+        # ------------------
+        # 🔔 Alerts
+        # ------------------
+        with tabs[4]:
+            st.markdown("### 🔔 Alerts (Slack / Email)")
+            st.caption("Configurables via [alerts] dans Secrets.")
+            cA, cB = st.columns(2)
+            with cA:
+                if st.button("🔔 Test Slack", use_container_width=True, key="test_slack"):
+                    ok = send_slack_alert("✅ Test Slack — PMS backups")
+                    st.success("Slack OK") if ok else st.error("Slack KO")
+            with cB:
+                if st.button("✉️ Test Email", use_container_width=True, key="test_email"):
+                    ok = send_email_alert("PMS backups test", "✅ Test email — PMS backups")
+                    st.success("Email OK") if ok else st.error("Email KO")
 
 
+elif active_tab == "🧠 Recommandations":
+    st.subheader("🧠 Recommandations")
+    st.caption("Une recommandation unique par équipe (résumé).")
 
+    plafonds0 = st.session_state.get("plafonds")
+    df0 = st.session_state.get("data")
+    if df0 is None or df0.empty or plafonds0 is None or plafonds0.empty:
+        st.info("Aucune donnée pour cette saison. Va dans 🛠️ Gestion Admin → Import.")
+        st.stop()
+
+    rows = []
+    for _, r in plafonds0.iterrows():
+        owner = str(r.get("Propriétaire", "")).strip()
+        dispo_gc = int(r.get("Montant Disponible GC", 0) or 0)
+        dispo_ce = int(r.get("Montant Disponible CE", 0) or 0)
+
+        if dispo_gc < 2_000_000:
+            reco = "Rétrogradation recommandée (manque de marge GC)"
+        elif dispo_ce > 10_000_000:
+            reco = "Rappel possible (marge CE élevée)"
+        else:
+            reco = "Aucune action urgente"
+
+        rows.append({
+            "Équipe": owner,
+            "Marge GC": money(dispo_gc),
+            "Marge CE": money(dispo_ce),
+            "Recommandation": reco,
+        })
+
+    out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
+    st.dataframe(out, use_container_width=True, hide_index=True)
 
 
 # =====================================================
