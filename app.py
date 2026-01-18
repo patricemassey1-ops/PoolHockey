@@ -6492,92 +6492,92 @@ elif active_tab == "🛠️ Gestion Admin":
         return ""
 
     def _drive_cleanup_backups(s, folder_id: str, base_filename: str, keep_v: int = 20, keep_ts: int = 20) -> dict:
-    """
-    Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
-    Retourne un résumé.
-    """
-    backups = _drive_list_backups(s, folder_id, base_filename)
+        """
+        Supprime les backups anciens en gardant keep_v (vNNN) et keep_ts (timestamp).
+        Retourne un résumé.
+        """
+        backups = _drive_list_backups(s, folder_id, base_filename)
 
-    v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
-    ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
+        v_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "v"]
+        ts_list = [b for b in backups if _drive_kind(b.get("name",""), base_filename) == "ts"]
 
-    keep = set()
-    for b in v_list[:max(0, int(keep_v or 0))]:
-        keep.add(b.get("id"))
-    for b in ts_list[:max(0, int(keep_ts or 0))]:
-        keep.add(b.get("id"))
+        keep = set()
+        for b in v_list[:max(0, int(keep_v or 0))]:
+            keep.add(b.get("id"))
+        for b in ts_list[:max(0, int(keep_ts or 0))]:
+            keep.add(b.get("id"))
 
-    to_delete = [b for b in backups if b.get("id") not in keep]
+        to_delete = [b for b in backups if b.get("id") not in keep]
 
-    deleted = 0
-    errors = []
-    for b in to_delete:
-        try:
-            s.files().delete(fileId=b["id"]).execute()
-            deleted += 1
-        except Exception as e:
-            errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
+        deleted = 0
+        errors = []
+        for b in to_delete:
+            try:
+                s.files().delete(fileId=b["id"]).execute()
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{b.get('name','?')} — {type(e).__name__}: {e}")
 
-    return {
-        "total_backups": len(backups),
-        "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
-        "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
-        "deleted": deleted,
-        "delete_errors": errors[:10],
-        "remaining": len(backups) - deleted,
-    }
+        return {
+            "total_backups": len(backups),
+            "kept_v": len(v_list[:max(0, int(keep_v or 0))]),
+            "kept_ts": len(ts_list[:max(0, int(keep_ts or 0))]),
+            "deleted": deleted,
+            "delete_errors": errors[:10],
+            "remaining": len(backups) - deleted,
+        }
 
-def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
-    """
-    Runs at most once per calendar day after hour_mtl (MTL time).
-    Uses a small marker file on Drive to avoid repeating.
-    """
-    now = datetime.now(MTL_TZ)
-    if now.hour < int(hour_mtl):
-        return {"ran": False, "reason": "before_hour"}
+    def nightly_backup_once_per_day(s, folder_id: str, files: list[str], hour_mtl: int = 3):
+        """
+        Runs at most once per calendar day after hour_mtl (MTL time).
+        Uses a small marker file on Drive to avoid repeating.
+        """
+        now = datetime.now(MTL_TZ)
+        if now.hour < int(hour_mtl):
+            return {"ran": False, "reason": "before_hour"}
 
-    marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
-    if _drive_find_file(s, folder_id, marker):
-        return {"ran": False, "reason": "already_done"}
+        marker = f"_nightly_backup_done_{now.strftime('%Y-%m-%d')}.txt"
+        if _drive_find_file(s, folder_id, marker):
+            return {"ran": False, "reason": "already_done"}
 
-    # Create marker FIRST (prevents double-run if reruns happen)
-    _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
+        # Create marker FIRST (prevents double-run if reruns happen)
+        _drive_upsert_csv_bytes(s, folder_id, marker, b"ok\n")
 
-    ok = 0
-    fail = 0
-    for fn in files:
-        existing = _drive_find_file(s, folder_id, fn)
-        if not existing:
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": "SKIP (missing)",
-                "note": "fichier absent sur Drive",
-                "by": "nightly",
-            })
-            continue
-        try:
-            res = _backup_copy_both(s, folder_id, fn)
-            ok += 1
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": "OK",
-                "v_name": res.get("v_name",""),
-                "ts_name": res.get("ts_name",""),
-                "by": "nightly",
-            })
-        except Exception as e:
-            fail += 1
-            log_backup_event(s, folder_id, {
-                "action": "nightly_backup",
-                "file": fn,
-                "result": f"FAIL ({type(e).__name__})",
-                "note": str(e),
-                "by": "nightly",
-            })
+        ok = 0
+        fail = 0
+        for fn in files:
+            existing = _drive_find_file(s, folder_id, fn)
+            if not existing:
+                log_backup_event(s, folder_id, {
+                    "action": "nightly_backup",
+                    "file": fn,
+                    "result": "SKIP (missing)",
+                    "note": "fichier absent sur Drive",
+                    "by": "nightly",
+                })
+                continue
+            try:
+                res = _backup_copy_both(s, folder_id, fn)
+                ok += 1
+                log_backup_event(s, folder_id, {
+                    "action": "nightly_backup",
+                    "file": fn,
+                    "result": "OK",
+                    "v_name": res.get("v_name",""),
+                    "ts_name": res.get("ts_name",""),
+                    "by": "nightly",
+                })
+            except Exception as e:
+                fail += 1
+                log_backup_event(s, folder_id, {
+                    "action": "nightly_backup",
+                    "file": fn,
+                    "result": f"FAIL ({type(e).__name__})",
+                    "note": str(e),
+                    "by": "nightly",
+                })
 
-    return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
+        return {"ran": True, "ok": ok, "fail": fail, "marker": marker}
 
 
 
