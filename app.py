@@ -4681,7 +4681,7 @@ if _picked_tab != st.session_state.get("active_tab"):
 active_tab = st.session_state.get("active_tab", NAV_TABS[0])
 
 st.sidebar.divider()
-st.sidebar.markdown("### 🏒 Équipe")
+st.sidebar.markdown("### 🏒 Équipes")
 
 teams = sorted(list(LOGOS.keys())) if "LOGOS" in globals() else []
 if not teams:
@@ -6514,14 +6514,11 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.markdown("### 🔐 Google Drive — Statut")
     creds = drive_creds_from_secrets(show_error=False)
-    if creds:
-        st.success("✅ Drive prêt (refresh_token OK).")
-    else:
-        st.error("❌ Drive non prêt. Vérifie client_id / client_secret / refresh_token dans Secrets.")
+    drive_ok = bool(creds)
+    if not drive_ok:
+        st.warning("⚠️ Drive non prêt (backups désactivés).")
 
-    if not folder_id:
-        st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets).")
-        st.stop()
+
 
     # =====================================================
     # 🧷 Backups & Restore (Drive) — TOUT dans un seul expander
