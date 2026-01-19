@@ -8388,25 +8388,37 @@ elif active_tab == "🛠️ Gestion Admin":
         return m.get(s.lower(), "")
 
     with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded=False):
-        st.caption("Si tu as un accès Sportradar (30 jours), tu peux générer un fichier de fusion et/ou enrichir hockey.players.csv.\n\n**Pré-requis**: ajouter dans Secrets: [sportradar] api_key=\"...\" (optionnel base_url).")
+        st.caption(
+            "Si tu as un accès Sportradar (30 jours), tu peux générer un fichier de fusion et/ou enrichir hockey.players.csv.\n\n"
+            "**Pré-requis**: ajouter dans Secrets: [sportradar] api_key=\"...\" (optionnel base_url)."
+        )
 
         if not sportradar_ready():
             st.info("Sportradar non configuré (api_key absent).")
         else:
-            cT1, cT2 = st.columns([1,1])
+            locale = st.selectbox("Locale Sportradar", ["en"], index=0, key="sr_locale_admin")
+
+            cT1, cT2 = st.columns([1, 1])
             with cT1:
                 if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-                    j = _sportradar_get_json(
-                        "/players/sr:player:29663/profile",
-                        locale=locale
-                    )
+                    j = _sportradar_get_json("/players/sr:player:29663/profile", locale=locale)
 
                     if isinstance(j, dict) and j.get("_error"):
-                        st.error(f"❌ Sportradar KO — {j.get('_error')}: {j.get('_text','')}")
+                        st.error(f"❌ Sportradar KO — {j.get('_error')}")
+                        if j.get("_url"):
+                            st.code(j["_url"])
+                        if j.get("_text"):
+                            st.code(j["_text"])
                     else:
                         st.success("✅ Sportradar répond (OK).")
+                        st.json(j)
+
             with cT2:
-                st.caption("Astuce: Sportradar demande souvent des URN de type sr:player:123.\nSi tu as un mapping (URN), ajoute une colonne **sr_player_urn** dans hockey.players.csv.")
+                st.caption(
+                    "Astuce: Sportradar demande souvent des URN de type sr:player:123.\n"
+                    "Si tu as un mapping (URN), ajoute une colonne **sr_player_urn** dans hockey.players.csv."
+                )
+
 
             # Charger players db
             pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
