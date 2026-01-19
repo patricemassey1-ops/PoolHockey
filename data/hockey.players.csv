@@ -1,5 +1,5 @@
 Player,Team,Position,Jersey#,H(f),W(lbs),Age,Country,Flag,FlagISO2,Draft Year,Status,UFA Year,Cap Hit,NHL GP,NHL G,NHL A,NHL P,GP,G,A,P,NHL SV%,NHL GAA,Length,Level,Start Year,Signing Status,Expiry Year,Expiry Status,sr_player_urn,_source
-"Zucker, Jason",BUF,F,17,"5'11""",198,33,USA,https://flagcdn.com/w40/us.png,US,2010,Yr 1 of 2,2019,4 750 000 $,791,226,215,441,21,9,9,18,0,0,2,STD,2025-26,UFA,2026-27,UFA,Hockey_Players
+"Zucker, Jason",BUF,F,17,"5'11""",198,33,USA,https://flagcdn.com/w40/us.png,US,2010,Yr 1 of 2,2019,4 750 000 $,791,226,215,441,21,9,9,18,0,0,2,STD,2025-26,UFA,2026-27,UFA,sr:player:29663,Hockey_Players
 "Zuccarello, Mats",MIN,F,36,"5'8""",181,38,NOR,https://flagcdn.com/w40/no.png,NO,0,Yr 2 of 2,2015,4 125 000 $,924,220,486,706,20,3,13,16,0,0,2,STD,2024-25,UFA,2025-26,UFA,Hockey_Players
 "Zub, Artyom",,,2,"6'2""",203,30,RUS,https://flagcdn.com/w40/ru.png,RU,0,Yr 3 of 4,2023,4 600 000 $,343,22,74,96,37,3,9,12,0,0,4,STD,2023-24,UFA,2026-27,UFA,PuckPedia
 "Ziemmer, Koehn",LAK,F,89,"6'1""",201,21,CAN,https://flagcdn.com/w40/ca.png,CA,2023,Yr 1 of 3,2032,816 666 $,0,0,0,0,0,0,0,0,0,0,3,ELC,2025-26,,2027-28,RFA,Hockey_Players
