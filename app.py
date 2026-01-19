@@ -8334,28 +8334,25 @@ elif active_tab == "🛠️ Gestion Admin":
 
     @st.cache_data(show_spinner=False, ttl=3600)
     def _sportradar_get_json(endpoint: str, locale: str = "en"):
-        cfg = st.secrets.get("sportradar", {})
-        api_key = (cfg.get("api_key") or "").strip()
-        base_url = (cfg.get("base_url") or "https://api.sportradar.com/icehockey/trial/v2").strip()
-        locale = (cfg.get("locale") or locale or "en").strip()
+        cfg = st.secrets["sportradar"]
 
-        if not api_key:
-            return {"_error": "Missing api_key"}
+        api_key = cfg["api_key"].strip()
+        base_url = cfg.get("base_url", "").rstrip("/")
+        locale = cfg.get("locale", locale).strip()
 
         if not endpoint.startswith("/"):
             endpoint = "/" + endpoint
 
-        # force format .json si pas déjà présent
-        if "." not in endpoint.split("/")[-1]:
+        # forcer .json UNE SEULE FOIS
+        if not endpoint.endswith(".json"):
             endpoint = endpoint + ".json"
 
         url = f"{base_url}/{locale}{endpoint}"
 
-
         r = requests.get(
             url,
-            params={"api_key": api_key},
             headers={"accept": "application/json"},
+            params={"api_key": api_key},
             timeout=20,
         )
 
@@ -8363,10 +8360,11 @@ elif active_tab == "🛠️ Gestion Admin":
             return {
                 "_error": f"HTTP {r.status_code}",
                 "_url": url,
-                "_text": r.text[:800],
+                "_text": r.text[:1000],
             }
 
         return r.json()
+
 
 
 
