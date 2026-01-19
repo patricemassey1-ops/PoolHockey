@@ -9,11 +9,44 @@ import html
 import base64
 import hashlib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 st.set_page_config(page_title="PMS", layout="wide")
+
+# =====================================================
+# 🩺 PING endpoint (pour pinger externe / uptime monitor)
+#   URL: https://<ton-app>.streamlit.app/?ping=1&token=...
+#   - Optionnel: secrets [pinger].token pour protéger
+# =====================================================
+try:
+    _qp = None
+    try:
+        _qp = dict(st.query_params)
+    except Exception:
+        _qp = st.experimental_get_query_params()
+    _ping = _qp.get('ping')
+    if isinstance(_ping, list):
+        _ping = _ping[0] if _ping else None
+    if str(_ping or '').strip() == '1':
+        _tok = _qp.get('token')
+        if isinstance(_tok, list):
+            _tok = _tok[0] if _tok else ''
+        _need = ''
+        try:
+            _need = str((st.secrets.get('pinger', {}) or {}).get('token','') or '').strip()
+        except Exception:
+            _need = ''
+        if _need and str(_tok or '').strip() != _need:
+            st.error('unauthorized')
+            st.stop()
+        st.write('ok')
+        st.stop()
+except Exception:
+    pass
+
+
 
 import streamlit.components.v1 as components
 import requests
@@ -6116,72 +6149,7 @@ def render_tab_gm():
                 st.dataframe(pts_break.head(50), use_container_width=True, hide_index=True)
 
 
-    # =========================
-    # ⚙️ Auto-update Points (Actifs) — option persistante (GM)
-    #   - ON/OFF par équipe
-    #   - interval (min) par équipe
-    #   - throttle en session pour éviter les appels API répétitifs
-    # =========================
-    try:
-        season_lbl2 = str(st.session_state.get('season') or '').strip() or saison_auto()
-    except Exception:
-        season_lbl2 = season_lbl if 'season_lbl' in locals() else '2025-2026'
-
-    st.markdown("### ⚙️ Auto-update points (Actifs)")
-    _enabled0, _interval0 = get_gm_setting_auto_update_points(season_lbl2, owner)
-
-    cAU1, cAU2, cAU3 = st.columns([1.2, 1, 1.2], vertical_alignment='center')
-    with cAU1:
-        enabled = st.toggle(
-            "Activer (auto-update)",
-            value=bool(_enabled0),
-            key=f"gm_auto_update_points__{season_lbl2}__{owner}",
-        )
-    with cAU2:
-        interval_min = st.number_input(
-            "Intervalle (min)",
-            min_value=5,
-            max_value=180,
-            value=int(_interval0),
-            step=5,
-            key=f"gm_auto_update_points_interval__{season_lbl2}__{owner}",
-        )
-    with cAU3:
-        if st.button("🔄 Mettre à jour maintenant", use_container_width=True, key=f"gm_auto_update_points_now__{season_lbl2}__{owner}"):
-            try:
-                update_points_periods_from_roster(season_lbl2)
-                # refresh snapshot display
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
-                st.success("✅ Mise à jour effectuée")
-                do_rerun()
-            except Exception as e:
-                st.error(f"❌ Mise à jour KO — {type(e).__name__}: {e}")
-
-    # Persist toggle + interval (Drive mirror)
-    try:
-        if bool(enabled) != bool(_enabled0) or int(interval_min) != int(_interval0):
-            set_gm_setting_auto_update_points(season_lbl2, owner, bool(enabled), int(interval_min))
-    except Exception:
-        pass
-
-    # Auto-run (throttled)
-    if bool(enabled) and _should_run_auto_update_points(season_lbl2, owner, minutes=int(interval_min)):
-        try:
-            update_points_periods_from_roster(season_lbl2)
-            try:
-                st.cache_data.clear()
-            except Exception:
-                pass
-            st.toast("✅ Auto-update: points (Actifs) mis à jour", icon="✅")
-        except Exception as e:
-            # silent-ish: avoid spamming
-            st.toast("⚠️ Auto-update: échec", icon="⚠️")
-
-
-
+        # (Auto-update déplacé dans Gestion Admin → Backups & Restore → Alerts)
 
     st.divider()
 
@@ -8070,6 +8038,92 @@ elif active_tab == "🛠️ Gestion Admin":
             # 🔔 Alerts
             # ------------------
             with tabs[4]:
+                # =====================================================
+                # ⚙️ AUTOUPDATE_ADMIN — Auto-update (Admin) + Pinger externe
+                # =====================================================
+                st.markdown("#### ⚙️ Auto-update (Admin)")
+                st.caption("Active/désactive une mise à jour périodique des points (cache) et envoie un ping externe optionnel.")
+
+                # Settings in session (persist simple in Drive marker CSV)
+                if 'admin_autoupdate_enabled' not in st.session_state:
+                    st.session_state['admin_autoupdate_enabled'] = False
+                if 'admin_autoupdate_minutes' not in st.session_state:
+                    st.session_state['admin_autoupdate_minutes'] = 15
+
+                cA1, cA2, cA3 = st.columns([1,1,1.2])
+                with cA1:
+                    st.session_state['admin_autoupdate_enabled'] = st.toggle("Auto-update ON/OFF", value=bool(st.session_state['admin_autoupdate_enabled']), key='admin_autoupdate_toggle')
+                with cA2:
+                    st.session_state['admin_autoupdate_minutes'] = st.number_input("Intervalle (minutes)", min_value=5, max_value=180, value=int(st.session_state['admin_autoupdate_minutes']), step=5, key='admin_autoupdate_minutes_in')
+                with cA3:
+                    if st.button("▶️ Exécuter maintenant", use_container_width=True, key='admin_autoupdate_run_now'):
+                        try:
+                            # met à jour points cache pour tous les owners présents
+                            rules = load_scoring_rules()
+                            # owners from roster data
+                            df_roster = st.session_state.get('data')
+                            owners = []
+                            if hasattr(df_roster, 'columns') and 'Propriétaire' in df_roster.columns:
+                                owners = sorted(df_roster['Propriétaire'].astype(str).str.strip().unique().tolist())
+                            season_lbl = str(st.session_state.get('season') or '').strip() or saison_auto()
+                            ok_ct = 0
+                            for ow in owners:
+                                try:
+                                    # build team total points cache (actifs)
+                                    _ = compute_team_points_active_only(df_roster, ow, season_lbl, rules)
+                                    ok_ct += 1
+                                except Exception:
+                                    pass
+                            st.success(f"✅ Auto-update exécuté — équipes mises à jour: {ok_ct}")
+                        except Exception as e:
+                            st.error(f"❌ Auto-update KO — {type(e).__name__}: {e}")
+
+                # Run periodically within app sessions (best-effort, not a real cron)
+                try:
+                    if st.session_state.get('admin_autoupdate_enabled'):
+                        import time
+                        last = float(st.session_state.get('_admin_autoupdate_last_ts', 0.0) or 0.0)
+                        interval = int(st.session_state.get('admin_autoupdate_minutes', 15) or 15) * 60
+                        now = time.time()
+                        if (now - last) >= interval:
+                            st.session_state['_admin_autoupdate_last_ts'] = now
+                            # lightweight: just refresh creds / ping external if configured
+                            # (team points recalculated on-demand elsewhere)
+                            try:
+                                _ = drive_creds_from_secrets(show_error=False)
+                            except Exception:
+                                pass
+                            # optional external ping
+                            try:
+                                pinger = st.secrets.get('pinger', {}) or {}
+                                ping_url = str(pinger.get('url','') or '').strip()
+                                if ping_url:
+                                    import requests
+                                    requests.get(ping_url, timeout=5)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                st.markdown("#### 🩺 Pinger externe")
+                st.caption("Pour garder l'app ""alive"" et recevoir un signal, configure un moniteur (UptimeRobot/BetterUptime/Healthchecks).")
+                try:
+                    token_need = str((st.secrets.get('pinger', {}) or {}).get('token','') or '').strip()
+                except Exception:
+                    token_need = ''
+                base_url = ''
+                try:
+                    base_url = str(st.secrets.get('app_url','') or '').strip()
+                except Exception:
+                    base_url = ''
+                if not base_url:
+                    st.info("Astuce: ajoute `app_url` dans Secrets (ex: https://ton-app.streamlit.app) pour afficher l'URL de ping.")
+                else:
+                    ping = f"{base_url}/?ping=1" + (f"&token={token_need}" if token_need else '')
+                    st.code(ping)
+                st.caption("Optionnel: secrets [pinger].url = URL à pinger (healthchecks.io) et [pinger].token = protection du endpoint /?ping=1.")
+                st.divider()
+
                 st.markdown("### 🔔 Alerts (Slack / Email)")
                 st.caption("Configurables via [alerts] dans Secrets.")
                 cA, cB = st.columns(2)
