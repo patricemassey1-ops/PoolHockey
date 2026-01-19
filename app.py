@@ -2796,6 +2796,414 @@ def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
         pass
 
 
+
+# =====================================================
+# 🏆 POINTS — cumul seulement quand le joueur est ACTIF
+#   - On enregistre des périodes ACTIF (start/end) par équipe/joueur.
+#   - Quand le joueur passe banc/mineur/IR: la période se ferme et les points restent acquis.
+#   - Les points sont calculés via nhl_player_stats_combo + compute_points_from_rules (même règles que Classement).
+#   - Persisté local + mirror Drive (survit aux resets de disque Streamlit Cloud).
+# =====================================================
+
+def _points_periods_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    return os.path.join(DATA_DIR, f"points_periods_{season_lbl}.csv")
+
+def _points_periods_cols():
+    return [
+        'season','owner','player','playerId','pos',
+        'start_ts','end_ts',
+        'points_start','points_end','points_delta',
+    ]
+
+def load_points_periods(season_lbl: str) -> pd.DataFrame:
+    path = _points_periods_path(season_lbl)
+    _ensure_local_csv_from_drive(path)
+    try:
+        if path and os.path.exists(path):
+            df = pd.read_csv(path)
+        else:
+            df = pd.DataFrame(columns=_points_periods_cols())
+    except Exception:
+        df = pd.DataFrame(columns=_points_periods_cols())
+
+    for c in _points_periods_cols():
+        if c not in df.columns:
+            df[c] = ''
+    return df[_points_periods_cols()].copy()
+
+def persist_points_periods(df: pd.DataFrame, season_lbl: str) -> None:
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    path = _points_periods_path(season_lbl)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + '.tmp'
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+    # Mirror to Drive (if configured)
+    try:
+        cfg = st.secrets.get('gdrive_oauth', {}) or {}
+        folder_id = str(cfg.get('folder_id','')).strip()
+        if folder_id:
+            s = _drive()
+            _drive_upsert_csv_bytes(s, folder_id, os.path.basename(path), df.to_csv(index=False).encode('utf-8'))
+    except Exception:
+        pass
+
+
+# =====================================================
+# ⚙️ GM SETTINGS — persistant (local + Drive mirror)
+#   - Stocke des toggles par équipe (ex: auto-update points)
+#   - Survit aux resets Streamlit Cloud via Drive
+# =====================================================
+
+def _gm_settings_path(season_lbl: str) -> str:
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    return os.path.join(DATA_DIR, f"gm_settings_{season_lbl}.csv")
+
+def _gm_settings_cols():
+    return ['season','owner','auto_update_points','interval_min']
+
+def load_gm_settings(season_lbl: str) -> pd.DataFrame:
+    path = _gm_settings_path(season_lbl)
+    _ensure_local_csv_from_drive(path)
+    try:
+        if path and os.path.exists(path):
+            df = pd.read_csv(path)
+        else:
+            df = pd.DataFrame(columns=_gm_settings_cols())
+    except Exception:
+        df = pd.DataFrame(columns=_gm_settings_cols())
+
+    for c in _gm_settings_cols():
+        if c not in df.columns:
+            df[c] = ''
+
+    # types
+    try:
+        df['auto_update_points'] = df['auto_update_points'].astype(str)
+    except Exception:
+        pass
+    try:
+        df['interval_min'] = pd.to_numeric(df['interval_min'], errors='coerce').fillna(15).astype(int)
+    except Exception:
+        df['interval_min'] = 15
+
+    return df[_gm_settings_cols()].copy()
+
+def persist_gm_settings(df: pd.DataFrame, season_lbl: str) -> None:
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    path = _gm_settings_path(season_lbl)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + '.tmp'
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+    # Mirror to Drive
+    try:
+        cfg = st.secrets.get('gdrive_oauth', {}) or {}
+        folder_id = str(cfg.get('folder_id','')).strip()
+        if folder_id:
+            s = _drive()
+            _drive_upsert_csv_bytes(s, folder_id, os.path.basename(path), df.to_csv(index=False).encode('utf-8'))
+    except Exception:
+        pass
+
+def get_gm_setting_auto_update_points(season_lbl: str, owner: str) -> tuple[bool, int]:
+    owner = str(owner or '').strip()
+    df = load_gm_settings(season_lbl)
+    row = df[df['owner'].astype(str).str.strip().eq(owner)].head(1)
+    if row.empty:
+        return False, 15
+    v = str(row.iloc[0].get('auto_update_points','')).strip().lower()
+    enabled = v in {'1','true','yes','on','y'}
+    try:
+        interval = int(row.iloc[0].get('interval_min', 15) or 15)
+    except Exception:
+        interval = 15
+    interval = max(5, min(180, interval))
+    return enabled, interval
+
+def set_gm_setting_auto_update_points(season_lbl: str, owner: str, enabled: bool, interval_min: int = 15) -> None:
+    owner = str(owner or '').strip()
+    interval_min = int(interval_min or 15)
+    interval_min = max(5, min(180, interval_min))
+
+    df = load_gm_settings(season_lbl)
+    m = df['owner'].astype(str).str.strip().eq(owner)
+    if m.any():
+        df.loc[m, 'auto_update_points'] = 'true' if enabled else 'false'
+        df.loc[m, 'interval_min'] = interval_min
+        df.loc[m, 'season'] = str(season_lbl)
+    else:
+        df = pd.concat([df, pd.DataFrame([{
+            'season': str(season_lbl),
+            'owner': owner,
+            'auto_update_points': 'true' if enabled else 'false',
+            'interval_min': interval_min,
+        }])], ignore_index=True)
+
+    persist_gm_settings(df[_gm_settings_cols()].copy(), season_lbl)
+
+
+def _auto_update_last_key(season_lbl: str, owner: str) -> str:
+    return f"_auto_update_points_last_ts__{season_lbl}__{owner}"
+
+def _should_run_auto_update_points(season_lbl: str, owner: str, minutes: int = 15) -> bool:
+    # Throttle: max 1 run per <minutes> for owner+season in this session
+    try:
+        now = datetime.now(ZoneInfo('America/Montreal')).timestamp()
+    except Exception:
+        now = datetime.utcnow().timestamp()
+    last_k = _auto_update_last_key(season_lbl, owner)
+    last = float(st.session_state.get(last_k, 0.0) or 0.0)
+    if (now - last) < (int(minutes) * 60):
+        return False
+    st.session_state[last_k] = now
+    return True
+
+
+def _is_active_row(row: dict) -> bool:
+    """Best-effort: détecte un joueur 'actif' selon Statut/Slot."""
+    s1 = str(row.get('Statut','') or '').lower().strip()
+    s2 = str(row.get('Slot','') or '').lower().strip()
+    blob = f"{s1} {s2}"
+    # 'actif/active/lineup/starter' + support 'actifs'
+    if re.search(r"\b(actif|actifs|active|lineup|starter)\b", blob):
+        return True
+    # Exclusions explicites
+    if re.search(r"\b(ir|injur|bless|bench|banc|minor|mineur|reserve)\b", blob):
+        return False
+    return False
+
+
+def _now_mtl_iso() -> str:
+    try:
+        return datetime.now(ZoneInfo('America/Montreal')).isoformat(timespec='seconds')
+    except Exception:
+        return datetime.utcnow().isoformat(timespec='seconds')
+
+
+def _fantasy_points_for_player(player_id_raw: str, pos_raw: str, season_lbl: str, rules_df: pd.DataFrame) -> float:
+    stats = nhl_player_stats_combo(player_id_raw, season_lbl)
+    # compute_points_from_rules attend keys 'goals/assists/wins/otLosses'.
+    return float(compute_points_from_rules(pos_raw, stats, rules_df) or 0.0)
+
+
+def update_points_periods_from_roster(season_lbl: str) -> pd.DataFrame:
+    """Crée/ferme des périodes ACTIF selon le roster courant.
+
+    IMPORTANT: on ne fait des appels API que pour:
+      - ouvrir une période (points_start)
+      - fermer une période (points_end)
+
+    Les périodes ouvertes sont calculées à l'affichage via current - points_start.
+    """
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    df_roster = st.session_state.get('data', pd.DataFrame())
+    if not isinstance(df_roster, pd.DataFrame) or df_roster.empty:
+        return load_points_periods(season_lbl)
+
+    # columns
+    if 'Propriétaire' not in df_roster.columns or 'Joueur' not in df_roster.columns:
+        return load_points_periods(season_lbl)
+
+    col_pid = None
+    for c in ['playerId','PlayerId','player_id','id_player']:
+        if c in df_roster.columns:
+            col_pid = c
+            break
+    if not col_pid:
+        return load_points_periods(season_lbl)
+
+    col_pos = None
+    for c in ['Pos','POS','Position','position']:
+        if c in df_roster.columns:
+            col_pos = c
+            break
+    if not col_pos:
+        col_pos = 'Pos'
+        df_roster[col_pos] = ''
+
+    d = df_roster.copy()
+    d['Propriétaire'] = d['Propriétaire'].astype(str).str.strip()
+    d['Joueur'] = d['Joueur'].astype(str).str.strip()
+    d[col_pid] = d[col_pid].astype(str).str.strip()
+    d[col_pos] = d[col_pos].astype(str).str.strip()
+    if 'Statut' not in d.columns:
+        d['Statut'] = ''
+    if 'Slot' not in d.columns:
+        d['Slot'] = d.get('Slot','')
+
+    # set actif current
+    cur_actifs = set()
+    for _, r in d.iterrows():
+        if not str(r.get('Joueur','')).strip():
+            continue
+        if not str(r.get(col_pid,'')).strip():
+            continue
+        rr = r.to_dict()
+        if _is_active_row(rr):
+            cur_actifs.add((str(rr.get('Propriétaire','')).strip(), str(rr.get('Joueur','')).strip()))
+
+    periods = load_points_periods(season_lbl)
+
+    # Identify open periods
+    periods['owner'] = periods['owner'].astype(str).str.strip()
+    periods['player'] = periods['player'].astype(str).str.strip()
+    open_mask = periods['end_ts'].astype(str).str.strip().eq('')
+    open_set = set(zip(periods.loc[open_mask,'owner'], periods.loc[open_mask,'player']))
+
+    rules = load_scoring_rules()
+
+    # Open new periods for newly active players
+    to_open = cur_actifs - open_set
+    if to_open:
+        now = _now_mtl_iso()
+        add_rows = []
+        # map pid/pos quickly
+        pid_map = {}
+        pos_map = {}
+        sub = d.drop_duplicates(subset=['Propriétaire','Joueur'], keep='last')
+        for _, r in sub.iterrows():
+            k = (str(r.get('Propriétaire','')).strip(), str(r.get('Joueur','')).strip())
+            pid_map[k] = str(r.get(col_pid,'') or '').strip()
+            pos_map[k] = str(r.get(col_pos,'') or '').strip()
+
+        for (owner, player) in sorted(to_open):
+            pid = pid_map.get((owner,player),'')
+            pos = pos_map.get((owner,player),'')
+            pts0 = 0.0
+            if pid:
+                try:
+                    pts0 = _fantasy_points_for_player(pid, pos, season_lbl, rules)
+                except Exception:
+                    pts0 = 0.0
+            add_rows.append({
+                'season': season_lbl,
+                'owner': owner,
+                'player': player,
+                'playerId': pid,
+                'pos': pos,
+                'start_ts': now,
+                'end_ts': '',
+                'points_start': float(pts0),
+                'points_end': '',
+                'points_delta': '',
+            })
+        if add_rows:
+            periods = pd.concat([periods, pd.DataFrame(add_rows)], ignore_index=True)
+
+    # Close periods for players no longer active
+    to_close = open_set - cur_actifs
+    if to_close:
+        now = _now_mtl_iso()
+        # map pid/pos in case updated
+        pid_map = {}
+        pos_map = {}
+        sub = d.drop_duplicates(subset=['Propriétaire','Joueur'], keep='last')
+        for _, r in sub.iterrows():
+            k = (str(r.get('Propriétaire','')).strip(), str(r.get('Joueur','')).strip())
+            pid_map[k] = str(r.get(col_pid,'') or '').strip()
+            pos_map[k] = str(r.get(col_pos,'') or '').strip()
+
+        for (owner, player) in sorted(to_close):
+            mask = open_mask & periods['owner'].astype(str).str.strip().eq(owner) & periods['player'].astype(str).str.strip().eq(player)
+            if not mask.any():
+                continue
+            i = periods.index[mask][0]
+            pid = str(periods.at[i,'playerId'] or '').strip() or pid_map.get((owner,player),'')
+            pos = str(periods.at[i,'pos'] or '').strip() or pos_map.get((owner,player),'')
+            pts_end = 0.0
+            try:
+                pts_end = _fantasy_points_for_player(pid, pos, season_lbl, rules) if pid else 0.0
+            except Exception:
+                pts_end = 0.0
+            try:
+                pts_start = float(periods.at[i,'points_start'] or 0)
+            except Exception:
+                pts_start = 0.0
+            delta = float(pts_end - pts_start)
+            periods.at[i,'end_ts'] = now
+            periods.at[i,'points_end'] = float(pts_end)
+            periods.at[i,'points_delta'] = float(delta)
+
+    # Normalize
+    for c in _points_periods_cols():
+        if c not in periods.columns:
+            periods[c] = ''
+    periods = periods[_points_periods_cols()].copy()
+
+    # Persist only if changed
+    try:
+        persist_points_periods(periods, season_lbl)
+    except Exception:
+        pass
+
+    return periods
+
+
+def team_points_snapshot(owner: str, season_lbl: str) -> tuple[float, pd.DataFrame]:
+    """Retourne (points_total, breakdown_par_joueur).
+
+    points_total = somme(des périodes fermées delta) + somme(des périodes ouvertes (current - start)).
+    """
+    owner = str(owner or '').strip()
+    season_lbl = str(season_lbl or '').strip() or 'season'
+    periods = update_points_periods_from_roster(season_lbl)
+    if periods.empty:
+        return 0.0, pd.DataFrame(columns=['Joueur','Points'])
+
+    p = periods[periods['owner'].astype(str).str.strip().eq(owner)].copy()
+    if p.empty:
+        return 0.0, pd.DataFrame(columns=['Joueur','Points'])
+
+    rules = load_scoring_rules()
+
+    # Closed deltas
+    def _f(x):
+        try:
+            return float(x)
+        except Exception:
+            return 0.0
+
+    closed = p[p['end_ts'].astype(str).str.strip().ne('')].copy()
+    closed['earned'] = closed['points_delta'].apply(_f)
+
+    # Open: current - start
+    openp = p[p['end_ts'].astype(str).str.strip().eq('')].copy()
+    cur_earned = []
+    for _, r in openp.iterrows():
+        pid = str(r.get('playerId','') or '').strip()
+        pos = str(r.get('pos','') or '').strip()
+        try:
+            start = float(r.get('points_start') or 0)
+        except Exception:
+            start = 0.0
+        cur = 0.0
+        if pid:
+            try:
+                cur = _fantasy_points_for_player(pid, pos, season_lbl, rules)
+            except Exception:
+                cur = start
+        cur_earned.append(float(cur - start))
+    if len(openp):
+        openp = openp.reset_index(drop=True)
+        openp['earned'] = cur_earned
+
+    allp = pd.concat([closed[['player','earned']], openp[['player','earned']]], ignore_index=True)
+    out = allp.groupby('player', as_index=False)['earned'].sum()
+    out = out.rename(columns={'player':'Joueur','earned':'Points'}).sort_values(by='Points', ascending=False)
+
+    total = float(out['Points'].sum() if not out.empty else 0.0)
+    return total, out.reset_index(drop=True)
+
 def _ensure_local_csv_from_drive(local_path: str) -> bool:
     """If local_path is missing (Streamlit Cloud disk reset), try to restore it from Drive.
 
@@ -4781,6 +5189,362 @@ def build_tableau_ui(plafonds: pd.DataFrame):
         c[4].markdown(r["_ResteCE"])
 
 
+
+# =====================================================
+# 🏆 CLASSEMENT — Points via NHL APIs (combo nhle.com + statsapi)
+#   - Règles de pointage éditables (CSV local + miroir Drive)
+#   - API calls cachés (TTL) pour navigation rapide
+# =====================================================
+
+SCORING_RULES_FILE = os.path.join(DATA_DIR, "scoring_rules.csv")
+
+def _default_scoring_rules_df() -> "pd.DataFrame":
+    # Règles demandées:
+    # F: G=1, A=1 | D: G=1, A=1 | G: W=2, OTL=1
+    return pd.DataFrame([
+        {"position_group": "Skater", "positions": "F,D", "stat_key": "goals",     "api_fields": "goals",          "points": 1, "description": "But (avants et défenseurs)"},
+        {"position_group": "Skater", "positions": "F,D", "stat_key": "assists",   "api_fields": "assists",        "points": 1, "description": "Passe (avants et défenseurs)"},
+        {"position_group": "Goalie", "positions": "G",   "stat_key": "wins",      "api_fields": "wins",           "points": 2, "description": "Victoire gardien"},
+        {"position_group": "Goalie", "positions": "G",   "stat_key": "otLosses",  "api_fields": "otLosses,ot",    "points": 1, "description": "Défaite en prolongation (OTL)"},
+    ])
+
+@st.cache_data(show_spinner=False)
+def _load_scoring_rules_cached(path: str, mtime: float) -> "pd.DataFrame":
+    try:
+        df = pd.read_csv(path)
+        return df
+    except Exception:
+        return _default_scoring_rules_df()
+
+def load_scoring_rules() -> "pd.DataFrame":
+    # Local first
+    try:
+        if os.path.exists(SCORING_RULES_FILE):
+            mtime = os.path.getmtime(SCORING_RULES_FILE)
+            df = _load_scoring_rules_cached(SCORING_RULES_FILE, mtime)
+        else:
+            df = _default_scoring_rules_df()
+        # sanitize
+        for c in ["position_group","positions","stat_key","api_fields","description"]:
+            if c not in df.columns:
+                df[c] = ""
+        if "points" not in df.columns:
+            df["points"] = 0
+        df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+        return df
+    except Exception:
+        return _default_scoring_rules_df()
+
+def save_scoring_rules(df: "pd.DataFrame") -> None:
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = SCORING_RULES_FILE + ".tmp"
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, SCORING_RULES_FILE)
+    except Exception:
+        pass
+    # mirror to Drive if configured
+    try:
+        cfg = st.secrets.get("gdrive_oauth", {}) or {}
+        folder_id = str(cfg.get("folder_id", "")).strip()
+        if folder_id:
+            s = _drive()
+            _drive_upsert_csv_bytes(s, folder_id, os.path.basename(SCORING_RULES_FILE), df.to_csv(index=False).encode("utf-8"))
+    except Exception:
+        pass
+
+def season_lbl_to_nhl(season_lbl: str) -> str:
+    s = str(season_lbl or "").strip()
+    # already like 20252026
+    if len(s) == 8 and s.isdigit():
+        return s
+    # like 2025-2026
+    if "-" in s:
+        a, b = s.split("-", 1)
+        a = "".join([ch for ch in a if ch.isdigit()])
+        b = "".join([ch for ch in b if ch.isdigit()])
+        if len(a) == 4 and len(b) == 4:
+            return a + b
+    # fallback: try keep digits
+    d = "".join([ch for ch in s if ch.isdigit()])
+    if len(d) >= 8:
+        return d[:8]
+    return d
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _statsapi_single_season_cached(player_id: int, season_code: str) -> dict:
+    # NHL statsapi (stable fallback)
+    try:
+        url = f"https://statsapi.web.nhl.com/api/v1/people/{int(player_id)}/stats"
+        params = {"stats": "statsSingleSeason", "season": season_code}
+        r = requests.get(url, params=params, timeout=12)
+        r.raise_for_status()
+        j = r.json()
+        splits = (((j.get("stats") or [{}])[0]).get("splits") or [])
+        if splits and isinstance(splits, list) and isinstance(splits[0], dict):
+            return splits[0].get("stat") or {}
+    except Exception:
+        return {}
+    return {}
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _nhle_landing_cached(player_id: int) -> dict:
+    # api-web.nhle.com landing (souvent plus riche)
+    try:
+        url = f"https://api-web.nhle.com/v1/player/{int(player_id)}/landing"
+        r = requests.get(url, timeout=12)
+        r.raise_for_status()
+        return r.json() if isinstance(r.json(), dict) else {}
+    except Exception:
+        return {}
+
+def _extract_from_nhle_landing(j: dict) -> dict:
+    out = {}
+    if not isinstance(j, dict) or not j:
+        return out
+    # Try common nested paths for regular season totals
+    # Different payloads exist; we try several.
+    candidates = []
+    fs = j.get("featuredStats")
+    if isinstance(fs, dict):
+        rs = fs.get("regularSeason")
+        if isinstance(rs, dict):
+            candidates.append(rs.get("subSeason"))
+            candidates.append(rs.get("career"))
+            candidates.append(rs.get("season"))
+            candidates.append(rs)
+    candidates.append(j.get("seasonTotals"))
+    candidates.append(j.get("careerTotals"))
+    candidates.append(j.get("playerStats"))
+    # Find a dict that has goals/assists or wins/otLosses
+    stat_dict = None
+    for c in candidates:
+        if isinstance(c, dict) and any(k in c for k in ["goals","assists","wins","otLosses","ot","overtimeLosses"]):
+            stat_dict = c
+            break
+        if isinstance(c, list) and c:
+            # take first with those keys
+            for it in c:
+                if isinstance(it, dict) and any(k in it for k in ["goals","assists","wins","otLosses","ot","overtimeLosses"]):
+                    stat_dict = it
+                    break
+            if stat_dict:
+                break
+    if isinstance(stat_dict, dict):
+        # normalize keys we care about
+        for k in ["goals","assists","wins","otLosses","ot","overtimeLosses"]:
+            if k in stat_dict:
+                out[k] = stat_dict.get(k)
+    return out
+
+def nhl_player_stats_combo(player_id_raw: str, season_lbl: str) -> dict:
+    """
+    Combine 2 sources:
+      1) api-web.nhle.com (landing) — primary
+      2) statsapi.web.nhl.com (statsSingleSeason) — fallback / fill
+    Returns normalized keys: goals, assists, wins, otLosses
+    """
+    try:
+        pid = int(float(str(player_id_raw).strip()))
+    except Exception:
+        pid = 0
+    season_code = season_lbl_to_nhl(season_lbl)
+
+    out = {"goals": 0, "assists": 0, "wins": 0, "otLosses": 0}
+    if pid <= 0:
+        return out
+
+    # 1) nhle landing (no season param — best effort)
+    j1 = _nhle_landing_cached(pid)
+    d1 = _extract_from_nhle_landing(j1)
+    # 2) statsapi single season (has season)
+    d2 = _statsapi_single_season_cached(pid, season_code)
+
+    def _get_num(d, keys):
+        for k in keys:
+            if k in d:
+                try:
+                    v = float(d.get(k) or 0)
+                    if v != v:
+                        v = 0
+                    return v
+                except Exception:
+                    return 0
+        return 0
+
+    out["goals"] = _get_num(d1, ["goals"]) or _get_num(d2, ["goals"])
+    out["assists"] = _get_num(d1, ["assists"]) or _get_num(d2, ["assists"])
+    out["wins"] = _get_num(d1, ["wins"]) or _get_num(d2, ["wins"])
+    out["otLosses"] = _get_num(d1, ["otLosses","ot","overtimeLosses"]) or _get_num(d2, ["ot","otLosses","overtimeLosses"])
+    # Ensure ints for display
+    for k in out:
+        try:
+            out[k] = int(round(float(out[k] or 0)))
+        except Exception:
+            out[k] = 0
+    return out
+
+def compute_points_from_rules(position_raw: str, stats: dict, rules_df: "pd.DataFrame") -> float:
+    pos = str(position_raw or "").upper().strip()
+    is_goalie = ("G" == pos) or ("GOAL" in pos) or ("GK" == pos)
+    group = "Goalie" if is_goalie else "Skater"
+    total = 0.0
+    if not isinstance(rules_df, pd.DataFrame) or rules_df.empty:
+        rules_df = _default_scoring_rules_df()
+
+    for _, r in rules_df.iterrows():
+        if str(r.get("position_group","")).strip() != group:
+            continue
+        stat_key = str(r.get("stat_key","")).strip()
+        pts = float(r.get("points",0) or 0)
+        try:
+            v = float(stats.get(stat_key, 0) or 0)
+        except Exception:
+            v = 0.0
+        total += v * pts
+    return float(total)
+
+def render_tab_classement():
+    st.subheader("🏆 Classement")
+    st.caption("Points calculés via NHL APIs (api-web.nhle.com + statsapi.web.nhl.com), selon tes règles de pointage.")
+
+    df = st.session_state.get("data", pd.DataFrame())
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        st.info("Aucune donnée chargée. Va dans 🛠️ Gestion Admin → Import Fantrax.")
+        return
+
+    season_lbl = str(st.session_state.get("season") or "").strip() or saison_auto()
+    rules = load_scoring_rules()
+
+    # Detect columns
+    col_player = "Joueur" if "Joueur" in df.columns else None
+    col_owner = "Propriétaire" if "Propriétaire" in df.columns else None
+    col_pos = None
+    for c in ["Position","Pos","POS","position","Slot"]:
+        if c in df.columns:
+            col_pos = c
+            break
+    col_status = None
+    for c in ["Statut","Status","Slot"]:
+        if c in df.columns:
+            col_status = c
+            break
+
+    col_pid = None
+    for c in ["playerId","PlayerId","player_id","id_player"]:
+        if c in df.columns:
+            col_pid = c
+            break
+
+    if not (col_player and col_owner):
+        st.warning("Colonnes manquantes: il faut 'Joueur' et 'Propriétaire' pour faire le classement.")
+        return
+    if not col_pid:
+        st.warning("Il manque la colonne playerId dans ton roster. (On peut la mapper depuis Players DB si besoin.)")
+        return
+
+    d = df.copy()
+    d[col_player] = d[col_player].astype(str).str.strip()
+    d[col_owner] = d[col_owner].astype(str).str.strip()
+    d[col_pid] = d[col_pid].astype(str).str.strip()
+
+    # Filter actifs (best effort)
+    actifs = d
+    if col_status:
+        s = d[col_status].astype(str).str.lower()
+        filt = s.str.contains("actif|active|lineup|starter", regex=True, na=False)
+        if filt.any():
+            actifs = d[filt].copy()
+
+    # Unique players per owner
+    actifs = actifs[actifs[col_player].astype(str).str.len() > 0].copy()
+    actifs = actifs.drop_duplicates(subset=[col_owner, col_player], keep="last").copy()
+
+    # Cache key
+    dv = str(st.session_state.get("data_version","0"))
+    cache_key = f"{season_lbl}__{dv}"
+    if "classement_cache" not in st.session_state:
+        st.session_state["classement_cache"] = {}
+
+    do_recalc = st.button("🔄 Recalculer points (API)", use_container_width=True, key=f"recalc_points__{cache_key}")
+
+    if (cache_key in st.session_state["classement_cache"]) and (not do_recalc):
+        cached = st.session_state["classement_cache"][cache_key]
+        st.success("✅ Résultats en cache (rapide). Clique Recalculer si tu veux rafraîchir.")
+        team_rank = cached.get("team_rank", pd.DataFrame())
+        top_players = cached.get("top_players", pd.DataFrame())
+        missing_pid = cached.get("missing_pid", [])
+    else:
+        with st.spinner("Calcul des points via API…"):
+            rows = []
+            missing_pid = []
+            prog = st.progress(0)
+            n = len(actifs)
+            for i, r in enumerate(actifs.to_dict(orient="records")):
+                name = str(r.get(col_player,"")).strip()
+                owner = str(r.get(col_owner,"")).strip()
+                pid = str(r.get(col_pid,"")).strip()
+                pos_raw = str(r.get(col_pos,"") if col_pos else "").strip()
+                if not pid or pid.lower() in {"nan","none","null","0","0.0","-"}:
+                    missing_pid.append(name)
+                    stats = {"goals":0,"assists":0,"wins":0,"otLosses":0}
+                else:
+                    stats = nhl_player_stats_combo(pid, season_lbl)
+                pts = compute_points_from_rules(pos_raw, stats, rules)
+                rows.append({
+                    "Équipe": owner,
+                    "Joueur": name,
+                    "Position": pos_raw,
+                    "playerId": pid,
+                    "G": stats.get("goals",0),
+                    "A": stats.get("assists",0),
+                    "W": stats.get("wins",0),
+                    "OTL": stats.get("otLosses",0),
+                    "Points": pts,
+                })
+                try:
+                    prog.progress(min(1.0, (i+1)/max(1,n)))
+                except Exception:
+                    pass
+            try:
+                prog.empty()
+            except Exception:
+                pass
+
+            out = pd.DataFrame(rows)
+            if out.empty:
+                st.info("Aucun joueur actif à calculer.")
+                return
+
+            team_rank = (
+                out.groupby("Équipe", as_index=False)["Points"]
+                .sum()
+                .sort_values(by="Points", ascending=False, kind="mergesort")
+                .reset_index(drop=True)
+            )
+            team_rank.insert(0, "Rang", range(1, len(team_rank)+1))
+
+            top_players = out.sort_values(by="Points", ascending=False, kind="mergesort").head(50).reset_index(drop=True)
+            top_players.insert(0, "Rang", range(1, len(top_players)+1))
+
+            st.session_state["classement_cache"][cache_key] = {
+                "team_rank": team_rank,
+                "top_players": top_players,
+                "missing_pid": missing_pid[:200],
+            }
+
+    st.markdown("### 🏅 Classement des équipes (joueurs actifs)")
+    st.dataframe(team_rank, use_container_width=True, hide_index=True)
+
+    st.markdown("### ⭐ Top joueurs actifs")
+    st.dataframe(top_players, use_container_width=True, hide_index=True)
+
+    if missing_pid:
+        with st.expander(f"⚠️ playerId manquant ({len(missing_pid)})", expanded=False):
+            st.write(missing_pid)
+
+
+
 # =====================================================
 # BOOTSTRAP GLOBAL (ordre propre)
 #   0) players_db
@@ -4947,6 +5711,7 @@ is_admin = _is_admin_whalers()
 
 NAV_TABS = [
     "🏠 Home",
+    "🏆 Classement",
     "🧾 Alignement",
     "👤 Profil joueur",
     "🧊 GM",
@@ -5323,6 +6088,100 @@ def render_tab_gm():
                 """,
                 unsafe_allow_html=True,
             )
+
+    # =========================
+    # 🏆 Points (cumul ACTIFS seulement)
+    #   - Les points s'accumulent uniquement quand le joueur est ACTIF.
+    #   - Quand il passe banc/mineur/IR, il conserve les points acquis.
+    # =========================
+    try:
+        season_lbl = str(st.session_state.get('season') or '').strip() or saison_auto()
+        pts_total, pts_break = team_points_snapshot(owner, season_lbl)
+    except Exception:
+        pts_total, pts_break = 0.0, pd.DataFrame(columns=['Joueur','Points'])
+
+    with colR:
+        st.markdown(
+            f"""
+            <div style=\"padding:14px;border-radius:14px;background:rgba(255,255,255,.05);margin-top:10px\">
+              <div style=\"font-size:13px;opacity:.8\">🏆 Points (cumul Actifs)</div>
+              <div style=\"font-size:26px;font-weight:900;margin:4px 0\">{pts_total:.0f}</div>
+              <div style=\"font-size:12px;opacity:.75\">Seuls les points gagnés pendant les périodes ACTIF comptent.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if not pts_break.empty:
+            with st.expander("📊 Détail points (joueurs)", expanded=False):
+                st.dataframe(pts_break.head(50), use_container_width=True, hide_index=True)
+
+
+    # =========================
+    # ⚙️ Auto-update Points (Actifs) — option persistante (GM)
+    #   - ON/OFF par équipe
+    #   - interval (min) par équipe
+    #   - throttle en session pour éviter les appels API répétitifs
+    # =========================
+    try:
+        season_lbl2 = str(st.session_state.get('season') or '').strip() or saison_auto()
+    except Exception:
+        season_lbl2 = season_lbl if 'season_lbl' in locals() else '2025-2026'
+
+    st.markdown("### ⚙️ Auto-update points (Actifs)")
+    _enabled0, _interval0 = get_gm_setting_auto_update_points(season_lbl2, owner)
+
+    cAU1, cAU2, cAU3 = st.columns([1.2, 1, 1.2], vertical_alignment='center')
+    with cAU1:
+        enabled = st.toggle(
+            "Activer (auto-update)",
+            value=bool(_enabled0),
+            key=f"gm_auto_update_points__{season_lbl2}__{owner}",
+        )
+    with cAU2:
+        interval_min = st.number_input(
+            "Intervalle (min)",
+            min_value=5,
+            max_value=180,
+            value=int(_interval0),
+            step=5,
+            key=f"gm_auto_update_points_interval__{season_lbl2}__{owner}",
+        )
+    with cAU3:
+        if st.button("🔄 Mettre à jour maintenant", use_container_width=True, key=f"gm_auto_update_points_now__{season_lbl2}__{owner}"):
+            try:
+                update_points_periods_from_roster(season_lbl2)
+                # refresh snapshot display
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+                st.success("✅ Mise à jour effectuée")
+                do_rerun()
+            except Exception as e:
+                st.error(f"❌ Mise à jour KO — {type(e).__name__}: {e}")
+
+    # Persist toggle + interval (Drive mirror)
+    try:
+        if bool(enabled) != bool(_enabled0) or int(interval_min) != int(_interval0):
+            set_gm_setting_auto_update_points(season_lbl2, owner, bool(enabled), int(interval_min))
+    except Exception:
+        pass
+
+    # Auto-run (throttled)
+    if bool(enabled) and _should_run_auto_update_points(season_lbl2, owner, minutes=int(interval_min)):
+        try:
+            update_points_periods_from_roster(season_lbl2)
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            st.toast("✅ Auto-update: points (Actifs) mis à jour", icon="✅")
+        except Exception as e:
+            # silent-ish: avoid spamming
+            st.toast("⚠️ Auto-update: échec", icon="⚠️")
+
+
+
 
     st.divider()
 
@@ -6278,6 +7137,11 @@ if active_tab == "🏠 Home":
         st.dataframe(recent, use_container_width=True, hide_index=True)
 
 
+
+elif active_tab == "🏆 Classement":
+    render_tab_classement()
+
+
 elif active_tab == "🧾 Alignement":
     st.subheader("🧾 Alignement")
 
@@ -6809,6 +7673,148 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
+    # -----------------------------------------------------
+    # 🏆 Règles de pointage (éditables)
+    # -----------------------------------------------------
+    with st.expander("🏆 Règles de pointage (Classement)", expanded=False):
+        st.caption("Édite les règles de points. Le Classement calcule ensuite via APIs NHL (combo nhle.com + statsapi).")
+        rules_df = load_scoring_rules()
+        rules_edit = st.data_editor(
+            rules_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="admin_scoring_rules_editor",
+        )
+        c_sr1, c_sr2 = st.columns(2)
+        with c_sr1:
+            if st.button("💾 Sauvegarder règles", use_container_width=True, key="admin_save_scoring_rules"):
+                try:
+                    save_scoring_rules(pd.DataFrame(rules_edit))
+                    st.success("✅ Règles sauvegardées (local + Drive si configuré).")
+                except Exception as e:
+                    st.error(f"❌ Sauvegarde KO — {type(e).__name__}: {e}")
+        with c_sr2:
+            try:
+                csvb = pd.DataFrame(rules_edit).to_csv(index=False).encode("utf-8")
+                st.download_button("📤 Télécharger CSV", data=csvb, file_name="scoring_rules.csv", mime="text/csv", use_container_width=True)
+            except Exception:
+                pass
+
+
+    # -----------------------------------------------------
+    # 🏆 Points (Actifs) — périodes + requêtes par équipe/joueur
+    #   Demande: liste déroulante équipe + joueurs + date début/fin + points accumulés
+    # -----------------------------------------------------
+    with st.expander("🏆 Points (Actifs) — suivi par période", expanded=False):
+        season_lbl = str(st.session_state.get('season') or '').strip() or saison_auto()
+        st.caption("Les points s'accumulent uniquement quand le joueur est **ACTIF**. Quand il passe banc/mineur/IR, la période se ferme et les points restent acquis.")
+
+        # Met à jour (ouvre/ferme) selon le roster courant
+        if st.button("🔄 Synchroniser périodes ACTIF", use_container_width=True, key="admin_sync_points_periods"):
+            try:
+                update_points_periods_from_roster(season_lbl)
+                st.success("✅ Périodes synchronisées.")
+            except Exception as e:
+                st.error(f"❌ Sync KO — {type(e).__name__}: {e}")
+
+        periods = load_points_periods(season_lbl)
+        if periods.empty:
+            st.info("Aucune période enregistrée pour cette saison (fais une synchro).")
+        else:
+            owners = sorted(periods['owner'].dropna().astype(str).str.strip().unique().tolist())
+            if not owners:
+                st.info("Aucune équipe trouvée dans les périodes.")
+            else:
+                owner_pick = st.selectbox("Équipe", owners, key="admin_points_owner_pick")
+
+                # date range
+                cD1, cD2 = st.columns(2)
+                with cD1:
+                    d_start = st.date_input("Date début", value=date.today().replace(month=1, day=1), key="admin_points_date_start")
+                with cD2:
+                    d_end = st.date_input("Date fin", value=date.today(), key="admin_points_date_end")
+
+                # parse ISO timestamps into dt local
+                def _to_dt(x):
+                    try:
+                        return datetime.fromisoformat(str(x))
+                    except Exception:
+                        return None
+
+                p = periods[periods['owner'].astype(str).str.strip().eq(owner_pick)].copy()
+                if p.empty:
+                    st.info("Aucune période pour cette équipe.")
+                else:
+                    # show raw periods table (open/closed)
+                    show_cols = ['player','pos','start_ts','end_ts','points_start','points_end','points_delta']
+                    for c in show_cols:
+                        if c not in p.columns:
+                            p[c] = ''
+                    p_show = p[show_cols].copy().rename(columns={'player':'Joueur','pos':'Pos','start_ts':'Début','end_ts':'Fin','points_start':'Pts début','points_end':'Pts fin','points_delta':'Pts période'})
+                    st.markdown("**Périodes (ACTIF)**")
+                    st.dataframe(p_show.sort_values(by=['Début'], ascending=False, na_position='last').head(500), use_container_width=True, hide_index=True)
+
+                    # compute earned in [d_start, d_end]
+                    # approximation: si la période chevauche la fenêtre, on compte entièrement.
+                    # (Pour précision au jour près, on peut aller au game-log plus tard.)
+                    start_dt = datetime.combine(d_start, datetime.min.time()).replace(tzinfo=None)
+                    end_dt = datetime.combine(d_end, datetime.max.time()).replace(tzinfo=None)
+
+                    def _overlaps(row):
+                        a = _to_dt(row.get('start_ts',''))
+                        b = _to_dt(row.get('end_ts',''))
+                        if a is None:
+                            return False
+                        if b is None:
+                            b = datetime.max
+                        return (a <= end_dt) and (b >= start_dt)
+
+                    p2 = p.copy()
+                    p2['_ov'] = p2.apply(_overlaps, axis=1)
+                    p2 = p2[p2['_ov']].copy()
+
+                    # points per period: closed uses points_delta; open uses (current-start)
+                    rules = load_scoring_rules()
+
+                    def _f(x):
+                        try:
+                            return float(x)
+                        except Exception:
+                            return 0.0
+
+                    earned = []
+                    for _, r in p2.iterrows():
+                        if str(r.get('end_ts','')).strip():
+                            earned.append(_f(r.get('points_delta','')))
+                        else:
+                            # open
+                            pid = str(r.get('playerId','') or '').strip()
+                            pos = str(r.get('pos','') or '').strip()
+                            try:
+                                start_pts = float(r.get('points_start') or 0)
+                            except Exception:
+                                start_pts = 0.0
+                            cur = start_pts
+                            if pid:
+                                try:
+                                    cur = _fantasy_points_for_player(pid, pos, season_lbl, rules)
+                                except Exception:
+                                    cur = start_pts
+                            earned.append(float(cur - start_pts))
+
+                    p2 = p2.reset_index(drop=True)
+                    p2['earned'] = earned
+                    by_player = p2.groupby('player', as_index=False)['earned'].sum().rename(columns={'player':'Joueur','earned':'Points'}).sort_values(by='Points', ascending=False)
+
+                    st.markdown("**Points accumulés (dans la fenêtre)**")
+                    st.dataframe(by_player.head(200), use_container_width=True, hide_index=True)
+
+                    total = float(by_player['Points'].sum() if not by_player.empty else 0.0)
+                    st.success(f"Total équipe — {total:.0f} point(s)")
+
+
+    # --- Drive status
     # --- Drive status
     cfg = st.secrets.get("gdrive_oauth", {}) or {}
     folder_id = str(cfg.get("folder_id", "")).strip()
