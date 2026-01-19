@@ -9727,3 +9727,19 @@ elif active_tab == "🧠 Recommandations":
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out.drop(columns=["_lvl"], errors="ignore"), use_container_width=True, hide_index=True)
 
+    import streamlit as st
+
+    def _sr_test():
+        return _sportradar_get_json(
+            "/seasons/sr:season:68156/competitors/sr:competitor:3691/statistics"
+        )
+
+    st.markdown("### 🧪 Sportradar API test")
+    if st.button("Run Sportradar test"):
+        try:
+            data = _sr_test()
+            st.success("Sportradar OK ✅")
+            st.json(data)
+        except Exception as e:
+            st.error("Sportradar FAILED ❌")
+            st.exception(e)
