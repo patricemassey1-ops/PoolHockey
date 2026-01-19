@@ -8336,22 +8336,32 @@ elif active_tab == "🛠️ Gestion Admin":
     def _sportradar_get_json(endpoint: str, locale: str = "en"):
         cfg = sportradar_cfg()
         api_key = str(cfg.get("api_key", "")).strip()
-        base = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v7")).strip().rstrip("/")
+        base = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v2")).strip().rstrip("/")
+        locale = str(cfg.get("locale", locale or "en")).strip()
+
         if not api_key:
-            return None
+            return {"_error": "Missing api_key", "_text": ""}
+
         ep = str(endpoint or "").strip()
         if not ep.startswith("/"):
             ep = "/" + ep
-        # Sportradar: /{locale}/... + ?api_key=...
+
         url = f"{base}/{locale}{ep}"
+
         try:
             import requests
-            r = requests.get(url, params={"api_key": api_key}, timeout=20)
-            if r.status_code >= 400:
-                return {"_error": f"HTTP {r.status_code}", "_text": r.text[:500]}
+            r = requests.get(
+                url,
+                params={"api_key": api_key},
+                headers={"accept": "application/json"},
+                timeout=20,
+            )
+            if r.status_code != 200:
+                return {"_error": f"HTTP {r.status_code}", "_text": r.text[:1200], "_url": url}
             return r.json()
         except Exception as e:
-            return {"_error": f"{type(e).__name__}", "_text": str(e)[:500]}
+            return {"_error": type(e).__name__, "_text": str(e)[:1200], "_url": url}
+
 
     def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
         urn = str(sr_player_urn or "").strip()
@@ -8384,7 +8394,7 @@ elif active_tab == "🛠️ Gestion Admin":
             cT1, cT2 = st.columns([1,1])
             with cT1:
                 if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-                    j = _sportradar_get_json("/competitions", locale="en")
+                    j = _sportradar_get_json("/players/sr:player:29663/profile", locale="en")
                     if isinstance(j, dict) and j.get("_error"):
                         st.error(f"❌ Sportradar KO — {j.get('_error')}: {j.get('_text','')}")
                     else:
@@ -9690,41 +9700,7 @@ elif active_tab == "🛠️ Gestion Admin":
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
-        import requests
-        import streamlit as st
-
-        def _sportradar_get_json(endpoint: str, locale: str = "en"):
-            cfg = st.secrets.get("sportradar", {})
-            api_key = (cfg.get("api_key") or "").strip()
-            base_url = (cfg.get("base_url") or "https://api.sportradar.com/icehockey/trial/v2").strip()
-            locale = (cfg.get("locale") or locale or "en").strip()
-
-            if not api_key:
-                raise RuntimeError("Missing sportradar.api_key in Streamlit secrets")
-            if not base_url:
-                raise RuntimeError("Missing sportradar.base_url in Streamlit secrets")
-
-            # normalize endpoint
-            endpoint = (endpoint or "").strip()
-            if not endpoint.startswith("/"):
-                endpoint = "/" + endpoint
-
-            url = f"{base_url}/{locale}{endpoint}"
-
-            r = requests.get(
-                url,
-                params={"api_key": api_key},
-                headers={"accept": "application/json"},
-                timeout=20,
-            )
-
-            # hard fail on non-200 so UI cannot show false OK
-            if r.status_code != 200:
-                raise RuntimeError(f"Sportradar HTTP {r.status_code}\nURL: {url}\nBody:\n{r.text[:1200]}")
-
-            return r.json()
-
-
+  
 
 
 elif active_tab == "🧠 Recommandations":
