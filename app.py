@@ -9690,39 +9690,39 @@ elif active_tab == "🛠️ Gestion Admin":
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
-    import requests
-    import streamlit as st
+        import requests
+        import streamlit as st
 
-    def _sportradar_get_json(endpoint: str, locale: str = "en"):
-        cfg = st.secrets.get("sportradar", {})
-        api_key = (cfg.get("api_key") or "").strip()
-        base_url = (cfg.get("base_url") or "https://api.sportradar.com/icehockey/trial/v2").strip()
-        locale = (cfg.get("locale") or locale or "en").strip()
+        def _sportradar_get_json(endpoint: str, locale: str = "en"):
+            cfg = st.secrets.get("sportradar", {})
+            api_key = (cfg.get("api_key") or "").strip()
+            base_url = (cfg.get("base_url") or "https://api.sportradar.com/icehockey/trial/v2").strip()
+            locale = (cfg.get("locale") or locale or "en").strip()
 
-        if not api_key:
-            raise RuntimeError("Missing sportradar.api_key in Streamlit secrets")
-        if not base_url:
-            raise RuntimeError("Missing sportradar.base_url in Streamlit secrets")
+            if not api_key:
+                raise RuntimeError("Missing sportradar.api_key in Streamlit secrets")
+            if not base_url:
+                raise RuntimeError("Missing sportradar.base_url in Streamlit secrets")
 
-        # normalize endpoint
-        endpoint = (endpoint or "").strip()
-        if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
+            # normalize endpoint
+            endpoint = (endpoint or "").strip()
+            if not endpoint.startswith("/"):
+                endpoint = "/" + endpoint
 
-        url = f"{base_url}/{locale}{endpoint}"
+            url = f"{base_url}/{locale}{endpoint}"
 
-        r = requests.get(
-            url,
-            params={"api_key": api_key},
-            headers={"accept": "application/json"},
-            timeout=20,
-        )
+            r = requests.get(
+                url,
+                params={"api_key": api_key},
+                headers={"accept": "application/json"},
+                timeout=20,
+            )
 
-        # hard fail on non-200 so UI cannot show false OK
-        if r.status_code != 200:
-            raise RuntimeError(f"Sportradar HTTP {r.status_code}\nURL: {url}\nBody:\n{r.text[:1200]}")
+            # hard fail on non-200 so UI cannot show false OK
+            if r.status_code != 200:
+                raise RuntimeError(f"Sportradar HTTP {r.status_code}\nURL: {url}\nBody:\n{r.text[:1200]}")
 
-        return r.json()
+            return r.json()
 
 
 
