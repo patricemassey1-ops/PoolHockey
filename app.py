@@ -8320,190 +8320,554 @@ elif active_tab == "🛠️ Gestion Admin":
     # -----------------------------------------------------
     
 
-    # -----------------------------
-    # 🧾 Sportradar (optionnel) — enrichir hockey.players.csv
-    #   Requiert st.secrets["sportradar"]["api_key"]
-    #   Utilise sr:player:... (URN) si présent dans hockey.players.csv
-    # -----------------------------
-    def sportradar_cfg() -> dict:
-        return st.secrets.get("sportradar", {}) or {}
+# -----------------------------
+# 🧾 Sportradar (optionnel) — enrichir Players DB
+#   Requiert st.secrets["sportradar"]["api_key"]
+#   Objectif:
+#     1) Tester Sportradar
+#     2) Auto-remplir sr_player_urn via Season Players (matcher intelligent + validation)
+#     3) Enrichir Country via profile (URN)
+#     4) Générer un CSV "merge" Sportradar
+# -----------------------------
 
-    def sportradar_ready() -> bool:
-        cfg = sportradar_cfg()
-        return bool(str(cfg.get("api_key", "")).strip())
+import os
+import re
+import time
+import unicodedata
+from difflib import SequenceMatcher, get_close_matches
+from datetime import datetime
 
-    @st.cache_data(show_spinner=False, ttl=3600)
-    def _sportradar_get_json(endpoint: str, locale: str = "en"):
-        cfg = st.secrets["sportradar"]
+# -----------------------------
+# Config + API helper
+# -----------------------------
+def sportradar_cfg() -> dict:
+    return st.secrets.get("sportradar", {}) or {}
 
-        api_key = cfg["api_key"].strip()
-        base_url = cfg.get("base_url", "").rstrip("/")
-        locale = cfg.get("locale", locale).strip()
+def sportradar_ready() -> bool:
+    cfg = sportradar_cfg()
+    return bool(str(cfg.get("api_key", "")).strip())
 
-        if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
+@st.cache_data(show_spinner=False, ttl=3600)
+def _sportradar_get_json(endpoint: str, locale: str = "en"):
+    cfg = sportradar_cfg()
+    api_key = str(cfg.get("api_key", "")).strip()
+    base_url = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v2")).strip().rstrip("/")
+    locale = str(cfg.get("locale", locale or "en")).strip()
 
-        # forcer .json UNE SEULE FOIS
-        if not endpoint.endswith(".json"):
-            endpoint = endpoint + ".json"
+    if not api_key:
+        return {"_error": "Missing api_key"}
 
-        url = f"{base_url}/{locale}{endpoint}"
+    endpoint = str(endpoint or "").strip()
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
 
+    # forcer .json UNE SEULE FOIS
+    if not endpoint.endswith(".json"):
+        endpoint = endpoint + ".json"
+
+    url = f"{base_url}/{locale}{endpoint}"
+
+    try:
         r = requests.get(
             url,
             headers={"accept": "application/json"},
             params={"api_key": api_key},
             timeout=20,
         )
-
         if r.status_code != 200:
-            return {
-                "_error": f"HTTP {r.status_code}",
-                "_url": url,
-                "_text": r.text[:1000],
-            }
-
+            return {"_error": f"HTTP {r.status_code}", "_url": url, "_text": r.text[:1200]}
         return r.json()
+    except Exception as e:
+        return {"_error": type(e).__name__, "_url": url, "_text": str(e)[:1200]}
 
+def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
+    urn = str(sr_player_urn or "").strip()
+    if not urn:
+        return {"_error": "Missing URN"}
+    return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
 
-    def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
-        urn = str(sr_player_urn or "").strip()
-        if not urn:
-            return None
-        return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
+@st.cache_data(show_spinner=False, ttl=24*3600)
+def sr_season_players(season_urn: str, locale="en"):
+    return _sportradar_get_json(f"/seasons/{season_urn}/players", locale=locale)
 
-    def _sr_country_to_iso2(x: str) -> str:
-        s = str(x or "").strip()
-        if not s:
-            return ""
-        if len(s) == 2 and s.isalpha():
-            return s.upper()
-        # quelques pays en texte
-        m = {
-            "canada": "CA", "united states": "US", "usa": "US",
-            "sweden": "SE", "finland": "FI", "czech republic": "CZ",
-            "russia": "RU", "slovakia": "SK", "germany": "DE",
-            "switzerland": "CH", "latvia": "LV", "norway": "NO",
-            "denmark": "DK", "france": "FR",
-        }
-        return m.get(s.lower(), "")
+def _sr_country_to_iso2(x: str) -> str:
+    s = str(x or "").strip()
+    if not s:
+        return ""
+    if len(s) == 2 and s.isalpha():
+        return s.upper()
+    m = {
+        "canada": "CA", "united states": "US", "usa": "US",
+        "sweden": "SE", "finland": "FI", "czech republic": "CZ",
+        "russia": "RU", "slovakia": "SK", "germany": "DE",
+        "switzerland": "CH", "latvia": "LV", "norway": "NO",
+        "denmark": "DK", "france": "FR",
+    }
+    return m.get(s.lower(), "")
 
-    with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded=False):
-        st.caption(
-            "Si tu as un accès Sportradar (30 jours), tu peux générer un fichier de fusion et/ou enrichir hockey.players.csv.\n\n"
-            "**Pré-requis**: ajouter dans Secrets: [sportradar] api_key=\"...\" (optionnel base_url)."
+def _detect_player_name_col(df: pd.DataFrame) -> str:
+    for c in ["Player", "Joueur", "name", "Nom", "Player Name"]:
+        if c in df.columns:
+            return c
+    return ""
+
+# -----------------------------
+# Intelligent matcher
+# -----------------------------
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
+
+def _strip_accents(s: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+
+def _clean_tokens(s: str) -> list[str]:
+    s = _strip_accents(str(s or "")).lower().strip()
+    s = s.replace(".", " ")
+    s = re.sub(r"[^a-z\s\-\']", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    toks = [t for t in s.split(" ") if t]
+    # enlever suffixes
+    toks2 = []
+    for t in toks:
+        tt = t.replace("'", "").replace("-", "")
+        if tt in _SUFFIXES:
+            continue
+        toks2.append(t)
+    return toks2
+
+def _name_variants(raw: str) -> list[str]:
+    """
+    Variantes possibles:
+    - "last first"
+    - "first last"
+    - initiale + last, last + initiale
+    Gère aussi "Last, First"
+    """
+    raw0 = str(raw or "").strip()
+    if not raw0:
+        return []
+
+    # Cas "Last, First"
+    if "," in raw0:
+        parts = [p.strip() for p in raw0.split(",") if p.strip()]
+        if len(parts) >= 2:
+            last_t = _clean_tokens(parts[0])
+            first_t = _clean_tokens(parts[1])
+            if last_t and first_t:
+                L = last_t[0]
+                F = first_t[0]
+                out = [
+                    f"{L} {F}",
+                    f"{F} {L}",
+                    f"{L} {F[0]}",
+                    f"{F[0]} {L}",
+                ]
+                return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
+
+    toks = _clean_tokens(raw0)
+    if not toks:
+        return []
+    if len(toks) == 1:
+        return [toks[0]]
+
+    first = toks[0]
+    last = toks[-1]
+    out = [
+        f"{last} {first}",
+        f"{first} {last}",
+        f"{last} {first[0]}",
+        f"{first[0]} {last}",
+    ]
+    return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
+
+def _similar(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
+
+def _sr_primary_key_from_name(pname: str) -> str:
+    toks = _clean_tokens(pname)
+    if not toks:
+        return ""
+    if "," in pname:
+        parts = [pp.strip() for pp in pname.split(",") if pp.strip()]
+        if len(parts) >= 2:
+            L = _clean_tokens(parts[0])
+            F = _clean_tokens(parts[1])
+            if L and F:
+                return f"{L[0]} {F[0]}".strip()
+    return f"{toks[-1]} {toks[0]}".strip()
+
+def build_sr_indexes(plist: list[dict]):
+    """
+    Retourne:
+      - exact_map: variantes -> urn
+      - primary_keys: liste de clés pour fuzzy
+      - primary_to_urn: primary_key -> urn
+      - urn_to_display: urn -> "Name"
+    """
+    exact_map = {}
+    primary_to_urn = {}
+    urn_to_display = {}
+
+    for p in plist:
+        urn = str(p.get("id", "") or "").strip()
+        name = str(p.get("name", "") or "").strip()
+        if not urn or not name:
+            continue
+
+        urn_to_display[urn] = name
+
+        # exact variants
+        for k in _name_variants(name):
+            exact_map[k] = urn
+
+        pk = _sr_primary_key_from_name(name)
+        if pk:
+            primary_to_urn[pk] = urn
+
+    primary_keys = list(primary_to_urn.keys())
+    return exact_map, primary_keys, primary_to_urn, urn_to_display
+
+def match_one_player_to_urn(raw_name: str, exact_map: dict, primary_keys: list[str], primary_to_urn: dict,
+                            fuzzy_cutoff: float, top_k: int = 5):
+    """
+    Retour:
+      status: "exact" | "fuzzy" | "miss"
+      urn: str
+      candidates: list[(key, score, urn)]
+    """
+    vars_local = _name_variants(raw_name)
+
+    # exact
+    for k in vars_local:
+        urn = exact_map.get(k, "")
+        if urn:
+            return "exact", urn, []
+
+    if not primary_keys:
+        return "miss", "", []
+
+    base = vars_local[0] if vars_local else ""
+    close = get_close_matches(base, primary_keys, n=top_k, cutoff=max(0.0, fuzzy_cutoff - 0.10))
+
+    cand = []
+    for ck in close:
+        score = _similar(base, ck)
+        cand.append((ck, score, primary_to_urn.get(ck, "")))
+    cand = sorted(cand, key=lambda x: x[1], reverse=True)
+
+    if cand and cand[0][1] >= fuzzy_cutoff and cand[0][2]:
+        return "fuzzy", cand[0][2], cand
+
+    return "miss", "", cand
+
+# -----------------------------
+# UI — Expander
+# -----------------------------
+with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded=False):
+    st.caption(
+        "Si tu as un accès Sportradar (30 jours), tu peux générer un fichier de fusion et/ou enrichir hockey.players.csv.\n\n"
+        "**Pré-requis**: ajouter dans Secrets: [sportradar] api_key=\"...\" (optionnel base_url)."
+    )
+
+    if not sportradar_ready():
+        st.info("Sportradar non configuré (api_key absent).")
+        st.stop()
+
+    # Locale (une seule fois)
+    locale = st.selectbox("Locale Sportradar", ["en"], index=0, key="sr_locale_admin")
+
+    # --- TEST
+    cT1, cT2 = st.columns([1, 1])
+    with cT1:
+        if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
+            j = _sportradar_get_json("/players/sr:player:29663/profile", locale=locale)
+            if isinstance(j, dict) and j.get("_error"):
+                st.error(f"❌ Sportradar KO — {j.get('_error')}")
+                if j.get("_url"):
+                    st.code(j["_url"])
+                if j.get("_text"):
+                    st.code(j["_text"])
+            else:
+                st.success("✅ Sportradar répond (OK).")
+                st.json(j)
+    with cT2:
+        st.caption("Astuce: On va auto-remplir **sr_player_urn** et ensuite enrichir Country.")
+
+    st.divider()
+    st.subheader("🔗 Auto-mapping URN (Season Players) + validation")
+
+    # Charger Players DB (local)
+    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+    if not pdb_path:
+        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+
+    try:
+        pdb_df = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+    except Exception as e:
+        st.error("Impossible de lire hockey.players.csv")
+        st.exception(e)
+        pdb_df = pd.DataFrame()
+
+    if pdb_df.empty:
+        st.warning(f"Players DB vide/introuvable: {pdb_path}")
+        st.stop()
+
+    name_col = _detect_player_name_col(pdb_df)
+    if not name_col:
+        st.error("Aucune colonne nom joueur trouvée (Player/Joueur/name/Nom).")
+        st.stop()
+
+    if "sr_player_urn" not in pdb_df.columns:
+        pdb_df["sr_player_urn"] = ""
+
+    season_urn = st.text_input(
+        "Season URN (Sportradar)",
+        value="sr:season:68156",
+        help="Exemple: sr:season:68156 (ne pas encoder en %3A)",
+        key="sr_season_urn_input",
+    )
+
+    cutoff = st.slider("Seuil fuzzy match (plus haut = plus strict)", 0.85, 0.99, 0.92, 0.01, key="sr_fuzzy_cutoff")
+    topk = st.slider("Top candidates (debug)", 1, 10, 5, 1, key="sr_topk")
+
+    colA, colB = st.columns([1, 1])
+    with colA:
+        do_fuzzy = st.checkbox("Activer fuzzy match", value=True, key="sr_do_fuzzy")
+    with colB:
+        only_missing = st.checkbox("Traiter seulement les URN vides", value=True, key="sr_only_missing")
+
+    if st.button("🔗 Lancer auto-mapping URN", use_container_width=True, key="sr_fill_urn_btn"):
+        j = sr_season_players(season_urn, locale=locale)
+        if isinstance(j, dict) and j.get("_error"):
+            st.error(f"❌ Season players KO — {j.get('_error')}")
+            if j.get("_url"):
+                st.code(j["_url"])
+            if j.get("_text"):
+                st.code(j["_text"])
+            st.stop()
+
+        plist = (j or {}).get("players", []) or []
+        if not plist:
+            st.warning("Aucun joueur trouvé dans cette saison.")
+            st.stop()
+
+        exact_map, primary_keys, primary_to_urn, urn_to_display = build_sr_indexes(plist)
+
+        filled_exact = 0
+        filled_fuzzy = 0
+        misses = 0
+        amb_rows = []
+
+        work = pdb_df.copy()
+
+        for idx, row in work.iterrows():
+            if only_missing and str(row.get("sr_player_urn", "")).strip():
+                continue
+
+            raw = str(row.get(name_col, "") or "").strip()
+            if not raw:
+                continue
+
+            status, urn, cand = match_one_player_to_urn(
+                raw_name=raw,
+                exact_map=exact_map,
+                primary_keys=(primary_keys if do_fuzzy else []),
+                primary_to_urn=primary_to_urn,
+                fuzzy_cutoff=float(cutoff),
+                top_k=int(topk),
+            )
+
+            if status == "exact":
+                work.at[idx, "sr_player_urn"] = urn
+                filled_exact += 1
+            elif status == "fuzzy":
+                work.at[idx, "sr_player_urn"] = urn
+                filled_fuzzy += 1
+            else:
+                misses += 1
+                if cand:
+                    amb_rows.append({
+                        "row_index": int(idx),
+                        "player_csv": raw,
+                        "best_key": cand[0][0],
+                        "best_score": round(float(cand[0][1]), 3),
+                        "best_urn": cand[0][2],
+                        "best_name_sr": urn_to_display.get(cand[0][2], ""),
+                        "top_candidates": "; ".join([
+                            f"{c[2]}|{urn_to_display.get(c[2], '')}|{round(c[1],3)}"
+                            for c in cand[:int(topk)] if c[2]
+                        ]),
+                    })
+
+        st.session_state["sr_urn_autofill_df"] = work
+        st.session_state["sr_urn_ambiguous"] = pd.DataFrame(amb_rows)
+
+        st.success(f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}")
+        st.caption("Les résultats sont en preview. Sauvegarde seulement si tu es satisfait.")
+
+    # Preview + Save + Manual validation
+    work_df = st.session_state.get("sr_urn_autofill_df")
+    amb_df = st.session_state.get("sr_urn_ambiguous")
+
+    if isinstance(work_df, pd.DataFrame) and not work_df.empty:
+        st.markdown("### 👀 Preview (quelques lignes)")
+        st.dataframe(
+            work_df[[name_col, "sr_player_urn"]].head(30),
+            use_container_width=True,
+            hide_index=True,
         )
 
-        if not sportradar_ready():
-            st.info("Sportradar non configuré (api_key absent).")
-        else:
-            locale = st.selectbox("Locale Sportradar", ["en"], index=0, key="sr_locale_admin")
-
-            cT1, cT2 = st.columns([1, 1])
-            with cT1:
-                if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-                    j = _sportradar_get_json("/players/sr:player:29663/profile.json", locale=locale)
-
-                    if isinstance(j, dict) and j.get("_error"):
-                        st.error(f"❌ Sportradar KO — {j.get('_error')}")
-                        if j.get("_url"):
-                            st.code(j["_url"])
-                        if j.get("_text"):
-                            st.code(j["_text"])
-                    else:
-                        st.success("✅ Sportradar répond (OK).")
-                        st.json(j)
-
-            with cT2:
-                st.caption(
-                    "Astuce: Sportradar demande souvent des URN de type sr:player:123.\n"
-                    "Si tu as un mapping (URN), ajoute une colonne **sr_player_urn** dans hockey.players.csv."
-                )
-
-
-            # Charger players db
-            pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-            if not pdb_path:
-                pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+        if st.button("💾 Sauvegarder hockey.players.csv (URN)", use_container_width=True, key="sr_save_urns"):
             try:
-                import pandas as _pd
-                pdb_df = _pd.read_csv(pdb_path) if os.path.exists(pdb_path) else _pd.DataFrame()
-            except Exception:
-                pdb_df = _pd.DataFrame()
+                work_df.to_csv(pdb_path, index=False)
+                st.success(f"✅ Sauvegardé: {pdb_path}")
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+            except Exception as e:
+                st.error("❌ Sauvegarde échouée")
+                st.exception(e)
 
-            if pdb_df.empty:
-                st.warning("Players DB vide/introuvable.")
+    if isinstance(amb_df, pd.DataFrame) and not amb_df.empty:
+        st.divider()
+        st.subheader("🟠 Ambigu / Non trouvé — validation manuelle")
+
+        st.dataframe(
+            amb_df[["row_index", "player_csv", "best_score", "best_urn", "best_name_sr", "top_candidates"]].head(200),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("### ✅ Appliquer un URN manuellement")
+        row_idx = st.number_input(
+            "row_index (depuis la table)",
+            min_value=0,
+            value=int(amb_df.iloc[0]["row_index"]) if len(amb_df) else 0,
+            step=1,
+            key="sr_manual_rowidx",
+        )
+        urn_text = st.text_input(
+            "URN à appliquer (ex: sr:player:29663)",
+            value=str(amb_df.iloc[0]["best_urn"]) if len(amb_df) else "",
+            key="sr_manual_urn",
+        )
+
+        if st.button("✅ Appliquer URN à cette ligne (preview)", use_container_width=True, key="sr_apply_manual"):
+            work_df2 = st.session_state.get("sr_urn_autofill_df")
+            if not isinstance(work_df2, pd.DataFrame) or work_df2.empty:
+                st.warning("Aucun preview en mémoire. Lance d’abord l’auto-mapping.")
             else:
-                if "sr_player_urn" not in pdb_df.columns:
-                    st.warning("Colonne **sr_player_urn** absente dans hockey.players.csv. Ajoute-la (même vide) pour activer l'enrichissement par URN.")
-                    pdb_df["sr_player_urn"] = ""
+                if 0 <= int(row_idx) < len(work_df2):
+                    work_df2.at[int(row_idx), "sr_player_urn"] = urn_text.strip()
+                    st.session_state["sr_urn_autofill_df"] = work_df2
+                    st.success("✅ URN appliqué dans le preview (pense à sauvegarder).")
+                else:
+                    st.error("row_index invalide.")
 
-                use_locale = st.selectbox("Locale Sportradar", ["en","fr"], index=0, key="admin_sportradar_locale")
-                max_n = st.number_input("Max joueurs à enrichir (par run)", min_value=1, max_value=500, value=50, step=10, key="admin_sportradar_max")
+    st.divider()
+    st.subheader("🧬 Enrichir Country via Sportradar (URN)")
 
-                # candidats: URN présent mais Country vide
-                if "Country" not in pdb_df.columns:
-                    pdb_df["Country"] = ""
-                cand = pdb_df[(pdb_df["sr_player_urn"].astype(str).str.strip() != "") & (pdb_df["Country"].astype(str).str.strip() == "")].copy()
+    # Recharger depuis disque pour enrichir "vraiment"
+    try:
+        pdb_df2 = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+    except Exception:
+        pdb_df2 = pd.DataFrame()
 
-                st.caption(f"Candidats enrichissables (URN présent & Country vide): {len(cand)}")
+    if pdb_df2.empty:
+        st.warning("Players DB vide/introuvable.")
+        st.stop()
 
-                if st.button("🧬 Enrichir Country via Sportradar (URN)", use_container_width=True, key="admin_sportradar_enrich"):
-                    updated = 0
-                    for i, row in cand.head(int(max_n)).iterrows():
-                        urn = str(row.get("sr_player_urn", "")).strip()
-                        prof = sportradar_player_profile(urn, locale=use_locale)
-                        if not isinstance(prof, dict) or prof.get("_error"):
-                            continue
-                        # champs possibles: nationality, birth_country, country_code...
-                        nat = str(prof.get("player", {}).get("nationality") or "").strip()
-                        bc = str(prof.get("player", {}).get("birth_country") or "").strip()
-                        iso = _sr_country_to_iso2(nat) or _sr_country_to_iso2(bc)
-                        if iso:
-                            pdb_df.at[i, "Country"] = iso
-                            updated += 1
-                    try:
-                        pdb_df.to_csv(pdb_path, index=False)
-                        st.success(f"✅ Country enrichi pour {updated} joueur(s).")
-                        try:
-                            st.cache_data.clear()
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        st.error(f"❌ Écriture hockey.players.csv KO — {type(e).__name__}: {e}")
+    if "Country" not in pdb_df2.columns:
+        pdb_df2["Country"] = ""
+    if "sr_player_urn" not in pdb_df2.columns:
+        pdb_df2["sr_player_urn"] = ""
 
-                # Générer un fichier merge (CSV) (sans écraser hockey.players.csv)
-                if st.button("📤 Générer fichier merge Sportradar (CSV)", use_container_width=True, key="admin_sportradar_mergefile"):
-                    try:
-                        import pandas as _pd
-                        rows = []
-                        for _, row in pdb_df[pdb_df["sr_player_urn"].astype(str).str.strip() != ""].head(int(max_n)).iterrows():
-                            urn = str(row.get("sr_player_urn", "")).strip()
-                            prof = sportradar_player_profile(urn, locale=use_locale)
-                            if not isinstance(prof, dict) or prof.get("_error"):
-                                continue
-                            pl = (prof.get("player") or {}) if isinstance(prof.get("player"), dict) else {}
-                            name = str(row.get("Player") or row.get("Joueur") or "").strip()
-                            nat = str(pl.get("nationality") or "").strip()
-                            bc = str(pl.get("birth_country") or "").strip()
-                            iso = _sr_country_to_iso2(nat) or _sr_country_to_iso2(bc)
-                            rows.append({
-                                "Player": name,
-                                "sr_player_urn": urn,
-                                "Country": iso,
-                                "birthdate": str(pl.get("birthdate") or "").strip(),
-                                "height": str(pl.get("height") or "").strip(),
-                                "weight": str(pl.get("weight") or "").strip(),
-                                "position": str(pl.get("position") or "").strip(),
-                                "handedness": str(pl.get("handedness") or "").strip(),
-                            })
-                        out = _pd.DataFrame(rows)
-                        out_name = f"sportradar_merge_{datetime.now(TZ_TOR).strftime('%Y-%m-%d_%H%M')}.csv"
-                        csv_bytes = out.to_csv(index=False).encode("utf-8")
-                        st.download_button("⬇️ Télécharger le merge CSV", data=csv_bytes, file_name=out_name, mime="text/csv", use_container_width=True, key="admin_sportradar_dl")
-                        st.caption("Ce CSV peut être fusionné avec hockey.players.csv (par Player ou par sr_player_urn).")
-                    except Exception as e:
-                        st.error(f"❌ Génération merge KO — {type(e).__name__}: {e}")
+    max_n = st.number_input("Max joueurs à enrichir (par run)", min_value=1, max_value=500, value=50, step=10, key="admin_sportradar_max")
+
+    cand = pdb_df2[
+        (pdb_df2["sr_player_urn"].astype(str).str.strip() != "")
+        & (pdb_df2["Country"].astype(str).str.strip() == "")
+    ].copy()
+
+    st.caption(f"Candidats enrichissables (URN présent & Country vide): {len(cand)}")
+
+    if st.button("🧬 Enrichir Country via Sportradar (URN)", use_container_width=True, key="admin_sportradar_enrich"):
+        updated = 0
+        for i, row in cand.head(int(max_n)).iterrows():
+            urn = str(row.get("sr_player_urn", "")).strip()
+            prof = sportradar_player_profile(urn, locale=locale)
+            if not isinstance(prof, dict) or prof.get("_error"):
+                continue
+
+            p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
+            nat = str(p.get("nationality") or "").strip()
+            bc = str(p.get("birth_country") or "").strip()
+            iso = _sr_country_to_iso2(nat) or _sr_country_to_iso2(bc)
+
+            if iso:
+                pdb_df2.at[i, "Country"] = iso
+                updated += 1
+
+            time.sleep(1.05)  # trial safe
+
+        try:
+            pdb_df2.to_csv(pdb_path, index=False)
+            st.success(f"✅ Country enrichi pour {updated} joueur(s).")
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+        except Exception as e:
+            st.error(f"❌ Écriture hockey.players.csv KO — {type(e).__name__}: {e}")
+
+    st.divider()
+    st.subheader("📤 Générer fichier merge Sportradar (CSV)")
+
+    if st.button("📤 Générer fichier merge Sportradar (CSV)", use_container_width=True, key="admin_sportradar_mergefile"):
+        try:
+            rows = []
+            subset = pdb_df2[pdb_df2["sr_player_urn"].astype(str).str.strip() != ""].head(int(max_n))
+
+            for _, row in subset.iterrows():
+                urn = str(row.get("sr_player_urn", "")).strip()
+                prof = sportradar_player_profile(urn, locale=locale)
+                if not isinstance(prof, dict) or prof.get("_error"):
+                    continue
+
+                p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
+                nmcol = _detect_player_name_col(pdb_df2)
+                pname = str(row.get(nmcol, "")).strip()
+
+                rows.append({
+                    "Player": pname,
+                    "sr_player_urn": urn,
+                    "sr_nationality": str(p.get("nationality") or "").strip(),
+                    "sr_country_code3": str(p.get("country_code") or "").strip(),
+                    "sr_dob": str(p.get("date_of_birth") or "").strip(),
+                    "sr_height_cm": str(p.get("height") or "").strip(),
+                    "sr_weight_kg": str(p.get("weight") or "").strip(),
+                    "sr_position_type": str(p.get("type") or "").strip(),
+                    "sr_jersey_number": str(p.get("jersey_number") or "").strip(),
+                })
+
+                time.sleep(1.05)  # trial safe
+
+            out = pd.DataFrame(rows)
+            out_name = f"sportradar_merge_{datetime.now().strftime('%Y-%m-%d_%H%M')}.csv"
+
+            st.download_button(
+                "⬇️ Télécharger le merge CSV",
+                data=out.to_csv(index=False).encode("utf-8"),
+                file_name=out_name,
+                mime="text/csv",
+                use_container_width=True,
+                key="admin_sportradar_dl",
+            )
+            st.caption("Ce CSV peut être fusionné avec hockey.players.csv (par Player ou sr_player_urn).")
+        except Exception as e:
+            st.error(f"❌ Génération merge KO — {type(e).__name__}: {e}")
+
+
 
 
     with st.expander("🏆 Règles de pointage (Classement)", expanded=False):
