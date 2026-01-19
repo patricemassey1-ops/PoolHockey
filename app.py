@@ -7732,10 +7732,22 @@ elif active_tab == "🛠️ Gestion Admin":
                     def _overlaps(row):
                         a = _to_dt(row.get('start_ts',''))
                         b = _to_dt(row.get('end_ts',''))
-                        if a is None:
-                            return False
-                        if b is None:
-                            b = datetime.max
+                        # _to_dt peut retourner None, NaT, ou Timestamp → on sécurise
+                        try:
+                            import pandas as _pd
+                            if a is None or _pd.isna(a):
+                                return False
+                            if b is None or _pd.isna(b):
+                                b = datetime.max
+                            if hasattr(a, 'to_pydatetime'):
+                                a = a.to_pydatetime()
+                            if hasattr(b, 'to_pydatetime'):
+                                b = b.to_pydatetime()
+                        except Exception:
+                            if a is None:
+                                return False
+                            if b is None:
+                                b = datetime.max
                         return (a <= end_dt) and (b >= start_dt)
 
                     p2 = p.copy()
