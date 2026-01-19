@@ -7730,25 +7730,60 @@ elif active_tab == "🛠️ Gestion Admin":
                     end_dt = datetime.combine(d_end, datetime.max.time()).replace(tzinfo=None)
 
                     def _overlaps(row):
+
+                        """Return True if [start_ts,end_ts] overlaps [start_dt,end_dt]."""
+
+                        import pandas as _pd
+
+                        from datetime import datetime, time
+
                         a = _to_dt(row.get('start_ts',''))
+
                         b = _to_dt(row.get('end_ts',''))
-                        # _to_dt peut retourner None, NaT, ou Timestamp → on sécurise
+
+                        # start is mandatory
+
+                        if a is None or _pd.isna(a):
+
+                            return False
+
+                        # end missing => open-ended
+
+                        if b is None or _pd.isna(b):
+
+                            b = datetime.max
+
+                        # normalize a/b to python datetime
+
                         try:
-                            import pandas as _pd
-                            if a is None or _pd.isna(a):
-                                return False
-                            if b is None or _pd.isna(b):
-                                b = datetime.max
+
                             if hasattr(a, 'to_pydatetime'):
+
                                 a = a.to_pydatetime()
+
                             if hasattr(b, 'to_pydatetime'):
+
                                 b = b.to_pydatetime()
+
                         except Exception:
-                            if a is None:
-                                return False
-                            if b is None:
-                                b = datetime.max
-                        return (a <= end_dt) and (b >= start_dt)
+
+                            pass
+
+                        # normalize bounds (Streamlit date_input returns date)
+
+                        sdt = start_dt
+
+                        edt = end_dt
+
+                        if not isinstance(sdt, datetime):
+
+                            sdt = datetime.combine(sdt, time.min)
+
+                        if not isinstance(edt, datetime):
+
+                            edt = datetime.combine(edt, time.max)
+
+                        return (a <= edt) and (b >= sdt)
 
                     p2 = p.copy()
                     p2['_ov'] = p2.apply(_overlaps, axis=1)
