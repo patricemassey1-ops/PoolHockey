@@ -7730,62 +7730,38 @@ elif active_tab == "🛠️ Gestion Admin":
                     end_dt = datetime.combine(d_end, datetime.max.time()).replace(tzinfo=None)
 
                     def _overlaps(row):
-
-                        """Return True if [start_ts,end_ts] overlaps [start_dt,end_dt]."""
-
+                        """True si [start,end] recoupe [row.start,row.end] (comparaison safe naive/aware)."""
                         import pandas as _pd
-
-                        from datetime import datetime, time
-
-                        a = _to_dt(row.get('start_ts',''))
-
-                        b = _to_dt(row.get('end_ts',''))
-
-                        # start is mandatory
-
-                        if a is None or _pd.isna(a):
-
+                        def _naive_dt(x, default=None):
+                            try:
+                                ts = _pd.to_datetime(x, errors='coerce')
+                            except Exception:
+                                ts = _pd.NaT
+                            if _pd.isna(ts):
+                                return default
+                            # normaliser vers datetime naive (UTC)
+                            try:
+                                if getattr(ts, 'tz', None) is not None:
+                                    ts = ts.tz_convert('UTC')
+                                    ts = ts.tz_localize(None)
+                            except Exception:
+                                try:
+                                    if getattr(ts, 'tzinfo', None) is not None:
+                                        ts = ts.tz_convert('UTC').tz_localize(None)
+                                except Exception:
+                                    pass
+                            return ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
+                        a = _naive_dt(row.get('_start'), default=None)
+                        b = _naive_dt(row.get('_end'), default=None)
+                        if a is None:
                             return False
-
-                        # end missing => open-ended
-
-                        if b is None or _pd.isna(b):
-
-                            b = datetime.max
-
-                        # normalize a/b to python datetime
-
-                        try:
-
-                            if hasattr(a, 'to_pydatetime'):
-
-                                a = a.to_pydatetime()
-
-                            if hasattr(b, 'to_pydatetime'):
-
-                                b = b.to_pydatetime()
-
-                        except Exception:
-
-                            pass
-
-                        # normalize bounds (Streamlit date_input returns date)
-
-                        sdt = start_dt
-
-                        edt = end_dt
-
-                        if not isinstance(sdt, datetime):
-
-                            sdt = datetime.combine(sdt, time.min)
-
-                        if not isinstance(edt, datetime):
-
-                            edt = datetime.combine(edt, time.max)
-
+                        if b is None:
+                            b = datetime.max.replace(tzinfo=None)
+                        sdt = _naive_dt(start_dt, default=None)
+                        edt = _naive_dt(end_dt, default=None)
+                        if sdt is None or edt is None:
+                            return False
                         return (a <= edt) and (b >= sdt)
-
-                    p2 = p.copy()
                     p2['_ov'] = p2.apply(_overlaps, axis=1)
                     p2 = p2[p2['_ov']].copy()
 
