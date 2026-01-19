@@ -7730,37 +7730,58 @@ elif active_tab == "🛠️ Gestion Admin":
                     end_dt = datetime.combine(d_end, datetime.max.time()).replace(tzinfo=None)
 
                     def _overlaps(row):
-                        """True si [start,end] recoupe [row.start,row.end] (comparaison safe naive/aware)."""
-                        import pandas as _pd
-                        def _naive_dt(x, default=None):
+                        """True si la periode (start_ts,end_ts) overlap le filtre [start_dt,end_dt].
+                        Conversion robuste: tout est converti en datetime naive (UTC) pour éviter
+                        les erreurs tz-aware vs tz-naive et les NaT.
+                        """
+
+                        def _to_utc_naive(x, default=None):
                             try:
-                                ts = _pd.to_datetime(x, errors='coerce')
-                            except Exception:
-                                ts = _pd.NaT
-                            if _pd.isna(ts):
-                                return default
-                            # normaliser vers datetime naive (UTC)
-                            try:
-                                if getattr(ts, 'tz', None) is not None:
-                                    ts = ts.tz_convert('UTC')
-                                    ts = ts.tz_localize(None)
-                            except Exception:
+                                import pandas as _pd
+                                if x is None:
+                                    return default
+                                if isinstance(x, str) and not x.strip():
+                                    return default
+                                # NaT / nan
                                 try:
-                                    if getattr(ts, 'tzinfo', None) is not None:
-                                        ts = ts.tz_convert('UTC').tz_localize(None)
+                                    if _pd.isna(x):
+                                        return default
                                 except Exception:
                                     pass
-                            return ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
-                        a = _naive_dt(row.get('_start'), default=None)
-                        b = _naive_dt(row.get('_end'), default=None)
+                                ts = _pd.to_datetime(x, errors='coerce', utc=True)
+                                if _pd.isna(ts):
+                                    return default
+                                # ts est tz-aware UTC -> rendre naive
+                                try:
+                                    ts = ts.tz_convert('UTC')
+                                except Exception:
+                                    pass
+                                try:
+                                    ts = ts.tz_localize(None)
+                                except Exception:
+                                    # si déjà naive
+                                    pass
+                                return ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
+                            except Exception:
+                                return default
+
+                        a = _to_utc_naive(row.get('_start'), default=None)
                         if a is None:
                             return False
+                        b = _to_utc_naive(row.get('_end'), default=None)
                         if b is None:
-                            b = datetime.max.replace(tzinfo=None)
-                        sdt = _naive_dt(start_dt, default=None)
-                        edt = _naive_dt(end_dt, default=None)
-                        if sdt is None or edt is None:
+                            # periode ouverte -> jusqu'à l'infini
+                            from datetime import datetime as _dt
+                            b = _dt.max
+
+                        sdt = _to_utc_naive(start_dt, default=None)
+                        edt0 = _to_utc_naive(end_dt, default=None)
+                        if sdt is None or edt0 is None:
                             return False
+
+                        # end_dt inclusif: fin de journée
+                        edt = edt0 + timedelta(days=1) - timedelta(microseconds=1)
+
                         return (a <= edt) and (b >= sdt)
                     p2['_ov'] = p2.apply(_overlaps, axis=1)
                     p2 = p2[p2['_ov']].copy()
