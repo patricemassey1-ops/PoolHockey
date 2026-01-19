@@ -8366,7 +8366,6 @@ elif active_tab == "🛠️ Gestion Admin":
         return r.json()
 
 
-
     def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
         urn = str(sr_player_urn or "").strip()
         if not urn:
