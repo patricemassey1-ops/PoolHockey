@@ -7726,65 +7726,24 @@ elif active_tab == "🛠️ Gestion Admin":
                     # compute earned in [d_start, d_end]
                     # approximation: si la période chevauche la fenêtre, on compte entièrement.
                     # (Pour précision au jour près, on peut aller au game-log plus tard.)
-                    start_dt = datetime.combine(d_start, datetime.min.time()).replace(tzinfo=None)
-                    end_dt = datetime.combine(d_end, datetime.max.time()).replace(tzinfo=None)
+                    # --- Filtre des periodes qui chevauchent la fenetre [d_start, d_end] (inclusif)
+                    # NOTE: vectorise (plus rapide) + robuste NaT/tz-aware
+                    p2 = p.copy()
 
-                    def _overlaps(row):
-                        """True si la periode (start_ts,end_ts) overlap le filtre [start_dt,end_dt].
-                        Conversion robuste: tout est converti en datetime naive (UTC) pour éviter
-                        les erreurs tz-aware vs tz-naive et les NaT.
-                        """
+                    # bornes (date_input => date). converties en datetime naive
+                    sdt = datetime.combine(d_start, datetime.min.time())
+                    edt = datetime.combine(d_end, datetime.max.time())
 
-                        def _to_utc_naive(x, default=None):
-                            try:
-                                import pandas as _pd
-                                if x is None:
-                                    return default
-                                if isinstance(x, str) and not x.strip():
-                                    return default
-                                # NaT / nan
-                                try:
-                                    if _pd.isna(x):
-                                        return default
-                                except Exception:
-                                    pass
-                                ts = _pd.to_datetime(x, errors='coerce', utc=True)
-                                if _pd.isna(ts):
-                                    return default
-                                # ts est tz-aware UTC -> rendre naive
-                                try:
-                                    ts = ts.tz_convert('UTC')
-                                except Exception:
-                                    pass
-                                try:
-                                    ts = ts.tz_localize(None)
-                                except Exception:
-                                    # si déjà naive
-                                    pass
-                                return ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
-                            except Exception:
-                                return default
+                    # start/end des periodes -> datetime UTC tz-aware, puis naive
+                    p2['_start_dt'] = pd.to_datetime(p2.get('start_ts', None), errors='coerce', utc=True).dt.tz_convert(None)
+                    p2['_end_dt']   = pd.to_datetime(p2.get('end_ts', None),   errors='coerce', utc=True).dt.tz_convert(None)
 
-                        a = _to_utc_naive(row.get('_start'), default=None)
-                        if a is None:
-                            return False
-                        b = _to_utc_naive(row.get('_end'), default=None)
-                        if b is None:
-                            # periode ouverte -> jusqu'à l'infini
-                            from datetime import datetime as _dt
-                            b = _dt.max
+                    # periode ouverte: end = +inf
+                    p2['_end_dt'] = p2['_end_dt'].fillna(pd.Timestamp.max)
 
-                        sdt = _to_utc_naive(start_dt, default=None)
-                        edt0 = _to_utc_naive(end_dt, default=None)
-                        if sdt is None or edt0 is None:
-                            return False
-
-                        # end_dt inclusif: fin de journée
-                        edt = edt0 + timedelta(days=1) - timedelta(microseconds=1)
-
-                        return (a <= edt) and (b >= sdt)
-                    p2['_ov'] = p2.apply(_overlaps, axis=1)
-                    p2 = p2[p2['_ov']].copy()
+                    # overlap: start <= edt AND end >= sdt
+                    mask = (p2['_start_dt'].notna()) & (p2['_start_dt'] <= edt) & (p2['_end_dt'] >= sdt)
+                    p2 = p2.loc[mask].copy()
 
                     # points per period: closed uses points_delta; open uses (current-start)
                     rules = load_scoring_rules()
