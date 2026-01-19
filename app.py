@@ -8334,33 +8334,35 @@ elif active_tab == "🛠️ Gestion Admin":
 
     @st.cache_data(show_spinner=False, ttl=3600)
     def _sportradar_get_json(endpoint: str, locale: str = "en"):
-        cfg = sportradar_cfg()
-        api_key = str(cfg.get("api_key", "")).strip()
-        base = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v2")).strip().rstrip("/")
-        locale = str(cfg.get("locale", locale or "en")).strip()
+        cfg = st.secrets.get("sportradar", {})
+        api_key = (cfg.get("api_key") or "").strip()
+        base_url = (cfg.get("base_url") or "https://api.sportradar.com/icehockey/trial/v2").strip()
+        locale = (cfg.get("locale") or locale or "en").strip()
 
         if not api_key:
-            return {"_error": "Missing api_key", "_text": ""}
+            return {"_error": "Missing api_key"}
 
-        ep = str(endpoint or "").strip()
-        if not ep.startswith("/"):
-            ep = "/" + ep
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
 
-        url = f"{base}/{locale}{ep}"
+        url = f"{base_url}/{locale}{endpoint}"
 
-        try:
-            import requests
-            r = requests.get(
-                url,
-                params={"api_key": api_key},
-                headers={"accept": "application/json"},
-                timeout=20,
-            )
-            if r.status_code != 200:
-                return {"_error": f"HTTP {r.status_code}", "_text": r.text[:1200], "_url": url}
-            return r.json()
-        except Exception as e:
-            return {"_error": type(e).__name__, "_text": str(e)[:1200], "_url": url}
+        r = requests.get(
+            url,
+            params={"api_key": api_key},
+            headers={"accept": "application/json"},
+            timeout=20,
+        )
+
+        if r.status_code != 200:
+            return {
+                "_error": f"HTTP {r.status_code}",
+                "_url": url,
+                "_text": r.text[:800],
+            }
+
+        return r.json()
+
 
 
     def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
@@ -8394,7 +8396,11 @@ elif active_tab == "🛠️ Gestion Admin":
             cT1, cT2 = st.columns([1,1])
             with cT1:
                 if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-                    j = _sportradar_get_json("/players/sr:player:29663/profile", locale="en")
+                    j = _sportradar_get_json(
+                        "/players/sr:player:29663/profile",
+                        locale=locale
+                    )
+
                     if isinstance(j, dict) and j.get("_error"):
                         st.error(f"❌ Sportradar KO — {j.get('_error')}: {j.get('_text','')}")
                     else:
