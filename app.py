@@ -2057,6 +2057,39 @@ def money(v) -> str:
         return "0 $"
 
 
+# =====================================================
+# PERFORMANCE GUARDS (fast navigation)
+#   - Avoid expensive recomputes on every widget change
+# =====================================================
+
+def bump_data_version(reason: str = ''):
+    """Increment a lightweight version counter whenever roster data changes."""
+    try:
+        st.session_state['data_version'] = int(st.session_state.get('data_version', 0) or 0) + 1
+        st.session_state['data_version_reason'] = str(reason or '')
+    except Exception:
+        pass
+
+
+def ensure_plafonds_uptodate(force: bool = False):
+    """Rebuild plafonds only when needed (data_version or caps changed)."""
+    try:
+        dv = int(st.session_state.get('data_version', 0) or 0)
+        cap_gc = int(st.session_state.get('PLAFOND_GC', 95_500_000) or 0)
+        cap_ce = int(st.session_state.get('PLAFOND_CE', 47_750_000) or 0)
+        sig = (dv, cap_gc, cap_ce)
+        if (not force) and st.session_state.get('_plafonds_sig') == sig and isinstance(st.session_state.get('plafonds'), pd.DataFrame):
+            return
+        df0 = st.session_state.get('data', pd.DataFrame(columns=REQUIRED_COLS))
+        df0 = df0 if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
+        st.session_state['plafonds'] = rebuild_plafonds(df0)
+        st.session_state['_plafonds_sig'] = sig
+    except Exception:
+        # never crash navigation for plafonds
+        st.session_state['plafonds'] = st.session_state.get('plafonds', pd.DataFrame())
+
+
+
 def _cap_to_int(x) -> int:
     """Parse un salaire/cap hit en entier.
 
@@ -2750,6 +2783,8 @@ def persist_data(df: pd.DataFrame, season_lbl: str) -> None:
     except Exception:
         # Never crash the app on Drive issues.
         pass
+    # perf: signal data changed (so plafonds will rebuild only once)
+    bump_data_version('persist_data')
 
 def persist_history(h: pd.DataFrame, season_lbl: str) -> None:
     season_lbl = str(season_lbl or "").strip() or "season"
@@ -4804,12 +4839,22 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
     st.session_state["data"] = df_loaded
     st.session_state["data_season"] = season
 else:
-    # sécurité: s'assurer que data est un DF + clean/enrich léger
-    d0 = st.session_state.get("data")
+    # perf: avoid re-clean/re-enrich on every widget change
+    d0 = st.session_state.get('data')
     d0 = d0 if isinstance(d0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-    d0 = clean_data(d0)
-    d0 = enrich_level_from_players_db(d0)
-    st.session_state["data"] = d0
+
+    # re-enrich only if players_db changed since last enrich
+    last_pdb_mtime = float(st.session_state.get('_last_pdb_mtime', 0.0) or 0.0)
+    cur_pdb_mtime = float(pdb_mtime or 0.0)
+    if cur_pdb_mtime != last_pdb_mtime:
+        try:
+            d0 = clean_data(d0)
+            d0 = enrich_level_from_players_db(d0)
+        except Exception:
+            pass
+        st.session_state['_last_pdb_mtime'] = cur_pdb_mtime
+
+    st.session_state['data'] = d0
 
 # -----------------------------------------------------
 # 2) LOAD HISTORY (CSV → session_state)
@@ -4832,14 +4877,15 @@ if "process_pending_moves" in globals() and callable(globals()["process_pending_
         st.warning(f"⚠️ process_pending_moves() a échoué: {type(e).__name__}: {e}")
 
 # -----------------------------------------------------
-# 4) BUILD PLAFONDS (sur data enrichie)
+# 4) BUILD PLAFONDS (fast)
+#   ✅ Only rebuild when roster/caps changed (data_version)
 # -----------------------------------------------------
-df0 = st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS))
-df0 = df0 if isinstance(df0, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-df0 = clean_data(df0)
-df0 = enrich_level_from_players_db(df0)
-st.session_state["data"] = df0
-st.session_state["plafonds"] = rebuild_plafonds(df0)
+
+# init version if missing
+if 'data_version' not in st.session_state:
+    st.session_state['data_version'] = 1
+
+ensure_plafonds_uptodate(force=False)
 
 
 # Init onglet actif (safe)
