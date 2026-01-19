@@ -9692,20 +9692,25 @@ elif active_tab == "🛠️ Gestion Admin":
 
     import streamlit as st
 
-    def _sr_test():
-        return _sportradar_get_json(
-            "/seasons/sr:season:68156/competitors/sr:competitor:3691/statistics"
-        )
+    def _sportradar_get_json(endpoint: str, locale="en"):
+        cfg = st.secrets.get("sportradar", {})
+        api_key = cfg.get("api_key")
+        base_url = cfg.get("base_url")
 
-    st.markdown("### 🧪 Sportradar API test")
-    if st.button("Run Sportradar test"):
-        try:
-            data = _sr_test()
-            st.success("Sportradar OK ✅")
-            st.json(data)
-        except Exception as e:
-            st.error("Sportradar FAILED ❌")
-            st.exception(e)
+        if not api_key or not base_url:
+            raise RuntimeError("Sportradar secrets missing")
+
+        url = f"{base_url}/{locale}{endpoint}"
+
+        r = requests.get(url, params={"api_key": api_key}, timeout=15)
+
+        if r.status_code != 200:
+            raise RuntimeError(
+                f"Sportradar HTTP {r.status_code}\n{r.text[:500]}"
+            )
+
+        return r.json()
+
 
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
