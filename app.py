@@ -8345,7 +8345,12 @@ elif active_tab == "🛠️ Gestion Admin":
         if not endpoint.startswith("/"):
             endpoint = "/" + endpoint
 
+        # force format .json si pas déjà présent
+        if "." not in endpoint.split("/")[-1]:
+            endpoint = endpoint + ".json"
+
         url = f"{base_url}/{locale}{endpoint}"
+
 
         r = requests.get(
             url,
@@ -8401,7 +8406,7 @@ elif active_tab == "🛠️ Gestion Admin":
             cT1, cT2 = st.columns([1, 1])
             with cT1:
                 if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-                    j = _sportradar_get_json("/players/sr:player:29663/profile", locale=locale)
+                    j = _sportradar_get_json("/players/sr:player:29663/profile.json", locale=locale)
 
                     if isinstance(j, dict) and j.get("_error"):
                         st.error(f"❌ Sportradar KO — {j.get('_error')}")
