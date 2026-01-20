@@ -8320,7 +8320,7 @@ if active_tab == "🛠️ Gestion Admin":
                 "backup_history.csv",
             ]
 
-            
+
             # Drive service (OAuth)
             drive_backups_disabled = False
             try:
@@ -8330,16 +8330,16 @@ if active_tab == "🛠️ Gestion Admin":
                 st.info("Backups indisponibles pour le moment. Réessaie plus tard.")
                 s = None
                 drive_backups_disabled = True
-            
-            
+
+
             if s is not None:
                 tabs = st.tabs(["🛡️ Backup ALL", "📄 Fichiers", "🕘 Historique", "🌙 Nightly", "🔔 Alerts"])
             else:
                 tabs = [st.container() for _ in range(5)]
                 drive_backups_disabled = True
-            
-            
-            
+
+
+
             # ------------------
             # 🛡️ Backup ALL
             # ------------------
@@ -8383,12 +8383,12 @@ if active_tab == "🛠️ Gestion Admin":
                                 "note": str(e),
                                 "by": str(get_selected_team() or "admin"),
                             })
-            
+
                     if fail:
                         st.warning(f"⚠️ Backup ALL terminé avec erreurs — OK: {ok} | FAIL: {fail}")
                     else:
                         st.success(f"✅ Backup ALL terminé — OK: {ok}")
-            
+
             # ------------------
             # 📄 Fichiers
             # ------------------
@@ -8396,13 +8396,13 @@ if active_tab == "🛠️ Gestion Admin":
                 st.markdown("### 📄 Backups & Restore — fichiers")
                 chosen = st.selectbox("Fichier", CRITICAL_FILES, key="backup_file_pick")
                 fn = str(chosen)
-            
+
                 existing = _drive_safe_find_file(s, folder_id, fn)
                 if existing:
                     st.caption(f"Drive: ✅ présent — id={existing.get('id','')}")
                 else:
                     st.warning("Drive: ⚠️ fichier absent (tu peux l’uploader au besoin).")
-            
+
                 a1, a2, a3 = st.columns([1,1,2], vertical_alignment="center")
                 with a1:
                     if st.button("🛡️ Backup now", key=f"bk_one__{fn}", use_container_width=True, disabled=(not existing)):
@@ -8419,7 +8419,7 @@ if active_tab == "🛠️ Gestion Admin":
                             })
                         except Exception as e:
                             st.error(f"❌ Backup KO — {type(e).__name__}: {e}")
-            
+
                 with a2:
                     backups = _drive_list_backups(s, folder_id, fn)
                     latest = backups[0] if backups else None
@@ -8436,10 +8436,10 @@ if active_tab == "🛠️ Gestion Admin":
                             })
                         except Exception as e:
                             st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-            
+
                 with a3:
                     st.caption("Liste/Restore spécifique et maintenance ci-dessous.")
-            
+
                 st.divider()
                 st.markdown("#### 📚 Liste des backups")
                 backups = _drive_list_backups(s, folder_id, fn)
@@ -8456,7 +8456,7 @@ if active_tab == "🛠️ Gestion Admin":
                         })
                     dfb = pd.DataFrame(rows)
                     st.dataframe(dfb.drop(columns=["id"]), use_container_width=True, hide_index=True)
-            
+
                     options = {f"{r['name']}  —  {r['modifiedTime']}": r["id"] for r in rows}
                     choice = st.selectbox("Restaurer un backup spécifique", list(options.keys()), key=f"pick_one__{fn}")
                     if st.button("✅ Restore selected", key=f"rst_sel_one__{fn}", use_container_width=True):
@@ -8472,7 +8472,7 @@ if active_tab == "🛠️ Gestion Admin":
                             })
                         except Exception as e:
                             st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-            
+
                 st.divider()
                 st.markdown("#### 🧹 Maintenance backups")
                 k1, k2 = st.columns(2)
@@ -8480,7 +8480,7 @@ if active_tab == "🛠️ Gestion Admin":
                     keep_v = st.number_input("Garder (vNNN)", min_value=0, max_value=500, value=20, step=5, key=f"keepv_one__{fn}")
                 with k2:
                     keep_ts = st.number_input("Garder (timestamp)", min_value=0, max_value=500, value=20, step=5, key=f"keepts_one__{fn}")
-            
+
                 confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_one__{fn}")
                 if st.button("🧹 Nettoyer maintenant", key=f"clean_one__{fn}", use_container_width=True, disabled=(not confirm)):
                     try:
@@ -8494,7 +8494,7 @@ if active_tab == "🛠️ Gestion Admin":
                             st.write("• " + "\n• ".join(res["delete_errors"]))
                     except Exception as e:
                         st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
-            
+
             # ------------------
             # 🕘 Historique
             # ------------------
@@ -8508,7 +8508,7 @@ if active_tab == "🛠️ Gestion Admin":
                     st.info("Aucun log encore. Fais un Backup now / Backup ALL.")
                 else:
                     st.dataframe(hist.tail(500).iloc[::-1], use_container_width=True, hide_index=True)
-            
+
             # ------------------
             # 🌙 Nightly
             # ------------------
@@ -8517,7 +8517,7 @@ if active_tab == "🛠️ Gestion Admin":
                 alerts_cfg = st.secrets.get("alerts", {}) or {}
                 hour_mtl = int(alerts_cfg.get("nightly_hour_mtl", 3) or 3)
                 st.caption(f"Exécute au plus une fois par jour après {hour_mtl}:00 (America/Montreal) via un marker Drive.")
-            
+
                 if st.button("🌙 Lancer maintenant (si éligible)", use_container_width=True, key="nightly_run_now"):
                     try:
                         res = nightly_backup_once_per_day(s, folder_id, CRITICAL_FILES, hour_mtl=hour_mtl)
@@ -8528,11 +8528,11 @@ if active_tab == "🛠️ Gestion Admin":
                             send_email_alert("PMS Nightly backup errors", msg)
                     except Exception as e:
                         st.error(f"❌ Nightly KO — {type(e).__name__}: {e}")
-            
+
                 st.info(
                     "Astuce: pour un vrai cron même si personne n’ouvre l’app, utilise GitHub Actions pour ping ton URL Streamlit chaque nuit."
                 )
-            
+
             # ------------------
             # 🔔 Alerts
             # ------------------
@@ -8634,10 +8634,10 @@ if active_tab == "🛠️ Gestion Admin":
                     if st.button("✉️ Test Email", use_container_width=True, key="test_email"):
                         ok = send_email_alert("PMS backups test", "✅ Test email — PMS backups")
                         st.success("Email OK") if ok else st.error("Email KO")
-            
-            
-            
-            
+
+
+
+
             # -----------------------------
 
     else:
@@ -9953,4 +9953,3 @@ elif active_tab == "🧠 Recommandations":
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out, use_container_width=True, hide_index=True)
-
