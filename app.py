@@ -9325,7 +9325,12 @@ if active_tab == "🛠️ Gestion Admin":
             if not endpoint.endswith(".json"):
                 endpoint = endpoint + ".json"
 
-            url = f"{base_url}/{locale}{endpoint}"
+            # IMPORTANT: URNs like sr:season:119485 contain ':' and must be URL-encoded in the path
+            # or Sportradar may reply 404 Wrong identifier.
+            from urllib.parse import quote
+
+            endpoint_enc = quote(endpoint, safe='/.\-_')
+            url = f"{base_url}/{locale}{endpoint_enc}"
 
             try:
                 r = requests.get(
@@ -9340,15 +9345,36 @@ if active_tab == "🛠️ Gestion Admin":
             except Exception as e:
                 return {"_error": type(e).__name__, "_url": url, "_text": str(e)[:1200]}
 
+        def _sr_norm_urn(u: str, kind: str) -> str:
+            """Normalize user input into a Sportradar URN.
+
+            kind: 'player' or 'season'
+            Accepts:
+              - full URN: sr:season:123
+              - numeric id: 123  -> sr:season:123
+              - already URL-encoded urn
+            """
+            s = str(u or '').strip()
+            if not s:
+                return ''
+            # already looks like sr:...
+            if s.startswith('sr:'):
+                return s
+            # numeric only -> prefix
+            if s.isdigit():
+                return f"sr:{kind}:{s}"
+            return s
+
         def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
-            urn = str(sr_player_urn or "").strip()
+            urn = _sr_norm_urn(sr_player_urn, 'player')
             if not urn:
                 return {"_error": "Missing URN"}
             return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
         def sr_season_players(season_urn: str, locale="en"):
-            return _sportradar_get_json(f"/seasons/{season_urn}/players", locale=locale)
+            urn = _sr_norm_urn(season_urn, 'season')
+            return _sportradar_get_json(f"/seasons/{urn}/players", locale=locale)
 
         def _sr_country_to_iso2(x: str) -> str:
             s = str(x or "").strip()
