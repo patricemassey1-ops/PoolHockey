@@ -104,6 +104,22 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
         pass
     return df
 
+import streamlit as st
+import requests
+import pandas as pd
+# other imports...
+
+# =====================================================
+# 🔑 Sportradar API KEY (single source of truth)
+# =====================================================
+API_KEY = (
+    st.secrets.get("SPORTRADAR_API_KEY")
+    or st.secrets.get("SPORTRADAR_KEY")
+    or ""
+).strip()
+
+if not API_KEY:
+    st.warning("⚠️ Sportradar API key non trouvée dans secrets")
 
 
 
