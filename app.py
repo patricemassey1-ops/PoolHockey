@@ -9372,9 +9372,38 @@ if active_tab == "🛠️ Gestion Admin":
             return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
-        def sr_season_players(season_urn: str, locale="en"):
-            urn = _sr_norm_urn(season_urn, 'season')
-            return _sportradar_get_json(f"/seasons/{urn}/players", locale=locale)
+        def sr_competition_competitors(competition_urn: str, locale="en"):
+            urn = _sr_norm_urn(competition_urn, 'competition')
+            return _sportradar_get_json(f"/competitions/{urn}/competitors", locale=locale)
+
+        @st.cache_data(show_spinner=False, ttl=24 * 3600)
+        def sr_team_players(team_urn: str, locale="en"):
+            urn = _sr_norm_urn(team_urn, 'team')
+            return _sportradar_get_json(f"/teams/{urn}/players", locale=locale)
+
+        def _sr_extract_competitors(payload: dict) -> list[dict]:
+            # Try multiple known shapes.
+            if not isinstance(payload, dict):
+                return []
+            if isinstance(payload.get('competitors'), list):
+                return payload.get('competitors') or []
+            comp = payload.get('competition')
+            if isinstance(comp, dict) and isinstance(comp.get('competitors'), list):
+                return comp.get('competitors') or []
+            # sometimes 'teams'
+            if isinstance(payload.get('teams'), list):
+                return payload.get('teams') or []
+            return []
+
+        def _sr_extract_players(payload: dict) -> list[dict]:
+            if not isinstance(payload, dict):
+                return []
+            if isinstance(payload.get('players'), list):
+                return payload.get('players') or []
+            team = payload.get('team')
+            if isinstance(team, dict) and isinstance(team.get('players'), list):
+                return team.get('players') or []
+            return []
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
         def sr_list_seasons(locale="en"):
@@ -9681,73 +9710,115 @@ if active_tab == "🛠️ Gestion Admin":
                         only_missing = st.checkbox("Traiter seulement les URN vides", value=True, key="sr_only_missing")
 
                     if st.button("🔗 Lancer auto-mapping URN", use_container_width=True, key="sr_fill_urn_btn"):
-                        j = sr_season_players(season_urn, locale=locale)
-                        if isinstance(j, dict) and j.get("_error"):
-                            st.error(f"❌ Season players KO — {j.get('_error')}")
-                            if j.get("_url"):
-                                st.code(j["_url"])
-                            if j.get("_text"):
-                                st.code(j["_text"])
-                        else:
-                            plist = (j or {}).get("players", []) or []
-                            if not plist:
-                                st.warning("Aucun joueur trouvé dans cette saison.")
+                        # ✅ Ice Hockey/NHL: players are attached to TEAMS, not directly to seasons
+                        season_id = _sr_norm_urn(season_urn, 'season')
+                        season_obj = _sr_find_season_in_list(season_id, seasons_list) if seasons_list else None
+                        if not season_obj:
+                            st.error('❌ Saison introuvable via /seasons.json. Choisis-la via le sélecteur ci-dessus.')
+                            st.stop()
+                        comp_id = str(season_obj.get('competition_id','') or '').strip()
+                        if not comp_id:
+                            st.error("❌ Cette saison n'a pas de competition_id dans /seasons.json (impossible de remonter les équipes).")
+                            st.stop()
+                        comp_id = _sr_norm_urn(comp_id, 'competition')
+                        teams_json = sr_competition_competitors(comp_id, locale=locale)
+                        if isinstance(teams_json, dict) and teams_json.get('_error'):
+                            st.error(f"❌ Competition competitors KO — {teams_json.get('_error')}")
+                            if teams_json.get('_url'): st.code(teams_json['_url'])
+                            if teams_json.get('_text'): st.code(teams_json['_text'])
+                            st.stop()
+                        teams = _sr_extract_competitors(teams_json)
+                        if not teams:
+                            st.warning('Aucune équipe trouvée pour cette compétition.')
+                            st.stop()
+                        # Fetch players team-by-team (cached)
+                        prog = st.progress(0)
+                        status_txt = st.empty()
+                        all_players = []
+                        seen = set()
+                        for i, t in enumerate(teams, start=1):
+                            tid = _sr_norm_urn(str(t.get('id','') or '').strip(), 'team')
+                            tname = str(t.get('name','') or '').strip()
+                            if not tid:
+                                continue
+                            status_txt.caption(f"Chargement roster: {tname or tid} ({i}/{len(teams)})")
+                            pj = sr_team_players(tid, locale=locale)
+                            if isinstance(pj, dict) and pj.get('_error'):
+                                # on continue (certaines équipes peuvent être vides selon le feed)
+                                continue
+                            plist_team = (pj or {}).get('players', []) or []
+                            for pl in plist_team:
+                                pid = str(pl.get('id','') or '').strip()
+                                nm = str(pl.get('name','') or '').strip()
+                                if not pid or not nm:
+                                    continue
+                                if pid in seen:
+                                    continue
+                                seen.add(pid)
+                                all_players.append({'id': pid, 'name': nm, 'team_id': tid, 'team_name': tname})
+                            prog.progress(int(i/len(teams)*100)/100)
+                        prog.progress(1.0)
+                        status_txt.caption('✅ Roster chargé.')
+                        plist = all_players
+                        if not plist:
+                            st.warning('Aucun joueur trouvé via les rosters des équipes (competition).')
+                            st.stop()
+                        st.caption(f"Sportradar: {len(teams)} équipe(s) | {len(plist)} joueur(s) uniques")
+                        exact_map, primary_keys, primary_to_urn, urn_to_display = build_sr_indexes(plist)
+
+                        filled_exact = 0
+                        filled_fuzzy = 0
+                        misses = 0
+                        amb_rows = []
+
+                        work = pdb_df.copy()
+
+                        for idx, row in work.iterrows():
+                            if only_missing and str(row.get("sr_player_urn", "")).strip():
+                                continue
+
+                            raw = str(row.get(name_col, "") or "").strip()
+                            if not raw:
+                                continue
+
+                            status, urn, cand = match_one_player_to_urn(
+                                raw_name=raw,
+                                exact_map=exact_map,
+                                primary_keys=(primary_keys if do_fuzzy else []),
+                                primary_to_urn=primary_to_urn,
+                                fuzzy_cutoff=float(cutoff),
+                                top_k=int(topk),
+                            )
+
+                            if status == "exact":
+                                work.at[idx, "sr_player_urn"] = urn
+                                filled_exact += 1
+                            elif status == "fuzzy":
+                                work.at[idx, "sr_player_urn"] = urn
+                                filled_fuzzy += 1
                             else:
-                                exact_map, primary_keys, primary_to_urn, urn_to_display = build_sr_indexes(plist)
+                                misses += 1
+                                if cand:
+                                    amb_rows.append({
+                                        "row_index": int(idx),
+                                        "player_csv": raw,
+                                        "best_key": cand[0][0],
+                                        "best_score": round(float(cand[0][1]), 3),
+                                        "best_urn": cand[0][2],
+                                        "best_name_sr": urn_to_display.get(cand[0][2], ""),
+                                        "top_candidates": "; ".join([
+                                            f"{c[2]}|{urn_to_display.get(c[2], '')}|{round(c[1],3)}"
+                                            for c in cand[:int(topk)] if c[2]
+                                        ]),
+                                    })
 
-                                filled_exact = 0
-                                filled_fuzzy = 0
-                                misses = 0
-                                amb_rows = []
+                        st.session_state["sr_urn_autofill_df"] = work
+                        st.session_state["sr_urn_ambiguous"] = pd.DataFrame(amb_rows)
 
-                                work = pdb_df.copy()
-
-                                for idx, row in work.iterrows():
-                                    if only_missing and str(row.get("sr_player_urn", "")).strip():
-                                        continue
-
-                                    raw = str(row.get(name_col, "") or "").strip()
-                                    if not raw:
-                                        continue
-
-                                    status, urn, cand = match_one_player_to_urn(
-                                        raw_name=raw,
-                                        exact_map=exact_map,
-                                        primary_keys=(primary_keys if do_fuzzy else []),
-                                        primary_to_urn=primary_to_urn,
-                                        fuzzy_cutoff=float(cutoff),
-                                        top_k=int(topk),
-                                    )
-
-                                    if status == "exact":
-                                        work.at[idx, "sr_player_urn"] = urn
-                                        filled_exact += 1
-                                    elif status == "fuzzy":
-                                        work.at[idx, "sr_player_urn"] = urn
-                                        filled_fuzzy += 1
-                                    else:
-                                        misses += 1
-                                        if cand:
-                                            amb_rows.append({
-                                                "row_index": int(idx),
-                                                "player_csv": raw,
-                                                "best_key": cand[0][0],
-                                                "best_score": round(float(cand[0][1]), 3),
-                                                "best_urn": cand[0][2],
-                                                "best_name_sr": urn_to_display.get(cand[0][2], ""),
-                                                "top_candidates": "; ".join([
-                                                    f"{c[2]}|{urn_to_display.get(c[2], '')}|{round(c[1],3)}"
-                                                    for c in cand[:int(topk)] if c[2]
-                                                ]),
-                                            })
-
-                                st.session_state["sr_urn_autofill_df"] = work
-                                st.session_state["sr_urn_ambiguous"] = pd.DataFrame(amb_rows)
-
-                                st.success(
-                                    f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}"
-                                )
-                                st.caption("Les résultats sont en preview. Sauvegarde seulement si tu es satisfait.")
+                        st.success(
+                            f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}"
+                        )
+                        st.caption("Les résultats sont en preview. Sauvegarde seulement si tu es satisfait.")
 
                     work_df = st.session_state.get("sr_urn_autofill_df")
                     amb_df = st.session_state.get("sr_urn_ambiguous")
