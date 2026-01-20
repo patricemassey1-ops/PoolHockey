@@ -2298,6 +2298,8 @@ PLAYERS_DB_FALLBACKS = [
     "/data/Hockey.Players.csv",
     "Hockey.players.csv",
     "Hockey.Players.csv",
+    "hockey.players.csv",
+    "hockey.players.csv".capitalize(),
 ]
 
 # (v18) Logos critiques chargés localement (à côté de app.py)
@@ -2957,6 +2959,12 @@ def fill_level_and_expiry_from_players_db(df: pd.DataFrame, players_db: pd.DataF
     try:
         if isinstance(players_db, pd.DataFrame):
             st.session_state["players_db"] = players_db
+
+# --- DEBUG: Players DB path / size (helps diagnose missing flags)
+if (isinstance(players_db, pd.DataFrame) and players_db.empty) or (not isinstance(players_db, pd.DataFrame)):
+    st.warning(f"⚠️ Players DB introuvable ou vide. pdb_path={pdb_path!r}. Vérifie que hockey.players.csv est bien dans /data ou à la racine du repo.")
+
+
     except Exception:
         pass
     return enrich_level_from_players_db(df)
