@@ -21,70 +21,9 @@ st.set_page_config(page_title="PMS", layout="wide")
 # =====================================================
 @st.cache_data(show_spinner=False)
 def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
-    """Load hockey.players.csv robustly (supports CSV or TSV) and return a clean DataFrame.
-
-    - Auto-detect delimiter (tab vs comma)
-    - Keeps text columns as strings where possible
-    - Normalizes NaN -> '' for key columns
-    - Ensures Flag/FlagISO2 are computed from Country when missing
-    """
     try:
         if not csv_path or not os.path.exists(csv_path):
             return pd.DataFrame()
-
-        # Detect delimiter from the first line
-        sep = ","
-        try:
-            with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                head = f.readline()
-            if head.count("\t") > head.count(","):
-                sep = "\t"
-        except Exception:
-            pass
-
-        df = pd.read_csv(csv_path, sep=sep, engine="python")
-
-        # Clean common NaNs in important columns
-        for col in ["Player", "Country", "Flag", "FlagISO2", "Level", "Expiry Year", "nhl_id", "playerId"]:
-            if col in df.columns:
-                df[col] = df[col].fillna("").astype(str)
-
-        # If Flag is missing but FlagISO2 exists, compute emoji
-        if "Flag" in df.columns and "FlagISO2" in df.columns:
-            try:
-                df["FlagISO2"] = df["FlagISO2"].astype(str).str.strip().str.upper()
-                df["Flag"] = df["Flag"].astype(str).replace({"nan": ""}).fillna("").astype(str)
-                mask = (df["Flag"].str.strip() == "") & (df["FlagISO2"].str.len() == 2)
-                if mask.any() and "_iso2_to_flag_emoji" in globals() and callable(globals()["_iso2_to_flag_emoji"]):
-                    df.loc[mask, "Flag"] = df.loc[mask, "FlagISO2"].map(globals()["_iso2_to_flag_emoji"]).fillna("")
-            except Exception:
-                pass
-
-        # If FlagISO2 is missing but Country exists, try to derive ISO2 then emoji
-        if "Country" in df.columns:
-            try:
-                df["Country"] = df["Country"].astype(str).replace({"nan": ""}).fillna("").str.strip()
-                if "FlagISO2" not in df.columns:
-                    df["FlagISO2"] = ""
-                df["FlagISO2"] = df["FlagISO2"].astype(str).replace({"nan": ""}).fillna("").str.strip().str.upper()
-                if ("_country_to_iso2" in globals()) and callable(globals()["_country_to_iso2"]):
-                    mask2 = (df["FlagISO2"].str.strip() == "") & (df["Country"].str.strip() != "")
-                    if mask2.any():
-                        df.loc[mask2, "FlagISO2"] = df.loc[mask2, "Country"].map(globals()["_country_to_iso2"]).fillna("")
-                if "Flag" not in df.columns:
-                    df["Flag"] = ""
-                df["Flag"] = df["Flag"].astype(str).replace({"nan": ""}).fillna("").str.strip()
-                if ("_iso2_to_flag_emoji" in globals()) and callable(globals()["_iso2_to_flag_emoji"]):
-                    mask3 = (df["Flag"].str.strip() == "") & (df["FlagISO2"].str.len() == 2)
-                    if mask3.any():
-                        df.loc[mask3, "Flag"] = df.loc[mask3, "FlagISO2"].map(globals()["_iso2_to_flag_emoji"]).fillna("")
-            except Exception:
-                pass
-
-        return df
-    except Exception:
-        return pd.DataFrame()
-
         return pd.read_csv(csv_path)
     except Exception:
         return pd.DataFrame()
@@ -217,6 +156,29 @@ except Exception:
 import smtplib
 import ssl
 from email.message import EmailMessage
+
+# =====================================================
+# Name key helpers (handle "Last, First" vs "First Last")
+# =====================================================
+def _to_first_last(name: str) -> str:
+    s = str(name or "").strip()
+    if "," in s:
+        last, first = [p.strip() for p in s.split(",", 1)]
+        if last and first:
+            return f"{first} {last}".strip()
+    return s
+
+def _to_last_comma_first(name: str) -> str:
+    s = str(name or "").strip()
+    if not s or "," in s:
+        return s
+    tokens = [t for t in s.split() if t.strip()]
+    if len(tokens) < 2:
+        return s
+    last = tokens[-1]
+    first = " ".join(tokens[:-1])
+    return f"{last}, {first}".strip()
+
 
 MTL_TZ = ZoneInfo('America/Montreal')
 
@@ -4907,9 +4869,9 @@ def load_players_db_enriched(pdb_path: str, mtime_pdb: float = 0.0, mtime_contra
 
     # key join
     if "Player" in dfp.columns:
-        dfp["_name_key"] = dfp["Player"].astype(str).map(_norm_name)
+        dfp["_name_key"] = dfp["Player"].astype(str).map(lambda s: _norm_name(_to_first_last(s)))
     elif "Joueur" in dfp.columns:
-        dfp["_name_key"] = dfp["Joueur"].astype(str).map(_norm_name)
+        dfp["_name_key"] = dfp["Joueur"].astype(str).map(lambda s: _norm_name(_to_first_last(s)))
     else:
         dfp["_name_key"] = ""
 
@@ -6731,7 +6693,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             if "Level" in tmpdb.columns:
                 level_map = {k: str(v).strip().upper() for k, v in zip(tmpdb["_k"], tmpdb["Level"]) if str(k).strip()}
             if "Flag" in tmpdb.columns:
-                flag_map = {k: ("" if (pd.isna(v) or str(v).strip().lower()=="nan") else str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
+                flag_map = {k: str(v).strip() for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
             # fallback: compute flag from iso2 if emoji missing
             if (not flag_map) and ("FlagISO2" in tmpdb.columns):
                 flag_map = {k: _iso2_to_flag_emoji(str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["FlagISO2"]) if str(k).strip() and str(v).strip()}
@@ -6756,22 +6718,32 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
 
-        # --- Flag + Level via Players DB (pas de dépendance NHL API ici)
-        key = _norm_name(joueur)
+        # --- Flag + Level via Players DB (robuste: "Last, First" vs "First Last")
+        key1 = _norm_name(joueur)
+        key2 = _norm_name(_to_last_comma_first(joueur))
+        key3 = _norm_name(_to_first_last(joueur))
 
-        # Level: priorité Players DB -> sinon valeur du roster -> sinon '—'
-        lvl_db = str(level_map.get(key, "") or "").strip().upper()
-        if lvl_db in ("ELC","STD"):
+        lvl_db = ""
+        for k in (key1, key2, key3):
+            if not lvl_db:
+                lvl_db = str(level_map.get(k, "") or "").strip().upper()
+
+        if lvl_db in ("ELC", "STD"):
             lvl = lvl_db
         else:
             lvl = str(lvl or "").strip().upper()
-            if lvl not in ("ELC","STD"):
+            if lvl not in ("ELC", "STD"):
                 lvl = "—"
 
-        # Flag: priorité Players DB -> sinon rien
-        fv = flag_map.get(key, "")
-        flag = "" if (fv is None or (isinstance(fv,float) and pd.isna(fv)) or str(fv).strip().lower()=="nan") else str(fv).strip()
-        display_name = f"{flag} {joueur}".strip() if flag else joueur
+        fv = ""
+        for k in (key1, key2, key3):
+            if not fv:
+                fv = flag_map.get(k, "")
+
+        flag = "" if (fv is None or (isinstance(fv, float) and pd.isna(fv)) or str(fv).strip().lower() == "nan") else str(fv).strip()
+        flag_url = flag if str(flag).lower().startswith("http") else ""
+        flag_emoji = "" if flag_url else flag
+        display_name = f"{flag_emoji} {joueur}".strip() if flag_emoji else joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
@@ -6780,13 +6752,26 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
-        if c[2].button(
-            display_name,
-            key=f"{source_key}_{owner}_{row_key}",
-            # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
-            disabled=disabled,
-        ):
-            clicked = joueur
+        if flag_url:
+            sub = c[2].columns([0.55, 4.25])
+            try:
+                sub[0].image(flag_url, width=22)
+            except Exception:
+                pass
+            if sub[1].button(
+                joueur,
+                key=f"{source_key}_{owner}_{row_key}",
+                disabled=disabled,
+            ):
+                clicked = joueur
+        else:
+            if c[2].button(
+                display_name,
+                key=f"{source_key}_{owner}_{row_key}",
+                # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
+                disabled=disabled,
+            ):
+                clicked = joueur
 
         lvl_u = str(lvl or "").strip().upper()
         lvl_cls = "lvlELC" if lvl_u == "ELC" else ("lvlSTD" if lvl_u == "STD" else "")
