@@ -2954,19 +2954,13 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
     return out
 # Alias rétro-compat (certaines versions appellent ce nom)
 def fill_level_and_expiry_from_players_db(df: pd.DataFrame, players_db: pd.DataFrame) -> pd.DataFrame:
-    """Compat: délègue à enrich_level_from_players_db() (qui lit st.session_state['players_db'])."""
-    # On accepte le param players_db pour compat, mais la fonction source lit le session_state.
-    try:
-        if isinstance(players_db, pd.DataFrame):
-            st.session_state["players_db"] = players_db
+    """Compat: délègue à enrich_level_from_players_db().
 
-# --- DEBUG: Players DB path / size (helps diagnose missing flags)
-if (isinstance(players_db, pd.DataFrame) and players_db.empty) or (not isinstance(players_db, pd.DataFrame)):
-    st.warning(f"⚠️ Players DB introuvable ou vide. pdb_path={pdb_path!r}. Vérifie que hockey.players.csv est bien dans /data ou à la racine du repo.")
-
-
-    except Exception:
-        pass
+    - On accepte `players_db` en paramètre pour compat.
+    - La fonction source lit st.session_state['players_db'] comme source de vérité.
+    """
+    if isinstance(players_db, pd.DataFrame):
+        st.session_state["players_db"] = players_db
     return enrich_level_from_players_db(df)
 
 
