@@ -8301,8 +8301,8 @@ elif active_tab == "🛠️ Gestion Admin":
     # 🧷 Backups & Restore (Drive) — TOUT dans un seul expander
     # =====================================================
         if drive_ok and folder_id:
-        with st.expander("🧷 Backups & Restore (Drive)", expanded=False):
-            st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
+            with st.expander("🧷 Backups & Restore (Drive)", expanded=False):
+                st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
 
             # Season label
             season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip() or "2025-2026"
