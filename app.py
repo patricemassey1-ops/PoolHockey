@@ -9376,6 +9376,25 @@ if active_tab == "🛠️ Gestion Admin":
             urn = _sr_norm_urn(season_urn, 'season')
             return _sportradar_get_json(f"/seasons/{urn}/players", locale=locale)
 
+        @st.cache_data(show_spinner=False, ttl=24 * 3600)
+        def sr_list_seasons(locale="en"):
+            """List all seasons available on this access_level (trial/production).
+
+            Endpoint: /icehockey/{access_level}/v2/{lang}/seasons.json
+            """
+            j = _sportradar_get_json("/seasons", locale=locale)
+            if isinstance(j, dict) and j.get('_error'):
+                return j
+            # expected: { 'seasons': [ {id,name,competition_id,start_date,end_date,...}, ... ] }
+            return j
+
+        def _sr_find_season_in_list(season_id: str, seasons: list[dict]) -> dict | None:
+            sid = str(season_id or '').strip()
+            for s in seasons or []:
+                if str(s.get('id','')).strip() == sid:
+                    return s
+            return None
+
         def _sr_country_to_iso2(x: str) -> str:
             s = str(x or "").strip()
             if not s:
@@ -9583,6 +9602,54 @@ if active_tab == "🛠️ Gestion Admin":
                 else:
                     if "sr_player_urn" not in pdb_df.columns:
                         pdb_df["sr_player_urn"] = ""
+                    # --- Season picker (évite les 'Wrong identifier')
+                    seasons_payload = sr_list_seasons(locale=locale)
+                    seasons_list = []
+                    if isinstance(seasons_payload, dict) and not seasons_payload.get('_error'):
+                        seasons_list = seasons_payload.get('seasons', []) or []
+
+                    if isinstance(seasons_payload, dict) and seasons_payload.get('_error'):
+                        st.caption('⚠️ Impossible de lister les saisons (on laisse la saisie manuelle).')
+                    else:
+                        # Options lisibles + recherche intégrée (selectbox est searchable)
+                        def _fmt_season(s: dict) -> str:
+                            sid = str(s.get('id','')).strip()
+                            nm = str(s.get('name','')).strip()
+                            cid = str(s.get('competition_id','')).strip()
+                            sd = str(s.get('start_date','')).strip()
+                            ed = str(s.get('end_date','')).strip()
+                            dates = (sd + (' → ' + ed if ed else '')) if (sd or ed) else ''
+                            tail = (' | ' + cid) if cid else ''
+                            if dates:
+                                tail = ' | ' + dates + tail
+                            return f"{nm} | {sid}{tail}" if nm else f"{sid}{tail}"
+
+                        season_options = [_fmt_season(s) for s in seasons_list if str(s.get('id','')).strip()]
+                        # default index: try to keep previous typed value
+                        cur_val = str(st.session_state.get('sr_season_urn_input','') or '').strip() or 'sr:season:68156'
+                        cur_norm = _sr_norm_urn(cur_val, 'season')
+                        default_idx = 0
+                        for i, s in enumerate(seasons_list):
+                            if str(s.get('id','')).strip() == cur_norm:
+                                default_idx = i
+                                break
+                        if season_options:
+                            pick = st.selectbox(
+                                'Choisir une saison (liste Sportradar)',
+                                season_options,
+                                index=min(default_idx, len(season_options)-1),
+                                key='sr_season_picker',
+                            )
+                            # extraire l'id entre ' | '
+                            picked_id = ''
+                            try:
+                                picked_id = pick.split('|')[1].strip()
+                            except Exception:
+                                picked_id = ''
+                            if picked_id:
+                                st.session_state['sr_season_urn_input'] = picked_id
+
+
 
                     season_urn = st.text_input(
                         "Season URN (Sportradar)",
@@ -9590,6 +9657,15 @@ if active_tab == "🛠️ Gestion Admin":
                         help="Exemple: sr:season:68156 (ne pas encoder en %3A)",
                         key="sr_season_urn_input",
                     )
+
+
+                    # Validation rapide du season_id
+                    try:
+                        _norm = _sr_norm_urn(season_urn, 'season')
+                        if seasons_list and not _sr_find_season_in_list(_norm, seasons_list):
+                            st.warning('Ce season_id ne semble pas exister dans /seasons.json pour ton access_level → tu vas avoir Wrong identifier. Utilise le sélecteur ci-dessus.')
+                    except Exception:
+                        pass
 
                     cutoff = st.slider(
                         "Seuil fuzzy match (plus haut = plus strict)",
