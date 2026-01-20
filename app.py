@@ -9460,20 +9460,66 @@ if active_tab == "🛠️ Gestion Admin":
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
         def nhl_get_teams():
-            """Retourne la liste des équipes NHL (triCode + noms) via l’API publique."""
-            url = f"{NHL_BASE}/v1/teams"
-            r = requests.get(url, timeout=20)
-            r.raise_for_status()
-            j = r.json()
-            teams = []
-            # Structure observée: liste de dicts
-            if isinstance(j, list):
-                for t in j:
-                    tri = str(t.get("triCode") or t.get("abbrev") or "").strip()
-                    name = str(t.get("fullName") or t.get("name") or "").strip()
-                    if tri:
-                        teams.append({"triCode": tri, "name": name or tri})
-            return teams
+            """Retourne la liste des équipes NHL (triCode + noms) via l’API publique.
+
+            ⚠️ /v1/teams retourne parfois 404. On utilise donc /v1/standings/now (fiable)
+            pour obtenir les équipes actives.
+            """
+            teams: list[dict] = []
+
+            # 1) Source principale: standings/now
+            try:
+                url = f"{NHL_BASE}/v1/standings/now"
+                r = requests.get(url, timeout=20)
+                r.raise_for_status()
+                j = r.json()
+
+                # Structure typique: {"standings": [ {"teamAbbrev": {"default": "TOR"}, "teamName": {"default": "Maple Leafs"}, ...}, ... ]}
+                rows = None
+                if isinstance(j, dict):
+                    rows = j.get("standings")
+                if isinstance(rows, list):
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        ab = row.get("teamAbbrev")
+                        name = row.get("teamName")
+
+                        tri = ""
+                        if isinstance(ab, dict):
+                            tri = str(ab.get("default") or ab.get("fr") or "").strip()
+                        else:
+                            tri = str(ab or "").strip()
+
+                        nm = ""
+                        if isinstance(name, dict):
+                            nm = str(name.get("default") or name.get("fr") or "").strip()
+                        else:
+                            nm = str(name or "").strip()
+
+                        if tri:
+                            teams.append({"triCode": tri.upper(), "name": nm or tri.upper()})
+            except Exception:
+                teams = []
+
+            # 2) Fallback: liste hardcodée (au cas où NHL change la réponse)
+            if not teams:
+                fallback_tris = [
+                    "ANA","BOS","BUF","CGY","CAR","CHI","COL","CBJ","DAL","DET","EDM","FLA","LAK","MIN","MTL","NJD",
+                    "NSH","NYI","NYR","OTT","PHI","PIT","SEA","SJS","STL","TBL","TOR","UTA","VAN","VGK","WSH","WPG",
+                ]
+                teams = [{"triCode": t, "name": t} for t in fallback_tris]
+
+            # dédupe
+            seen = set()
+            uniq = []
+            for t in teams:
+                tri = str(t.get("triCode") or "").strip().upper()
+                if not tri or tri in seen:
+                    continue
+                seen.add(tri)
+                uniq.append({"triCode": tri, "name": str(t.get("name") or tri).strip() or tri})
+            return uniq
 
         @st.cache_data(show_spinner=False, ttl=6 * 3600)
         def nhl_get_roster(tri_code: str, season: str):
