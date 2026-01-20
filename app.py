@@ -121,7 +121,7 @@ SPORTRADAR_API_KEY = (
 ).strip()
 
 
-if not API_KEY:
+if not SPORTRADAR_API_KEY:
     st.warning("⚠️ Sportradar API key non trouvée dans secrets")
 
 
