@@ -1332,6 +1332,99 @@ def update_players_db(path: str | None = None, season_lbl: str | None = None, fi
     return df, stats
 
 
+
+
+# ==============================
+# NHL PUBLIC API (no key) — targeted enrichment (Country/Flag) for missing rows
+#   - Uses nhl_id when available
+#   - Hard-throttled + cached to avoid 429
+# ==============================
+@st.cache_data(ttl=60*60*24, show_spinner=False)
+def _nhl_player_landing(nhl_id: str) -> dict:
+    nhl_id = str(nhl_id or "").strip()
+    if not nhl_id:
+        return {}
+    url = f"https://api-web.nhle.com/v1/player/{nhl_id}/landing"
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return {}
+        return r.json() if isinstance(r.json(), dict) else {}
+    except Exception:
+        return {}
+
+def _country3_from_landing(payload: dict) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+    # NHL landing often has birthCountry (ISO3) and nationality (ISO3)
+    for k in ("birthCountry", "nationality", "countryCode"):
+        v = payload.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip().upper()
+    return ""
+
+def enrich_players_db_country_flags_from_nhl(players_db: pd.DataFrame, roster_df: pd.DataFrame, max_calls: int = 25) -> pd.DataFrame:
+    """Fill missing Country/FlagISO2/Flag in players_db for players that are in roster_df and have nhl_id."""
+    if players_db is None or not isinstance(players_db, pd.DataFrame) or players_db.empty:
+        return players_db
+    if roster_df is None or not isinstance(roster_df, pd.DataFrame) or roster_df.empty:
+        return players_db
+    if "nhl_id" not in players_db.columns:
+        return players_db
+
+    db = players_db.copy()
+
+    # ensure columns
+    for c in ("Country","FlagISO2","Flag"):
+        if c not in db.columns:
+            db[c] = ""
+
+    # roster player keys
+    rnames = roster_df.get("Joueur", pd.Series([], dtype=str)).astype(str).fillna("").tolist()
+    rkeys = set()
+    for n in rnames:
+        n = str(n or "").strip()
+        if not n:
+            continue
+        rkeys.add(_norm_name(n))
+        rkeys.add(_norm_name(_to_last_comma_first(n)))
+        rkeys.add(_norm_name(_to_first_last(n)))
+
+    # rows to enrich: in roster and missing country/flag
+    def _needs(row) -> bool:
+        nm = str(row.get("Player","") or "").strip()
+        if not nm:
+            return False
+        kset = {_norm_name(nm), _norm_name(_to_first_last(nm)), _norm_name(_to_last_comma_first(nm))}
+        if not (kset & rkeys):
+            return False
+        ctry = str(row.get("Country","") or "").strip()
+        flag = str(row.get("Flag","") or "").strip()
+        iso2 = str(row.get("FlagISO2","") or "").strip()
+        return (not ctry) or (not flag and not iso2)
+
+    idxs = [i for i, row in db.iterrows() if _needs(row)]
+    if not idxs:
+        return db
+
+    # limit calls
+    idxs = idxs[:max(0, int(max_calls or 0))]
+
+    for i in idxs:
+        nhl_id = str(db.at[i, "nhl_id"] or "").strip()
+        if not nhl_id:
+            continue
+        payload = _nhl_player_landing(nhl_id)
+        c3 = _country3_from_landing(payload)
+        if c3:
+            db.at[i, "Country"] = db.at[i, "Country"] or c3
+            iso2 = _COUNTRY3_TO2.get(c3, "")
+            if iso2:
+                db.at[i, "FlagISO2"] = db.at[i, "FlagISO2"] or iso2
+                if not str(db.at[i, "Flag"] or "").strip():
+                    db.at[i, "Flag"] = _iso2_to_flag(iso2)
+
+    return db
 # =====================================================
 # PATHS — repo local (Streamlit Cloud safe)
 #   ✅ Place tes logos à côté de app.py:
@@ -1665,7 +1758,8 @@ div[data-testid="stButton"] > button{
                 overflow: hidden;
                 text-overflow: ellipsis;
               }
-              .salaryCell{
+              .rosterHdr{white-space:nowrap;display:inline-block;}
+.salaryCell{
                 white-space: nowrap;
                 word-break: keep-all;
                 text-align: right;
@@ -6681,9 +6775,18 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                 return [k for k in out if k]
 
             flag_map = {}
-            for _, rr in pdb[['Player','Flag']].fillna('').iterrows():
+            cols_need = [c for c in ['Player','Flag','FlagISO2','Country'] if c in pdb.columns]
+            for _, rr in pdb[cols_need].fillna('').iterrows():
                 pname = str(rr.get('Player','')).strip()
                 fval = str(rr.get('Flag','')).strip()
+                iso2 = str(rr.get('FlagISO2','') or '').strip().upper()
+                ctry = str(rr.get('Country','') or '').strip().upper()
+                if (not fval) and iso2:
+                    fval = _iso2_to_flag(iso2)
+                if (not fval) and (not iso2) and ctry:
+                    iso2_guess = _COUNTRY3_TO2.get(ctry, '')
+                    if iso2_guess:
+                        fval = _iso2_to_flag(iso2_guess)
                 if not fval: continue
                 for k in _keys(pname):
                     if k and k not in flag_map:
@@ -6755,7 +6858,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.9, 0.7, 4.8, 1.2, 1.8])
+    h = st.columns([1.15, 2.15, 0.85, 5.6, 1.35, 2.35])
     h[0].markdown("**Pos**")
     h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
     h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
@@ -6803,7 +6906,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.9, 0.7, 4.8, 1.2, 1.8])
+        c = st.columns([1.15, 2.15, 0.85, 5.6, 1.35, 2.35])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -6841,7 +6944,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             unsafe_allow_html=True,
         )
 
-        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[5].markdown(f"<span class='salaryCell'>{money(salaire).replace(' ', '&nbsp;')}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -8557,6 +8660,15 @@ elif active_tab == "🧾 Alignement":
     gc_all = dprop_ok[dprop_ok["Statut"] == STATUT_GC].copy()
     ce_all = dprop_ok[dprop_ok["Statut"] == STATUT_CE].copy()
 
+    # Auto-enrich Country/Flags from NHL API for roster players (limited per run)
+    try:
+        _pdb0 = st.session_state.get("players_db", pd.DataFrame())
+        _ro = pd.concat([gc_all, ce_all], ignore_index=True) if (isinstance(gc_all, pd.DataFrame) and isinstance(ce_all, pd.DataFrame)) else dprop_ok
+        _pdb1 = enrich_players_db_country_flags_from_nhl(_pdb0, _ro, max_calls=20)
+        st.session_state["players_db"] = _pdb1
+    except Exception:
+        pass
+
     gc_actif = gc_all[gc_all.get("Slot", "") == SLOT_ACTIF].copy()
     gc_banc = gc_all[gc_all.get("Slot", "") == SLOT_BANC].copy()
 
@@ -8594,12 +8706,22 @@ elif active_tab == "🧾 Alignement":
         st.metric("✅ Cap GC (restant)", money(int(remain_gc)))
 
     with mid:
-        st.metric("🩹 IR", f"{nb_ir} joueur(s)")
         st.metric("🟡 Banc", f"{nb_banc} joueur(s)")
+        st.metric("🩹 IR", f"{nb_ir} joueur(s)")
 
     with right:
-        st.metric("💰 Cap CE (maint.)", money(int(used_ce)))
-        st.metric("✅ Cap CE (restant)", money(int(remain_ce)))
+        st.markdown(
+            f"""
+            <div style='text-align:right;'>
+              <div style='font-size:0.95rem;opacity:0.9;'>💰 Cap CE (maint.)</div>
+              <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(used_ce))}</div>
+              <div style='height:10px'></div>
+              <div style='font-size:0.95rem;opacity:0.9;'>✅ Cap CE (restant)</div>
+              <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(remain_ce))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.write("")
 
