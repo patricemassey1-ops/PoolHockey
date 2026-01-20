@@ -8285,10 +8285,6 @@ elif active_tab == "⚖️ Transactions":
 
 
 
-
-
-
-
 if active_tab == "🛠️ Gestion Admin":
     if not is_admin:
         st.warning("Accès admin requis.")
