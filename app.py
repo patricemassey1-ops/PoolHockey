@@ -6748,39 +6748,36 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.1, 4.8, 0.9, 1.7])
+        c = st.columns([0.8, 1.1, 0.6, 4.2, 0.9, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
-        if flag_url:
-            sub = c[2].columns([0.55, 4.25])
+        # Flag + bouton joueur (no nested columns)
+        if flag_url and str(flag_url).startswith("http"):
             try:
-                sub[0].image(flag_url, width=22)
+                c[2].image(flag_url, width=22)
             except Exception:
                 pass
-            if sub[1].button(
-                joueur,
-                key=f"{source_key}_{owner}_{row_key}",
-                disabled=disabled,
-            ):
-                clicked = joueur
         else:
-            if c[2].button(
-                display_name,
-                key=f"{source_key}_{owner}_{row_key}",
-                # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
-                disabled=disabled,
-            ):
-                clicked = joueur
+            c[2].markdown("")
+
+        if c[3].button(
+            display_name,
+            key=f"{source_key}_{owner}_{row_key}",
+            # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
+            disabled=disabled,
+        ):
+            clicked = joueur
+
 
         lvl_u = str(lvl or "").strip().upper()
         lvl_cls = "lvlELC" if lvl_u == "ELC" else ("lvlSTD" if lvl_u == "STD" else "")
-        c[3].markdown(
+        c[4].markdown(
             f"<span class='levelCell {lvl_cls}'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
 
-        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
