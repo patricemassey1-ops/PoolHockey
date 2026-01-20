@@ -8461,7 +8461,7 @@ elif active_tab == "🧾 Alignement":
         tmp['Salaire'] = pd.to_numeric(tmp['Salaire'], errors='coerce').fillna(0).astype(int)
         tmp['_exp'] = tmp.get('Expiry Year','').apply(lambda x: _to_int_safe(x, default=None))
         # Keep players whose contract runs through next season end.
-        tmp['_keep'] = tmp['_exp'].apply(lambda y: True if y is None else int(y) >= int(next_end))
+        tmp['_keep'] = tmp['_exp'].apply(lambda y: True if (y is None or pd.isna(y)) else int(y) >= int(next_end))
         return int(tmp.loc[tmp['_keep'], 'Salaire'].sum())
 
     cap_next_gc = _cap_next_year(gc_all)
