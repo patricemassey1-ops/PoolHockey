@@ -120,8 +120,8 @@ API_KEY = (
 
 
 
-if not SPORTRADAR_API_KEY:
-    st.error("❌ Sportradar API key manquant dans secrets (SPORTRADAR_API_KEY ou [sportradar].api_key)")
+    if not SPORTRADAR_API_KEY:
+        st.error("❌ Sportradar API key manquant dans secrets (SPORTRADAR_API_KEY ou [sportradar].api_key)")
 
 st.write("Top-level keys:", list(st.secrets.keys()))
 st.write("[sportradar]:", st.secrets.get("sportradar"))
