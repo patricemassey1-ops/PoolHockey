@@ -2942,20 +2942,21 @@ def show_status_alerts(
         lvl_ir = "warn"
 
     # Pills en haut
-    c1, c2, c3 = st.columns([2, 2, 1.4], vertical_alignment="center")
+    # ✅ ordre demandé: GC (gauche) • IR/Banc (milieu) • CE (droite)
+    c1, c_mid, c2 = st.columns([2, 1.4, 2], vertical_alignment="center")
     with c1:
         pill("GC", f"{total_gc:,.0f} / {cap_gc:,.0f} $", level=lvl_gc, pulse=(lvl_gc != "ok"))
         st.write("")
         pill("Reste GC", f"{reste_gc:,.0f} $", level=("danger" if reste_gc < 0 else lvl_gc), pulse=(lvl_gc != "ok"))
-    with c2:
-        pill("CE", f"{total_ce:,.0f} / {cap_ce:,.0f} $", level=lvl_ce, pulse=(lvl_ce != "ok"))
-        st.write("")
-        pill("Reste CE", f"{reste_ce:,.0f} $", level=("danger" if reste_ce < 0 else lvl_ce), pulse=(lvl_ce != "ok"))
-    with c3:
+    with c_mid:
         pill("IR", f"{ir_count} joueur(s)", level=lvl_ir, pulse=(lvl_ir != "ok"))
         st.write("")
         lvl_banc = "ok" if int(banc_count or 0) == 0 else "warn"
         pill("Banc", f"{int(banc_count or 0)} joueur(s)", level=lvl_banc, pulse=(lvl_banc != "ok"))
+    with c2:
+        pill("CE", f"{total_ce:,.0f} / {cap_ce:,.0f} $", level=lvl_ce, pulse=(lvl_ce != "ok"))
+        st.write("")
+        pill("Reste CE", f"{reste_ce:,.0f} $", level=("danger" if reste_ce < 0 else lvl_ce), pulse=(lvl_ce != "ok"))
 
     st.write("")
 
@@ -4695,374 +4696,245 @@ def suggest_country_web(player_name: str) -> tuple[str, str, float]:
 def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """Charge puckpedia.contracts.csv (si présent) et prépare une clé de jointure.
 
-    Colonnes attendues (flex):
-      - player name: Player / Name / Joueur
-      - contract_level: contract_level / level / contract_level
-      - contract_end: contract_end / end / expiry / expires
+    Supporte plusieurs formats:
+      A) Colonnes explicites: first_name/last_name + contract_end + contract_level
+      B) Colonnes 'Player'/'Name'/'Joueur' + contract_end + contract_level
+      C) Format sans en-têtes fiable (comme ton screenshot): prenoms/nom en colonnes 0/1,
+         contract_end en avant-dernière colonne, contract_level en dernière colonne.
 
-    Retourne un DF avec _name_key + contract_level + contract_end.
+    Retourne un DF avec:
+      - _name_key (clé normalisée du nom complet)
+      - contract_level (ELC/STD ou "")
+      - contract_end (texte)
+      - contract_end_year (Int or NA)
     """
     if not path or not os.path.exists(path):
-        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+        return pd.DataFrame(columns=["_name_key","contract_level","contract_end","contract_end_year"])
 
     try:
         dfc = pd.read_csv(path)
     except Exception:
-        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+        try:
+            dfc = pd.read_csv(path, sep='\t')
+        except Exception:
+            return pd.DataFrame(columns=["_name_key","contract_level","contract_end","contract_end_year"])
 
-    # détecter colonne nom
-    name_col = None
-    for c in dfc.columns:
-        cl = str(c).strip().lower()
-        if cl in {"player","joueur","name","full name","fullname","player_name"}:
-            name_col = c
+    if dfc is None or dfc.empty:
+        return pd.DataFrame(columns=["_name_key","contract_level","contract_end","contract_end_year"])
+
+    cols_lower = {str(c).strip().lower(): c for c in dfc.columns}
+
+    # --- 1) Construire le nom complet
+    name_series = None
+
+    # A) first/last explicit
+    first_col = None
+    last_col = None
+    for k in ["first", "firstname", "first_name", "prenom", "prénom", "given", "given_name"]:
+        if k in cols_lower:
+            first_col = cols_lower[k]
+            break
+    for k in ["last", "lastname", "last_name", "nom", "surname", "family", "family_name"]:
+        if k in cols_lower:
+            last_col = cols_lower[k]
             break
 
-    if name_col is None:
-        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+    if first_col and last_col:
+        name_series = dfc[first_col].astype(str).str.strip() + " " + dfc[last_col].astype(str).str.strip()
+    else:
+        # B) single player name column
+        name_col = None
+        for k in ["player", "name", "joueur", "full name", "fullname"]:
+            if k in cols_lower:
+                name_col = cols_lower[k]
+                break
+        if name_col:
+            name_series = dfc[name_col].astype(str).str.strip()
+        else:
+            # C) fallback: assume first two columns are first/last
+            try:
+                name_series = dfc.iloc[:, 0].astype(str).str.strip() + " " + dfc.iloc[:, 1].astype(str).str.strip()
+            except Exception:
+                name_series = dfc.iloc[:, 0].astype(str).str.strip()
 
-    # détecter colonnes contrats
+    # --- 2) contract_level + contract_end detection
     lvl_col = None
     end_col = None
-    for c in dfc.columns:
-        cl = str(c).strip().lower().replace(" ", "_")
-        if lvl_col is None and cl in {"contract_level","level","contractlevel","contract_type"}:
-            lvl_col = c
-        if end_col is None and cl in {"contract_end","end","expiry","expires","expiration","expiry_year","contract_end_year"}:
-            end_col = c
 
-    # fallback: heuristiques par contains
+    for k in ["contract_level", "level", "contractlevel"]:
+        if k in cols_lower:
+            lvl_col = cols_lower[k]
+            break
+    for k in ["contract_end", "end", "expiry", "expires", "expiration"]:
+        if k in cols_lower:
+            end_col = cols_lower[k]
+            break
+
+    # fallback to last columns if not found
     if lvl_col is None:
-        for c in dfc.columns:
-            cl = str(c).strip().lower()
-            if "level" in cl and "contract" in cl:
-                lvl_col = c
-                break
+        try:
+            lvl_col = dfc.columns[-1]
+        except Exception:
+            lvl_col = None
     if end_col is None:
-        for c in dfc.columns:
-            cl = str(c).strip().lower()
-            if "end" in cl or "expiry" in cl or "expire" in cl:
-                end_col = c
-                break
+        try:
+            end_col = dfc.columns[-2]
+        except Exception:
+            end_col = None
 
     out = pd.DataFrame()
-    out["_name_key"] = dfc[name_col].astype(str).map(_norm_name)
-    out["contract_level"] = dfc[lvl_col].astype(str).str.strip() if lvl_col else ""
-    out["contract_end"] = dfc[end_col].astype(str).str.strip() if end_col else ""
+    out["_name_key"] = name_series.map(_norm_name)
 
-    # normaliser contract_level -> STD/ELC
-    def _norm_lvl(x: str) -> str:
-        s = str(x or "").strip().upper()
-        if not s:
-            return ""
-        if s in {"ELC","ENTRY","ENTRY_LEVEL","ENTRYLEVEL"} or "ENTRY" in s:
+    raw_lvl = dfc[lvl_col].astype(str).str.strip() if lvl_col is not None else ""
+    raw_end = dfc[end_col].astype(str).str.strip() if end_col is not None else ""
+
+    # normaliser contract_level -> ELC/STD
+    def _norm_lvl(v: str) -> str:
+        v = str(v or "").strip().lower()
+        if "entry" in v or v in ["elc", "entry_level"]:
             return "ELC"
-        if s in {"STD","STANDARD","STANDARD_LEVEL","STANDARDLEVEL"} or "STANDARD" in s:
+        if "standard" in v or v in ["std", "standard_level"]:
             return "STD"
-        return s
+        return ""
 
-    out["contract_level"] = out["contract_level"].map(_norm_lvl)
+    out["contract_level"] = raw_lvl.map(_norm_lvl)
+    out["contract_end"] = raw_end
 
-    # contract_end: extraire une année si possible (utile pour Expiry Year)
-    def _extract_year(v: str) -> str:
-        s = str(v or "").strip()
-        m = re.search(r"(20\d{2})", s)
-        return m.group(1) if m else ""
+    # extraire l'année de fin (ex: 2025-2026 -> 2026)
+    out["contract_end_year"] = (
+        out["contract_end"].astype(str).str.extract(r"(20\d{2})\s*$")[0]
+    )
+    out["contract_end_year"] = pd.to_numeric(out["contract_end_year"], errors="coerce").astype("Int64")
 
-    out["contract_end_year"] = out["contract_end"].map(_extract_year)
+    out = out.dropna(subset=["_name_key"])
+    out = out[out["_name_key"].astype(str).str.strip() != ""]
+    out = out.drop_duplicates(subset=["_name_key"], keep="first").copy()
 
-    # garder seulement lignes valides
-    out = out[out["_name_key"].astype(str).str.len() > 0].copy()
-    out = out.drop_duplicates(subset=["_name_key"], keep="first")
     return out
 
 
-def _ensure_flag_columns(dfp: pd.DataFrame) -> pd.DataFrame:
-    """Assure que FlagISO2 + Flag sont remplis quand Country est présent.
-
-    - Country peut être ISO2 (CA), ISO3 (CAN) ou nom (Canada)
-    - Remplit FlagISO2 (ISO2) et Flag (emoji)
-    """
-    if dfp is None or dfp.empty:
-        return dfp
-
-    for col in ["Country", "FlagISO2", "Flag"]:
-        if col not in dfp.columns:
-            dfp[col] = ""
-
-    def _to_iso2(country: str) -> str:
-        raw = str(country or "").strip()
-        if not raw:
-            return ""
-        if len(raw) == 2 and raw.isalpha():
-            return raw.upper()
-        if len(raw) == 3 and raw.isalpha():
-            return _COUNTRY3_TO2.get(raw.upper(), "")
-        return _COUNTRYNAME_TO2.get(raw.lower(), "")
-
-    # remplir FlagISO2
-    mask_iso2 = dfp["FlagISO2"].astype(str).str.strip().eq("")
-    if mask_iso2.any():
-        dfp.loc[mask_iso2, "FlagISO2"] = dfp.loc[mask_iso2, "Country"].map(_to_iso2)
-
-    # remplir Flag emoji
-    mask_flag = dfp["Flag"].astype(str).str.strip().eq("")
-    if mask_flag.any():
-        dfp.loc[mask_flag, "Flag"] = dfp.loc[mask_flag, "FlagISO2"].map(_iso2_to_flag)
-
-    return dfp
-
 @st.cache_data(show_spinner=False)
-def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
+def load_players_db_enriched(pdb_path: str, mtime_pdb: float = 0.0, mtime_contracts: float = 0.0) -> pd.DataFrame:
+    """Lit hockey.players.csv et applique automatiquement:
+      - merge puckpedia.contracts.csv (override Level + Expiry Year quand dispo)
+      - colonnes Flags (FlagISO2 + Flag) depuis Country
     """
-    Charge Hockey.Players.csv (ou équivalent) avec cache Streamlit.
-    Le param `mtime` sert uniquement à invalider le cache quand le fichier change.
-    """
-    if not path or not os.path.exists(path):
+    if not pdb_path or not os.path.exists(pdb_path):
         return pd.DataFrame()
 
     try:
-        dfp = pd.read_csv(path)
+        dfp = pd.read_csv(pdb_path)
     except Exception:
         return pd.DataFrame()
 
-    # colonne nom joueur (flex)
-    name_col = None
-    for c in dfp.columns:
-        cl = str(c).strip().lower()
-        if cl in {"player", "joueur", "name", "full name", "fullname"}:
-            name_col = c
-            break
+    if dfp is None or dfp.empty:
+        return pd.DataFrame()
 
-    if name_col is not None:
-        dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
+    # key join
+    if "Player" in dfp.columns:
+        dfp["_name_key"] = dfp["Player"].astype(str).map(_norm_name)
+    elif "Joueur" in dfp.columns:
+        dfp["_name_key"] = dfp["Joueur"].astype(str).map(_norm_name)
+    else:
+        dfp["_name_key"] = ""
 
-    # --- Auto-enrich: puckpedia.contracts.csv (STD/ELC + contract_end)
-    try:
-        contracts_path = os.path.join(os.path.dirname(path) or DATA_DIR, "puckpedia.contracts.csv")
-    except Exception:
-        contracts_path = os.path.join(DATA_DIR, "puckpedia.contracts.csv")
-
-    # Try common fallbacks
-    if not os.path.exists(contracts_path):
-        contracts_path = os.path.join(DATA_DIR, "puckpedia.contracts.csv")
-
-    if os.path.exists(contracts_path) and "_name_key" in dfp.columns:
+    # merge contracts if present
+    contracts_path = os.path.join(os.path.dirname(pdb_path), "puckpedia.contracts.csv")
+    if os.path.exists(contracts_path):
         try:
-            c_mtime = os.path.getmtime(contracts_path)
+            dfc = load_puckpedia_contracts(contracts_path, mtime=mtime_contracts)
         except Exception:
-            c_mtime = 0.0
-
-        dfc = load_puckpedia_contracts(contracts_path, mtime=c_mtime)
-        if dfc is not None and not dfc.empty:
-            # rename to avoid collisions
-            dfc = dfc.rename(columns={
-                "contract_level": "contract_level_puck",
-                "contract_end": "contract_end_puck",
-                "contract_end_year": "contract_end_year_puck",
-            })
-
-            # ensure destination cols exist
-            for col in ["contract_level", "contract_end", "Level", "Expiry Year"]:
+            dfc = pd.DataFrame()
+        if isinstance(dfc, pd.DataFrame) and not dfc.empty and "_name_key" in dfc.columns:
+            # ensure cols
+            for col in ["contract_level","contract_end","Level","Expiry Year"]:
                 if col not in dfp.columns:
                     dfp[col] = ""
 
             dfp = dfp.merge(
-                dfc[["_name_key", "contract_level_puck", "contract_end_puck", "contract_end_year_puck"]],
+                dfc[["_name_key","contract_level","contract_end","contract_end_year"]],
                 on="_name_key",
                 how="left",
+                suffixes=("","_puck"),
             )
 
-            # Fill raw contract columns if empty
-            dfp["contract_level"] = dfp["contract_level"].astype(str)
+            # Always fill raw contract columns from puck when available
+            dfp["contract_level"] = dfp.get("contract_level","" ).astype(str)
             dfp["contract_level"] = dfp["contract_level"].where(
                 dfp["contract_level"].str.strip() != "",
-                dfp["contract_level_puck"].fillna("")
+                dfp.get("contract_level_puck", "").fillna("").astype(str)
             )
 
-            dfp["contract_end"] = dfp["contract_end"].astype(str)
+            dfp["contract_end"] = dfp.get("contract_end","" ).astype(str)
             dfp["contract_end"] = dfp["contract_end"].where(
                 dfp["contract_end"].str.strip() != "",
-                dfp["contract_end_puck"].fillna("")
+                dfp.get("contract_end_puck", "").fillna("").astype(str)
             )
 
-            # Also backfill your existing columns (only if empty)
-            dfp["Level"] = dfp["Level"].astype(str)
-            dfp["Level"] = dfp["Level"].where(
-                dfp["Level"].str.strip() != "",
-                dfp["contract_level_puck"].fillna("")
-            )
+            # ✅ IMPORTANT: override Level from puck when puck has ELC/STD
+            puck_lvl = dfp.get("contract_level_puck", "").fillna("").astype(str).str.strip().str.upper()
+            dfp["Level"] = dfp.get("Level", "").fillna("").astype(str).str.strip().str.upper()
+            dfp.loc[puck_lvl.isin(["ELC","STD"]), "Level"] = puck_lvl[puck_lvl.isin(["ELC","STD"])]
 
-            dfp["Expiry Year"] = dfp["Expiry Year"].astype(str)
-            dfp["Expiry Year"] = dfp["Expiry Year"].where(
-                dfp["Expiry Year"].str.strip() != "",
-                dfp["contract_end_year_puck"].fillna("")
-            )
+            # Expiry Year from puck end year when present
+            puck_endy = dfp.get("contract_end_year_puck")
+            if puck_endy is not None:
+                dfp["Expiry Year"] = dfp.get("Expiry Year", "").fillna("").astype(str).str.strip()
+                dfp.loc[pd.notna(puck_endy), "Expiry Year"] = puck_endy[pd.notna(puck_endy)].astype(str)
 
             # cleanup
-            dfp.drop(columns=[c for c in ["contract_level_puck", "contract_end_puck", "contract_end_year_puck"] if c in dfp.columns], inplace=True, errors="ignore")
+            for c in ["contract_level_puck","contract_end_puck","contract_end_year_puck"]:
+                if c in dfp.columns:
+                    dfp.drop(columns=[c], inplace=True)
 
-    # --- Auto-enrich flags from Country (no button needed)
-    # Ensure FlagISO2 + Flag always consistent if Country exists
-    if "Country" in dfp.columns:
-        if "FlagISO2" not in dfp.columns:
-            dfp["FlagISO2"] = ""
-        if "Flag" not in dfp.columns:
-            dfp["Flag"] = ""
+    # Flags from Country
+    if "FlagISO2" not in dfp.columns:
+        dfp["FlagISO2"] = ""
+    if "Flag" not in dfp.columns:
+        dfp["Flag"] = ""
+    if "Country" not in dfp.columns:
+        dfp["Country"] = ""
 
-        def _resolve_iso2(raw: str) -> str:
-            s = str(raw or "").strip()
-            if not s or s.lower() in {"nan", "none", "null", "-"}:
-                return ""
-            # already ISO2
-            if len(s) == 2 and s.isalpha():
-                return s.upper()
-            # ISO3
-            if len(s) == 3 and s.isalpha():
-                return _COUNTRY3_TO2.get(s.upper(), "")
-            # country name
-            return _COUNTRYNAME_TO2.get(s.lower(), "")
-
-        # fill iso2 if missing
-        miss_iso2 = dfp["FlagISO2"].astype(str).str.strip().eq("")
-        if miss_iso2.any():
-            dfp.loc[miss_iso2, "FlagISO2"] = dfp.loc[miss_iso2, "Country"].map(_resolve_iso2)
-
-        # fill emoji if missing
-        miss_flag = dfp["Flag"].astype(str).str.strip().eq("")
-        if miss_flag.any():
-            dfp.loc[miss_flag, "Flag"] = dfp.loc[miss_flag, "FlagISO2"].map(_iso2_to_flag)
-
-
-    # --- Data pipeline lock (schema validation)
     try:
-        dfp, _issues = validate_players_db(dfp)
-        st.session_state['_players_db_schema_issues'] = _issues
-        st.session_state['DATA_PIPELINE_VERSION'] = DATA_PIPELINE_VERSION
+        iso = dfp["FlagISO2"].astype(str).str.strip()
+        need_iso = iso.eq("") & dfp["Country"].astype(str).str.strip().ne("")
+        if need_iso.any():
+            dfp.loc[need_iso, "FlagISO2"] = dfp.loc[need_iso, "Country"].astype(str).map(_country_to_iso2)
+    except Exception:
+        pass
+
+    try:
+        fl = dfp["Flag"].astype(str).str.strip()
+        need_fl = fl.eq("") & dfp["FlagISO2"].astype(str).str.strip().ne("")
+        if need_fl.any():
+            dfp.loc[need_fl, "Flag"] = dfp.loc[need_fl, "FlagISO2"].astype(str).map(_iso2_to_flag_emoji)
+    except Exception:
+        pass
+
+    # normalize Level display: only ELC/STD, else blank
+    try:
+        dfp["Level"] = dfp.get("Level", "").astype(str).str.strip().str.upper()
+        dfp.loc[~dfp["Level"].isin(["ELC","STD"]), "Level"] = ""
     except Exception:
         pass
 
     return dfp
 
-def parse_fantrax(upload) -> pd.DataFrame:
-    """Parse un export Fantrax (format variable).
-    ✅ supporte colonnes: Player/Name/Joueur + Salary/Cap Hit/AAV/Salaire
-    ✅ supporte séparateurs: , ; \t |
-    """
-    raw = upload.read()
-    if isinstance(raw, bytes):
-        raw_text = raw.decode("utf-8", errors="ignore")
-    else:
-        raw_text = str(raw)
 
-    raw_lines = raw_text.splitlines()
-    # Nettoyage chars invisibles (évite U+007F)
-    raw_lines = [re.sub(r"[\x00-\x1f\x7f]", "", l) for l in raw_lines]
-
-    # Détection header: on cherche une ligne qui contient un marqueur "joueur" ET un marqueur "salaire"
-    name_marks = ("player", "name", "joueur")
-    sal_marks = ("salary", "cap hit", "caphit", "aav", "salaire")
-
-    def _looks_like_header(line: str) -> bool:
-        low = line.lower()
-        return any(k in low for k in name_marks) and any(k in low for k in sal_marks)
-
-    # Séparateur: celui qui découpe le plus "proprement" la ligne header
-    def detect_sep(lines):
-        cand_seps = [",", ";", "\t", "|"]
-        header_line = next((l for l in lines if _looks_like_header(l)), "")
-        if not header_line:
-            # fallback: première ligne non vide
-            header_line = next((l for l in lines if l.strip()), "")
-        best = ","
-        best_score = -1
-        for sep in cand_seps:
-            parts = [p.strip().strip('"') for p in header_line.split(sep)]
-            # score = nb de colonnes non vides
-            score = sum(1 for p in parts if p)
-            if score > best_score:
-                best_score = score
-                best = sep
-        return best
-
-    sep = detect_sep(raw_lines)
-
-    header_idxs = [i for i, l in enumerate(raw_lines) if _looks_like_header(l) and sep in l]
-    if not header_idxs:
-        # Tentative 2: on prend la première ligne qui contient le séparateur + au moins 3 colonnes
-        for i, l in enumerate(raw_lines):
-            if sep in l and len([p for p in l.split(sep) if p.strip()]) >= 3:
-                header_idxs = [i]
-                break
-
-    if not header_idxs:
-        raise ValueError("Colonnes Fantrax non détectées (Player/Salary ou équivalent).")
-
-    def read_section(start, end):
-        lines = [l for l in raw_lines[start:end] if l.strip() != ""]
-        if len(lines) < 2:
-            return None
-        dfp = pd.read_csv(io.StringIO("\n".join(lines)), sep=sep, engine="python", on_bad_lines="skip")
-        dfp.columns = [str(c).strip().replace('"', "") for c in dfp.columns]
-        return dfp
-
-    parts = []
-    for i, h in enumerate(header_idxs):
-        end = header_idxs[i + 1] if i + 1 < len(header_idxs) else len(raw_lines)
-        dfp = read_section(h, end)
-        if dfp is not None and not dfp.empty:
-            parts.append(dfp)
-
-    if not parts:
-        raise ValueError("Sections Fantrax détectées mais aucune donnée exploitable.")
-
-    df = pd.concat(parts, ignore_index=True)
-
-    def find_col(possibles):
-        for p in possibles:
-            p = p.lower()
-            for c in df.columns:
-                if p in str(c).lower():
-                    return c
-        return None
-
-    # Player / Name
-    player_col = find_col(["player", "name", "joueur"])
-    # Salary / Cap Hit / AAV
-    salary_col = find_col(["salary", "cap hit", "caphit", "aav", "salaire", "cap-hit"])
-    team_col = find_col(["team", "équipe", "equipe"])
-    pos_col = find_col(["pos", "position"])
-    status_col = find_col(["status", "statut"])
-
-    if not player_col or not salary_col:
-        raise ValueError(f"Colonnes Player/Salary introuvables. Colonnes trouvées: {list(df.columns)}")
-
-    out = pd.DataFrame()
-    out["Joueur"] = df[player_col].astype(str).str.strip()
-    out["Equipe"] = df[team_col].astype(str).str.strip() if team_col else "N/A"
-    out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "F"
-    out["Pos"] = out["Pos"].apply(normalize_pos)
-
-    # Salaire / Cap Hit / AAV
-    # Fantrax peut contenir $ / virgules / M/K / nombres en milliers
-    sal_raw = df[salary_col].astype(str)
-    sal_num = sal_raw.apply(_cap_to_int)
-    # Heuristique: si c'est en "k" (ex: 9500 => 9 500 000), on upscale
+def ensure_players_db_loaded() -> pd.DataFrame:
+    """Charge et enrichit players_db une fois; stocke dans st.session_state['players_db']."""
     try:
-        if sal_num.max() <= 50000:
-            sal_num = (sal_num * 1000)
+        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv") if "DATA_DIR" in globals() else "data/hockey.players.csv"
+        mtime_pdb = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
+        contracts_path = os.path.join(os.path.dirname(pdb_path), "puckpedia.contracts.csv")
+        mtime_c = os.path.getmtime(contracts_path) if os.path.exists(contracts_path) else 0.0
+        pdb = load_players_db_enriched(pdb_path, mtime_pdb=mtime_pdb, mtime_contracts=mtime_c)
+        if isinstance(pdb, pd.DataFrame) and not pdb.empty:
+            st.session_state["players_db"] = pdb
+        return pdb
     except Exception:
-        pass
-    out["Salaire"] = sal_num.fillna(0).astype(int)
+        return st.session_state.get("players_db", pd.DataFrame())
 
-    if status_col:
-        out["Statut"] = df[status_col].apply(lambda x: STATUT_CE if "min" in str(x).lower() else STATUT_GC)
-    else:
-        out["Statut"] = STATUT_GC
-
-    out["Slot"] = out["Statut"].apply(lambda s: SLOT_ACTIF if s == STATUT_GC else "")
-    out["IR Date"] = ""
-    return clean_data(out)
 
 def ensure_owner_column(df: pd.DataFrame, fallback_owner: str) -> pd.DataFrame:
     if df is None or not isinstance(df, pd.DataFrame):
@@ -6772,6 +6644,23 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     disabled = str(source_key or "").endswith("_disabled")
     pid_map = _players_name_to_pid_map()
 
+    # players_db lookups (flags + Level) — no external API calls here
+    pdb = st.session_state.get("players_db", pd.DataFrame())
+    level_map: dict[str, str] = {}
+    flag_map: dict[str, str] = {}
+    if isinstance(pdb, pd.DataFrame) and not pdb.empty:
+        name_col = "Player" if "Player" in pdb.columns else ("Joueur" if "Joueur" in pdb.columns else None)
+        if name_col:
+            tmpdb = pdb[[name_col] + [c for c in ["Level","Flag","FlagISO2","Country"] if c in pdb.columns]].copy()
+            tmpdb["_k"] = tmpdb[name_col].astype(str).map(_norm_name)
+            if "Level" in tmpdb.columns:
+                level_map = {k: str(v).strip().upper() for k, v in zip(tmpdb["_k"], tmpdb["Level"]) if str(k).strip()}
+            if "Flag" in tmpdb.columns:
+                flag_map = {k: str(v).strip() for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
+            # fallback: compute flag from iso2 if emoji missing
+            if (not flag_map) and ("FlagISO2" in tmpdb.columns):
+                flag_map = {k: _iso2_to_flag_emoji(str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["FlagISO2"]) if str(k).strip() and str(v).strip()}
+
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
     h = st.columns([0.8, 1.1, 4.8, 0.9, 1.7])
@@ -6791,20 +6680,21 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         team = str(r.get("Equipe", "")).strip()
         lvl = str(r.get("Level", "")).strip()
         salaire = int(r.get("Salaire", 0) or 0)
-        pid = 0
-        try:
-            pid = int(r.get('playerId', 0) or 0)
-        except Exception:
-            pid = 0
-        if pid <= 0:
-            pid = int(pid_map.get(_norm_name(joueur), 0) or 0)
-        flag = ''
-        if pid > 0:
-            try:
-                landing = nhl_player_landing_cached(pid)
-                flag = _player_flag(pid, landing, joueur) if landing else _player_flag(pid, None, joueur)
-            except Exception:
-                flag = ''
+
+        # --- Flag + Level via Players DB (pas de dépendance NHL API ici)
+        key = _norm_name(joueur)
+
+        # Level: priorité Players DB -> sinon valeur du roster -> sinon '—'
+        lvl_db = str(level_map.get(key, "") or "").strip().upper()
+        if lvl_db in ("ELC","STD"):
+            lvl = lvl_db
+        else:
+            lvl = str(lvl or "").strip().upper()
+            if lvl not in ("ELC","STD"):
+                lvl = "—"
+
+        # Flag: priorité Players DB -> sinon rien
+        flag = str(flag_map.get(key, "") or "").strip()
         display_name = f"{flag} {joueur}".strip() if flag else joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
@@ -7434,7 +7324,27 @@ def render_tab_gm():
         pass
 
 
-    # =========================
+    
+    # =====================================================
+    # 🎛️ Filtres Alignement (rapide) — déplacés ici (GM)
+    #   - contrôle l'affichage dans Alignement (roster_click_list)
+    # =====================================================
+    with st.expander('🎛️ Filtres Alignement (rapide)', expanded=False):
+        f1, f2, f3 = st.columns([2.2, 1, 1])
+        with f1:
+            st.text_input(
+                'Recherche joueur',
+                value=str(st.session_state.get('align_filter_q','') or ''),
+                key='align_filter_q',
+                placeholder='ex: Suzuki'
+            )
+        with f2:
+            st.checkbox('ELC', value=bool(st.session_state.get('align_filter_only_elc', False)), key='align_filter_only_elc')
+        with f3:
+            st.checkbox('STD', value=bool(st.session_state.get('align_filter_only_std', False)), key='align_filter_only_std')
+
+    st.write("")
+# =========================
     # 📄 Contrats — tous les joueurs de l'équipe (source: hockey.players.csv + puckpedia.contracts.csv)
     #   - Ici (GM), on affiche les infos contrat; on les retire de l'Alignement.
     # =========================
@@ -8305,6 +8215,13 @@ def _players_name_to_pid_map() -> dict:
 
 
 # =====================================================
+
+# --- Auto-load Players DB (flags + contracts + level) once per run
+try:
+    ensure_players_db_loaded()
+except Exception:
+    pass
+
 # ROUTING PRINCIPAL — ONE SINGLE CHAIN
 # =====================================================
 if active_tab == "🏠 Home":
@@ -8571,30 +8488,6 @@ elif active_tab == "🧾 Alignement":
         st.metric('💰 Cap CE (maint.)', money(int(used_ce)))
     with p4:
         st.metric('📅 Cap CE (an prochain)', money(int(cap_next_ce)))
-
-    # =====================================================
-    # 🎛️ UI polish — filtres Alignement
-    # =====================================================
-    with st.expander('🎛️ Filtres Alignement (rapide)', expanded=False):
-        f1, f2, f3 = st.columns([2.2, 1, 1])
-        with f1:
-            st.text_input('Recherche joueur', value=str(st.session_state.get('align_filter_q','') or ''), key='align_filter_q', placeholder='ex: Suzuki')
-        with f2:
-            st.checkbox('ELC', value=bool(st.session_state.get('align_filter_only_elc', False)), key='align_filter_only_elc')
-        with f3:
-            st.checkbox('STD', value=bool(st.session_state.get('align_filter_only_std', False)), key='align_filter_only_std')
-
-    # --- ✅ Pills + Alert cards (après calculs)
-    show_status_alerts(
-        total_gc=int(used_gc),
-        cap_gc=int(cap_gc),
-        total_ce=int(used_ce),
-        cap_ce=int(cap_ce),
-        ir_count=int(len(injured_all)),
-        banc_count=int(len(gc_banc)),
-        toast=False,
-        context=proprietaire,
-    )
 
     st.write("")
 
