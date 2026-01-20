@@ -8296,1691 +8296,577 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
-
     # -----------------------------------------------------
-    # ♻️ Classement — forcer recalcul API (bouton déplacé ici)
+    # ♻️ Classement — forcer recalcul API
     # -----------------------------------------------------
     st.markdown("### ♻️ Classement — Recalcul points API")
     st.caption("Vide les caches du classement / points API (utile si tu veux forcer un refresh manuel).")
     if st.button("♻️ Rafraîchir points API (Classement)", use_container_width=True, key="admin_refresh_points_api"):
         try:
-            st.session_state['classement_cache'] = {}
+            st.session_state["classement_cache"] = {}
         except Exception:
             pass
         try:
             st.cache_data.clear()
         except Exception:
             pass
-        st.session_state['classement_force_refresh'] = True
+        st.session_state["classement_force_refresh"] = True
         st.toast("✅ Caches vidés — le classement va recalculer", icon="✅")
         do_rerun()
 
-    # -----------------------------------------------------
-    # 🏆 Règles de pointage (éditables)
-    # -----------------------------------------------------
-    
-
-# -----------------------------
-# 🧾 Sportradar (optionnel) — enrichir Players DB
-#   Requiert st.secrets["sportradar"]["api_key"]
-#   Objectif:
-#     1) Tester Sportradar
-#     2) Auto-remplir sr_player_urn via Season Players (matcher intelligent + validation)
-#     3) Enrichir Country via profile (URN)
-#     4) Générer un CSV "merge" Sportradar
-# -----------------------------
-
-import os
-import re
-import time
-import unicodedata
-from difflib import SequenceMatcher, get_close_matches
-from datetime import datetime
-
-# -----------------------------
-# Config + API helper
-# -----------------------------
-def sportradar_cfg() -> dict:
-    return st.secrets.get("sportradar", {}) or {}
-
-def sportradar_ready() -> bool:
-    cfg = sportradar_cfg()
-    return bool(str(cfg.get("api_key", "")).strip())
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def _sportradar_get_json(endpoint: str, locale: str = "en"):
-    cfg = sportradar_cfg()
-    api_key = str(cfg.get("api_key", "")).strip()
-    base_url = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v2")).strip().rstrip("/")
-    locale = str(cfg.get("locale", locale or "en")).strip()
-
-    if not api_key:
-        return {"_error": "Missing api_key"}
-
-    endpoint = str(endpoint or "").strip()
-    if not endpoint.startswith("/"):
-        endpoint = "/" + endpoint
-
-    # forcer .json UNE SEULE FOIS
-    if not endpoint.endswith(".json"):
-        endpoint = endpoint + ".json"
-
-    url = f"{base_url}/{locale}{endpoint}"
-
-    try:
-        r = requests.get(
-            url,
-            headers={"accept": "application/json"},
-            params={"api_key": api_key},
-            timeout=20,
-        )
-        if r.status_code != 200:
-            return {"_error": f"HTTP {r.status_code}", "_url": url, "_text": r.text[:1200]}
-        return r.json()
-    except Exception as e:
-        return {"_error": type(e).__name__, "_url": url, "_text": str(e)[:1200]}
-
-def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
-    urn = str(sr_player_urn or "").strip()
-    if not urn:
-        return {"_error": "Missing URN"}
-    return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
-
-@st.cache_data(show_spinner=False, ttl=24*3600)
-def sr_season_players(season_urn: str, locale="en"):
-    return _sportradar_get_json(f"/seasons/{season_urn}/players", locale=locale)
-
-def _sr_country_to_iso2(x: str) -> str:
-    s = str(x or "").strip()
-    if not s:
-        return ""
-    if len(s) == 2 and s.isalpha():
-        return s.upper()
-    m = {
-        "canada": "CA", "united states": "US", "usa": "US",
-        "sweden": "SE", "finland": "FI", "czech republic": "CZ",
-        "russia": "RU", "slovakia": "SK", "germany": "DE",
-        "switzerland": "CH", "latvia": "LV", "norway": "NO",
-        "denmark": "DK", "france": "FR",
-    }
-    return m.get(s.lower(), "")
-
-def _detect_player_name_col(df: pd.DataFrame) -> str:
-    for c in ["Player", "Joueur", "name", "Nom", "Player Name"]:
-        if c in df.columns:
-            return c
-    return ""
-
-# -----------------------------
-# Intelligent matcher
-# -----------------------------
-_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
-
-def _strip_accents(s: str) -> str:
-    return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
-
-def _clean_tokens(s: str) -> list[str]:
-    s = _strip_accents(str(s or "")).lower().strip()
-    s = s.replace(".", " ")
-    s = re.sub(r"[^a-z\s\-\']", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    toks = [t for t in s.split(" ") if t]
-    # enlever suffixes
-    toks2 = []
-    for t in toks:
-        tt = t.replace("'", "").replace("-", "")
-        if tt in _SUFFIXES:
-            continue
-        toks2.append(t)
-    return toks2
-
-def _name_variants(raw: str) -> list[str]:
-    """
-    Variantes possibles:
-    - "last first"
-    - "first last"
-    - initiale + last, last + initiale
-    Gère aussi "Last, First"
-    """
-    raw0 = str(raw or "").strip()
-    if not raw0:
-        return []
-
-    # Cas "Last, First"
-    if "," in raw0:
-        parts = [p.strip() for p in raw0.split(",") if p.strip()]
-        if len(parts) >= 2:
-            last_t = _clean_tokens(parts[0])
-            first_t = _clean_tokens(parts[1])
-            if last_t and first_t:
-                L = last_t[0]
-                F = first_t[0]
-                out = [
-                    f"{L} {F}",
-                    f"{F} {L}",
-                    f"{L} {F[0]}",
-                    f"{F[0]} {L}",
-                ]
-                return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
-
-    toks = _clean_tokens(raw0)
-    if not toks:
-        return []
-    if len(toks) == 1:
-        return [toks[0]]
-
-    first = toks[0]
-    last = toks[-1]
-    out = [
-        f"{last} {first}",
-        f"{first} {last}",
-        f"{last} {first[0]}",
-        f"{first[0]} {last}",
-    ]
-    return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
-
-def _similar(a: str, b: str) -> float:
-    return SequenceMatcher(None, a, b).ratio()
-
-def _sr_primary_key_from_name(pname: str) -> str:
-    toks = _clean_tokens(pname)
-    if not toks:
-        return ""
-    if "," in pname:
-        parts = [pp.strip() for pp in pname.split(",") if pp.strip()]
-        if len(parts) >= 2:
-            L = _clean_tokens(parts[0])
-            F = _clean_tokens(parts[1])
-            if L and F:
-                return f"{L[0]} {F[0]}".strip()
-    return f"{toks[-1]} {toks[0]}".strip()
-
-def build_sr_indexes(plist: list[dict]):
-    """
-    Retourne:
-      - exact_map: variantes -> urn
-      - primary_keys: liste de clés pour fuzzy
-      - primary_to_urn: primary_key -> urn
-      - urn_to_display: urn -> "Name"
-    """
-    exact_map = {}
-    primary_to_urn = {}
-    urn_to_display = {}
-
-    for p in plist:
-        urn = str(p.get("id", "") or "").strip()
-        name = str(p.get("name", "") or "").strip()
-        if not urn or not name:
-            continue
-
-        urn_to_display[urn] = name
-
-        # exact variants
-        for k in _name_variants(name):
-            exact_map[k] = urn
-
-        pk = _sr_primary_key_from_name(name)
-        if pk:
-            primary_to_urn[pk] = urn
-
-    primary_keys = list(primary_to_urn.keys())
-    return exact_map, primary_keys, primary_to_urn, urn_to_display
-
-def match_one_player_to_urn(raw_name: str, exact_map: dict, primary_keys: list[str], primary_to_urn: dict,
-                            fuzzy_cutoff: float, top_k: int = 5):
-    """
-    Retour:
-      status: "exact" | "fuzzy" | "miss"
-      urn: str
-      candidates: list[(key, score, urn)]
-    """
-    vars_local = _name_variants(raw_name)
-
-    # exact
-    for k in vars_local:
-        urn = exact_map.get(k, "")
-        if urn:
-            return "exact", urn, []
-
-    if not primary_keys:
-        return "miss", "", []
-
-    base = vars_local[0] if vars_local else ""
-    close = get_close_matches(base, primary_keys, n=top_k, cutoff=max(0.0, fuzzy_cutoff - 0.10))
-
-    cand = []
-    for ck in close:
-        score = _similar(base, ck)
-        cand.append((ck, score, primary_to_urn.get(ck, "")))
-    cand = sorted(cand, key=lambda x: x[1], reverse=True)
-
-    if cand and cand[0][1] >= fuzzy_cutoff and cand[0][2]:
-        return "fuzzy", cand[0][2], cand
-
-    return "miss", "", cand
-
-# -----------------------------
-# UI — Expander
-# -----------------------------
-with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded=False):
-    st.caption(
-        "Si tu as un accès Sportradar (30 jours), tu peux générer un fichier de fusion et/ou enrichir hockey.players.csv.\n\n"
-        "**Pré-requis**: ajouter dans Secrets: [sportradar] api_key=\"...\" (optionnel base_url)."
-    )
-
-    if not sportradar_ready():
-        st.info("Sportradar non configuré (api_key absent).")
-        st.stop()
-
-    # Locale (une seule fois)
-    locale = st.selectbox("Locale Sportradar", ["en"], index=0, key="sr_locale_admin")
-
-    # --- TEST
-    cT1, cT2 = st.columns([1, 1])
-    with cT1:
-        if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
-            j = _sportradar_get_json("/players/sr:player:29663/profile", locale=locale)
-            if isinstance(j, dict) and j.get("_error"):
-                st.error(f"❌ Sportradar KO — {j.get('_error')}")
-                if j.get("_url"):
-                    st.code(j["_url"])
-                if j.get("_text"):
-                    st.code(j["_text"])
-            else:
-                st.success("✅ Sportradar répond (OK).")
-                st.json(j)
-    with cT2:
-        st.caption("Astuce: On va auto-remplir **sr_player_urn** et ensuite enrichir Country.")
-
-    st.divider()
-    st.subheader("🔗 Auto-mapping URN (Season Players) + validation")
-
-    # Charger Players DB (local)
-    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-    if not pdb_path:
-        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-
-    try:
-        pdb_df = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
-    except Exception as e:
-        st.error("Impossible de lire hockey.players.csv")
-        st.exception(e)
-        pdb_df = pd.DataFrame()
-
-    if pdb_df.empty:
-        st.warning(f"Players DB vide/introuvable: {pdb_path}")
-        st.stop()
-
-    name_col = _detect_player_name_col(pdb_df)
-    if not name_col:
-        st.error("Aucune colonne nom joueur trouvée (Player/Joueur/name/Nom).")
-        st.stop()
-
-    if "sr_player_urn" not in pdb_df.columns:
-        pdb_df["sr_player_urn"] = ""
-
-    season_urn = st.text_input(
-        "Season URN (Sportradar)",
-        value="sr:season:68156",
-        help="Exemple: sr:season:68156 (ne pas encoder en %3A)",
-        key="sr_season_urn_input",
-    )
-
-    cutoff = st.slider("Seuil fuzzy match (plus haut = plus strict)", 0.85, 0.99, 0.92, 0.01, key="sr_fuzzy_cutoff")
-    topk = st.slider("Top candidates (debug)", 1, 10, 5, 1, key="sr_topk")
-
-    colA, colB = st.columns([1, 1])
-    with colA:
-        do_fuzzy = st.checkbox("Activer fuzzy match", value=True, key="sr_do_fuzzy")
-    with colB:
-        only_missing = st.checkbox("Traiter seulement les URN vides", value=True, key="sr_only_missing")
-
-    if st.button("🔗 Lancer auto-mapping URN", use_container_width=True, key="sr_fill_urn_btn"):
-        j = sr_season_players(season_urn, locale=locale)
-        if isinstance(j, dict) and j.get("_error"):
-            st.error(f"❌ Season players KO — {j.get('_error')}")
-            if j.get("_url"):
-                st.code(j["_url"])
-            if j.get("_text"):
-                st.code(j["_text"])
-            st.stop()
-
-        plist = (j or {}).get("players", []) or []
-        if not plist:
-            st.warning("Aucun joueur trouvé dans cette saison.")
-            st.stop()
-
-        exact_map, primary_keys, primary_to_urn, urn_to_display = build_sr_indexes(plist)
-
-        filled_exact = 0
-        filled_fuzzy = 0
-        misses = 0
-        amb_rows = []
-
-        work = pdb_df.copy()
-
-        for idx, row in work.iterrows():
-            if only_missing and str(row.get("sr_player_urn", "")).strip():
-                continue
-
-            raw = str(row.get(name_col, "") or "").strip()
-            if not raw:
-                continue
-
-            status, urn, cand = match_one_player_to_urn(
-                raw_name=raw,
-                exact_map=exact_map,
-                primary_keys=(primary_keys if do_fuzzy else []),
-                primary_to_urn=primary_to_urn,
-                fuzzy_cutoff=float(cutoff),
-                top_k=int(topk),
-            )
-
-            if status == "exact":
-                work.at[idx, "sr_player_urn"] = urn
-                filled_exact += 1
-            elif status == "fuzzy":
-                work.at[idx, "sr_player_urn"] = urn
-                filled_fuzzy += 1
-            else:
-                misses += 1
-                if cand:
-                    amb_rows.append({
-                        "row_index": int(idx),
-                        "player_csv": raw,
-                        "best_key": cand[0][0],
-                        "best_score": round(float(cand[0][1]), 3),
-                        "best_urn": cand[0][2],
-                        "best_name_sr": urn_to_display.get(cand[0][2], ""),
-                        "top_candidates": "; ".join([
-                            f"{c[2]}|{urn_to_display.get(c[2], '')}|{round(c[1],3)}"
-                            for c in cand[:int(topk)] if c[2]
-                        ]),
-                    })
-
-        st.session_state["sr_urn_autofill_df"] = work
-        st.session_state["sr_urn_ambiguous"] = pd.DataFrame(amb_rows)
-
-        st.success(f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}")
-        st.caption("Les résultats sont en preview. Sauvegarde seulement si tu es satisfait.")
-
-    # Preview + Save + Manual validation
-    work_df = st.session_state.get("sr_urn_autofill_df")
-    amb_df = st.session_state.get("sr_urn_ambiguous")
-
-    if isinstance(work_df, pd.DataFrame) and not work_df.empty:
-        st.markdown("### 👀 Preview (quelques lignes)")
-        st.dataframe(
-            work_df[[name_col, "sr_player_urn"]].head(30),
-            use_container_width=True,
-            hide_index=True,
+    # =====================================================
+    # 🧾 Sportradar (optionnel) — enrichir Players DB
+    #   ✅ TOUT est DANS l'onglet Admin (sinon ça casse le elif suivant)
+    # =====================================================
+    with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded=False):
+        st.caption(
+            "Objectif (trial ~30 jours):\n"
+            "1) Tester Sportradar\n"
+            "2) Auto-remplir sr_player_urn via Season Players (matcher intelligent)\n"
+            "3) Enrichir Country via profile (URN)\n"
+            "4) Générer un CSV merge Sportradar\n\n"
+            "**Pré-requis**: Secrets → [sportradar] api_key=\"...\" (optionnel base_url/locale)."
         )
 
-        if st.button("💾 Sauvegarder hockey.players.csv (URN)", use_container_width=True, key="sr_save_urns"):
+        # --- imports locaux (ok dans expander)
+        import os
+        import re
+        import time
+        import unicodedata
+        from difflib import SequenceMatcher, get_close_matches
+        from datetime import datetime
+
+        # -----------------------------
+        # Config + API helper
+        # -----------------------------
+        def sportradar_cfg() -> dict:
+            return st.secrets.get("sportradar", {}) or {}
+
+        def sportradar_ready() -> bool:
+            cfg = sportradar_cfg()
+            return bool(str(cfg.get("api_key", "")).strip())
+
+        @st.cache_data(show_spinner=False, ttl=3600)
+        def _sportradar_get_json(endpoint: str, locale: str = "en"):
+            cfg = sportradar_cfg()
+            api_key = str(cfg.get("api_key", "")).strip()
+            base_url = str(cfg.get("base_url", "https://api.sportradar.com/icehockey/trial/v2")).strip().rstrip("/")
+            locale = str(cfg.get("locale", locale or "en")).strip()
+
+            if not api_key:
+                return {"_error": "Missing api_key"}
+
+            endpoint = str(endpoint or "").strip()
+            if not endpoint.startswith("/"):
+                endpoint = "/" + endpoint
+
+            # forcer .json UNE SEULE FOIS
+            if not endpoint.endswith(".json"):
+                endpoint = endpoint + ".json"
+
+            url = f"{base_url}/{locale}{endpoint}"
+
             try:
-                work_df.to_csv(pdb_path, index=False)
-                st.success(f"✅ Sauvegardé: {pdb_path}")
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
+                r = requests.get(
+                    url,
+                    headers={"accept": "application/json"},
+                    params={"api_key": api_key},
+                    timeout=20,
+                )
+                if r.status_code != 200:
+                    return {"_error": f"HTTP {r.status_code}", "_url": url, "_text": r.text[:1200]}
+                return r.json()
             except Exception as e:
-                st.error("❌ Sauvegarde échouée")
-                st.exception(e)
+                return {"_error": type(e).__name__, "_url": url, "_text": str(e)[:1200]}
 
-    if isinstance(amb_df, pd.DataFrame) and not amb_df.empty:
-        st.divider()
-        st.subheader("🟠 Ambigu / Non trouvé — validation manuelle")
+        def sportradar_player_profile(sr_player_urn: str, locale: str = "en"):
+            urn = str(sr_player_urn or "").strip()
+            if not urn:
+                return {"_error": "Missing URN"}
+            return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
 
-        st.dataframe(
-            amb_df[["row_index", "player_csv", "best_score", "best_urn", "best_name_sr", "top_candidates"]].head(200),
-            use_container_width=True,
-            hide_index=True,
-        )
+        @st.cache_data(show_spinner=False, ttl=24 * 3600)
+        def sr_season_players(season_urn: str, locale="en"):
+            return _sportradar_get_json(f"/seasons/{season_urn}/players", locale=locale)
 
-        st.markdown("### ✅ Appliquer un URN manuellement")
-        row_idx = st.number_input(
-            "row_index (depuis la table)",
-            min_value=0,
-            value=int(amb_df.iloc[0]["row_index"]) if len(amb_df) else 0,
-            step=1,
-            key="sr_manual_rowidx",
-        )
-        urn_text = st.text_input(
-            "URN à appliquer (ex: sr:player:29663)",
-            value=str(amb_df.iloc[0]["best_urn"]) if len(amb_df) else "",
-            key="sr_manual_urn",
-        )
+        def _sr_country_to_iso2(x: str) -> str:
+            s = str(x or "").strip()
+            if not s:
+                return ""
+            if len(s) == 2 and s.isalpha():
+                return s.upper()
+            m = {
+                "canada": "CA", "united states": "US", "usa": "US",
+                "sweden": "SE", "finland": "FI", "czech republic": "CZ",
+                "russia": "RU", "slovakia": "SK", "germany": "DE",
+                "switzerland": "CH", "latvia": "LV", "norway": "NO",
+                "denmark": "DK", "france": "FR",
+            }
+            return m.get(s.lower(), "")
 
-        if st.button("✅ Appliquer URN à cette ligne (preview)", use_container_width=True, key="sr_apply_manual"):
-            work_df2 = st.session_state.get("sr_urn_autofill_df")
-            if not isinstance(work_df2, pd.DataFrame) or work_df2.empty:
-                st.warning("Aucun preview en mémoire. Lance d’abord l’auto-mapping.")
-            else:
-                if 0 <= int(row_idx) < len(work_df2):
-                    work_df2.at[int(row_idx), "sr_player_urn"] = urn_text.strip()
-                    st.session_state["sr_urn_autofill_df"] = work_df2
-                    st.success("✅ URN appliqué dans le preview (pense à sauvegarder).")
-                else:
-                    st.error("row_index invalide.")
+        def _detect_player_name_col(df: pd.DataFrame) -> str:
+            for c in ["Player", "Joueur", "name", "Nom", "Player Name"]:
+                if c in df.columns:
+                    return c
+            return ""
 
-    st.divider()
-    st.subheader("🧬 Enrichir Country via Sportradar (URN)")
+        # -----------------------------
+        # Intelligent matcher
+        # -----------------------------
+        _SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
-    # Recharger depuis disque pour enrichir "vraiment"
-    try:
-        pdb_df2 = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
-    except Exception:
-        pdb_df2 = pd.DataFrame()
+        def _strip_accents(s: str) -> str:
+            return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
 
-    if pdb_df2.empty:
-        st.warning("Players DB vide/introuvable.")
-        st.stop()
+        def _clean_tokens(s: str) -> list[str]:
+            s = _strip_accents(str(s or "")).lower().strip()
+            s = s.replace(".", " ")
+            s = re.sub(r"[^a-z\s\-\']", " ", s)
+            s = re.sub(r"\s+", " ", s).strip()
+            toks = [t for t in s.split(" ") if t]
+            toks2 = []
+            for t in toks:
+                tt = t.replace("'", "").replace("-", "")
+                if tt in _SUFFIXES:
+                    continue
+                toks2.append(t)
+            return toks2
 
-    if "Country" not in pdb_df2.columns:
-        pdb_df2["Country"] = ""
-    if "sr_player_urn" not in pdb_df2.columns:
-        pdb_df2["sr_player_urn"] = ""
+        def _name_variants(raw: str) -> list[str]:
+            raw0 = str(raw or "").strip()
+            if not raw0:
+                return []
 
-    max_n = st.number_input("Max joueurs à enrichir (par run)", min_value=1, max_value=500, value=50, step=10, key="admin_sportradar_max")
+            # Cas "Last, First"
+            if "," in raw0:
+                parts = [p.strip() for p in raw0.split(",") if p.strip()]
+                if len(parts) >= 2:
+                    last_t = _clean_tokens(parts[0])
+                    first_t = _clean_tokens(parts[1])
+                    if last_t and first_t:
+                        L = last_t[0]
+                        F = first_t[0]
+                        out = [
+                            f"{L} {F}",
+                            f"{F} {L}",
+                            f"{L} {F[0]}",
+                            f"{F[0]} {L}",
+                        ]
+                        return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
 
-    cand = pdb_df2[
-        (pdb_df2["sr_player_urn"].astype(str).str.strip() != "")
-        & (pdb_df2["Country"].astype(str).str.strip() == "")
-    ].copy()
+            toks = _clean_tokens(raw0)
+            if not toks:
+                return []
+            if len(toks) == 1:
+                return [toks[0]]
 
-    st.caption(f"Candidats enrichissables (URN présent & Country vide): {len(cand)}")
+            first = toks[0]
+            last = toks[-1]
+            out = [
+                f"{last} {first}",
+                f"{first} {last}",
+                f"{last} {first[0]}",
+                f"{first[0]} {last}",
+            ]
+            return list(dict.fromkeys([o.strip() for o in out if o.strip()]))
 
-    if st.button("🧬 Enrichir Country via Sportradar (URN)", use_container_width=True, key="admin_sportradar_enrich"):
-        updated = 0
-        for i, row in cand.head(int(max_n)).iterrows():
-            urn = str(row.get("sr_player_urn", "")).strip()
-            prof = sportradar_player_profile(urn, locale=locale)
-            if not isinstance(prof, dict) or prof.get("_error"):
-                continue
+        def _similar(a: str, b: str) -> float:
+            return SequenceMatcher(None, a, b).ratio()
 
-            p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
-            nat = str(p.get("nationality") or "").strip()
-            bc = str(p.get("birth_country") or "").strip()
-            iso = _sr_country_to_iso2(nat) or _sr_country_to_iso2(bc)
+        def _sr_primary_key_from_name(pname: str) -> str:
+            toks = _clean_tokens(pname)
+            if not toks:
+                return ""
+            if "," in pname:
+                parts = [pp.strip() for pp in pname.split(",") if pp.strip()]
+                if len(parts) >= 2:
+                    L = _clean_tokens(parts[0])
+                    F = _clean_tokens(parts[1])
+                    if L and F:
+                        return f"{L[0]} {F[0]}".strip()
+            return f"{toks[-1]} {toks[0]}".strip()
 
-            if iso:
-                pdb_df2.at[i, "Country"] = iso
-                updated += 1
+        def build_sr_indexes(plist: list[dict]):
+            exact_map = {}
+            primary_to_urn = {}
+            urn_to_display = {}
 
-            time.sleep(1.05)  # trial safe
-
-        try:
-            pdb_df2.to_csv(pdb_path, index=False)
-            st.success(f"✅ Country enrichi pour {updated} joueur(s).")
-            try:
-                st.cache_data.clear()
-            except Exception:
-                pass
-        except Exception as e:
-            st.error(f"❌ Écriture hockey.players.csv KO — {type(e).__name__}: {e}")
-
-    st.divider()
-    st.subheader("📤 Générer fichier merge Sportradar (CSV)")
-
-    if st.button("📤 Générer fichier merge Sportradar (CSV)", use_container_width=True, key="admin_sportradar_mergefile"):
-        try:
-            rows = []
-            subset = pdb_df2[pdb_df2["sr_player_urn"].astype(str).str.strip() != ""].head(int(max_n))
-
-            for _, row in subset.iterrows():
-                urn = str(row.get("sr_player_urn", "")).strip()
-                prof = sportradar_player_profile(urn, locale=locale)
-                if not isinstance(prof, dict) or prof.get("_error"):
+            for p in plist:
+                urn = str(p.get("id", "") or "").strip()
+                name = str(p.get("name", "") or "").strip()
+                if not urn or not name:
                     continue
 
-                p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
-                nmcol = _detect_player_name_col(pdb_df2)
-                pname = str(row.get(nmcol, "")).strip()
+                urn_to_display[urn] = name
 
-                rows.append({
-                    "Player": pname,
-                    "sr_player_urn": urn,
-                    "sr_nationality": str(p.get("nationality") or "").strip(),
-                    "sr_country_code3": str(p.get("country_code") or "").strip(),
-                    "sr_dob": str(p.get("date_of_birth") or "").strip(),
-                    "sr_height_cm": str(p.get("height") or "").strip(),
-                    "sr_weight_kg": str(p.get("weight") or "").strip(),
-                    "sr_position_type": str(p.get("type") or "").strip(),
-                    "sr_jersey_number": str(p.get("jersey_number") or "").strip(),
-                })
+                for k in _name_variants(name):
+                    exact_map[k] = urn
 
-                time.sleep(1.05)  # trial safe
+                pk = _sr_primary_key_from_name(name)
+                if pk and pk not in primary_to_urn:
+                    primary_to_urn[pk] = urn
 
-            out = pd.DataFrame(rows)
-            out_name = f"sportradar_merge_{datetime.now().strftime('%Y-%m-%d_%H%M')}.csv"
+            primary_keys = list(primary_to_urn.keys())
+            return exact_map, primary_keys, primary_to_urn, urn_to_display
 
-            st.download_button(
-                "⬇️ Télécharger le merge CSV",
-                data=out.to_csv(index=False).encode("utf-8"),
-                file_name=out_name,
-                mime="text/csv",
-                use_container_width=True,
-                key="admin_sportradar_dl",
-            )
-            st.caption("Ce CSV peut être fusionné avec hockey.players.csv (par Player ou sr_player_urn).")
-        except Exception as e:
-            st.error(f"❌ Génération merge KO — {type(e).__name__}: {e}")
+        def match_one_player_to_urn(
+            raw_name: str,
+            exact_map: dict,
+            primary_keys: list[str],
+            primary_to_urn: dict,
+            fuzzy_cutoff: float,
+            top_k: int = 5,
+        ):
+            vars_local = _name_variants(raw_name)
 
+            # exact
+            for k in vars_local:
+                urn = exact_map.get(k, "")
+                if urn:
+                    return "exact", urn, []
 
+            if not primary_keys:
+                return "miss", "", []
 
+            base = vars_local[0] if vars_local else ""
+            close = get_close_matches(base, primary_keys, n=top_k, cutoff=max(0.0, float(fuzzy_cutoff) - 0.10))
 
-    with st.expander("🏆 Règles de pointage (Classement)", expanded=False):
-        st.caption("Édite les règles de points. Le Classement calcule ensuite via APIs NHL (combo nhle.com + statsapi).")
-        rules_df = load_scoring_rules()
-        rules_edit = st.data_editor(
-            rules_df,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-            key="admin_scoring_rules_editor",
-        )
-        c_sr1, c_sr2 = st.columns(2)
-        with c_sr1:
-            if st.button("💾 Sauvegarder règles", use_container_width=True, key="admin_save_scoring_rules"):
-                try:
-                    save_scoring_rules(pd.DataFrame(rules_edit))
-                    st.success("✅ Règles sauvegardées (local + Drive si configuré).")
-                except Exception as e:
-                    st.error(f"❌ Sauvegarde KO — {type(e).__name__}: {e}")
-        with c_sr2:
-            try:
-                csvb = pd.DataFrame(rules_edit).to_csv(index=False).encode("utf-8")
-                st.download_button("📤 Télécharger CSV", data=csvb, file_name="scoring_rules.csv", mime="text/csv", use_container_width=True)
-            except Exception:
-                pass
+            cand = []
+            for ck in close:
+                score = _similar(base, ck)
+                cand.append((ck, score, primary_to_urn.get(ck, "")))
+            cand = sorted(cand, key=lambda x: x[1], reverse=True)
 
+            if cand and cand[0][1] >= float(fuzzy_cutoff) and cand[0][2]:
+                return "fuzzy", cand[0][2], cand
 
-    # -----------------------------------------------------
-    # 🏆 Points (Actifs) — périodes + requêtes par équipe/joueur
-    #   Demande: liste déroulante équipe + joueurs + date début/fin + points accumulés
-    # -----------------------------------------------------
-    with st.expander("🏆 Points (Actifs) — suivi par période", expanded=False):
-        season_lbl = str(st.session_state.get('season') or '').strip() or saison_auto()
-        st.caption("Les points s'accumulent uniquement quand le joueur est **ACTIF**. Quand il passe banc/mineur/IR, la période se ferme et les points restent acquis.")
+            return "miss", "", cand
 
-        # Met à jour (ouvre/ferme) selon le roster courant
-        if st.button("🔄 Synchroniser périodes ACTIF", use_container_width=True, key="admin_sync_points_periods"):
-            try:
-                update_points_periods_from_roster(season_lbl)
-                st.success("✅ Périodes synchronisées.")
-            except Exception as e:
-                st.error(f"❌ Sync KO — {type(e).__name__}: {e}")
-
-        periods = load_points_periods(season_lbl)
-        if periods.empty:
-            st.info("Aucune période enregistrée pour cette saison (fais une synchro).")
-        else:
-            owners = sorted(periods['owner'].dropna().astype(str).str.strip().unique().tolist())
-            if not owners:
-                st.info("Aucune équipe trouvée dans les périodes.")
-            else:
-                owner_pick = st.selectbox("Équipe", owners, key="admin_points_owner_pick")
-
-                # date range
-                cD1, cD2 = st.columns(2)
-                with cD1:
-                    d_start = st.date_input("Date début", value=date.today().replace(month=1, day=1), key="admin_points_date_start")
-                with cD2:
-                    d_end = st.date_input("Date fin", value=date.today(), key="admin_points_date_end")
-
-                # parse ISO timestamps into dt local
-                def _to_dt(x):
-                    try:
-                        return datetime.fromisoformat(str(x))
-                    except Exception:
-                        return None
-
-                p = periods[periods['owner'].astype(str).str.strip().eq(owner_pick)].copy()
-                if p.empty:
-                    st.info("Aucune période pour cette équipe.")
-                else:
-                    # show raw periods table (open/closed)
-                    show_cols = ['player','pos','start_ts','end_ts','points_start','points_end','points_delta']
-                    for c in show_cols:
-                        if c not in p.columns:
-                            p[c] = ''
-                    p_show = p[show_cols].copy().rename(columns={'player':'Joueur','pos':'Pos','start_ts':'Début','end_ts':'Fin','points_start':'Pts début','points_end':'Pts fin','points_delta':'Pts période'})
-                    st.markdown("**Périodes (ACTIF)**")
-                    st.dataframe(p_show.sort_values(by=['Début'], ascending=False, na_position='last').head(500), use_container_width=True, hide_index=True)
-
-                    # compute earned in [d_start, d_end]
-                    # approximation: si la période chevauche la fenêtre, on compte entièrement.
-                    # (Pour précision au jour près, on peut aller au game-log plus tard.)
-                    # --- Filtre des periodes qui chevauchent la fenetre [d_start, d_end] (inclusif)
-                    # NOTE: vectorise (plus rapide) + robuste NaT/tz-aware
-                    p2 = p.copy()
-
-                    # bornes (date_input => date). converties en datetime naive
-                    sdt = datetime.combine(d_start, datetime.min.time())
-                    edt = datetime.combine(d_end, datetime.max.time())
-
-                    # start/end des periodes -> datetime UTC tz-aware, puis naive
-                    p2['_start_dt'] = pd.to_datetime(p2.get('start_ts', None), errors='coerce', utc=True).dt.tz_convert(None)
-                    p2['_end_dt']   = pd.to_datetime(p2.get('end_ts', None),   errors='coerce', utc=True).dt.tz_convert(None)
-
-                    # periode ouverte: end = +inf
-                    p2['_end_dt'] = p2['_end_dt'].fillna(pd.Timestamp.max)
-
-                    # overlap: start <= edt AND end >= sdt
-                    mask = (p2['_start_dt'].notna()) & (p2['_start_dt'] <= edt) & (p2['_end_dt'] >= sdt)
-                    p2 = p2.loc[mask].copy()
-
-                    # points per period: closed uses points_delta; open uses (current-start)
-                    rules = load_scoring_rules()
-
-                    def _f(x):
-                        try:
-                            return float(x)
-                        except Exception:
-                            return 0.0
-
-                    earned = []
-                    for _, r in p2.iterrows():
-                        if str(r.get('end_ts','')).strip():
-                            earned.append(_f(r.get('points_delta','')))
-                        else:
-                            # open
-                            pid = str(r.get('playerId','') or '').strip()
-                            pos = str(r.get('pos','') or '').strip()
-                            try:
-                                start_pts = float(r.get('points_start') or 0)
-                            except Exception:
-                                start_pts = 0.0
-                            cur = start_pts
-                            if pid:
-                                try:
-                                    cur = _fantasy_points_for_player(pid, pos, season_lbl, rules)
-                                except Exception:
-                                    cur = start_pts
-                            earned.append(float(cur - start_pts))
-
-                    p2 = p2.reset_index(drop=True)
-                    p2['earned'] = earned
-                    by_player = p2.groupby('player', as_index=False)['earned'].sum().rename(columns={'player':'Joueur','earned':'Points'}).sort_values(by='Points', ascending=False)
-
-                    st.markdown("**Points accumulés (dans la fenêtre)**")
-                    st.dataframe(by_player.head(200), use_container_width=True, hide_index=True)
-
-                    total = float(by_player['Points'].sum() if not by_player.empty else 0.0)
-                    st.success(f"Total équipe — {total:.0f} point(s)")
-
-
-    # --- Drive status
-    # --- Drive status
-    cfg = st.secrets.get("gdrive_oauth", {}) or {}
-    folder_id = str(cfg.get("folder_id", "")).strip()
-
-    st.markdown("### 🔐 Google Drive — Statut")
-    creds = drive_creds_from_secrets(show_error=False)
-    if creds:
-        st.success("✅ Drive prêt (refresh_token OK).")
-    else:
-        st.error("❌ Drive non prêt. Vérifie client_id / client_secret / refresh_token dans Secrets.")
-
-    drive_ok = bool(creds)
-
-    if not folder_id:
-        st.warning("⚠️ folder_id manquant dans [gdrive_oauth] (Secrets). Backups Drive désactivés.")
-        folder_id = ""
-
-
-    # =====================================================
-    # =====================================================
-    # 🧷 Backups & Restore (Drive) — TOUT dans un seul expander
-    # =====================================================
-    if drive_ok and folder_id:
-        with st.expander("🧷 Backups & Restore (Drive)", expanded=False):
-            st.caption("Ces actions travaillent **directement dans le dossier Drive** (backup rapide si l’app tombe).")
-
-            # Season label
-            season_lbl = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip() or "2025-2026"
-            
-            # Fichiers critiques (inclut historique + log des backups)
-            CRITICAL_FILES = [
-                f"equipes_joueurs_{season_lbl}.csv",
-                "hockey.players.csv",
-                f"transactions_{season_lbl}.csv",
-                "historique_fantrax_v2.csv",
-                "rachats_v2.csv",
-                "backup_history.csv",
-            ]
-            
-            # Drive service (OAuth)
-            drive_backups_disabled = False
-            try:
-                s = _drive()
-            except Exception as e:
-                st.error(f"❌ Impossible d'initialiser Drive — {type(e).__name__}: {e}")
-                st.info("Backups indisponibles pour le moment. Réessaie plus tard.")
-                s = None
-                drive_backups_disabled = True
-            
-            
-            if s is not None:
-                tabs = st.tabs(["🛡️ Backup ALL", "📄 Fichiers", "🕘 Historique", "🌙 Nightly", "🔔 Alerts"])
-            else:
-                tabs = [st.container() for _ in range(5)]
-                drive_backups_disabled = True
-            
-            
-            
-            # ------------------
-            # 🛡️ Backup ALL
-            # ------------------
-            with tabs[0]:
-                st.markdown("### 🛡️ Backup global")
-                if st.button(
-                    "🛡️ Backup ALL (vNNN + timestamp pour chaque fichier)",
-                    use_container_width=True,
-                    key="backup_all_global"
-                ):
-                    ok = 0
-                    fail = 0
-                    for fn in CRITICAL_FILES:
-                        existing = _drive_safe_find_file(s, folder_id, fn)
-                        if not existing:
-                            log_backup_event(s, folder_id, {
-                                "action": "backup_all",
-                                "file": fn,
-                                "result": "SKIP (missing)",
-                                "note": "fichier absent sur Drive",
-                                "by": str(get_selected_team() or "admin"),
-                            })
-                            continue
-                        try:
-                            res = _backup_copy_both(s, folder_id, fn)
-                            ok += 1
-                            log_backup_event(s, folder_id, {
-                                "action": "backup_all",
-                                "file": fn,
-                                "result": "OK",
-                                "v_name": res.get("v_name", ""),
-                                "ts_name": res.get("ts_name", ""),
-                                "by": str(get_selected_team() or "admin"),
-                            })
-                        except Exception as e:
-                            fail += 1
-                            log_backup_event(s, folder_id, {
-                                "action": "backup_all",
-                                "file": fn,
-                                "result": f"FAIL ({type(e).__name__})",
-                                "note": str(e),
-                                "by": str(get_selected_team() or "admin"),
-                            })
-            
-                    if fail:
-                        st.warning(f"⚠️ Backup ALL terminé avec erreurs — OK: {ok} | FAIL: {fail}")
-                    else:
-                        st.success(f"✅ Backup ALL terminé — OK: {ok}")
-            
-            # ------------------
-            # 📄 Fichiers
-            # ------------------
-            with tabs[1]:
-                st.markdown("### 📄 Backups & Restore — fichiers")
-                chosen = st.selectbox("Fichier", CRITICAL_FILES, key="backup_file_pick")
-                fn = str(chosen)
-            
-                existing = _drive_safe_find_file(s, folder_id, fn)
-                if existing:
-                    st.caption(f"Drive: ✅ présent — id={existing.get('id','')}")
-                else:
-                    st.warning("Drive: ⚠️ fichier absent (tu peux l’uploader au besoin).")
-            
-                a1, a2, a3 = st.columns([1,1,2], vertical_alignment="center")
-                with a1:
-                    if st.button("🛡️ Backup now", key=f"bk_one__{fn}", use_container_width=True, disabled=(not existing)):
-                        try:
-                            res = _backup_copy_both(s, folder_id, fn)
-                            st.success(f"✅ Backups créés: {res['v_name']} + {res['ts_name']}")
-                            log_backup_event(s, folder_id, {
-                                "action": "backup_now",
-                                "file": fn,
-                                "result": "OK",
-                                "v_name": res.get("v_name",""),
-                                "ts_name": res.get("ts_name",""),
-                                "by": str(get_selected_team() or "admin"),
-                            })
-                        except Exception as e:
-                            st.error(f"❌ Backup KO — {type(e).__name__}: {e}")
-            
-                with a2:
-                    backups = _drive_list_backups(s, folder_id, fn)
-                    latest = backups[0] if backups else None
-                    if st.button("⏪ Restore latest", key=f"rst_latest__{fn}", use_container_width=True, disabled=(not existing or not latest)):
-                        try:
-                            _restore_from_backup(s, fn, latest["id"], folder_id=folder_id)
-                            st.success(f"✅ Restored depuis: {latest['name']}")
-                            log_backup_event(s, folder_id, {
-                                "action": "restore_latest",
-                                "file": fn,
-                                "result": "OK",
-                                "note": latest.get("name",""),
-                                "by": str(get_selected_team() or "admin"),
-                            })
-                        except Exception as e:
-                            st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-            
-                with a3:
-                    st.caption("Liste/Restore spécifique et maintenance ci-dessous.")
-            
-                st.divider()
-                st.markdown("#### 📚 Liste des backups")
-                backups = _drive_list_backups(s, folder_id, fn)
-                if not backups:
-                    st.info("Aucun backup trouvé pour ce fichier.")
-                else:
-                    rows = []
-                    for b in backups[:200]:
-                        rows.append({
-                            "name": b.get("name", ""),
-                            "modifiedTime": b.get("modifiedTime", ""),
-                            "size": b.get("size", ""),
-                            "id": b.get("id", ""),
-                        })
-                    dfb = pd.DataFrame(rows)
-                    st.dataframe(dfb.drop(columns=["id"]), use_container_width=True, hide_index=True)
-            
-                    options = {f"{r['name']}  —  {r['modifiedTime']}": r["id"] for r in rows}
-                    choice = st.selectbox("Restaurer un backup spécifique", list(options.keys()), key=f"pick_one__{fn}")
-                    if st.button("✅ Restore selected", key=f"rst_sel_one__{fn}", use_container_width=True):
-                        try:
-                            _restore_from_backup(s, fn, options[choice], folder_id=folder_id)
-                            st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
-                            log_backup_event(s, folder_id, {
-                                "action": "restore_selected",
-                                "file": fn,
-                                "result": "OK",
-                                "note": choice.split('  —  ')[0],
-                                "by": str(get_selected_team() or "admin"),
-                            })
-                        except Exception as e:
-                            st.error(f"❌ Restore KO — {type(e).__name__}: {e}")
-            
-                st.divider()
-                st.markdown("#### 🧹 Maintenance backups")
-                k1, k2 = st.columns(2)
-                with k1:
-                    keep_v = st.number_input("Garder (vNNN)", min_value=0, max_value=500, value=20, step=5, key=f"keepv_one__{fn}")
-                with k2:
-                    keep_ts = st.number_input("Garder (timestamp)", min_value=0, max_value=500, value=20, step=5, key=f"keepts_one__{fn}")
-            
-                confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_one__{fn}")
-                if st.button("🧹 Nettoyer maintenant", key=f"clean_one__{fn}", use_container_width=True, disabled=(not confirm)):
-                    try:
-                        res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
-                        st.success(
-                            f"✅ Nettoyage terminé — supprimés: {res['deleted']} | restants: {res['remaining']} "
-                            f"(kept v: {res['kept_v']}, kept ts: {res['kept_ts']})"
-                        )
-                        if res.get("delete_errors"):
-                            st.warning("Certaines suppressions ont échoué:")
-                            st.write("• " + "\n• ".join(res["delete_errors"]))
-                    except Exception as e:
-                        st.error(f"❌ Nettoyage KO — {type(e).__name__}: {e}")
-            
-            # ------------------
-            # 🕘 Historique
-            # ------------------
-            with tabs[2]:
-                st.markdown("### 🕘 Historique des backups")
-                try:
-                    hist = _drive_download_csv_df(s, folder_id, "backup_history.csv")
-                except Exception:
-                    hist = pd.DataFrame()
-                if hist is None or hist.empty:
-                    st.info("Aucun log encore. Fais un Backup now / Backup ALL.")
-                else:
-                    st.dataframe(hist.tail(500).iloc[::-1], use_container_width=True, hide_index=True)
-            
-            # ------------------
-            # 🌙 Nightly
-            # ------------------
-            with tabs[3]:
-                st.markdown("### 🌙 Nightly backup (once/day)")
-                alerts_cfg = st.secrets.get("alerts", {}) or {}
-                hour_mtl = int(alerts_cfg.get("nightly_hour_mtl", 3) or 3)
-                st.caption(f"Exécute au plus une fois par jour après {hour_mtl}:00 (America/Montreal) via un marker Drive.")
-            
-                if st.button("🌙 Lancer maintenant (si éligible)", use_container_width=True, key="nightly_run_now"):
-                    try:
-                        res = nightly_backup_once_per_day(s, folder_id, CRITICAL_FILES, hour_mtl=hour_mtl)
-                        st.write(res)
-                        if res.get("ran") and int(res.get("fail", 0) or 0) > 0:
-                            msg = f"Nightly backup: FAIL={res.get('fail')} OK={res.get('ok')} (marker {res.get('marker')})"
-                            send_slack_alert(msg)
-                            send_email_alert("PMS Nightly backup errors", msg)
-                    except Exception as e:
-                        st.error(f"❌ Nightly KO — {type(e).__name__}: {e}")
-            
-                st.info(
-                    "Astuce: pour un vrai cron même si personne n’ouvre l’app, utilise GitHub Actions pour ping ton URL Streamlit chaque nuit."
-                )
-            
-            # ------------------
-            # 🔔 Alerts
-            # ------------------
-            with tabs[4]:
-                # =====================================================
-                # ⚙️ AUTOUPDATE_ADMIN — Auto-update (Admin) + Pinger externe
-                # =====================================================
-                st.markdown("#### ⚙️ Auto-update (Admin)")
-                st.caption("Active/désactive une mise à jour périodique des points (cache) et envoie un ping externe optionnel.")
-
-                # Settings in session (persist simple in Drive marker CSV)
-                if 'admin_autoupdate_enabled' not in st.session_state:
-                    st.session_state['admin_autoupdate_enabled'] = False
-                if 'admin_autoupdate_minutes' not in st.session_state:
-                    st.session_state['admin_autoupdate_minutes'] = 15
-
-                cA1, cA2, cA3 = st.columns([1,1,1.2])
-                with cA1:
-                    st.session_state['admin_autoupdate_enabled'] = st.toggle("Auto-update ON/OFF", value=bool(st.session_state['admin_autoupdate_enabled']), key='admin_autoupdate_toggle')
-                with cA2:
-                    st.session_state['admin_autoupdate_minutes'] = st.number_input("Intervalle (minutes)", min_value=5, max_value=180, value=int(st.session_state['admin_autoupdate_minutes']), step=5, key='admin_autoupdate_minutes_in')
-                with cA3:
-                    if st.button("▶️ Exécuter maintenant", use_container_width=True, key='admin_autoupdate_run_now'):
-                        try:
-                            # met à jour points cache pour tous les owners présents
-                            rules = load_scoring_rules()
-                            # owners from roster data
-                            df_roster = st.session_state.get('data')
-                            owners = []
-                            if hasattr(df_roster, 'columns') and 'Propriétaire' in df_roster.columns:
-                                owners = sorted(df_roster['Propriétaire'].astype(str).str.strip().unique().tolist())
-                            season_lbl = str(st.session_state.get('season') or '').strip() or saison_auto()
-                            ok_ct = 0
-                            for ow in owners:
-                                try:
-                                    # build team total points cache (actifs)
-                                    _ = compute_team_points_active_only(df_roster, ow, season_lbl, rules)
-                                    ok_ct += 1
-                                except Exception:
-                                    pass
-                            st.success(f"✅ Auto-update exécuté — équipes mises à jour: {ok_ct}")
-                        except Exception as e:
-                            st.error(f"❌ Auto-update KO — {type(e).__name__}: {e}")
-
-                # Run periodically within app sessions (best-effort, not a real cron)
-                try:
-                    if st.session_state.get('admin_autoupdate_enabled'):
-                        import time
-                        last = float(st.session_state.get('_admin_autoupdate_last_ts', 0.0) or 0.0)
-                        interval = int(st.session_state.get('admin_autoupdate_minutes', 15) or 15) * 60
-                        now = time.time()
-                        if (now - last) >= interval:
-                            st.session_state['_admin_autoupdate_last_ts'] = now
-                            # lightweight: just refresh creds / ping external if configured
-                            # (team points recalculated on-demand elsewhere)
-                            try:
-                                _ = drive_creds_from_secrets(show_error=False)
-                            except Exception:
-                                pass
-                            # optional external ping
-                            try:
-                                pinger = st.secrets.get('pinger', {}) or {}
-                                ping_url = str(pinger.get('url','') or '').strip()
-                                if ping_url:
-                                    import requests
-                                    requests.get(ping_url, timeout=5)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-
-                st.markdown("#### 🩺 Pinger externe")
-                st.caption("Pour garder l'app ""alive"" et recevoir un signal, configure un moniteur (UptimeRobot/BetterUptime/Healthchecks).")
-                try:
-                    token_need = str((st.secrets.get('pinger', {}) or {}).get('token','') or '').strip()
-                except Exception:
-                    token_need = ''
-                base_url = ''
-                try:
-                    base_url = str(st.secrets.get('app_url','') or '').strip()
-                except Exception:
-                    base_url = ''
-                if not base_url:
-                    st.info("Astuce: ajoute `app_url` dans Secrets (ex: https://ton-app.streamlit.app) pour afficher l'URL de ping.")
-                else:
-                    ping = f"{base_url}/?ping=1" + (f"&token={token_need}" if token_need else '')
-                    st.code(ping)
-                st.caption("Optionnel: secrets [pinger].url = URL à pinger (healthchecks.io) et [pinger].token = protection du endpoint /?ping=1.")
-                st.divider()
-
-                st.markdown("### 🔔 Alerts (Slack / Email)")
-                st.caption("Configurables via [alerts] dans Secrets.")
-                cA, cB = st.columns(2)
-                with cA:
-                    if st.button("🔔 Test Slack", use_container_width=True, key="test_slack"):
-                        ok = send_slack_alert("✅ Test Slack — PMS backups")
-                        st.success("Slack OK") if ok else st.error("Slack KO")
-                with cB:
-                    if st.button("✉️ Test Email", use_container_width=True, key="test_email"):
-                        ok = send_email_alert("PMS backups test", "✅ Test email — PMS backups")
-                        st.success("Email OK") if ok else st.error("Email KO")
-            
-            
-            
-            
-            # -----------------------------
-
-    else:
-        st.info("Backups Drive désactivés (Drive non prêt ou folder_id manquant).")
-
-
-
-    # -----------------------------
-    # 🗃️ Players DB (hockey.players.csv) — Admin
-    #   - sert de source pour Country (drapeaux) et parfois Level/Expiry
-    # -----------------------------
-    with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
-        st.caption("Source de vérité pour **Country** (drapeaux), et souvent **Level/Expiry** selon ta config.")
-
-        # Local path (fallback)
-        pdb_path = ""
-        try:
-            if "PLAYERS_DB_FALLBACKS" in globals() and isinstance(PLAYERS_DB_FALLBACKS, (list, tuple)):
-                pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
-        except Exception:
-            pdb_path = ""
-        if not pdb_path:
-            pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-
-        st.caption(f"Chemin utilisé : `{pdb_path}`")
-
-        cA, cB, cC = st.columns([1, 1, 2], vertical_alignment="center")
-
-        with cA:
-            if st.button("🔄 Recharger Players DB", use_container_width=True, key="admin_reload_players_db"):
-                try:
-                    mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
-                    if "load_players_db" in globals() and callable(globals()["load_players_db"]) and mtime:
-                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                    else:
-                        st.session_state["players_db"] = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
-                    st.success("✅ Players DB rechargée.")
-                except Exception as e:
-                    st.error(f"❌ Rechargement KO — {type(e).__name__}: {e}")
-
-        with cB:
-            if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
-                try:
-                    # Si ton app a une fonction dédiée, on la déclenche. Sinon, on garde juste le bouton.
-                    if "update_players_db" in globals() and callable(globals()["update_players_db"]):
-                        try:
-                            update_players_db(pdb_path)
-                        except TypeError:
-                            update_players_db()
-                        st.success("✅ Mise à jour lancée.")
-                    else:
-                        st.info("Aucune fonction `update_players_db()` détectée dans ton app (bouton disponible quand même).")
-                except Exception as e:
-                    st.error(f"❌ Update KO — {type(e).__name__}: {e}")
-
-        with cC:
-            st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
-
-
-        # Aperçu rapide (PAS d'expander dans un expander -> Streamlit interdit)
-        pdb = st.session_state.get("players_db")
-        if isinstance(pdb, pd.DataFrame) and not pdb.empty:
-            cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
-            show_preview = st.checkbox(
-                "👀 Afficher un aperçu (20 lignes)",
-                value=False,
-                key="admin_playersdb_preview",
-            )
-            if show_preview:
-                st.dataframe(
-                    pdb[cols_show].head(20) if cols_show else pdb.head(20),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        else:
-            st.warning("Players DB non chargée. Clique **Recharger Players DB**.")
-        # 🧩 Outil — Joueurs sans drapeau (Country manquant)
-        #   Liste les joueurs présents dans le roster actif dont le flag
-        #   ne peut pas être affiché sans une valeur Country.
-        #   ⚠️ Aucun appel API obligatoire ici (diagnostic + édition). Si certaines
-        #      fonctions de suggestion Web/API existent dans ton app, elles seront utilisées.
         # -----------------------------
-        try:
-            st.markdown("### 🧩 Joueurs sans drapeau (Country manquant)")
-            st.caption(
-                "Affiche les joueurs du roster actif (saison sélectionnée) dont la colonne **Country** est vide dans hockey.players.csv. "
-                "Remplis **Country** avec CA/US/SE/FI... pour forcer le drapeau."
-            )
+        # UI
+        # -----------------------------
+        if not sportradar_ready():
+            st.info("Sportradar non configuré (api_key absent).")
+        else:
+            locale = st.selectbox("Locale Sportradar", ["en"], index=0, key="sr_locale_admin")
 
-            if st.checkbox("🔎 Trouver les joueurs sans drapeau", value=False, key="admin_find_missing_flags"):
-                try:
-                    # petit fallback si _norm_name n'existe pas
-                    def _nm(x: str) -> str:
-                        try:
-                            if "_norm_name" in globals() and callable(globals()["_norm_name"]):
-                                return globals()["_norm_name"](x)
-                        except Exception:
-                            pass
-                        s = str(x or "").strip().lower()
-                        s = re.sub(r"\s+", " ", s)
-                        return s
-
-                    # 1) roster actuel
-                    df_roster = st.session_state.get("data", pd.DataFrame())
-                    df_roster = clean_data(df_roster) if isinstance(df_roster, pd.DataFrame) else pd.DataFrame()
-                    if df_roster.empty or "Joueur" not in df_roster.columns:
-                        st.info("Aucun roster chargé pour cette saison. Va dans Admin → Import Fantrax.")
+            # TEST
+            cT1, cT2 = st.columns([1, 1])
+            with cT1:
+                if st.button("🧪 Tester Sportradar", use_container_width=True, key="admin_sportradar_test"):
+                    j = _sportradar_get_json("/players/sr:player:29663/profile", locale=locale)
+                    if isinstance(j, dict) and j.get("_error"):
+                        st.error(f"❌ Sportradar KO — {j.get('_error')}")
+                        if j.get("_url"):
+                            st.code(j["_url"])
+                        if j.get("_text"):
+                            st.code(j["_text"])
                     else:
-                        roster_players = (
-                            df_roster[[c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot"] if c in df_roster.columns]]
-                            .dropna(subset=["Joueur"])
-                            .copy()
-                        )
-                        roster_players["Joueur"] = roster_players["Joueur"].astype(str).str.strip()
-                        roster_players = roster_players[roster_players["Joueur"].astype(str).str.len() > 0]
-                        uniq = roster_players.drop_duplicates(subset=["Joueur"]).copy()
-
-                        # 2) players DB
-                        pdb = st.session_state.get("players_db")
-                        if not isinstance(pdb, pd.DataFrame) or pdb.empty:
-                            pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                            if not pdb_path:
-                                pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-                            mtime = os.path.getmtime(pdb_path) if (pdb_path and os.path.exists(pdb_path)) else 0.0
-                            pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
-
-                        if pdb.empty or "Player" not in pdb.columns:
-                            st.warning("Players DB introuvable ou invalide. Lance d'abord Admin → Mettre à jour Players DB.")
-                        else:
-                            pdb2 = pdb.copy()
-                            if "Country" not in pdb2.columns:
-                                pdb2["Country"] = ""
-                            pdb2["_k"] = pdb2["Player"].astype(str).apply(_nm)
-                            name_to_country = dict(zip(pdb2["_k"], pdb2["Country"].astype(str)))
-                            name_to_pid = dict(zip(pdb2["_k"], pdb2.get("playerId", pd.Series(dtype=object)).astype(str)))
-
-                            uniq["_k"] = uniq["Joueur"].astype(str).apply(_nm)
-                            uniq["Country"] = uniq["_k"].map(name_to_country).fillna("")
-                            uniq["playerId"] = uniq["_k"].map(name_to_pid).fillna("")
-                            missing = uniq[uniq["Country"].astype(str).str.strip().eq("")].copy()
-
-                            cols = [c for c in ["Joueur", "Equipe", "Propriétaire", "Statut", "Slot", "playerId"] if c in missing.columns]
-                            missing_show = missing[cols].copy()
-                            if "Joueur" in missing_show.columns:
-                                missing_show = missing_show.sort_values(by=["Joueur"]).reset_index(drop=True)
-
-                            if missing_show.empty:
-                                st.success("✅ Aucun joueur du roster actif n'a Country manquant (drapeaux OK).")
-                            else:
-                                st.warning(
-                                    f"⚠️ {len(missing_show)} joueur(s) du roster actif n'ont pas Country. "
-                                    "Tu peux le remplir ici (inline) ou dans hockey.players.csv."
-                                )
-
-                                # Suggestions optionnelles (si tes helpers existent)
-                                use_suggest = bool("suggest_country_web" in globals() and callable(globals()["suggest_country_web"]))
-                                if use_suggest:
-                                    st.caption("Bouton optionnel: suggestions via Web/API (selon les helpers présents dans l’app).")
-
-                                editor = missing_show.copy()
-                                editor["Country"] = ""
-
-                                st.caption("✏️ Édite la colonne **Country** (ex: CA, US, SE, FI).")
-                                editor_view = st.data_editor(
-                                    editor,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    num_rows="fixed",
-                                    column_config={
-                                        "Country": st.column_config.TextColumn(
-                                            "Country",
-                                            help="ISO2 (CA/US/SE/FI) ou ISO3 (CAN/USA/SWE) ou nom du pays.",
-                                            max_chars=24,
-                                        )
-                                    },
-                                    disabled=[c for c in editor.columns if c != "Country"],
-                                    key=f"admin_missing_flags_editor__{season_pick}",
-                                )
-
-                                c_apply, c_export = st.columns([1, 1])
-                                with c_apply:
-                                    if st.button("💾 Appliquer Country", use_container_width=True, key=f"admin_apply_country__{season_pick}"):
-                                        try:
-                                            pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                                            if not pdb_path:
-                                                pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-
-                                            pdb_df = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
-                                            if pdb_df.empty:
-                                                pdb_df = pd.DataFrame(columns=["Player", "Country", "playerId"])
-
-                                            if "Player" not in pdb_df.columns:
-                                                pdb_df["Player"] = ""
-                                            if "Country" not in pdb_df.columns:
-                                                pdb_df["Country"] = ""
-
-                                            pdb_df["_k"] = pdb_df["Player"].astype(str).apply(_nm)
-                                            idx_by_k = {k: i for i, k in enumerate(pdb_df["_k"].tolist())}
-
-                                            applied = 0
-                                            for row in editor_view.to_dict(orient="records"):
-                                                name = str(row.get("Joueur", "") or "").strip()
-                                                ctry = str(row.get("Country", "") or "").strip()
-                                                if not name or not ctry:
-                                                    continue
-                                                k = _nm(name)
-                                                if k in idx_by_k:
-                                                    i2 = idx_by_k[k]
-                                                    cur = str(pdb_df.at[i2, "Country"] or "").strip()
-                                                    if not cur:
-                                                        pdb_df.at[i2, "Country"] = ctry
-                                                        applied += 1
-                                                else:
-                                                    pdb_df = pd.concat([
-                                                        pdb_df,
-                                                        pd.DataFrame([{ "Player": name, "Country": ctry }])
-                                                    ], ignore_index=True)
-                                                    applied += 1
-
-                                            pdb_df = pdb_df.drop(columns=["_k"], errors="ignore")
-                                            pdb_df.to_csv(pdb_path, index=False)
-
-                                            # refresh cached players_db
-                                            try:
-                                                try:
-                                                    st.cache_data.clear()
-                                                except Exception:
-                                                    pass
-                                                mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
-                                                st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                                            except Exception:
-                                                pass
-
-                                            st.success(f"✅ Country appliqué pour {applied} joueur(s).")
-                                            do_rerun()
-                                        except Exception as _e:
-                                            st.error(f"Erreur écriture hockey.players.csv: {type(_e).__name__}: {_e}")
-
-                                with c_export:
-                                    try:
-                                        csv_bytes = editor_view.to_csv(index=False).encode("utf-8")
-                                        st.download_button(
-                                            "📤 Export CSV",
-                                            data=csv_bytes,
-                                            file_name=f"joueurs_sans_drapeau_{season_pick}.csv",
-                                            mime="text/csv",
-                                            use_container_width=True,
-                                            key=f"admin_export_missing_flags__{season_pick}",
-                                        )
-                                    except Exception:
-                                        pass
-
-                                st.caption("Astuce: tu peux aussi éditer directement hockey.players.csv. Valeurs acceptées: CA/US/SE/FI…")
-                except Exception as e:
-                    st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
+                        st.success("✅ Sportradar répond (OK).")
+                        st.json(j)
+            with cT2:
+                st.caption("Astuce: on remplit **sr_player_urn** puis on enrichit Country.")
 
             st.divider()
-        except Exception as e:
-            st.error(f"Erreur outil drapeaux: {type(e).__name__}: {e}")
+            st.subheader("🔗 Auto-mapping URN (Season Players) + validation")
 
-
-    # -----------------------------
-    # 📥 Importation CSV Fantrax (Admin)
-    # -----------------------------
-    manifest = load_init_manifest() or {}
-    if "fantrax_by_team" not in manifest:
-        manifest["fantrax_by_team"] = {}
-
-    teams = sorted(list(LOGOS.keys())) or ["Whalers"]
-    default_owner = str(get_selected_team() or "").strip() or teams[0]
-    if default_owner not in teams:
-        default_owner = teams[0]
-
-    chosen_owner = st.selectbox(
-        "Importer l'alignement dans quelle équipe ?",
-        teams,
-        index=teams.index(default_owner),
-        key="admin_import_team_pick",
-    )
-
-    clear_team_before = st.checkbox(
-        f"Vider l’alignement de {chosen_owner} avant import",
-        value=True,
-        help="Recommandé si tu réimportes la même équipe.",
-        key="admin_clear_team_before",
-    )
-
-    u_nonce = int(st.session_state.get("uploader_nonce", 0))
-    c_init1, c_init2 = st.columns(2)
-    with c_init1:
-        init_align = st.file_uploader(
-            "CSV — Alignement (Fantrax)",
-            type=["csv", "txt"],
-            key=f"admin_import_align__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-    with c_init2:
-        init_hist = st.file_uploader(
-            "CSV — Historique (optionnel)",
-            type=["csv", "txt"],
-            key=f"admin_import_hist__{season_pick}__{chosen_owner}__{u_nonce}",
-        )
-
-    c_btn1, c_btn2 = st.columns([1, 1])
-
-    with c_btn1:
-        if st.button("👀 Prévisualiser", use_container_width=True, key="admin_preview_import"):
-            if init_align is None:
-                st.warning("Choisis un fichier CSV alignement avant de prévisualiser.")
-            else:
-                try:
-                    buf = io.BytesIO(init_align.getbuffer())
-                    buf.name = getattr(init_align, "name", "alignement.csv")
-                    df_import = parse_fantrax(buf)
-                    df_import = ensure_owner_column(df_import, fallback_owner=chosen_owner)
-                    df_import["Propriétaire"] = str(chosen_owner).strip()
-                    df_import = clean_data(df_import)
-                    df_import = force_level_from_players(df_import)  # ✅ remplit Level (STD/ELC)
-
-                    st.session_state["init_preview_df"] = df_import
-                    st.session_state["init_preview_owner"] = str(chosen_owner).strip()
-                    st.session_state["init_preview_filename"] = getattr(init_align, "name", "")
-                    st.success(f"✅ Preview prête — {len(df_import)} joueur(s) pour **{chosen_owner}**.")
-                except Exception as e:
-                    st.error(f"❌ Preview échouée : {type(e).__name__}: {e}")
-
-    preview_df = st.session_state.get("init_preview_df")
-    if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
-        with st.expander("🔎 Aperçu (20 premières lignes)", expanded=True):
-            st.dataframe(preview_df.head(20), use_container_width=True)
-
-    with c_btn2:
-        disabled_confirm = not (isinstance(preview_df, pd.DataFrame) and not preview_df.empty)
-        if st.button("✅ Confirmer l'import", use_container_width=True, disabled=disabled_confirm, key="admin_confirm_import"):
-            df_team = st.session_state.get("init_preview_df")
-            owner_final = str(st.session_state.get("init_preview_owner", chosen_owner) or "").strip()
-            filename_final = st.session_state.get("init_preview_filename", "") or (getattr(init_align, "name", "") if init_align else "")
-
-            df_cur = clean_data(st.session_state.get("data", pd.DataFrame(columns=REQUIRED_COLS)))
-
-            df_team = clean_data(df_team.copy())
-            df_team["Propriétaire"] = owner_final
-            df_team = clean_data(df_team)
-
-            if clear_team_before:
-                keep = df_cur[df_cur["Propriétaire"].astype(str).str.strip() != owner_final].copy()
-                df_new = pd.concat([keep, df_team], ignore_index=True)
-            else:
-                df_new = pd.concat([df_cur, df_team], ignore_index=True)
-
-            if {"Propriétaire", "Joueur"}.issubset(df_new.columns):
-                df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
-                df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
-                df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-
-            df_new = clean_data(df_new)
-            st.session_state["data"] = df_new
-            persist_data(df_new, season_pick)
-
-            st.session_state["plafonds"] = rebuild_plafonds(df_new)
-
-            st.session_state["selected_team"] = owner_final
-            st.session_state["align_owner"] = owner_final
-            clear_move_ctx()
-
-            manifest["fantrax_by_team"][owner_final] = {
-                "uploaded_name": filename_final,
-                "season": season_pick,
-                "saved_at": datetime.now(TZ_TOR).isoformat(timespec="seconds"),
-                "team": owner_final,
-            }
-            save_init_manifest(manifest)
-
-            if init_hist is not None:
-                try:
-                    h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
-                    if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
-                        h0["proprietaire"] = h0["Propriétaire"]
-                    if "Joueur" in h0.columns and "joueur" not in h0.columns:
-                        h0["joueur"] = h0["Joueur"]
-                    for c in _history_expected_cols():
-                        if c not in h0.columns:
-                            h0[c] = ""
-                    h0 = h0[_history_expected_cols()].copy()
-                    st.session_state["history"] = h0
-                    persist_history(h0, season_pick)
-                except Exception as e:
-                    st.warning(f"⚠️ Historique initial non chargé : {type(e).__name__}: {e}")
-
-            st.session_state["uploader_nonce"] = int(st.session_state.get("uploader_nonce", 0)) + 1
-            st.session_state.pop("init_preview_df", None)
-            st.session_state.pop("init_preview_owner", None)
-            st.session_state.pop("init_preview_filename", None)
-
-            st.success(f"✅ Import OK — seule l’équipe **{owner_final}** a été mise à jour.")
-            do_rerun()
-
-    st.divider()
-    st.markdown("### 📌 Derniers imports par équipe")
-
-    by_team = manifest.get("fantrax_by_team", {}) or {}
-    if not by_team:
-        st.caption("— Aucun import enregistré —")
-    else:
-        if "admin_imports_desc" not in st.session_state:
-            st.session_state["admin_imports_desc"] = True
-
-        c1, c2, _ = st.columns([0.12, 1, 3], vertical_alignment="center")
-        with c1:
-            icon = "⬇️" if st.session_state["admin_imports_desc"] else "⬆️"
-            if st.button(icon, key="admin_imports_sort_btn", help="Changer l'ordre de tri"):
-                st.session_state["admin_imports_desc"] = not st.session_state["admin_imports_desc"]
-                do_rerun()
-        with c2:
-            st.caption("Tri par date")
-
-        rows = []
-        for team, info in by_team.items():
-            rows.append({
-                "Équipe": str(team).strip(),
-                "Fichier": str(info.get("uploaded_name", "") or "").strip(),
-                "Date": str(info.get("saved_at", "") or "").strip(),
-            })
-
-        df_imports = pd.DataFrame(rows)
-        df_imports["_dt"] = df_imports["Date"].apply(to_dt_local)
-
-        df_imports = df_imports.sort_values(
-            by="_dt",
-            ascending=(not st.session_state["admin_imports_desc"]),
-            na_position="last",
-        )
-
-        df_imports["Date"] = df_imports["_dt"].apply(format_date_fr)
-        df_imports = df_imports.drop(columns=["_dt"]).reset_index(drop=True)
-
-        st.dataframe(df_imports, use_container_width=True, hide_index=True)
-
-    # -----------------------------
-    # 💰 Plafonds (édition admin)
-    # -----------------------------
-    with st.expander("💰 Plafonds (Admin)", expanded=False):
-        locked = bool(st.session_state.get("LOCKED", False))
-        if locked:
-            st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
-
-        st.caption("Modifie les plafonds de masse salariale. Les changements s’appliquent immédiatement.")
-        st.session_state["PLAFOND_GC"] = st.number_input(
-            "Plafond Grand Club",
-            value=int(st.session_state.get("PLAFOND_GC", 95_500_000) or 0),
-            step=500_000,
-            key="admin_plafond_gc",
-            disabled=locked,
-        )
-        st.session_state["PLAFOND_CE"] = st.number_input(
-            "Plafond Club École",
-            value=int(st.session_state.get("PLAFOND_CE", 47_750_000) or 0),
-            step=250_000,
-            key="admin_plafond_ce",
-            disabled=locked,
-        )
-
-    # -----------------------------
-    # ➕ Ajout de joueurs (Admin)
-    #   - liste déroulante Équipe (destination)
-    #   - puis même UI que Joueurs autonomes
-    # -----------------------------
-    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
-        teams_add = sorted(list(LOGOS.keys())) if 'LOGOS' in globals() else []
-        if not teams_add:
-            teams_add = [str(get_selected_team() or 'Whalers').strip() or 'Whalers']
-        cur_sel = str(get_selected_team() or '').strip() or teams_add[0]
-        if cur_sel not in teams_add:
-            cur_sel = teams_add[0]
-
-        dest_team = st.selectbox("Équipe (destination)", teams_add, index=teams_add.index(cur_sel), key='admin_addplayer_team')
-        # On force le contexte d'équipe pour que l'ajout s'applique au bon owner
-        if dest_team and dest_team != str(get_selected_team() or '').strip():
+            # Charger Players DB
+            pdb_path = ""
             try:
-                pick_team(dest_team)
+                if "PLAYERS_DB_FALLBACKS" in globals() and isinstance(PLAYERS_DB_FALLBACKS, (list, tuple)):
+                    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
             except Exception:
-                st.session_state['selected_team'] = dest_team
-                st.session_state['align_owner'] = dest_team
+                pdb_path = ""
+            if not pdb_path:
+                pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
 
-        # -----------------------------------------------------
-        # ✅ Ajout rapide (Admin) — rechercher un joueur et l'ajouter à l'équipe choisie
-        #   (simple & idiotproof: 1 recherche -> 1 joueur -> confirmer)
-        # -----------------------------------------------------
-        st.markdown("#### ➕ Ajouter un joueur à une équipe")
-
-        # Source: Players DB (hockey.players.csv)
-        pdb = st.session_state.get("players_db")
-        if not isinstance(pdb, pd.DataFrame) or pdb.empty:
             try:
-                pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
-                if not pdb_path:
-                    pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
-                mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
-                pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
-                st.session_state["players_db"] = pdb
-            except Exception:
-                pdb = pd.DataFrame()
+                pdb_df = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+            except Exception as e:
+                st.error("Impossible de lire hockey.players.csv")
+                st.exception(e)
+                pdb_df = pd.DataFrame()
 
-        if pdb is None or pdb.empty or ("Player" not in pdb.columns and "Joueur" not in pdb.columns):
-            st.info("Players DB indisponible. Va dans **Players DB** → **Mettre à jour Players DB**.")
-        else:
-            col_name = "Player" if "Player" in pdb.columns else "Joueur"
-            q = st.text_input("Rechercher un joueur", value="", key="admin_addplayer_search")
-            qn = _norm_name(q) if "_norm_name" in globals() else str(q or "").strip().lower()
-
-            # candidates
-            cand_df = pdb.copy()
-            cand_df[col_name] = cand_df[col_name].astype(str)
-            if qn:
-                cand_df = cand_df[cand_df[col_name].str.lower().str.contains(str(q).strip().lower(), na=False)]
-            cand = cand_df[col_name].dropna().astype(str).str.strip().unique().tolist()
-            cand = [x for x in cand if x]
-            cand = cand[:50]
-
-            if not cand:
-                st.caption("Aucun joueur trouvé (essaie un autre nom).")
+            if pdb_df.empty:
+                st.warning(f"Players DB vide/introuvable: {pdb_path}")
             else:
-                pick = st.selectbox("Joueur", cand, key="admin_addplayer_pick")
-                cA, cB, cC = st.columns([1, 1, 1])
-                with cA:
-                    statut = st.selectbox("Statut", ["Actif", "Banc", "Mineur", "Blessé (IR)"], index=0, key="admin_addplayer_statut")
-                with cB:
-                    note = st.text_input("Note (optionnel)", value="", key="admin_addplayer_note")
-                with cC:
-                    confirm = st.button("✅ Confirmer l'ajout", use_container_width=True, key="admin_addplayer_confirm")
+                name_col = _detect_player_name_col(pdb_df)
+                if not name_col:
+                    st.error("Aucune colonne nom joueur trouvée (Player/Joueur/name/Nom).")
+                else:
+                    if "sr_player_urn" not in pdb_df.columns:
+                        pdb_df["sr_player_urn"] = ""
 
-                if confirm:
-                    try:
-                        # roster current
-                        df_cur = st.session_state.get("data", pd.DataFrame())
-                        df_cur = clean_data(df_cur) if isinstance(df_cur, pd.DataFrame) else pd.DataFrame(columns=REQUIRED_COLS)
-                        for c in REQUIRED_COLS:
-                            if c not in df_cur.columns:
-                                df_cur[c] = ""
+                    season_urn = st.text_input(
+                        "Season URN (Sportradar)",
+                        value="sr:season:68156",
+                        help="Exemple: sr:season:68156 (ne pas encoder en %3A)",
+                        key="sr_season_urn_input",
+                    )
 
-                        # enrich from Players DB
-                        rowp = cand_df[cand_df[col_name].astype(str).str.strip().eq(str(pick).strip())].head(1)
-                        team_abbr = ""
-                        pos = ""
-                        cap = ""
-                        lvl = ""
-                        pid = ""
-                        if not rowp.empty:
-                            r0 = rowp.iloc[0].to_dict()
-                            team_abbr = str(r0.get("Team") or r0.get("Team Abbr") or r0.get("NHL Team") or "").strip()
-                            pos = str(r0.get("Pos") or r0.get("Position") or r0.get("position") or "").strip()
-                            cap = str(r0.get("Cap Hit") or r0.get("CapHit") or r0.get("cap_hit") or r0.get("Salary") or "").strip()
-                            lvl = str(r0.get("Level") or "").strip()
-                            pid = str(r0.get("playerId") or r0.get("player_id") or "").strip()
+                    cutoff = st.slider(
+                        "Seuil fuzzy match (plus haut = plus strict)",
+                        0.85, 0.99, 0.92, 0.01,
+                        key="sr_fuzzy_cutoff",
+                    )
+                    topk = st.slider("Top candidates (debug)", 1, 10, 5, 1, key="sr_topk")
 
-                        # map statut -> Slot/Statut app
-                        statut_norm = statut
-                        if "bless" in statut.lower():
-                            slot = "IR"
-                        elif "mine" in statut.lower():
-                            slot = "Mineur"
-                        elif "banc" in statut.lower():
-                            slot = "Banc"
+                    colA, colB = st.columns([1, 1])
+                    with colA:
+                        do_fuzzy = st.checkbox("Activer fuzzy match", value=True, key="sr_do_fuzzy")
+                    with colB:
+                        only_missing = st.checkbox("Traiter seulement les URN vides", value=True, key="sr_only_missing")
+
+                    if st.button("🔗 Lancer auto-mapping URN", use_container_width=True, key="sr_fill_urn_btn"):
+                        j = sr_season_players(season_urn, locale=locale)
+                        if isinstance(j, dict) and j.get("_error"):
+                            st.error(f"❌ Season players KO — {j.get('_error')}")
+                            if j.get("_url"):
+                                st.code(j["_url"])
+                            if j.get("_text"):
+                                st.code(j["_text"])
                         else:
-                            slot = "Actif"
+                            plist = (j or {}).get("players", []) or []
+                            if not plist:
+                                st.warning("Aucun joueur trouvé dans cette saison.")
+                            else:
+                                exact_map, primary_keys, primary_to_urn, urn_to_display = build_sr_indexes(plist)
 
-                        new_row = {c: "" for c in REQUIRED_COLS}
-                        new_row.update({
-                            "Propriétaire": str(dest_team).strip(),
-                            "Joueur": str(pick).strip(),
-                            "Equipe": team_abbr,
-                            "Statut": statut_norm,
-                            "Slot": slot,
-                        })
-                        if "Position" in new_row:
-                            new_row["Position"] = pos
-                        if "Pos" in df_cur.columns:
-                            new_row["Pos"] = pos
-                        if "Cap Hit" in df_cur.columns:
-                            new_row["Cap Hit"] = cap
-                        if "Level" in df_cur.columns and lvl:
-                            new_row["Level"] = lvl
-                        if "playerId" in df_cur.columns and pid:
-                            new_row["playerId"] = pid
-                        if "Note" in df_cur.columns and note:
-                            new_row["Note"] = note
+                                filled_exact = 0
+                                filled_fuzzy = 0
+                                misses = 0
+                                amb_rows = []
 
-                        df_new = pd.concat([df_cur, pd.DataFrame([new_row])], ignore_index=True)
-                        df_new["Propriétaire"] = df_new["Propriétaire"].astype(str).str.strip()
-                        df_new["Joueur"] = df_new["Joueur"].astype(str).str.strip()
-                        df_new = df_new.drop_duplicates(subset=["Propriétaire", "Joueur"], keep="last")
-                        df_new = clean_data(df_new)
+                                work = pdb_df.copy()
 
-                        st.session_state["data"] = df_new
-                        season_pick = str(st.session_state.get("season") or st.session_state.get("season_lbl") or saison_auto()).strip() or "2025-2026"
-                        persist_data(df_new, season_pick)
-                        st.session_state["plafonds"] = rebuild_plafonds(df_new)
+                                for idx, row in work.iterrows():
+                                    if only_missing and str(row.get("sr_player_urn", "")).strip():
+                                        continue
 
-                        st.success(f"✅ {pick} ajouté à {dest_team} ({statut}).")
-                        do_rerun()
-                    except Exception as e:
-                        st.error(f"❌ Ajout KO — {type(e).__name__}: {e}")
+                                    raw = str(row.get(name_col, "") or "").strip()
+                                    if not raw:
+                                        continue
 
-        st.divider()
+                                    status, urn, cand = match_one_player_to_urn(
+                                        raw_name=raw,
+                                        exact_map=exact_map,
+                                        primary_keys=(primary_keys if do_fuzzy else []),
+                                        primary_to_urn=primary_to_urn,
+                                        fuzzy_cutoff=float(cutoff),
+                                        top_k=int(topk),
+                                    )
 
-        # -----------------------------------------------------
-        # UI complète (joueurs autonomes / logique existante)
-        # -----------------------------------------------------
-        render_tab_autonomes(show_header=False)
+                                    if status == "exact":
+                                        work.at[idx, "sr_player_urn"] = urn
+                                        filled_exact += 1
+                                    elif status == "fuzzy":
+                                        work.at[idx, "sr_player_urn"] = urn
+                                        filled_fuzzy += 1
+                                    else:
+                                        misses += 1
+                                        if cand:
+                                            amb_rows.append({
+                                                "row_index": int(idx),
+                                                "player_csv": raw,
+                                                "best_key": cand[0][0],
+                                                "best_score": round(float(cand[0][1]), 3),
+                                                "best_urn": cand[0][2],
+                                                "best_name_sr": urn_to_display.get(cand[0][2], ""),
+                                                "top_candidates": "; ".join([
+                                                    f"{c[2]}|{urn_to_display.get(c[2], '')}|{round(c[1],3)}"
+                                                    for c in cand[:int(topk)] if c[2]
+                                                ]),
+                                            })
 
+                                st.session_state["sr_urn_autofill_df"] = work
+                                st.session_state["sr_urn_ambiguous"] = pd.DataFrame(amb_rows)
 
-    # -----------------------------
+                                st.success(
+                                    f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}"
+                                )
+                                st.caption("Les résultats sont en preview. Sauvegarde seulement si tu es satisfait.")
+
+                    work_df = st.session_state.get("sr_urn_autofill_df")
+                    amb_df = st.session_state.get("sr_urn_ambiguous")
+
+                    if isinstance(work_df, pd.DataFrame) and not work_df.empty:
+                        st.markdown("### 👀 Preview (quelques lignes)")
+                        st.dataframe(
+                            work_df[[name_col, "sr_player_urn"]].head(30),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                        if st.button("💾 Sauvegarder hockey.players.csv (URN)", use_container_width=True, key="sr_save_urns"):
+                            try:
+                                work_df.to_csv(pdb_path, index=False)
+                                st.success(f"✅ Sauvegardé: {pdb_path}")
+                                try:
+                                    st.cache_data.clear()
+                                except Exception:
+                                    pass
+                            except Exception as e:
+                                st.error("❌ Sauvegarde échouée")
+                                st.exception(e)
+
+                    if isinstance(amb_df, pd.DataFrame) and not amb_df.empty:
+                        st.divider()
+                        st.subheader("🟠 Ambigu / Non trouvé — validation manuelle")
+                        st.dataframe(
+                            amb_df[["row_index", "player_csv", "best_score", "best_urn", "best_name_sr", "top_candidates"]].head(200),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                        st.markdown("### ✅ Appliquer un URN manuellement")
+                        row_idx = st.number_input(
+                            "row_index (depuis la table)",
+                            min_value=0,
+                            value=int(amb_df.iloc[0]["row_index"]) if len(amb_df) else 0,
+                            step=1,
+                            key="sr_manual_rowidx",
+                        )
+                        urn_text = st.text_input(
+                            "URN à appliquer (ex: sr:player:29663)",
+                            value=str(amb_df.iloc[0]["best_urn"]) if len(amb_df) else "",
+                            key="sr_manual_urn",
+                        )
+
+                        if st.button("✅ Appliquer URN à cette ligne (preview)", use_container_width=True, key="sr_apply_manual"):
+                            work_df2 = st.session_state.get("sr_urn_autofill_df")
+                            if not isinstance(work_df2, pd.DataFrame) or work_df2.empty:
+                                st.warning("Aucun preview en mémoire. Lance d’abord l’auto-mapping.")
+                            else:
+                                if 0 <= int(row_idx) < len(work_df2):
+                                    work_df2.at[int(row_idx), "sr_player_urn"] = urn_text.strip()
+                                    st.session_state["sr_urn_autofill_df"] = work_df2
+                                    st.success("✅ URN appliqué dans le preview (pense à sauvegarder).")
+                                else:
+                                    st.error("row_index invalide.")
+
+                    st.divider()
+                    st.subheader("🧬 Enrichir Country via Sportradar (URN)")
+
+                    # Recharger depuis disque pour enrichir "vraiment"
+                    try:
+                        pdb_df2 = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+                    except Exception:
+                        pdb_df2 = pd.DataFrame()
+
+                    if pdb_df2.empty:
+                        st.warning("Players DB vide/introuvable.")
+                    else:
+                        if "Country" not in pdb_df2.columns:
+                            pdb_df2["Country"] = ""
+                        if "sr_player_urn" not in pdb_df2.columns:
+                            pdb_df2["sr_player_urn"] = ""
+
+                        max_n = st.number_input(
+                            "Max joueurs à enrichir (par run)",
+                            min_value=1, max_value=500, value=50, step=10,
+                            key="admin_sportradar_max",
+                        )
+
+                        cand = pdb_df2[
+                            (pdb_df2["sr_player_urn"].astype(str).str.strip() != "")
+                            & (pdb_df2["Country"].astype(str).str.strip() == "")
+                        ].copy()
+
+                        st.caption(f"Candidats enrichissables (URN présent & Country vide): {len(cand)}")
+
+                        if st.button("🧬 Enrichir Country via Sportradar (URN)", use_container_width=True, key="admin_sportradar_enrich"):
+                            updated = 0
+                            for i, row in cand.head(int(max_n)).iterrows():
+                                urn = str(row.get("sr_player_urn", "")).strip()
+                                prof = sportradar_player_profile(urn, locale=locale)
+                                if not isinstance(prof, dict) or prof.get("_error"):
+                                    continue
+
+                                p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
+                                nat = str(p.get("nationality") or "").strip()
+                                bc = str(p.get("birth_country") or "").strip()
+                                iso = _sr_country_to_iso2(nat) or _sr_country_to_iso2(bc)
+
+                                if iso:
+                                    pdb_df2.at[i, "Country"] = iso
+                                    updated += 1
+
+                                time.sleep(1.05)  # trial safe
+
+                            try:
+                                pdb_df2.to_csv(pdb_path, index=False)
+                                st.success(f"✅ Country enrichi pour {updated} joueur(s).")
+                                try:
+                                    st.cache_data.clear()
+                                except Exception:
+                                    pass
+                            except Exception as e:
+                                st.error(f"❌ Écriture hockey.players.csv KO — {type(e).__name__}: {e}")
+
+                    st.divider()
+                    st.subheader("📤 Générer fichier merge Sportradar (CSV)")
+
+                    if st.button("📤 Générer fichier merge Sportradar (CSV)", use_container_width=True, key="admin_sportradar_mergefile"):
+                        try:
+                            # recharge pour être sûr
+                            try:
+                                pdb_df3 = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
+                            except Exception:
+                                pdb_df3 = pd.DataFrame()
+
+                            if pdb_df3.empty:
+                                st.warning("Players DB vide/introuvable.")
+                            else:
+                                if "sr_player_urn" not in pdb_df3.columns:
+                                    pdb_df3["sr_player_urn"] = ""
+
+                                rows = []
+                                subset = pdb_df3[pdb_df3["sr_player_urn"].astype(str).str.strip() != ""].head(int(max_n))
+
+                                nmcol = _detect_player_name_col(pdb_df3) or "Player"
+
+                                for _, row in subset.iterrows():
+                                    urn = str(row.get("sr_player_urn", "")).strip()
+                                    prof = sportradar_player_profile(urn, locale=locale)
+                                    if not isinstance(prof, dict) or prof.get("_error"):
+                                        continue
+
+                                    p = prof.get("player", {}) if isinstance(prof.get("player"), dict) else {}
+                                    pname = str(row.get(nmcol, "")).strip()
+
+                                    rows.append({
+                                        "Player": pname,
+                                        "sr_player_urn": urn,
+                                        "sr_nationality": str(p.get("nationality") or "").strip(),
+                                        "sr_country_code3": str(p.get("country_code") or "").strip(),
+                                        "sr_dob": str(p.get("date_of_birth") or p.get("birthdate") or "").strip(),
+                                        "sr_height_cm": str(p.get("height") or "").strip(),
+                                        "sr_weight_kg": str(p.get("weight") or "").strip(),
+                                        "sr_position_type": str(p.get("type") or p.get("position") or "").strip(),
+                                        "sr_jersey_number": str(p.get("jersey_number") or "").strip(),
+                                    })
+
+                                    time.sleep(1.05)  # trial safe
+
+                                out = pd.DataFrame(rows)
+                                out_name = f"sportradar_merge_{datetime.now().strftime('%Y-%m-%d_%H%M')}.csv"
+
+                                st.download_button(
+                                    "⬇️ Télécharger le merge CSV",
+                                    data=out.to_csv(index=False).encode("utf-8"),
+                                    file_name=out_name,
+                                    mime="text/csv",
+                                    use_container_width=True,
+                                    key="admin_sportradar_dl",
+                                )
+                                st.caption("Ce CSV peut être fusionné avec hockey.players.csv (par Player ou sr_player_urn).")
+                        except Exception as e:
+                            st.error(f"❌ Génération merge KO — {type(e).__name__}: {e}")
+
+    # =====================================================
     # 📦 Transactions (Admin) — sauvegarde proposition
-    # -----------------------------
+    #   ✅ reste bien DANS l'onglet Admin
+    # =====================================================
     with st.expander("📦 Transactions (Admin)", expanded=False):
         st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
 
@@ -10083,9 +8969,6 @@ with st.expander("🧾 Sportradar (optionnel) — enrichir Players DB", expanded
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
-  
-
-
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
@@ -10104,23 +8987,17 @@ elif active_tab == "🧠 Recommandations":
 
         if dispo_gc < 2_000_000:
             reco = "Rétrogradation recommandée (manque de marge GC)"
-            lvl = "warn"
         elif dispo_ce > 10_000_000:
             reco = "Rappel possible (marge CE élevée)"
-            lvl = "ok"
         else:
             reco = "Aucune action urgente"
-            lvl = "ok"
 
         rows.append({
             "Équipe": owner,
             "Marge GC": money(dispo_gc),
             "Marge CE": money(dispo_ce),
             "Recommandation": reco,
-            "_lvl": lvl,
         })
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
-    st.dataframe(out.drop(columns=["_lvl"], errors="ignore"), use_container_width=True, hide_index=True)
-
-    
+    st.dataframe(out, use_container_width=True, hide_index=True)
