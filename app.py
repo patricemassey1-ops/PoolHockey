@@ -112,7 +112,7 @@ import pandas as pd
 # =====================================================
 # 🔑 Sportradar API KEY (single source of truth)
 # =====================================================
-API_KEY = (
+SPORTRADAR_API_KEY = (
     st.secrets.get("SPORTRADAR_API_KEY")
     or st.secrets.get("SPORTRADAR_KEY")
     or st.secrets.get("sportradar", {}).get("api_key")
