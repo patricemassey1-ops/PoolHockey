@@ -112,15 +112,19 @@ import pandas as pd
 # =====================================================
 # 🔑 Sportradar API KEY (single source of truth)
 # =====================================================
-SPORTRADAR_API_KEY = (
+API_KEY = (
     st.secrets.get("SPORTRADAR_API_KEY")
     or st.secrets.get("sportradar", {}).get("api_key")
     or ""
 ).strip()
 
 
+
 if not SPORTRADAR_API_KEY:
-    st.warning("⚠️ Sportradar API key non trouvée dans secrets")
+    st.error("❌ Sportradar API key manquant dans secrets (SPORTRADAR_API_KEY ou [sportradar].api_key)")
+
+st.write("Top-level keys:", list(st.secrets.keys()))
+st.write("[sportradar]:", st.secrets.get("sportradar"))
 
 
 
