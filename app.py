@@ -8292,6 +8292,15 @@ if active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
+    # --- Drive readiness (required before Backups expander)
+    cfg_drive = st.secrets.get("gdrive_oauth", {}) or {}
+    folder_id = str(cfg_drive.get("folder_id", "") or "").strip()
+    try:
+        creds = drive_creds_from_secrets(show_error=False) if 'drive_creds_from_secrets' in globals() else None
+    except Exception:
+        creds = None
+    drive_ok = bool(creds)
+
     # =====================================================
     # 🧷 Backups & Restore (Drive) — TOUT dans un seul expander
     # =====================================================
