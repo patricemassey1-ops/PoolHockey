@@ -1,0 +1,1531 @@
+first_name,last_name,position,birthdate,city,team_name,short_code,active,shoots,contract_type,contract_end,contract_level
+Brent,Burns,Defense,3/9/85,Colorado,Avalanche,COL,1,right,current,2025-2026,standard_level
+Sidney,Crosby,Center,8/7/87,Pittsburgh,Penguins,PIT,1,left,current,2026-2027,standard_level
+Alex,Ovechkin,Left Wing,9/17/85,Washington,Capitals,WAS,1,right,current,2025-2026,standard_level
+Corey,Perry,Right Wing,5/16/85,Los Angeles,Kings,LAK,1,right,current,2025-2026,standard_level
+Shea,Weber,Defense,8/14/85,Chicago,Blackhawks,CHI,1,right,current,2025-2026,standard_level
+Evgeni,Malkin,Center,7/31/86,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Carey,Price,Goaltender,8/16/87,San Jose,Sharks,SJS,1,,current,2025-2026,standard_level
+Jordan,Staal,Center,9/10/88,Carolina,Hurricanes,CAR,1,left,current,2026-2027,standard_level
+Kris,Letang,Defense,4/24/87,Pittsburgh,Penguins,PIT,1,right,current,2027-2028,standard_level
+Anze,Kopitar,Center,8/24/87,Los Angeles,Kings,LAK,1,left,current,2025-2026,standard_level
+Claude,Giroux,Center,1/12/88,Ottawa,Senators,OTT,1,right,current,2025-2026,standard_level
+Patrick,Kane,Right Wing,11/19/88,Detroit,Red Wings,DET,1,left,current,2025-2026,standard_level
+Jonathan,Toews,Center,4/29/88,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Jonathan,Quick,Goaltender,1/21/86,New York,Rangers,NYR,1,,current,2025-2026,standard_level
+Nick,Foligno,Left Wing,10/31/87,Chicago,Blackhawks,CHI,1,left,current,2025-2026,standard_level
+David,Perron,Left Wing,5/28/88,Ottawa,Senators,OTT,1,right,current,2025-2026,standard_level
+Ryan,Reaves,Right Wing,1/20/87,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Zach,Bogosian,Defense,7/15/90,Minnesota,Wild,MIN,1,right,current,2025-2026,standard_level
+Brad,Marchand,Center,5/11/88,Florida,Panthers,FLA,1,left,current,2030-2031,standard_level
+Mikael,Backlund,Center,3/17/89,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Jamie,Benn,Left Wing,7/18/89,Dallas,Stars,DAL,1,left,current,2025-2026,standard_level
+Drew,Doughty,Defense,12/8/89,Los Angeles,Kings,LAK,1,right,current,2026-2027,standard_level
+Alex,Pietrangelo,Defense,1/18/90,Vegas,Golden Knights,VGK,1,right,current,2026-2027,standard_level
+Steven,Stamkos,Center,2/7/90,Nashville,Predators,NAS,1,right,current,2027-2028,standard_level
+James,Reimer,Goaltender,3/15/88,Ottawa,Senators,OTT,1,,current,2025-2026,standard_level
+Semyon,Varlamov,Goaltender,4/27/88,New York,Islanders,NYI,1,,current,2026-2027,standard_level
+Adam,Henrique,Center,2/6/90,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Luke,Schenn,Defense,11/2/89,Winnipeg,Jets,WPG,1,right,current,2025-2026,standard_level
+Jordan,Eberle,Right Wing,5/15/90,Seattle,Kraken,SEA,1,right,current,2025-2026,standard_level
+James,van Riemsdyk,Left Wing,5/4/89,Detroit,Red Wings,DET,1,left,current,2025-2026,standard_level
+Logan,Couture,Center,3/28/89,San Jose,Sharks,SJS,1,left,current,2026-2027,standard_level
+John,Carlson,Defense,1/10/90,Washington,Capitals,WAS,1,right,current,2025-2026,standard_level
+Evander,Kane,Left Wing,8/2/91,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Matt,Duchene,Center,1/16/91,Dallas,Stars,DAL,1,left,current,2028-2029,standard_level
+Ryan,O'Reilly,Center,2/7/91,Nashville,Predators,NAS,1,left,current,2026-2027,standard_level
+Brayden,Schenn,Center,8/22/91,St. Louis,Blues,STL,1,left,current,2027-2028,standard_level
+Nicolas,Deslauriers,Left Wing,2/22/91,Philadelphia,Flyers,PHI,1,left,current,2025-2026,standard_level
+John,Tavares,Center,9/20/90,Toronto,Maple Leafs,TOR,1,left,current,2028-2029,standard_level
+Erik,Karlsson,Defense,5/31/90,Pittsburgh,Penguins,PIT,1,right,current,2026-2027,standard_level
+Victor,Hedman,Defense,12/18/90,Tampa Bay,Lightning,TBL,1,left,current,2028-2029,standard_level
+Dmitry,Kulikov,Defense,10/29/90,Florida,Panthers,FLA,1,left,current,2027-2028,standard_level
+Lars,Eller,Center,5/8/89,Ottawa,Senators,OTT,1,left,current,2025-2026,standard_level
+Evgenii,Dadonov,Right Wing,3/12/89,New Jersey,Devils,NJD,1,left,current,2025-2026,standard_level
+Tyler,Myers,Defense,2/1/90,Vancouver,Canucks,VAN,1,right,current,2026-2027,standard_level
+Nazem,Kadri,Center,10/6/90,Calgary,Flames,CGY,1,left,current,2028-2029,standard_level
+Jeff,Petry,Defense,12/9/87,Florida,Panthers,FLA,1,right,current,2025-2026,standard_level
+Ian,Cole,Defense,2/21/89,Utah,Mammoth,UTA,1,left,current,2025-2026,standard_level
+Cam,Talbot,Goaltender,7/5/87,Detroit,Red Wings,DET,1,,current,2025-2026,standard_level
+Andrew,Agozzino,Left Wing,1/3/91,Utah,Mammoth,UTA,0,left,current,2025-2026,standard_level
+Ben,Chiarot,Defense,5/9/91,Detroit,Red Wings,DET,1,left,current,2025-2026,standard_level
+Oliver,Ekman-Larsson,Defense,7/17/91,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,standard_level
+Ryan,Ellis,Defense,1/3/91,Chicago,Blackhawks,CHI,1,right,current,2026-2027,standard_level
+Nick,Leddy,Defense,3/20/91,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Chris,Kreider,Left Wing,4/30/91,Anaheim,Ducks,ANA,1,left,current,2026-2027,standard_level
+Marcus,Johansson,Center,10/6/90,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Kyle,Palmieri,Right Wing,2/1/91,New York,Islanders,NYI,1,right,current,2026-2027,standard_level
+Brian,Dumoulin,Defense,9/6/91,Los Angeles,Kings,LAK,1,left,current,2027-2028,standard_level
+Dmitry,Orlov,Defense,7/23/91,San Jose,Sharks,SJS,1,left,current,2026-2027,standard_level
+Brayden,McNabb,Defense,1/21/91,Vegas,Golden Knights,VGK,1,left,current,2027-2028,standard_level
+Reilly,Smith,Right Wing,4/1/91,Vegas,Golden Knights,VGK,1,left,current,2025-2026,standard_level
+Kevin,Connauton,Defense,2/23/90,Utah,Mammoth,UTA,0,left,current,2025-2026,standard_level
+Casey,Cizikas,Center,2/27/91,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+Mattias,Ekholm,Defense,5/24/90,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Marcus,Foligno,Left Wing,8/10/91,Minnesota,Wild,MIN,1,left,current,2027-2028,standard_level
+Nick,Jensen,Defense,9/21/90,Ottawa,Senators,OTT,1,right,current,2025-2026,standard_level
+Anders,Lee,Left Wing,7/3/90,New York,Islanders,NYI,1,left,current,2025-2026,standard_level
+Darcy,Kuemper,Goaltender,5/5/90,Los Angeles,Kings,LAK,1,,current,2026-2027,standard_level
+Erik,Haula,Left Wing,3/23/91,Nashville,Predators,NAS,1,left,current,2025-2026,standard_level
+Nic,Dowd,Center,5/27/90,Washington,Capitals,WAS,1,right,current,2026-2027,standard_level
+Taylor,Hall,Left Wing,11/14/91,Carolina,Hurricanes,CAR,1,left,current,2027-2028,standard_level
+Tyler,Seguin,Center,1/31/92,Dallas,Stars,DAL,1,right,current,2026-2027,standard_level
+Erik,Gudbranson,Defense,1/7/92,Columbus,Blue Jackets,CBJ,1,right,current,2025-2026,standard_level
+Nino,Niederreiter,Right Wing,9/8/92,Winnipeg,Jets,WPG,1,left,current,2026-2027,standard_level
+Jeff,Skinner,Center,5/16/92,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Mikael,Granlund,Center,2/26/92,Anaheim,Ducks,ANA,1,left,current,2027-2028,standard_level
+Dylan,McIlrath,Defense,4/20/92,Washington,Capitals,WAS,1,right,current,2026-2027,standard_level
+Cam,Fowler,Defense,12/5/91,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Jaden,Schwartz,Left Wing,6/25/92,Seattle,Kraken,SEA,1,left,current,2025-2026,standard_level
+Derek,Forbort,Defense,3/4/92,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Vladimir,Tarasenko,Right Wing,12/13/91,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Austin,Watson,Left Wing,1/13/92,Detroit,Red Wings,DET,0,right,current,2025-2026,standard_level
+Nick,Bjugstad,Center,7/17/92,St. Louis,Blues,STL,1,right,current,2026-2027,standard_level
+Kevin,Hayes,Center,5/8/92,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Charlie,Coyle,Center,3/2/92,Columbus,Blue Jackets,CBJ,1,right,current,2025-2026,standard_level
+Brock,Nelson,Center,10/15/91,Colorado,Avalanche,COL,1,left,current,2027-2028,standard_level
+Tyler,Pitlick,Center,11/1/91,Minnesota,Wild,MIN,1,right,current,2026-2027,standard_level
+Alexander,Petrovic,Defense,3/3/92,Dallas,Stars,DAL,1,right,current,2025-2026,standard_level
+Justin,Faulk,Defense,3/20/92,St. Louis,Blues,STL,1,right,current,2026-2027,standard_level
+Tyler,Toffoli,Right Wing,4/24/92,San Jose,Sharks,SJS,1,right,current,2027-2028,standard_level
+Calvin,Pickard,Goaltender,4/15/92,Edmonton,Oilers,EDM,1,,current,2025-2026,standard_level
+Calle,Jarnkrok,Center,9/25/91,Toronto,Maple Leafs,TOR,1,right,current,2025-2026,standard_level
+Justin,Holl,Defense,1/30/92,Detroit,Red Wings,DET,0,right,current,2025-2026,standard_level
+Jason,Zucker,Left Wing,1/16/92,Buffalo,Sabres,BUF,1,left,current,2026-2027,standard_level
+Radko,Gudas,Defense,6/5/90,Anaheim,Ducks,ANA,1,right,current,2025-2026,standard_level
+Bryan,Rust,Right Wing,5/11/92,Pittsburgh,Penguins,PIT,1,right,current,2027-2028,standard_level
+Scott,Wedgewood,Goaltender,8/14/92,Colorado,Avalanche,COL,1,,current,2025-2026,standard_level
+Philipp,Grubauer,Goaltender,11/25/91,Seattle,Kraken,SEA,1,,current,2026-2027,standard_level
+Zach,Hyman,Center,6/9/92,Edmonton,Oilers,EDM,1,right,current,2027-2028,standard_level
+John,Klingberg,Defense,8/14/92,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Petr,Mrazek,Goaltender,2/14/92,Anaheim,Ducks,ANA,1,,current,2025-2026,standard_level
+Sam,Carrick,Center,2/4/92,New York,Rangers,NYR,1,right,current,2026-2027,standard_level
+Brendan,Gallagher,Right Wing,5/6/92,Montreal,Canadiens,MTL,1,right,current,2026-2027,standard_level
+Kevin,Gravel,Defense,3/6/92,Nashville,Predators,NAS,0,left,current,2025-2026,standard_level
+Mark,Stone,Right Wing,5/13/92,Vegas,Golden Knights,VGK,1,right,current,2026-2027,standard_level
+Frederik,Andersen,Goaltender,10/2/89,Carolina,Hurricanes,CAR,1,,current,2025-2026,standard_level
+Brendan,Smith,Defense,2/8/89,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Jacob,Markstrom,Goaltender,1/31/90,New Jersey,Devils,NJD,1,,current,2025-2026,standard_level
+Christopher,Tanev,Defense,12/20/89,Toronto,Maple Leafs,TOR,1,right,current,2029-2030,standard_level
+Jared,Spurgeon,Defense,11/29/89,Minnesota,Wild,MIN,1,right,current,2026-2027,standard_level
+Jake,Allen,Goaltender,8/7/90,New Jersey,Devils,NJD,1,,current,2029-2030,standard_level
+Justin,Dowling,Center,10/1/90,New York,Rangers,NYR,0,left,current,2026-2027,standard_level
+Mats,Zuccarello,Right Wing,9/1/87,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Sergei,Bobrovsky,Goaltender,9/20/88,Florida,Panthers,FLA,1,,current,2025-2026,standard_level
+Ryan,McDonagh,Defense,6/13/89,Tampa Bay,Lightning,TBL,1,left,current,2025-2026,standard_level
+Travis,Hamonic,Defense,8/16/90,Detroit,Red Wings,DET,1,right,current,2025-2026,standard_level
+Roman,Josi,Defense,6/1/90,Nashville,Predators,NAS,1,left,current,2027-2028,standard_level
+Brenden,Dillon,Defense,11/13/90,New Jersey,Devils,NJD,1,left,current,2026-2027,standard_level
+Gustav,Nyquist,Center,9/1/89,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Ryan,Nugent-Hopkins,Center,4/12/93,Edmonton,Oilers,EDM,1,left,current,2028-2029,standard_level
+Gabriel,Landeskog,Left Wing,11/23/92,Colorado,Avalanche,COL,1,left,current,2028-2029,standard_level
+Jonathan,Huberdeau,Left Wing,6/4/93,Calgary,Flames,CGY,1,left,current,2030-2031,standard_level
+Adam,Larsson,Defense,11/12/92,Seattle,Kraken,SEA,1,right,current,2028-2029,standard_level
+Ryan,Strome,Center,7/11/93,Anaheim,Ducks,ANA,1,right,current,2026-2027,standard_level
+Mika,Zibanejad,Center,4/18/93,New York,Rangers,NYR,1,right,current,2029-2030,standard_level
+Mark,Scheifele,Center,3/15/93,Winnipeg,Jets,WPG,1,right,current,2030-2031,standard_level
+Sean,Couturier,Center,12/7/92,Philadelphia,Flyers,PHI,1,left,current,2029-2030,standard_level
+Dougie,Hamilton,Defense,6/17/93,New Jersey,Devils,NJD,1,right,current,2027-2028,standard_level
+Jonas,Brodin,Defense,7/12/93,Minnesota,Wild,MIN,1,left,current,2027-2028,standard_level
+Jamie,Oleksiak,Defense,12/21/92,Seattle,Kraken,SEA,1,left,current,2025-2026,standard_level
+Joel,Armia,Right Wing,5/31/93,Los Angeles,Kings,LAK,1,right,current,2026-2027,standard_level
+Connor,Murphy,Defense,3/26/93,Chicago,Blackhawks,CHI,1,right,current,2025-2026,standard_level
+Stefan,Noesen,Right Wing,2/12/93,New Jersey,Devils,NJD,1,right,current,2026-2027,standard_level
+Phillip,Danault,Center,2/24/93,Montreal,Canadiens,MTL,1,left,current,2026-2027,standard_level
+Vladislav,Namestnikov,Center,11/22/92,Winnipeg,Jets,WPG,1,left,current,2026-2027,standard_level
+Rickard,Rakell,Center,5/5/93,Pittsburgh,Penguins,PIT,1,right,current,2027-2028,standard_level
+Scott,Mayfield,Defense,10/14/92,New York,Islanders,NYI,1,right,current,2029-2030,standard_level
+Boone,Jenner,Center,6/15/93,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+John,Gibson,Goaltender,7/14/93,Detroit,Red Wings,DET,1,,current,2026-2027,standard_level
+Brandon,Saad,Left Wing,10/27/92,Vegas,Golden Knights,VGK,1,left,current,2025-2026,standard_level
+Joel,Edmundson,Defense,6/28/93,Los Angeles,Kings,LAK,1,left,current,2027-2028,standard_level
+William,Karlsson,Center,1/8/93,Vegas,Golden Knights,VGK,1,left,current,2026-2027,standard_level
+Nikita,Kucherov,Right Wing,6/17/93,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,standard_level
+Vincent,Trocheck,Center,7/11/93,New York,Rangers,NYR,1,right,current,2028-2029,standard_level
+Adam,Lowry,Center,3/29/93,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Nick,Cousins,Center,7/20/93,Ottawa,Senators,OTT,1,left,current,2025-2026,standard_level
+Blake,Coleman,Left Wing,11/28/91,Calgary,Flames,CGY,1,left,current,2026-2027,standard_level
+Jordan,Binnington,Goaltender,7/11/93,St. Louis,Blues,STL,1,,current,2026-2027,standard_level
+Jean-Gabriel,Pageau,Center,11/11/92,New York,Islanders,NYI,1,right,current,2025-2026,standard_level
+Mike,Reilly,Defense,7/13/93,Carolina,Hurricanes,CAR,1,left,current,2025-2026,standard_level
+Joe,Labate,Center,4/16/93,Vancouver,Canucks,VAN,0,left,current,2025-2026,standard_level
+Nick,Seeler,Defense,6/3/93,Philadelphia,Flyers,PHI,1,left,current,2027-2028,standard_level
+Sean,Kuraly,Center,1/20/93,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Josh,Manson,Defense,10/7/91,Colorado,Avalanche,COL,1,right,current,2025-2026,standard_level
+Laurent,Brossoit,Goaltender,3/23/93,San Jose,Sharks,SJS,0,,current,2025-2026,standard_level
+Max,McCormick,Left Wing,5/1/92,Seattle,Kraken,SEA,0,left,current,2025-2026,standard_level
+Travis,Boyd,Center,9/14/93,Toronto,Maple Leafs,TOR,0,right,current,2025-2026,standard_level
+Dylan,Demelo,Defense,5/1/93,Winnipeg,Jets,WPG,1,right,current,2027-2028,standard_level
+Anton,Forsberg,Goaltender,11/27/92,Los Angeles,Kings,LAK,1,,current,2026-2027,standard_level
+Ondrej,Palat,Left Wing,3/28/91,New Jersey,Devils,NJD,1,left,current,2026-2027,standard_level
+J.T.,Miller,Center,3/14/93,New York,Rangers,NYR,1,left,current,2029-2030,standard_level
+Jonathan,Marchessault,Left Wing,12/27/90,Nashville,Predators,NAS,1,right,current,2028-2029,standard_level
+Colin,Miller,Defense,10/29/92,Winnipeg,Jets,WPG,1,right,current,2025-2026,standard_level
+Alex,Killorn,Left Wing,9/14/89,Anaheim,Ducks,ANA,1,left,current,2026-2027,standard_level
+Torey,Krug,Defense,4/12/91,St. Louis,Blues,STL,1,left,current,2026-2027,standard_level
+Morgan,Rielly,Defense,3/9/94,Toronto,Maple Leafs,TOR,1,left,current,2029-2030,standard_level
+Hampus,Lindholm,Defense,1/20/94,Boston,Bruins,BOS,1,left,current,2029-2030,standard_level
+Matt,Dumba,Defense,7/25/94,Pittsburgh,Penguins,PIT,0,right,current,2025-2026,standard_level
+Derrick,Pouliot,Defense,1/16/94,New York,Rangers,NYR,0,left,current,2026-2027,standard_level
+Jacob,Trouba,Defense,2/26/94,Anaheim,Ducks,ANA,1,right,current,2025-2026,standard_level
+Filip,Forsberg,Center,8/13/94,Nashville,Predators,NAS,1,right,current,2029-2030,standard_level
+Radek,Faksa,Center,1/9/94,Dallas,Stars,DAL,1,left,current,2027-2028,standard_level
+Zemgus,Girgensons,Center,1/5/94,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,standard_level
+Cody,Ceci,Defense,12/21/93,Los Angeles,Kings,LAK,1,right,current,2028-2029,standard_level
+Tom,Wilson,Right Wing,3/29/94,Washington,Capitals,WAS,1,right,current,2030-2031,standard_level
+Tomas,Hertl,Center,11/12/93,Vegas,Golden Knights,VGK,1,left,current,2029-2030,standard_level
+Teuvo,Teravainen,Center,9/11/94,Chicago,Blackhawks,CHI,1,left,current,2026-2027,standard_level
+Andrei,Vasilevskiy,Goaltender,7/25/94,Tampa Bay,Lightning,TBL,1,,current,2027-2028,standard_level
+Scott,Laughton,Center,5/30/94,Toronto,Maple Leafs,TOR,1,left,current,2025-2026,standard_level
+Mark,Jankowski,Center,9/13/94,Carolina,Hurricanes,CAR,1,left,current,2025-2026,standard_level
+Olli,Maatta,Defense,8/22/94,Utah,Mammoth,UTA,1,left,current,2027-2028,standard_level
+Mike,Matheson,Defense,2/27/94,Montreal,Canadiens,MTL,1,left,current,2025-2026,standard_level
+Brendan,Gaunce,Center,3/25/94,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Brady,Skjei,Defense,3/26/94,Nashville,Predators,NAS,1,left,current,2030-2031,standard_level
+Tanner,Pearson,Left Wing,8/10/92,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Phillip,Di Giuseppe,Left Wing,10/9/93,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Jake,McCabe,Defense,10/12/93,Toronto,Maple Leafs,TOR,1,left,current,2029-2030,standard_level
+Anthony,Stolarz,Goaltender,1/20/94,Toronto,Maple Leafs,TOR,1,,current,2025-2026,standard_level
+Colton,Sissons,Center,11/5/93,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Teddy,Blueger,Center,8/15/94,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Jordan,Martinook,Center,7/25/92,Carolina,Hurricanes,CAR,1,left,current,2026-2027,standard_level
+Damon,Severson,Defense,8/7/94,Columbus,Blue Jackets,CBJ,1,right,current,2030-2031,standard_level
+Joonas,Korpisalo,Goaltender,4/28/94,Boston,Bruins,BOS,1,,current,2027-2028,standard_level
+Adam,Pelech,Defense,8/16/94,New York,Islanders,NYI,1,left,current,2028-2029,standard_level
+MacKenzie,MacEachern,Left Wing,3/9/94,Vancouver,Canucks,VAN,0,left,current,2026-2027,standard_level
+Esa,Lindell,Defense,5/23/94,Dallas,Stars,DAL,1,left,current,2029-2030,standard_level
+Chandler,Stephenson,Center,4/22/94,Seattle,Kraken,SEA,1,left,current,2030-2031,standard_level
+Shayne,Gostisbehere,Defense,4/20/93,Carolina,Hurricanes,CAR,1,left,current,2026-2027,standard_level
+Oskar,Sundqvist,Center,3/23/94,St. Louis,Blues,STL,1,right,current,2025-2026,standard_level
+Matt,Murray,Goaltender,5/25/94,Seattle,Kraken,SEA,1,,current,2025-2026,standard_level
+Matt,Grzelcyk,Defense,1/5/94,Chicago,Blackhawks,CHI,1,left,current,2025-2026,standard_level
+Colton,Parayko,Defense,5/12/93,St. Louis,Blues,STL,1,right,current,2029-2030,standard_level
+Erik,Gustafsson,Defense,3/14/92,Detroit,Red Wings,DET,1,left,current,2025-2026,standard_level
+Josh,Anderson,Right Wing,5/7/94,Montreal,Canadiens,MTL,1,right,current,2026-2027,standard_level
+Brett,Kulak,Defense,1/6/94,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Jaccob,Slavin,Defense,5/1/94,Carolina,Hurricanes,CAR,1,left,current,2032-2033,standard_level
+Dominic,Toninato,Center,3/9/94,Chicago,Blackhawks,CHI,0,left,current,2026-2027,standard_level
+Connor,Hellebuyck,Goaltender,5/19/93,Winnipeg,Jets,WPG,1,,current,2030-2031,standard_level
+Ben,Hutton,Defense,4/20/93,Vegas,Golden Knights,VGK,1,left,current,2025-2026,standard_level
+Alexander,Kerfoot,Center,8/11/94,Utah,Mammoth,UTA,1,left,current,2025-2026,standard_level
+Connor,Brown,Right Wing,1/14/94,New Jersey,Devils,NJD,1,right,current,2028-2029,standard_level
+Linus,Ullmark,Goaltender,7/31/93,Ottawa,Senators,OTT,1,,current,2028-2029,standard_level
+Vinnie,Hinostroza,Right Wing,4/3/94,Minnesota,Wild,MIN,1,right,current,2025-2026,standard_level
+Matt,Benning,Defense,5/25/94,Toronto,Maple Leafs,TOR,1,right,current,2025-2026,standard_level
+Matt,Tomkins,Goaltender,6/19/94,Edmonton,Oilers,EDM,0,,current,2026-2027,standard_level
+Jaycob,Megna,Defense,12/10/92,Vegas,Golden Knights,VGK,1,left,current,2026-2027,standard_level
+Kurtis,MacDermid,Left Wing,3/25/94,Ottawa,Senators,OTT,1,left,current,2026-2027,standard_level
+Nathan,MacKinnon,Center,9/1/95,Colorado,Avalanche,COL,1,right,current,2030-2031,standard_level
+Anthony,Duclair,Center,8/26/95,New York,Islanders,NYI,1,left,current,2027-2028,standard_level
+Adam,Erne,Left Wing,4/20/95,Dallas,Stars,DAL,1,left,current,2025-2026,standard_level
+Liam,O'Brien,Left Wing,7/29/94,Utah,Mammoth,UTA,1,left,current,2026-2027,standard_level
+Matthew,Highmore,Center,2/27/96,New York,Islanders,NYI,0,left,current,2025-2026,standard_level
+Spencer,Smallman,Right Wing,9/9/96,Washington,Capitals,WAS,0,right,current,2026-2027,standard_level
+Anthony,Mantha,Right Wing,9/16/94,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Nicolas,Aube-Kubel,Right Wing,5/10/96,Minnesota,Wild,MIN,1,right,current,2025-2026,standard_level
+Anthony,Richard,Center,12/20/96,Philadelphia,Flyers,PHI,0,left,current,2025-2026,standard_level
+Ryan,Graves,Defense,5/21/95,Pittsburgh,Penguins,PIT,1,left,current,2028-2029,standard_level
+Ivan,Barbashev,Center,12/14/95,Vegas,Golden Knights,VGK,1,left,current,2027-2028,standard_level
+Frederick,Gaudreau,Center,5/1/93,Seattle,Kraken,SEA,1,right,current,2027-2028,standard_level
+Ross,Johnston,Left Wing,2/18/94,Anaheim,Ducks,ANA,1,left,current,2025-2026,standard_level
+Clark,Bishop,Center,3/29/96,Calgary,Flames,CGY,0,left,current,2025-2026,standard_level
+William,Carrier,Left Wing,12/20/94,Carolina,Hurricanes,CAR,1,left,current,2029-2030,standard_level
+Jonathan,Drouin,Left Wing,3/28/95,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+MacKenzie,Weegar,Defense,1/7/94,Calgary,Flames,CGY,1,right,current,2030-2031,standard_level
+Conor,Garland,Right Wing,3/11/96,Vancouver,Canucks,VAN,1,right,current,2025-2026,standard_level
+Nate,Schmidt,Defense,7/16/91,Utah,Mammoth,UTA,1,left,current,2027-2028,standard_level
+Seth,Jones,Defense,10/3/94,Florida,Panthers,FLA,1,right,current,2029-2030,standard_level
+Aleksander,Barkov,Center,9/2/95,Florida,Panthers,FLA,1,left,current,2029-2030,standard_level
+Elias,Lindholm,Center,12/2/94,Boston,Bruins,BOS,1,right,current,2030-2031,standard_level
+Sean,Monahan,Center,10/12/94,Columbus,Blue Jackets,CBJ,1,left,current,2028-2029,standard_level
+Darnell,Nurse,Defense,2/4/95,Edmonton,Oilers,EDM,1,left,current,2029-2030,standard_level
+Rasmus,Ristolainen,Defense,10/27/94,Philadelphia,Flyers,PHI,1,right,current,2026-2027,standard_level
+Bo,Horvat,Center,4/5/95,New York,Islanders,NYI,1,left,current,2030-2031,standard_level
+Max,Domi,Center,3/2/95,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,standard_level
+Josh,Morrissey,Defense,3/28/95,Winnipeg,Jets,WPG,1,left,current,2027-2028,standard_level
+Alexander,Wennberg,Center,9/22/94,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Ryan,Pulock,Defense,10/6/94,New York,Islanders,NYI,1,right,current,2029-2030,standard_level
+Nikita,Zadorov,Defense,4/16/95,Boston,Bruins,BOS,1,left,current,2029-2030,standard_level
+Curtis,Lazar,Center,2/2/95,Edmonton,Oilers,EDM,1,right,current,2025-2026,standard_level
+Andre,Burakovsky,Left Wing,2/9/95,Chicago,Blackhawks,CHI,1,left,current,2026-2027,standard_level
+Michael,McCarron,Right Wing,3/7/95,Nashville,Predators,NAS,1,right,current,2025-2026,standard_level
+Shea,Theodore,Defense,8/3/95,Vegas,Golden Knights,VGK,1,left,current,2031-2032,standard_level
+Jason,Dickinson,Center,7/4/95,Chicago,Blackhawks,CHI,1,left,current,2025-2026,standard_level
+Ryan,Hartman,Right Wing,9/20/94,Minnesota,Wild,MIN,1,right,current,2026-2027,standard_level
+J.T.,Compher,Center,4/8/95,Detroit,Red Wings,DET,1,right,current,2027-2028,standard_level
+Steven,Santini,Defense,3/7/95,Tampa Bay,Lightning,TBL,0,right,current,2026-2027,standard_level
+Tristan,Jarry,Goaltender,4/29/95,Edmonton,Oilers,EDM,1,,current,2027-2028,standard_level
+Artturi,Lehkonen,Left Wing,7/4/95,Colorado,Avalanche,COL,1,left,current,2026-2027,standard_level
+Tyler,Bertuzzi,Left Wing,2/24/95,Chicago,Blackhawks,CHI,1,left,current,2027-2028,standard_level
+Eric,Comrie,Goaltender,7/6/95,Winnipeg,Jets,WPG,1,,current,2025-2026,standard_level
+Spencer,Martin,Goaltender,6/8/95,New York,Rangers,NYR,1,,current,2026-2027,standard_level
+Brett,Pesce,Defense,11/15/94,New Jersey,Devils,NJD,1,right,current,2029-2030,standard_level
+John,Hayden,Center,2/14/95,Seattle,Kraken,SEA,0,right,current,2026-2027,standard_level
+Pavel,Buchnevich,Center,4/17/95,St. Louis,Blues,STL,1,left,current,2030-2031,standard_level
+Marcus,Hogberg,Goaltender,11/25/94,New York,Islanders,NYI,0,,current,2025-2026,standard_level
+Mattias,Janmark,Center,12/8/92,Edmonton,Oilers,EDM,1,left,current,2026-2027,standard_level
+Jake,Guentzel,Left Wing,10/6/94,Tampa Bay,Lightning,TBL,1,left,current,2030-2031,standard_level
+Carter,Verhaeghe,Center,8/14/95,Florida,Panthers,FLA,1,left,current,2032-2033,standard_level
+Oliver,Bjorkstrand,Right Wing,4/10/95,Tampa Bay,Lightning,TBL,1,right,current,2025-2026,standard_level
+Mason,Geertsen,Left Wing,4/19/95,Buffalo,Sabres,BUF,0,left,current,2026-2027,standard_level
+Juuse,Saros,Goaltender,4/19/95,Nashville,Predators,NAS,1,,current,2032-2033,standard_level
+Miles,Wood,Left Wing,9/13/95,Columbus,Blue Jackets,CBJ,1,left,current,2028-2029,standard_level
+Nick,Paul,Left Wing,3/20/95,Tampa Bay,Lightning,TBL,1,left,current,2028-2029,standard_level
+Andrew,Copp,Center,7/8/94,Detroit,Red Wings,DET,1,left,current,2026-2027,standard_level
+Hudson,Fasching,Right Wing,7/28/95,Columbus,Blue Jackets,CBJ,0,right,current,2025-2026,standard_level
+Cal,Petersen,Goaltender,10/19/94,Minnesota,Wild,MIN,0,,current,2025-2026,standard_level
+Carson,Soucy,Defense,7/27/94,New York,Rangers,NYR,1,left,current,2025-2026,standard_level
+Jonny,Brodzinski,Center,6/19/93,New York,Rangers,NYR,1,right,current,2025-2026,standard_level
+Josh,Brown,Defense,1/21/94,Edmonton,Oilers,EDM,0,right,current,2026-2027,standard_level
+Anton,Blidh,Left Wing,3/14/95,New York,Rangers,NYR,1,left,current,2026-2027,standard_level
+Kyle,Burroughs,Defense,7/12/95,Los Angeles,Kings,LAK,0,right,current,2025-2026,standard_level
+Luke,Glendening,Center,4/28/89,New Jersey,Devils,NJD,1,right,current,2025-2026,standard_level
+Scott,Sabourin,Right Wing,7/30/92,Tampa Bay,Lightning,TBL,1,right,current,2025-2026,standard_level
+Nathan,Walker,Left Wing,2/7/94,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Barclay,Goodrow,Center,2/26/93,San Jose,Sharks,SJS,1,left,current,2026-2027,standard_level
+Trevor,van Riemsdyk,Defense,7/24/91,Washington,Capitals,WAS,1,right,current,2025-2026,standard_level
+Jordan,Oesterle,Defense,6/25/92,Nashville,Predators,NAS,0,left,current,2025-2026,standard_level
+TJ,Tynan,Center,2/25/92,Colorado,Avalanche,COL,0,right,current,2025-2026,standard_level
+Tomas,Nosek,Left Wing,9/1/92,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Aaron,Ekblad,Defense,2/7/96,Florida,Panthers,FLA,1,right,current,2032-2033,standard_level
+Sam,Reinhart,Center,11/6/95,Florida,Panthers,FLA,1,right,current,2031-2032,standard_level
+Leon,Draisaitl,Center,10/27/95,Edmonton,Oilers,EDM,1,left,current,2032-2033,standard_level
+Sam,Bennett,Center,6/20/96,Florida,Panthers,FLA,1,left,current,2032-2033,standard_level
+Haydn,Fleury,Defense,7/8/96,Winnipeg,Jets,WPG,1,left,current,2026-2027,standard_level
+William,Nylander,Center,5/1/96,Toronto,Maple Leafs,TOR,1,right,current,2031-2032,standard_level
+Nikolaj,Ehlers,Left Wing,2/14/96,Carolina,Hurricanes,CAR,1,left,current,2030-2031,standard_level
+Kevin,Fiala,Center,7/22/96,Los Angeles,Kings,LAK,1,left,current,2028-2029,standard_level
+Dylan,Larkin,Center,7/30/96,Detroit,Red Wings,DET,1,left,current,2030-2031,standard_level
+Sonny,Milano,Left Wing,5/12/96,Washington,Capitals,WAS,1,left,current,2025-2026,standard_level
+Travis,Sanheim,Defense,3/29/96,Philadelphia,Flyers,PHI,1,left,current,2030-2031,standard_level
+Alex,Tuch,Right Wing,5/10/96,Buffalo,Sabres,BUF,1,right,current,2025-2026,standard_level
+Tony,DeAngelo,Defense,10/24/95,New York,Islanders,NYI,1,right,current,2025-2026,standard_level
+Nick,Schmaltz,Center,2/23/96,Utah,Mammoth,UTA,1,right,current,2025-2026,standard_level
+Robby,Fabbri,Center,1/22/96,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Kasperi,Kapanen,Center,7/23/96,Edmonton,Oilers,EDM,1,right,current,2025-2026,standard_level
+Jared,McCann,Center,5/31/96,Seattle,Kraken,SEA,1,left,current,2026-2027,standard_level
+David,Pastrnak,Right Wing,5/25/96,Boston,Bruins,BOS,1,right,current,2030-2031,standard_level
+Adrian,Kempe,Center,9/13/96,Los Angeles,Kings,LAK,1,left,current,2025-2026,standard_level
+Thatcher,Demko,Goaltender,12/8/95,Vancouver,Canucks,VAN,1,,current,2025-2026,standard_level
+Alex,Nedeljkovic,Goaltender,1/7/96,San Jose,Sharks,SJS,1,,current,2025-2026,standard_level
+Marcus,Pettersson,Defense,5/8/96,Vancouver,Canucks,VAN,1,left,current,2030-2031,standard_level
+Vitek,Vanecek,Goaltender,1/9/96,Utah,Mammoth,UTA,1,,current,2025-2026,standard_level
+Andreas,Englund,Defense,1/21/96,Nashville,Predators,NAS,0,left,current,2025-2026,standard_level
+Brandon,Montour,Defense,4/11/94,Seattle,Kraken,SEA,1,right,current,2030-2031,standard_level
+Ryan,Donato,Center,4/9/96,Chicago,Blackhawks,CHI,1,left,current,2028-2029,standard_level
+Christian,Dvorak,Center,2/2/96,Philadelphia,Flyers,PHI,1,left,current,2025-2026,standard_level
+Brandon,Halverson,Goaltender,3/29/96,Tampa Bay,Lightning,TBL,0,,current,2025-2026,standard_level
+Jonas,Johansson,Goaltender,9/19/95,Tampa Bay,Lightning,TBL,1,,current,2026-2027,standard_level
+Justin,Kirkland,Center,8/2/96,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Juho,Lammikko,Center,1/29/96,New Jersey,Devils,NJD,1,left,current,2025-2026,standard_level
+Warren,Foegele,Left Wing,4/1/96,Los Angeles,Kings,LAK,1,left,current,2026-2027,standard_level
+Elvis,Merzlikins,Goaltender,4/13/94,Columbus,Blue Jackets,CBJ,1,,current,2026-2027,standard_level
+Ilya,Sorokin,Goaltender,8/4/95,New York,Islanders,NYI,1,,current,2031-2032,standard_level
+Brayden,Point,Center,3/13/96,Tampa Bay,Lightning,TBL,1,right,current,2029-2030,standard_level
+Louie,Belpedio,Defense,5/14/96,Washington,Capitals,WAS,0,right,current,2026-2027,standard_level
+Jake,Walman,Defense,2/20/96,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Michael,Amadio,Center,5/13/96,Ottawa,Senators,OTT,1,right,current,2026-2027,standard_level
+William,Lagesson,Defense,2/22/96,Detroit,Red Wings,DET,0,left,current,2026-2027,standard_level
+Ville,Husso,Goaltender,2/6/95,Anaheim,Ducks,ANA,1,,current,2026-2027,standard_level
+Devon,Toews,Defense,2/21/94,Colorado,Avalanche,COL,1,left,current,2030-2031,standard_level
+Kaapo,Kahkonen,Goaltender,8/16/96,Montreal,Canadiens,MTL,0,,current,2025-2026,standard_level
+Viktor,Arvidsson,Left Wing,4/8/93,Boston,Bruins,BOS,1,right,current,2025-2026,standard_level
+Sam,Lafferty,Center,3/6/95,Chicago,Blackhawks,CHI,1,right,current,2025-2026,standard_level
+Michael,Bunting,Left Wing,9/17/95,Nashville,Predators,NAS,1,left,current,2025-2026,standard_level
+Igor,Shesterkin,Goaltender,12/30/95,New York,Rangers,NYR,1,,current,2032-2033,standard_level
+Gustav,Forsling,Defense,6/12/96,Florida,Panthers,FLA,1,left,current,2031-2032,standard_level
+Dakota,Joshua,Left Wing,5/15/96,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,standard_level
+Dysin,Mayo,Defense,8/17/96,Columbus,Blue Jackets,CBJ,0,right,current,2025-2026,standard_level
+Sammy,Blais,Left Wing,6/17/96,Montreal,Canadiens,MTL,1,left,current,2025-2026,standard_level
+Victor,Olofsson,Left Wing,7/18/95,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Jake,Evans,Center,6/2/96,Montreal,Canadiens,MTL,1,right,current,2028-2029,standard_level
+Jacob,Middleton,Defense,1/2/96,Minnesota,Wild,MIN,1,left,current,2028-2029,standard_level
+Patrick,Brown,Center,5/29/92,Boston,Bruins,BOS,0,right,current,2025-2026,standard_level
+Pheonix,Copley,Goaltender,1/18/92,Los Angeles,Kings,LAK,0,,current,2025-2026,standard_level
+Garnet,Hathaway,Right Wing,11/23/91,Philadelphia,Flyers,PHI,1,right,current,2026-2027,standard_level
+Joe,Hicketts,Defense,5/4/96,Los Angeles,Kings,LAK,0,left,current,2026-2027,standard_level
+Conor,Sheary,Left Wing,6/8/92,New York,Rangers,NYR,1,left,current,2025-2026,standard_level
+Yanni,Gourde,Center,12/15/91,Tampa Bay,Lightning,TBL,1,left,current,2030-2031,standard_level
+Darren,Raddysh,Defense,2/28/96,Tampa Bay,Lightning,TBL,1,right,current,2025-2026,standard_level
+Frank,Vatrano,Center,3/14/94,Anaheim,Ducks,ANA,1,left,current,2027-2028,standard_level
+Evan,Rodrigues,Center,7/28/93,Florida,Panthers,FLA,1,right,current,2026-2027,standard_level
+Artemi,Panarin,Left Wing,10/30/91,New York,Rangers,NYR,1,right,current,2025-2026,standard_level
+Connor,McDavid,Center,1/13/97,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Jack,Eichel,Center,10/28/96,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Dylan,Strome,Center,3/7/97,Washington,Capitals,WAS,1,left,current,2027-2028,standard_level
+Mitchell,Marner,Right Wing,5/5/97,Vegas,Golden Knights,VGK,1,right,current,2032-2033,standard_level
+Noah,Hanifin,Defense,1/25/97,Vegas,Golden Knights,VGK,1,left,current,2031-2032,standard_level
+Pavel,Zacha,Center,4/6/97,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Ivan,Provorov,Defense,1/13/97,Columbus,Blue Jackets,CBJ,1,left,current,2031-2032,standard_level
+Zach,Werenski,Defense,7/19/97,Columbus,Blue Jackets,CBJ,1,left,current,2027-2028,standard_level
+Timo,Meier,Right Wing,10/8/96,New Jersey,Devils,NJD,1,left,current,2030-2031,standard_level
+Mikko,Rantanen,Center,10/29/96,Dallas,Stars,DAL,1,left,current,2032-2033,standard_level
+Lawson,Crouse,Left Wing,6/23/97,Utah,Mammoth,UTA,1,left,current,2026-2027,standard_level
+Jake,DeBrusk,Left Wing,10/17/96,Vancouver,Canucks,VAN,1,left,current,2030-2031,standard_level
+Mathew,Barzal,Center,5/26/97,New York,Islanders,NYI,1,right,current,2030-2031,standard_level
+Kyle,Connor,Left Wing,12/9/96,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Thomas,Chabot,Defense,1/30/97,Ottawa,Senators,OTT,1,left,current,2027-2028,standard_level
+Joel,Eriksson Ek,Center,1/29/97,Minnesota,Wild,MIN,1,left,current,2028-2029,standard_level
+Colin,White,Center,1/30/97,San Jose,Sharks,SJS,0,right,current,2025-2026,standard_level
+Brock,Boeser,Right Wing,2/25/97,Vancouver,Canucks,VAN,1,right,current,2031-2032,standard_level
+Travis,Konecny,Right Wing,3/11/97,Philadelphia,Flyers,PHI,1,right,current,2032-2033,standard_level
+Jack,Roslovic,Center,1/29/97,Edmonton,Oilers,EDM,1,right,current,2025-2026,standard_level
+Noah,Juulsen,Defense,4/2/97,Philadelphia,Flyers,PHI,1,right,current,2025-2026,standard_level
+Anthony,Beauvillier,Center,6/8/97,Washington,Capitals,WAS,1,left,current,2026-2027,standard_level
+Mitchell,Stephens,Center,2/5/97,Seattle,Kraken,SEA,0,right,current,2025-2026,standard_level
+Sebastian,Aho,Center,7/26/97,Carolina,Hurricanes,CAR,1,left,current,2031-2032,standard_level
+Brandon,Carlo,Defense,11/26/96,Toronto,Maple Leafs,TOR,1,right,current,2026-2027,standard_level
+A.J.,Greer,Left Wing,12/14/96,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+MacKenzie,Blackwood,Goaltender,12/9/96,Colorado,Avalanche,COL,1,,current,2029-2030,standard_level
+Erik,Cernak,Defense,5/28/97,Tampa Bay,Lightning,TBL,1,right,current,2030-2031,standard_level
+Jansen,Harkins,Center,5/23/97,Anaheim,Ducks,ANA,1,left,current,2025-2026,standard_level
+Roope,Hintz,Center,11/17/96,Dallas,Stars,DAL,1,left,current,2030-2031,standard_level
+Jordan,Greenway,Center,2/16/97,Buffalo,Sabres,BUF,1,left,current,2026-2027,standard_level
+Jeremy,Lauzon,Defense,4/28/97,Vegas,Golden Knights,VGK,1,left,current,2025-2026,standard_level
+Rasmus,Andersson,Defense,10/27/96,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Yakov,Trenin,Center,1/13/97,Minnesota,Wild,MIN,1,left,current,2027-2028,standard_level
+Vince,Dunn,Defense,10/29/96,Seattle,Kraken,SEA,1,left,current,2026-2027,standard_level
+Jonas,Siegenthaler,Defense,5/6/97,New Jersey,Devils,NJD,1,left,current,2027-2028,standard_level
+Kevin,Stenlund,Center,9/20/96,Utah,Mammoth,UTA,1,right,current,2025-2026,standard_level
+Kyle,Capobianco,Defense,8/13/97,Dallas,Stars,DAL,1,left,current,2025-2026,standard_level
+Guillaume,Brisebois,Defense,7/21/97,Vancouver,Canucks,VAN,0,left,current,2025-2026,standard_level
+Keegan,Kolesar,Right Wing,4/8/97,Vegas,Golden Knights,VGK,1,right,current,2027-2028,standard_level
+Anthony,Cirelli,Center,7/15/97,Tampa Bay,Lightning,TBL,1,left,current,2030-2031,standard_level
+Dan,Vladar,Goaltender,8/20/97,Philadelphia,Flyers,PHI,1,,current,2026-2027,standard_level
+Adin,Hill,Goaltender,5/11/96,Vegas,Golden Knights,VGK,1,,current,2030-2031,standard_level
+Sam,Montembeault,Goaltender,10/30/96,Montreal,Canadiens,MTL,1,,current,2026-2027,standard_level
+Thomas,Novak,Center,4/28/97,Pittsburgh,Penguins,PIT,1,left,current,2026-2027,standard_level
+Dennis,Gilbert,Defense,10/30/96,Ottawa,Senators,OTT,0,left,current,2025-2026,standard_level
+William,Borgen,Defense,12/19/96,New York,Rangers,NYR,1,right,current,2029-2030,standard_level
+Nicolas,Roy,Center,2/5/97,Toronto,Maple Leafs,TOR,1,right,current,2026-2027,standard_level
+Colton,White,Defense,5/3/97,New Jersey,Devils,NJD,0,left,current,2025-2026,standard_level
+Parker,Wotherspoon,Defense,8/24/97,Pittsburgh,Penguins,PIT,1,left,current,2026-2027,standard_level
+Alexandre,Carrier,Defense,10/8/96,Montreal,Canadiens,MTL,1,right,current,2026-2027,standard_level
+Glenn,Gawdin,Center,3/25/97,Los Angeles,Kings,LAK,0,right,current,2025-2026,standard_level
+Caleb,Jones,Defense,6/6/97,Pittsburgh,Penguins,PIT,1,left,current,2026-2027,standard_level
+Mathieu,Joseph,Right Wing,2/9/97,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Ryan,Shea,Defense,2/11/97,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Ethan,Bear,Defense,6/26/97,New York,Islanders,NYI,0,right,current,2025-2026,standard_level
+Niko,Mikkola,Defense,4/27/96,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Kirill,Kaprizov,Left Wing,4/26/97,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Karel,Vejmelka,Goaltender,5/25/96,Utah,Mammoth,UTA,1,,current,2029-2030,standard_level
+Troy,Terry,Center,9/10/97,Anaheim,Ducks,ANA,1,right,current,2029-2030,standard_level
+Adam,Gaudette,Center,10/3/96,San Jose,Sharks,SJS,1,right,current,2026-2027,standard_level
+John,Marino,Defense,5/21/97,Utah,Mammoth,UTA,1,right,current,2026-2027,standard_level
+Vladislav,Gavrikov,Defense,11/21/95,New York,Rangers,NYR,1,left,current,2031-2032,standard_level
+Cameron,Hughes,Center,10/9/96,Dallas,Stars,DAL,0,left,current,2026-2027,standard_level
+Andrew,Mangiapane,Center,4/4/96,Edmonton,Oilers,EDM,1,left,current,2026-2027,standard_level
+Mason,Appleton,Center,1/15/96,Detroit,Red Wings,DET,1,right,current,2026-2027,standard_level
+Bokondji,Imama,Left Wing,8/3/96,Pittsburgh,Penguins,PIT,0,left,current,2025-2026,standard_level
+Steven,Lorentz,Center,4/13/96,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,standard_level
+Ivan,Fedotov,Goaltender,11/28/96,Columbus,Blue Jackets,CBJ,0,,current,2025-2026,standard_level
+Matt,Roy,Defense,3/1/95,Washington,Capitals,WAS,1,right,current,2029-2030,standard_level
+Joey,Daccord,Goaltender,8/19/96,Seattle,Kraken,SEA,1,,current,2029-2030,standard_level
+Dakota,Mermis,Defense,1/5/94,Toronto,Maple Leafs,TOR,1,left,current,2026-2027,standard_level
+Joel,Hanley,Defense,6/8/91,Calgary,Flames,CGY,1,left,current,2026-2027,standard_level
+Lane,Pederson,Center,8/4/97,Philadelphia,Flyers,PHI,1,right,current,2025-2026,standard_level
+Noel,Acciari,Center,12/1/91,Pittsburgh,Penguins,PIT,1,right,current,2025-2026,standard_level
+Eric,Robinson,Left Wing,6/14/95,Carolina,Hurricanes,CAR,1,left,current,2028-2029,standard_level
+Ryan,Lomberg,Left Wing,12/9/94,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Mason,Marchment,Left Wing,6/18/95,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Samuel,Laberge,Center,4/10/97,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Philippe,Myers,Defense,1/25/97,Toronto,Maple Leafs,TOR,1,right,current,2026-2027,standard_level
+Connor,Ingram,Goaltender,3/31/97,Edmonton,Oilers,EDM,1,,current,2025-2026,standard_level
+Jalen,Chatfield,Defense,5/15/96,Carolina,Hurricanes,CAR,1,right,current,2026-2027,standard_level
+Dryden,Hunt,Left Wing,11/24/95,Calgary,Flames,CGY,1,left,current,2026-2027,standard_level
+Charlie,Lindgren,Goaltender,12/18/93,Washington,Capitals,WAS,1,,current,2027-2028,standard_level
+Brandon,Tanev,Left Wing,12/31/91,Utah,Mammoth,UTA,1,left,current,2027-2028,standard_level
+Alex,Lyon,Goaltender,12/9/92,Buffalo,Sabres,BUF,1,,current,2026-2027,standard_level
+Danton,Heinen,Left Wing,7/5/95,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Troy,Stecher,Defense,4/7/94,Toronto,Maple Leafs,TOR,1,right,current,2025-2026,standard_level
+David,Rittich,Goaltender,8/19/92,New York,Islanders,NYI,1,,current,2025-2026,standard_level
+Auston,Matthews,Center,9/17/97,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,standard_level
+Patrik,Laine,Left Wing,4/19/98,Montreal,Canadiens,MTL,1,right,current,2025-2026,standard_level
+Pierre-Luc,Dubois,Center,6/24/98,Washington,Capitals,WAS,1,left,current,2030-2031,standard_level
+Matthew,Tkachuk,Left Wing,12/11/97,Florida,Panthers,FLA,1,left,current,2029-2030,standard_level
+Clayton,Keller,Right Wing,7/29/98,Utah,Mammoth,UTA,1,left,current,2027-2028,standard_level
+Mikhail,Sergachev,Defense,6/25/98,Utah,Mammoth,UTA,1,left,current,2030-2031,standard_level
+Tyson,Jost,Center,3/14/98,Nashville,Predators,NAS,1,left,current,2025-2026,standard_level
+Logan,Brown,Center,3/5/98,Los Angeles,Kings,LAK,0,left,current,2025-2026,standard_level
+Jake,Bean,Defense,6/9/98,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Charlie,McAvoy,Defense,12/21/97,Boston,Bruins,BOS,1,right,current,2029-2030,standard_level
+Luke,Kunin,Center,12/4/97,Florida,Panthers,FLA,1,right,current,2025-2026,standard_level
+Jakob,Chychrun,Defense,3/31/98,Washington,Capitals,WAS,1,left,current,2032-2033,standard_level
+Dante,Fabbro,Defense,6/20/98,Columbus,Blue Jackets,CBJ,1,right,current,2028-2029,standard_level
+Logan,Stanley,Defense,5/26/98,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Dennis,Cholowski,Defense,2/15/98,New Jersey,Devils,NJD,0,left,current,2025-2026,standard_level
+Julien,Gauthier,Right Wing,10/15/97,New York,Islanders,NYI,0,right,current,2025-2026,standard_level
+Max,Jones,Left Wing,2/17/98,Edmonton,Oilers,EDM,0,left,current,2025-2026,standard_level
+Riley,Tufte,Left Wing,4/10/98,Boston,Bruins,BOS,0,left,current,2025-2026,standard_level
+Tage,Thompson,Center,10/30/97,Buffalo,Sabres,BUF,1,right,current,2029-2030,standard_level
+Brett,Howden,Center,3/29/98,Vegas,Golden Knights,VGK,1,left,current,2029-2030,standard_level
+Trent,Frederic,Center,2/11/98,Edmonton,Oilers,EDM,1,left,current,2032-2033,standard_level
+Sam,Steel,Center,2/3/98,Dallas,Stars,DAL,1,left,current,2026-2027,standard_level
+Andrew,Peeke,Defense,3/17/98,Boston,Bruins,BOS,1,right,current,2025-2026,standard_level
+Jordan,Kyrou,Center,5/5/98,St. Louis,Blues,STL,1,right,current,2030-2031,standard_level
+Alex,Debrincat,Right Wing,12/18/97,Detroit,Red Wings,DET,1,right,current,2026-2027,standard_level
+Nathan,Bastian,Right Wing,12/6/97,Dallas,Stars,DAL,1,right,current,2025-2026,standard_level
+Boris,Katchouk,Left Wing,6/18/98,Minnesota,Wild,MIN,0,left,current,2025-2026,standard_level
+Givani,Smith,Right Wing,2/27/98,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Samuel,Girard,Defense,5/12/98,Colorado,Avalanche,COL,1,left,current,2026-2027,standard_level
+Carter,Hart,Goaltender,8/13/98,Vegas,Golden Knights,VGK,1,,current,2026-2027,standard_level
+Ryan,Lindgren,Defense,2/11/98,Seattle,Kraken,SEA,1,left,current,2028-2029,standard_level
+Kale,Clague,Defense,6/5/98,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Filip,Hronek,Defense,11/2/97,Vancouver,Canucks,VAN,1,right,current,2031-2032,standard_level
+Filip,Gustavsson,Goaltender,6/7/98,Minnesota,Wild,MIN,1,,current,2025-2026,standard_level
+Carl,Grundstrom,Left Wing,12/1/97,Philadelphia,Flyers,PHI,1,left,current,2025-2026,standard_level
+Taylor,Raddysh,Right Wing,2/18/98,New York,Rangers,NYR,1,right,current,2026-2027,standard_level
+Joseph,Woll,Goaltender,7/12/98,Toronto,Maple Leafs,TOR,1,,current,2027-2028,standard_level
+Adam,Fox,Defense,2/17/98,New York,Rangers,NYR,1,right,current,2028-2029,standard_level
+Cam,Dineen,Defense,6/19/98,Edmonton,Oilers,EDM,0,left,current,2025-2026,standard_level
+Josh,Mahura,Defense,5/5/98,Seattle,Kraken,SEA,1,left,current,2026-2027,standard_level
+Casey,Fitzgerald,Defense,2/25/97,New York,Rangers,NYR,0,right,current,2025-2026,standard_level
+Garrett,Pilon,Center,4/13/98,Ottawa,Senators,OTT,0,right,current,2025-2026,standard_level
+Keaton,Middleton,Defense,2/10/98,Colorado,Avalanche,COL,0,left,current,2026-2027,standard_level
+Brandon,Duhaime,Right Wing,5/22/97,Washington,Capitals,WAS,1,left,current,2025-2026,standard_level
+Lucas,Carlsson,Defense,7/5/97,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Noah,Gregor,Left Wing,7/28/98,Florida,Panthers,FLA,0,left,current,2025-2026,standard_level
+Jacob,Moverare,Defense,8/31/98,Los Angeles,Kings,LAK,1,left,current,2025-2026,standard_level
+Riley,Stillman,Defense,3/9/98,Edmonton,Oilers,EDM,0,left,current,2026-2027,standard_level
+Ross,Colton,Center,9/11/96,Colorado,Avalanche,COL,1,left,current,2026-2027,standard_level
+Joona,Koppanen,Center,2/25/98,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Michael,Eyssimont,Center,9/9/96,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Beck,Malenstyn,Left Wing,2/4/98,Buffalo,Sabres,BUF,1,left,current,2025-2026,standard_level
+Brandon,Hagel,Left Wing,8/27/98,Tampa Bay,Lightning,TBL,1,left,current,2031-2032,standard_level
+Michael,Pezzetta,Left Wing,3/13/98,Toronto,Maple Leafs,TOR,0,left,current,2026-2027,standard_level
+Nathan,Clurman,Defense,5/8/98,Montreal,Canadiens,MTL,0,right,current,2025-2026,standard_level
+Jesper,Bratt,Left Wing,7/30/98,New Jersey,Devils,NJD,1,left,current,2030-2031,standard_level
+Filip,Larsson,Goaltender,8/17/98,Pittsburgh,Penguins,PIT,0,,current,2025-2026,standard_level
+Tanner,Laczynski,Center,6/1/97,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Vincent,Desharnais,Defense,5/29/96,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Rodrigo,Abols,Center,1/5/96,Philadelphia,Flyers,PHI,1,left,current,2025-2026,standard_level
+Jeremy,Davies,Defense,12/4/96,Vegas,Golden Knights,VGK,0,left,current,2026-2027,standard_level
+Michael,Carcone,Center,5/19/96,Utah,Mammoth,UTA,1,left,current,2025-2026,standard_level
+Trevor,Moore,Center,3/31/95,Los Angeles,Kings,LAK,1,left,current,2027-2028,standard_level
+Casey,DeSmith,Goaltender,8/13/91,Dallas,Stars,DAL,1,,current,2026-2027,standard_level
+Zack,MacEwen,Center,7/8/96,New Jersey,Devils,NJD,1,right,current,2025-2026,standard_level
+Matt,Luff,Right Wing,5/5/97,St. Louis,Blues,STL,0,right,current,2025-2026,standard_level
+Kevin,Rooney,Center,5/21/93,Utah,Mammoth,UTA,0,left,current,2025-2026,standard_level
+Zach,Aston-Reese,Center,8/10/94,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Gavin,Bayreuther,Defense,5/12/94,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Vinni,Lettieri,Center,2/6/95,Toronto,Maple Leafs,TOR,0,right,current,2025-2026,standard_level
+Alex,Iafallo,Left Wing,12/21/93,Winnipeg,Jets,WPG,1,left,current,2027-2028,standard_level
+Neal,Pionk,Defense,7/29/95,Winnipeg,Jets,WPG,1,right,current,2030-2031,standard_level
+David,Kampf,Center,1/12/95,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Calle,Rosen,Defense,2/2/94,St. Louis,Blues,STL,0,left,current,2025-2026,standard_level
+Nico,Hischier,Center,1/4/99,New Jersey,Devils,NJD,1,left,current,2026-2027,standard_level
+Miro,Heiskanen,Defense,7/18/99,Dallas,Stars,DAL,1,left,current,2028-2029,standard_level
+Cale,Makar,Defense,10/30/98,Colorado,Avalanche,COL,1,right,current,2026-2027,standard_level
+Elias,Pettersson,Center,11/12/98,Vancouver,Canucks,VAN,1,left,current,2031-2032,standard_level
+Cody,Glass,Center,4/1/99,New Jersey,Devils,NJD,1,right,current,2026-2027,standard_level
+Casey,Mittelstadt,Center,11/22/98,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Michael,Rasmussen,Center,4/17/99,Detroit,Red Wings,DET,1,left,current,2027-2028,standard_level
+Owen,Tippett,Right Wing,2/16/99,Philadelphia,Flyers,PHI,1,right,current,2031-2032,standard_level
+Gabriel,Vilardi,Center,8/16/99,Winnipeg,Jets,WPG,1,right,current,2030-2031,standard_level
+Martin,Necas,Center,1/15/99,Colorado,Avalanche,COL,1,right,current,2025-2026,standard_level
+Nick,Suzuki,Center,8/10/99,Montreal,Canadiens,MTL,1,right,current,2029-2030,standard_level
+Juuso,Valimaki,Defense,10/6/98,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Timothy,Liljegren,Defense,4/30/99,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Urho,Vaakanainen,Defense,1/1/99,New York,Rangers,NYR,1,left,current,2026-2027,standard_level
+Joshua,Norris,Center,5/5/99,Buffalo,Sabres,BUF,1,left,current,2029-2030,standard_level
+Robert,Thomas,Center,7/2/99,St. Louis,Blues,STL,1,right,current,2030-2031,standard_level
+Filip,Chytil,Center,9/5/99,Vancouver,Canucks,VAN,1,left,current,2026-2027,standard_level
+Kailer,Yamamoto,Right Wing,9/29/98,Utah,Mammoth,UTA,1,right,current,2025-2026,standard_level
+Pierre-Olivier,Joseph,Defense,7/1/99,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Ryan,Poehling,Center,1/3/99,Anaheim,Ducks,ANA,1,left,current,2025-2026,standard_level
+Jake,Oettinger,Goaltender,12/18/98,Dallas,Stars,DAL,1,,current,2032-2033,standard_level
+Morgan,Frost,Center,5/14/99,Calgary,Flames,CGY,1,left,current,2026-2027,standard_level
+Shane,Bowers,Center,7/30/99,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Henri,Jokiharju,Defense,6/17/99,Boston,Bruins,BOS,1,right,current,2027-2028,standard_level
+Eeli,Tolvanen,Right Wing,4/22/99,Seattle,Kraken,SEA,1,left,current,2025-2026,standard_level
+Conor,Timmins,Defense,9/18/98,Buffalo,Sabres,BUF,1,right,current,2026-2027,standard_level
+Kole,Lind,Right Wing,10/16/98,Dallas,Stars,DAL,0,right,current,2025-2026,standard_level
+Nicolas,Hague,Defense,12/5/98,Nashville,Predators,NAS,1,left,current,2028-2029,standard_level
+Jesper,Boqvist,Center,10/30/98,Florida,Panthers,FLA,1,left,current,2026-2027,standard_level
+Jason,Robertson,Left Wing,7/22/99,Dallas,Stars,DAL,1,left,current,2025-2026,standard_level
+Jaret,Anderson-Dolan,Center,9/12/99,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Eetu,Luostarinen,Center,9/2/98,Florida,Panthers,FLA,1,left,current,2026-2027,standard_level
+Dylan,Samberg,Defense,1/24/99,Winnipeg,Jets,WPG,1,left,current,2027-2028,standard_level
+Alexandre,Texier,Left Wing,9/13/99,Montreal,Canadiens,MTL,1,left,current,2025-2026,standard_level
+Mario,Ferraro,Defense,9/17/98,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Jack,Studnicka,Center,2/18/99,Florida,Panthers,FLA,1,right,current,2025-2026,standard_level
+Ukko-Pekka,Luukkonen,Goaltender,3/9/99,Buffalo,Sabres,BUF,1,,current,2028-2029,standard_level
+Jonah,Gadjovich,Left Wing,10/12/98,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Ian,Mitchell,Defense,1/18/99,Detroit,Red Wings,DET,0,right,current,2025-2026,standard_level
+Jake,Leschyshyn,Center,3/10/99,Buffalo,Sabres,BUF,0,left,current,2025-2026,standard_level
+Fabian,Zetterlund,Left Wing,8/25/99,Ottawa,Senators,OTT,1,right,current,2027-2028,standard_level
+Michael,Dipietro,Goaltender,6/9/99,Boston,Bruins,BOS,0,,current,2026-2027,standard_level
+Jonas,Rondbjerg,Right Wing,3/31/99,Vegas,Golden Knights,VGK,0,left,current,2025-2026,standard_level
+Morgan,Geekie,Center,7/20/98,Boston,Bruins,BOS,1,right,current,2030-2031,standard_level
+Mackenzie,Entwistle,Right Wing,7/14/99,Florida,Panthers,FLA,0,right,current,2026-2027,standard_level
+Matt,Villalta,Goaltender,6/3/99,Utah,Mammoth,UTA,0,,current,2025-2026,standard_level
+Johnathan,Kovacevic,Defense,7/12/97,New Jersey,Devils,NJD,1,right,current,2029-2030,standard_level
+Stuart,Skinner,Goaltender,11/1/98,Pittsburgh,Penguins,PIT,1,,current,2025-2026,standard_level
+Cameron,Crotty,Defense,5/5/99,Ottawa,Senators,OTT,0,right,current,2026-2027,standard_level
+Daniil,Tarasov,Goaltender,3/27/99,Florida,Panthers,FLA,1,,current,2025-2026,standard_level
+Cale,Fleury,Defense,11/19/98,Seattle,Kraken,SEA,1,right,current,2026-2027,standard_level
+Jack,Rathbone,Defense,5/20/99,Buffalo,Sabres,BUF,0,left,current,2026-2027,standard_level
+Mason,Shaw,Center,11/3/98,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Jacob,Bryson,Defense,11/18/97,Buffalo,Sabres,BUF,1,left,current,2025-2026,standard_level
+Jeremy,Swayman,Goaltender,11/24/98,Boston,Bruins,BOS,1,,current,2031-2032,standard_level
+Alexei,Toropchenko,Right Wing,6/25/99,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Drake,Batherson,Right Wing,4/27/98,Ottawa,Senators,OTT,1,right,current,2026-2027,standard_level
+Noah,Cates,Left Wing,2/5/99,Philadelphia,Flyers,PHI,1,left,current,2028-2029,standard_level
+Sebastian,Aho,Defense,2/17/96,Pittsburgh,Penguins,PIT,0,left,current,2025-2026,standard_level
+Jiri,Patera,Goaltender,2/24/99,Vancouver,Canucks,VAN,1,,current,2025-2026,standard_level
+Olle,Lycksell,Center,8/24/99,Ottawa,Senators,OTT,0,left,current,2025-2026,standard_level
+Nicklaus,Perbix,Defense,6/15/98,Nashville,Predators,NAS,1,right,current,2026-2027,standard_level
+Morgan,Barron,Center,12/2/98,Winnipeg,Jets,WPG,1,left,current,2026-2027,standard_level
+Skyler,Brind'Amour,Center,7/27/99,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Carson,Meyer,Right Wing,8/18/97,Buffalo,Sabres,BUF,0,right,current,2026-2027,standard_level
+Cole,Guttman,Center,4/6/99,Los Angeles,Kings,LAK,0,right,current,2026-2027,standard_level
+Ben,Jones,Center,2/26/99,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Cayden,Primeau,Goaltender,8/11/99,Carolina,Hurricanes,CAR,0,,current,2025-2026,standard_level
+Philip,Kemp,Defense,2/12/99,Pittsburgh,Penguins,PIT,0,right,current,2026-2027,standard_level
+Sheldon,Dries,Center,4/23/94,Detroit,Red Wings,DET,0,left,current,2025-2026,standard_level
+Nick,DeSimone,Defense,11/21/94,Utah,Mammoth,UTA,1,right,current,2025-2026,standard_level
+Pius,Suter,Center,5/24/96,St. Louis,Blues,STL,1,left,current,2026-2027,standard_level
+Dominik,Shine,Right Wing,4/18/93,Detroit,Red Wings,DET,0,right,current,2025-2026,standard_level
+Alex,Belzile,Right Wing,8/31/91,Montreal,Canadiens,MTL,0,right,current,2025-2026,standard_level
+Zach,Whitecloud,Defense,11/28/96,Calgary,Flames,CGY,1,right,current,2027-2028,standard_level
+Joey,Anderson,Right Wing,6/19/98,Chicago,Blackhawks,CHI,0,right,current,2025-2026,standard_level
+Kevin,Lankinen,Goaltender,4/28/95,Vancouver,Canucks,VAN,1,,current,2029-2030,standard_level
+Ilya,Lyubushkin,Defense,4/6/94,Dallas,Stars,DAL,1,right,current,2026-2027,standard_level
+Rasmus,Dahlin,Defense,4/13/00,Buffalo,Sabres,BUF,1,left,current,2031-2032,standard_level
+Andrei,Svechnikov,Right Wing,3/26/00,Carolina,Hurricanes,CAR,1,left,current,2028-2029,standard_level
+Jesperi,Kotkaniemi,Center,7/6/00,Carolina,Hurricanes,CAR,1,left,current,2029-2030,standard_level
+Brady,Tkachuk,Left Wing,9/16/99,Ottawa,Senators,OTT,1,left,current,2027-2028,standard_level
+Barrett,Hayton,Center,6/9/00,Utah,Mammoth,UTA,1,left,current,2025-2026,standard_level
+Quinn,Hughes,Defense,10/14/99,Minnesota,Wild,MIN,1,left,current,2026-2027,standard_level
+Adam,Boqvist,Defense,8/15/00,New York,Islanders,NYI,1,right,current,2025-2026,standard_level
+Evan,Bouchard,Defense,10/20/99,Edmonton,Oilers,EDM,1,right,current,2028-2029,standard_level
+Noah,Dobson,Defense,1/7/00,Montreal,Canadiens,MTL,1,right,current,2032-2033,standard_level
+Ty,Dellandrea,Center,7/21/00,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Joel,Farabee,Left Wing,2/25/00,Calgary,Flames,CGY,1,left,current,2027-2028,standard_level
+Liam,Foudy,Center,2/4/00,New York,Islanders,NYI,0,left,current,2025-2026,standard_level
+K'Andre,Miller,Defense,1/21/00,Carolina,Hurricanes,CAR,1,left,current,2032-2033,standard_level
+Isac,Lundestrom,Center,11/6/99,Columbus,Blue Jackets,CBJ,1,left,current,2026-2027,standard_level
+Jacob,Bernard-Docker,Defense,6/30/00,Detroit,Red Wings,DET,1,right,current,2025-2026,standard_level
+Nils,Lundkvist,Defense,7/27/00,Dallas,Stars,DAL,1,right,current,2025-2026,standard_level
+Rasmus,Sandin,Defense,3/7/00,Washington,Capitals,WAS,1,left,current,2028-2029,standard_level
+Joseph,Veleno,Center,1/13/00,Montreal,Canadiens,MTL,1,left,current,2025-2026,standard_level
+Alexander,Alexeyev,Defense,11/15/99,Pittsburgh,Penguins,PIT,0,left,current,2025-2026,standard_level
+Mattias,Samuelsson,Defense,3/14/00,Buffalo,Sabres,BUF,1,left,current,2029-2030,standard_level
+Jonatan,Berggren,Right Wing,7/16/00,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Jett,Woo,Defense,7/27/00,Vancouver,Canucks,VAN,0,right,current,2025-2026,standard_level
+Alexander,Romanov,Defense,1/6/00,New York,Islanders,NYI,1,left,current,2032-2033,standard_level
+Ryan,McLeod,Center,9/21/99,Buffalo,Sabres,BUF,1,left,current,2028-2029,standard_level
+Jack,Drury,Center,2/3/00,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Scott,Perunovich,Defense,8/18/98,Utah,Mammoth,UTA,0,left,current,2025-2026,standard_level
+Martin,Fehervary,Defense,10/6/99,Washington,Capitals,WAS,1,left,current,2025-2026,standard_level
+Kirill,Marchenko,Right Wing,7/21/00,Columbus,Blue Jackets,CBJ,1,right,current,2026-2027,standard_level
+Adam,Ginning,Defense,1/13/00,Philadelphia,Flyers,PHI,0,left,current,2025-2026,standard_level
+Akil,Thomas,Center,1/2/00,St. Louis,Blues,STL,0,right,current,2025-2026,standard_level
+Sean,Durzi,Defense,10/21/98,Utah,Mammoth,UTA,1,right,current,2027-2028,standard_level
+Calen,Addison,Defense,4/11/00,New Jersey,Devils,NJD,0,right,current,2025-2026,standard_level
+Bo,Groulx,Center,2/6/00,Toronto,Maple Leafs,TOR,0,left,current,2026-2027,standard_level
+Kevin,Bahl,Defense,6/27/00,Calgary,Flames,CGY,1,left,current,2030-2031,standard_level
+Filip,Hallander,Center,6/29/00,Pittsburgh,Penguins,PIT,1,left,current,2026-2027,standard_level
+David,Gustafsson,Center,4/11/00,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Jack,McBain,Center,1/6/00,Utah,Mammoth,UTA,1,left,current,2029-2030,standard_level
+Justus,Annunen,Goaltender,3/11/00,Nashville,Predators,NAS,1,,current,2025-2026,standard_level
+Jan,Jenik,Center,9/15/00,Ottawa,Senators,OTT,0,left,current,2025-2026,standard_level
+Alec,Regula,Defense,8/6/00,Edmonton,Oilers,EDM,1,right,current,2026-2027,standard_level
+Jordan,Harris,Defense,7/7/00,Boston,Bruins,BOS,1,left,current,2025-2026,standard_level
+Jakub,Skarek,Goaltender,11/10/99,San Jose,Sharks,SJS,0,,current,2025-2026,standard_level
+Ty,Emberson,Defense,5/23/00,Edmonton,Oilers,EDM,1,right,current,2026-2027,standard_level
+Oskar,Back,Center,3/12/00,Dallas,Stars,DAL,1,left,current,2026-2027,standard_level
+Lukas,Dostal,Goaltender,6/22/00,Anaheim,Ducks,ANA,1,,current,2029-2030,standard_level
+Linus,Karlsson,Right Wing,11/16/99,Vancouver,Canucks,VAN,1,right,current,2025-2026,standard_level
+Connor,Dewar,Center,6/26/99,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Jonathan,Gruden,Left Wing,5/4/00,New Jersey,Devils,NJD,0,left,current,2025-2026,standard_level
+Martin,Pospisil,Center,11/19/99,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Curtis,Douglas,Center,3/6/00,Tampa Bay,Lightning,TBL,1,left,current,2025-2026,standard_level
+Joel,Hofer,Goaltender,7/30/00,St. Louis,Blues,STL,1,,current,2026-2027,standard_level
+Jack,St. Ivany,Defense,7/22/99,Pittsburgh,Penguins,PIT,1,right,current,2026-2027,standard_level
+Ivan,Prosvetov,Goaltender,3/5/99,Calgary,Flames,CGY,0,,current,2025-2026,standard_level
+Paul,Cotter,Center,11/16/99,New Jersey,Devils,NJD,1,left,current,2025-2026,standard_level
+Philipp,Kurashev,Center,10/12/99,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Angus,Crookshank,Left Wing,10/2/99,New Jersey,Devils,NJD,0,left,current,2026-2027,standard_level
+Spencer,Stastney,Defense,1/4/00,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Akira,Schmid,Goaltender,5/12/00,Vegas,Golden Knights,VGK,1,,current,2025-2026,standard_level
+Hugh,McGing,Left Wing,7/11/98,St. Louis,Blues,STL,0,left,current,2025-2026,standard_level
+Yegor,Sharangovich,Center,6/6/98,Calgary,Flames,CGY,1,left,current,2029-2030,standard_level
+Michael,Callahan,Defense,9/23/99,Boston,Bruins,BOS,0,left,current,2025-2026,standard_level
+Samuel,Ersson,Goaltender,10/20/99,Philadelphia,Flyers,PHI,1,,current,2025-2026,standard_level
+Declan,Chisholm,Defense,1/12/00,Washington,Capitals,WAS,1,left,current,2026-2027,standard_level
+Magnus,Chrona,Goaltender,8/28/00,Nashville,Predators,NAS,0,,current,2025-2026,standard_level
+Pontus,Holmberg,Center,3/9/99,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,standard_level
+Michael,Kesselring,Defense,1/13/00,Buffalo,Sabres,BUF,1,right,current,2025-2026,standard_level
+John,Leonard,Left Wing,8/7/98,Detroit,Red Wings,DET,0,left,current,2025-2026,standard_level
+Cole,Koepke,Left Wing,5/17/98,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Josiah,Slavin,Left Wing,12/31/98,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Tyler,Tucker,Defense,3/1/00,St. Louis,Blues,STL,1,left,current,2026-2027,standard_level
+Trey,Fix-Wolansky,Right Wing,5/26/99,New York,Rangers,NYR,0,right,current,2025-2026,standard_level
+Connor,Clifton,Defense,4/28/95,Pittsburgh,Penguins,PIT,1,right,current,2025-2026,standard_level
+Pierre,Engvall,Left Wing,5/31/96,New York,Islanders,NYI,1,left,current,2029-2030,standard_level
+Valeri,Nichushkin,Right Wing,3/4/95,Colorado,Avalanche,COL,1,left,current,2029-2030,standard_level
+Jacob,MacDonald,Defense,2/26/93,Colorado,Avalanche,COL,0,left,current,2025-2026,standard_level
+Sean,Walker,Defense,11/13/94,Carolina,Hurricanes,CAR,1,right,current,2028-2029,standard_level
+Colin,Blackwell,Center,3/28/93,Dallas,Stars,DAL,1,right,current,2026-2027,standard_level
+Logan,O'Connor,Right Wing,8/14/96,Colorado,Avalanche,COL,1,right,current,2030-2031,standard_level
+Kiefer,Sherwood,Center,3/31/95,San Jose,Sharks,SJS,1,right,current,2025-2026,standard_level
+Parker,Kelly,Center,5/14/99,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Ben,Gleason,Defense,3/25/98,Minnesota,Wild,MIN,0,left,current,2025-2026,standard_level
+Yegor,Zamula,Defense,3/30/00,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Tanner,Jeannot,Left Wing,5/29/97,Boston,Bruins,BOS,1,left,current,2029-2030,standard_level
+Simon,Benoit,Defense,9/19/98,Toronto,Maple Leafs,TOR,1,left,current,2026-2027,standard_level
+Jake,Christiansen,Defense,9/12/99,Columbus,Blue Jackets,CBJ,1,left,current,2026-2027,standard_level
+Brayden,Pachal,Defense,8/23/99,Calgary,Flames,CGY,1,right,current,2026-2027,standard_level
+Cameron,Hebig,Center,1/21/97,Utah,Mammoth,UTA,0,right,current,2026-2027,standard_level
+Mathieu,Olivier,Right Wing,2/11/97,Columbus,Blue Jackets,CBJ,1,right,current,2030-2031,standard_level
+Kyle,MacLean,Center,4/29/99,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+Jonathan,Aspirot,Defense,5/16/99,Boston,Bruins,BOS,1,left,current,2025-2026,standard_level
+Justin,Brazeau,Right Wing,2/2/98,Pittsburgh,Penguins,PIT,1,right,current,2026-2027,standard_level
+Jeffrey,Viel,Left Wing,1/28/97,Anaheim,Ducks,ANA,1,left,current,2025-2026,standard_level
+Alex,Barre-Boulet,Center,5/21/97,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Dylan,Coghlan,Defense,2/19/98,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Logan,Thompson,Goaltender,2/25/97,Washington,Capitals,WAS,1,,current,2030-2031,standard_level
+Tye,Felhaber,Left Wing,8/5/98,Colorado,Avalanche,COL,0,left,current,2025-2026,standard_level
+Jake,Lucchini,Center,5/9/95,Nashville,Predators,NAS,0,left,current,2025-2026,standard_level
+Nico,Sturm,Center,5/3/95,Minnesota,Wild,MIN,1,left,current,2026-2027,standard_level
+Blake,Lizotte,Center,12/13/97,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Jimmy,Schuldt,Defense,5/11/95,Vancouver,Canucks,VAN,0,left,current,2026-2027,standard_level
+Jimmy,Huntington,Center,11/18/98,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Ilya,Mikheyev,Right Wing,10/10/94,Chicago,Blackhawks,CHI,1,left,current,2025-2026,standard_level
+Joel,Kiviranta,Left Wing,3/23/96,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Jack,Hughes,Center,5/14/01,New Jersey,Devils,NJD,1,left,current,2029-2030,standard_level
+Kaapo,Kakko,Right Wing,2/13/01,Seattle,Kraken,SEA,1,left,current,2027-2028,standard_level
+Kirby,Dach,Center,1/21/01,Montreal,Canadiens,MTL,1,right,current,2025-2026,standard_level
+Bowen,Byram,Defense,6/13/01,Buffalo,Sabres,BUF,1,left,current,2026-2027,standard_level
+Alex,Turcotte,Center,2/26/01,Los Angeles,Kings,LAK,1,left,current,2026-2027,standard_level
+Moritz,Seider,Defense,4/6/01,Detroit,Red Wings,DET,1,right,current,2030-2031,standard_level
+Dylan,Cozens,Center,2/9/01,Ottawa,Senators,OTT,1,right,current,2029-2030,standard_level
+Philip,Broberg,Defense,6/25/01,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Trevor,Zegras,Center,3/20/01,Philadelphia,Flyers,PHI,1,left,current,2025-2026,standard_level
+Vasily,Podkolzin,Right Wing,6/24/01,Edmonton,Oilers,EDM,1,left,current,2025-2026,standard_level
+Victor,Soderstrom,Defense,2/26/01,Boston,Bruins,BOS,0,right,current,2025-2026,standard_level
+Matt,Boldy,Left Wing,4/5/01,Minnesota,Wild,MIN,1,left,current,2029-2030,standard_level
+Spencer,Knight,Goaltender,4/19/01,Chicago,Blackhawks,CHI,1,,current,2025-2026,standard_level
+Cameron,York,Defense,1/5/01,Philadelphia,Flyers,PHI,1,left,current,2029-2030,standard_level
+Cole,Caufield,Left Wing,1/2/01,Montreal,Canadiens,MTL,1,right,current,2030-2031,standard_level
+Alex,Newhook,Center,1/28/01,Montreal,Canadiens,MTL,1,left,current,2026-2027,standard_level
+Peyton,Krebs,Center,1/26/01,Buffalo,Sabres,BUF,1,left,current,2025-2026,standard_level
+Thomas,Harley,Defense,8/19/01,Dallas,Stars,DAL,1,left,current,2025-2026,standard_level
+Lassi,Thomson,Defense,9/24/00,Ottawa,Senators,OTT,0,right,current,2025-2026,standard_level
+Ville,Heinola,Defense,3/2/01,Winnipeg,Jets,WPG,0,left,current,2025-2026,standard_level
+Samuel,Poulin,Center,2/25/01,Edmonton,Oilers,EDM,0,left,current,2025-2026,standard_level
+Tobias,Bjornfot,Defense,4/6/01,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Simon,Holmstrom,Right Wing,5/24/01,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+Philip,Tomasino,Center,7/28/01,Philadelphia,Flyers,PHI,0,right,current,2025-2026,standard_level
+Connor,McMichael,Center,1/15/01,Washington,Capitals,WAS,1,left,current,2025-2026,standard_level
+Jakob,Pelletier,Left Wing,3/7/01,Tampa Bay,Lightning,TBL,0,left,current,2027-2028,standard_level
+Nolan,Foote,Left Wing,11/29/00,Florida,Panthers,FLA,0,left,current,2025-2026,standard_level
+Ryan,Suzuki,Center,5/28/01,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+John,Beecher,Center,4/5/01,Calgary,Flames,CGY,1,left,current,2025-2026,standard_level
+Ryan,Johnson,Defense,7/24/01,Buffalo,Sabres,BUF,0,left,current,2027-2028,standard_level
+Shane,Pinto,Center,11/12/00,Ottawa,Senators,OTT,1,right,current,2025-2026,standard_level
+Arthur,Kaliyev,Right Wing,6/26/01,Ottawa,Senators,OTT,0,left,current,2025-2026,standard_level
+Bobby,Brink,Right Wing,7/8/01,Philadelphia,Flyers,PHI,1,right,current,2025-2026,standard_level
+Antti,Tuomisto,Defense,1/20/01,Detroit,Red Wings,DET,0,right,current,2025-2026,standard_level
+Pyotr,Kochetkov,Goaltender,6/25/99,Carolina,Hurricanes,CAR,1,,current,2026-2027,standard_level
+Mads,Sogaard,Goaltender,12/13/00,Ottawa,Senators,OTT,0,,current,2025-2026,standard_level
+Raphael,Lavoie,Center,9/25/00,Vegas,Golden Knights,VGK,0,right,current,2025-2026,standard_level
+Jackson,LaCombe,Defense,1/9/01,Anaheim,Ducks,ANA,1,left,current,2025-2026,standard_level
+Nils,Hoglander,Left Wing,12/20/00,Vancouver,Canucks,VAN,1,left,current,2027-2028,standard_level
+Kaedan,Korczak,Defense,1/29/01,Vegas,Golden Knights,VGK,1,right,current,2025-2026,standard_level
+Alex,Vlasic,Defense,6/5/01,Chicago,Blackhawks,CHI,1,left,current,2029-2030,standard_level
+Egor,Afanasyev,Left Wing,1/23/01,San Jose,Sharks,SJS,0,left,current,2025-2026,standard_level
+Jayden,Struble,Defense,9/8/01,Montreal,Canadiens,MTL,1,left,current,2026-2027,standard_level
+Drew,Helleson,Defense,3/26/01,Anaheim,Ducks,ANA,1,right,current,2026-2027,standard_level
+Matthew,Robertson,Defense,3/9/01,New York,Rangers,NYR,1,left,current,2026-2027,standard_level
+Samuel,Fagemo,Left Wing,3/14/00,Winnipeg,Jets,WPG,0,right,current,2025-2026,standard_level
+Simon,Lundmark,Defense,10/8/00,Tampa Bay,Lightning,TBL,1,right,current,2026-2027,standard_level
+Vladislav,Kolyachonok,Defense,5/26/01,Boston,Bruins,BOS,1,left,current,2025-2026,standard_level
+Nicholas,Robertson,Left Wing,9/11/01,Toronto,Maple Leafs,TOR,1,left,current,2025-2026,standard_level
+Brett,Leason,Right Wing,4/30/99,Washington,Capitals,WAS,0,right,current,2025-2026,standard_level
+Samuel,Bolduc,Defense,12/9/00,Los Angeles,Kings,LAK,0,left,current,2025-2026,standard_level
+Albert,Johansson,Defense,1/4/01,Detroit,Red Wings,DET,1,left,current,2026-2027,standard_level
+Nikita,Alexandrov,Center,9/16/00,Los Angeles,Kings,LAK,0,left,current,2025-2026,standard_level
+Matthew,Stienburg,Center,10/7/00,Colorado,Avalanche,COL,0,right,current,2025-2026,standard_level
+Erik,Portillo,Goaltender,9/3/00,Los Angeles,Kings,LAK,0,,current,2026-2027,standard_level
+Zachary,Jones,Defense,10/18/00,Buffalo,Sabres,BUF,0,left,current,2025-2026,standard_level
+Ronald,Attard,Defense,3/20/99,Colorado,Avalanche,COL,0,right,current,2025-2026,standard_level
+Nathan,Legare,Right Wing,1/11/01,New Jersey,Devils,NJD,0,right,current,2025-2026,standard_level
+Adam,Beckman,Left Wing,5/10/01,New York,Islanders,NYI,0,left,current,2025-2026,standard_level
+John,Farinacci,Center,2/14/01,Boston,Bruins,BOS,0,right,current,2025-2026,standard_level
+Pavel,Dorofeyev,Left Wing,10/26/00,Vegas,Golden Knights,VGK,1,left,current,2025-2026,standard_level
+Graeme,Clarke,Right Wing,4/24/01,Washington,Capitals,WAS,0,right,current,2025-2026,standard_level
+Cole,Schwindt,Right Wing,4/25/01,Florida,Panthers,FLA,1,right,current,2025-2026,standard_level
+Domenick,Fensore,Defense,9/7/01,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Aliaksei,Protas,Center,1/6/01,Washington,Capitals,WAS,1,left,current,2028-2029,standard_level
+Colten,Ellis,Goaltender,10/5/00,Buffalo,Sabres,BUF,1,,current,2026-2027,standard_level
+Jordan,Spence,Defense,2/24/01,Ottawa,Senators,OTT,1,right,current,2025-2026,standard_level
+Matias,Maccelli,Left Wing,10/14/00,Toronto,Maple Leafs,TOR,1,left,current,2025-2026,standard_level
+Cade,Webber,Defense,1/5/01,Toronto,Maple Leafs,TOR,0,left,current,2026-2027,standard_level
+Matej,Blumel,Right Wing,5/31/00,Boston,Bruins,BOS,0,left,current,2025-2026,standard_level
+Henry,Thrun,Defense,3/12/01,Toronto,Maple Leafs,TOR,0,left,current,2025-2026,standard_level
+Marc,Del Gaizo,Defense,10/11/99,Montreal,Canadiens,MTL,0,left,current,2025-2026,standard_level
+Hunter,Skinner,Defense,4/29/01,St. Louis,Blues,STL,0,right,current,2025-2026,standard_level
+Dmitri,Voronkov,Left Wing,9/10/00,Columbus,Blue Jackets,CBJ,1,left,current,2026-2027,standard_level
+Maxwell,Crozier,Defense,4/19/00,Tampa Bay,Lightning,TBL,1,right,current,2027-2028,standard_level
+Nicholas,Abruzzese,Center,6/4/99,Tampa Bay,Lightning,TBL,0,left,current,2025-2026,standard_level
+Mark,Kastelic,Center,3/11/99,Boston,Bruins,BOS,1,right,current,2027-2028,standard_level
+Arseny,Gritsyuk,Right Wing,3/15/01,New Jersey,Devils,NJD,1,left,current,2025-2026,entry_level
+Henrik,Rybinski,Center,6/26/01,Washington,Capitals,WAS,0,right,current,2025-2026,standard_level
+Arturs,Silovs,Goaltender,3/22/01,Pittsburgh,Penguins,PIT,1,,current,2025-2026,standard_level
+Elmer,Soderblom,Left Wing,7/5/01,Detroit,Red Wings,DET,1,left,current,2026-2027,standard_level
+Adam,Edstrom,Center,10/12/00,New York,Rangers,NYR,1,left,current,2026-2027,standard_level
+Marshall,Warren,Defense,4/20/01,New York,Islanders,NYI,0,left,current,2025-2026,entry_level
+Nikita,Nesterenko,Center,9/10/01,Anaheim,Ducks,ANA,0,left,current,2026-2027,standard_level
+Maxence,Guenette,Defense,4/28/01,Philadelphia,Flyers,PHI,0,right,current,2025-2026,standard_level
+Andre,Lee,Left Wing,7/26/00,Los Angeles,Kings,LAK,0,left,current,2026-2027,standard_level
+Carter,Gylander,Goaltender,6/5/01,Detroit,Red Wings,DET,0,,current,2025-2026,entry_level
+Trent,Miner,Goaltender,2/5/01,Colorado,Avalanche,COL,0,,current,2026-2027,standard_level
+Valtteri,Puustinen,Right Wing,6/4/99,Pittsburgh,Penguins,PIT,0,right,current,2025-2026,standard_level
+Vadim,Zherenko,Goaltender,3/15/01,St. Louis,Blues,STL,0,,current,2025-2026,standard_level
+Juuso,Parssinen,Center,2/1/01,New York,Rangers,NYR,0,left,current,2026-2027,standard_level
+Dustin,Wolf,Goaltender,4/16/01,Calgary,Flames,CGY,1,,current,2025-2026,standard_level
+Massimo,Rizzo,Center,6/13/01,Philadelphia,Flyers,PHI,0,left,current,2025-2026,entry_level
+Rafael,Harvey-Pinard,Left Wing,1/6/99,Pittsburgh,Penguins,PIT,0,left,current,2025-2026,standard_level
+Corey,Schueneman,Defense,9/2/95,Washington,Capitals,WAS,0,left,current,2025-2026,standard_level
+Charle-Edouard,D'Astous,Defense,4/21/98,Tampa Bay,Lightning,TBL,1,left,current,2025-2026,standard_level
+Mikey,Anderson,Defense,5/25/99,Los Angeles,Kings,LAK,1,left,current,2030-2031,standard_level
+Ryan,Schmelzer,Center,7/28/93,New Jersey,Devils,NJD,0,right,current,2025-2026,standard_level
+Zachary,Sawchenko,Goaltender,12/30/97,Columbus,Blue Jackets,CBJ,0,,current,2025-2026,standard_level
+Drew,O'Connor,Left Wing,6/9/98,Vancouver,Canucks,VAN,1,left,current,2026-2027,standard_level
+Connor,Mackey,Defense,9/12/96,New York,Rangers,NYR,0,left,current,2025-2026,standard_level
+Jack,Ahcan,Defense,5/18/97,Colorado,Avalanche,COL,0,left,current,2025-2026,standard_level
+Artyom,Zub,Defense,10/3/95,Ottawa,Senators,OTT,1,right,current,2026-2027,standard_level
+Mitchell,Chaffee,Right Wing,1/26/98,Tampa Bay,Lightning,TBL,0,right,current,2025-2026,standard_level
+Cole,Smith,Left Wing,10/28/95,Nashville,Predators,NAS,1,left,current,2025-2026,standard_level
+Devin,Cooley,Goaltender,5/25/97,Calgary,Flames,CGY,1,,current,2025-2026,standard_level
+Lucas,Raymond,Left Wing,3/28/02,Detroit,Red Wings,DET,1,right,current,2031-2032,standard_level
+Alexis,Lafreniere,Right Wing,10/11/01,New York,Rangers,NYR,1,left,current,2031-2032,standard_level
+Quinton,Byfield,Center,8/19/02,Los Angeles,Kings,LAK,1,left,current,2028-2029,standard_level
+Jake,Sanderson,Defense,7/8/02,Ottawa,Senators,OTT,1,left,current,2031-2032,standard_level
+Jamie,Drysdale,Defense,4/8/02,Philadelphia,Flyers,PHI,1,right,current,2025-2026,standard_level
+Alexander,Holtz,Right Wing,1/23/02,Vegas,Golden Knights,VGK,1,right,current,2026-2027,standard_level
+Jack,Quinn,Right Wing,9/19/01,Buffalo,Sabres,BUF,1,right,current,2026-2027,standard_level
+Marco,Rossi,Center,9/23/01,Vancouver,Canucks,VAN,1,left,current,2027-2028,standard_level
+Cole,Perfetti,Center,1/1/02,Winnipeg,Jets,WPG,1,left,current,2025-2026,standard_level
+Yaroslav,Askarov,Goaltender,6/16/02,San Jose,Sharks,SJS,1,,current,2026-2027,standard_level
+Anton,Lundell,Center,10/3/01,Florida,Panthers,FLA,1,left,current,2029-2030,standard_level
+Seth,Jarvis,Center,2/1/02,Carolina,Hurricanes,CAR,1,right,current,2031-2032,standard_level
+Dylan,Holloway,Center,9/23/01,St. Louis,Blues,STL,1,left,current,2025-2026,standard_level
+Kaiden,Guhle,Defense,1/18/02,Montreal,Canadiens,MTL,1,left,current,2030-2031,standard_level
+Lukas,Reichel,Center,5/17/02,Vancouver,Canucks,VAN,0,left,current,2025-2026,standard_level
+Dawson,Mercer,Center,10/27/01,New Jersey,Devils,NJD,1,right,current,2026-2027,standard_level
+Braden,Schneider,Defense,9/20/01,New York,Rangers,NYR,1,right,current,2025-2026,standard_level
+Shakir,Mukhamadullin,Defense,1/10/02,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Yegor,Chinakhov,Right Wing,2/1/01,Pittsburgh,Penguins,PIT,1,left,current,2025-2026,standard_level
+Hendrix,Lapierre,Center,2/9/02,Washington,Capitals,WAS,1,left,current,2025-2026,standard_level
+Tyson,Foerster,Right Wing,1/18/02,Philadelphia,Flyers,PHI,1,right,current,2026-2027,standard_level
+Connor,Zary,Center,9/25/01,Calgary,Flames,CGY,1,left,current,2027-2028,standard_level
+Justin,Barron,Defense,11/15/01,Nashville,Predators,NAS,1,right,current,2025-2026,standard_level
+Jake,Neighbours,Left Wing,3/29/02,St. Louis,Blues,STL,1,left,current,2026-2027,standard_level
+Ridly,Greig,Center,8/8/02,Ottawa,Senators,OTT,1,left,current,2028-2029,standard_level
+Brendan,Brisson,Left Wing,10/22/01,New York,Rangers,NYR,0,left,current,2025-2026,standard_level
+Mavrik,Bourque,Center,1/8/02,Dallas,Stars,DAL,1,right,current,2025-2026,standard_level
+Ozzy,Wiesblatt,Center,3/9/02,Nashville,Predators,NAS,1,right,current,2026-2027,standard_level
+William,Wallinder,Defense,7/28/02,Detroit,Red Wings,DET,0,left,current,2025-2026,entry_level
+Roby,Jarventie,Left Wing,8/8/02,Edmonton,Oilers,EDM,0,left,current,2025-2026,standard_level
+John-Jason,Peterka,Center,1/14/02,Utah,Mammoth,UTA,1,left,current,2029-2030,standard_level
+Helge,Grans,Defense,5/10/02,Philadelphia,Flyers,PHI,0,right,current,2026-2027,standard_level
+Sam,Colangelo,Right Wing,12/26/01,Anaheim,Ducks,ANA,1,right,current,2026-2027,standard_level
+Marat,Khusnutdinov,Center,7/17/02,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Thomas,Bordeleau,Center,1/3/02,New Jersey,Devils,NJD,0,left,current,2025-2026,standard_level
+Noel,Gunler,Right Wing,10/7/01,Carolina,Hurricanes,CAR,0,right,current,2025-2026,standard_level
+Luke,Evangelista,Right Wing,2/21/02,Nashville,Predators,NAS,1,right,current,2026-2027,standard_level
+Emil,Heineman,Left Wing,11/16/01,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+Tyler,Kleven,Defense,1/10/02,Ottawa,Senators,OTT,1,left,current,2026-2027,standard_level
+Brock,Faber,Defense,8/22/02,Minnesota,Wild,MIN,1,right,current,2032-2033,standard_level
+Drew,Commesso,Goaltender,7/19/02,Chicago,Blackhawks,CHI,0,,current,2025-2026,entry_level
+Luke,Tuch,Left Wing,3/7/02,Montreal,Canadiens,MTL,0,left,current,2025-2026,entry_level
+Jan,Mysak,Center,6/24/02,Anaheim,Ducks,ANA,0,left,current,2025-2026,standard_level
+Yan,Kuznetsov,Defense,3/9/02,Calgary,Flames,CGY,1,left,current,2026-2027,standard_level
+Joel,Blomqvist,Goaltender,1/10/02,Pittsburgh,Penguins,PIT,0,,current,2025-2026,entry_level
+Emil,Andrae,Defense,2/23/02,Philadelphia,Flyers,PHI,1,left,current,2025-2026,entry_level
+Jack,Finley,Center,9/2/02,Tampa Bay,Lightning,TBL,1,right,current,2027-2028,standard_level
+Mason,Lohrei,Defense,1/17/01,Boston,Bruins,BOS,1,left,current,2026-2027,standard_level
+Will,Cuylle,Left Wing,2/5/02,New York,Rangers,NYR,1,left,current,2026-2027,standard_level
+Gage,Goncalves,Center,1/16/01,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,standard_level
+Donovan,Sebrango,Defense,1/12/02,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Daemon,Hunt,Defense,5/15/02,Minnesota,Wild,MIN,1,left,current,2025-2026,standard_level
+Ian,Moore,Defense,1/4/02,Anaheim,Ducks,ANA,1,right,current,2025-2026,entry_level
+Lukas,Cormier,Defense,3/27/02,Vegas,Golden Knights,VGK,0,left,current,2025-2026,standard_level
+Alexander,Nikishin,Defense,10/2/01,Carolina,Hurricanes,CAR,1,left,current,2025-2026,entry_level
+Leevi,Merilainen,Goaltender,8/13/02,Ottawa,Senators,OTT,1,,current,2025-2026,standard_level
+Jeremie,Poirier,Defense,6/2/02,Calgary,Flames,CGY,0,left,current,2025-2026,standard_level
+Danil,Gushchin,Left Wing,2/6/02,Colorado,Avalanche,COL,0,left,current,2025-2026,standard_level
+Calle,Clang,Goaltender,5/20/02,Anaheim,Ducks,ANA,0,,current,2025-2026,standard_level
+Landon,Slaggert,Left Wing,6/25/02,Chicago,Blackhawks,CHI,1,left,current,2026-2027,standard_level
+Wyatt,Kaiser,Defense,7/31/02,Chicago,Blackhawks,CHI,1,left,current,2026-2027,standard_level
+Alex,Laferriere,Right Wing,10/28/01,Los Angeles,Kings,LAK,1,right,current,2027-2028,standard_level
+Nico,Daws,Goaltender,12/22/00,New Jersey,Devils,NJD,0,,current,2025-2026,standard_level
+Maxim,Groshev,Defense,12/14/01,Tampa Bay,Lightning,TBL,0,left,current,2025-2026,entry_level
+Dylan,Peterson,Center,1/8/02,St. Louis,Blues,STL,0,right,current,2025-2026,entry_level
+Justin,Sourdif,Right Wing,3/24/02,Washington,Capitals,WAS,1,right,current,2026-2027,standard_level
+Leo,Loof,Defense,4/25/02,St. Louis,Blues,STL,0,left,current,2025-2026,entry_level
+Trevor,Kuntar,Center,6/20/01,Buffalo,Sabres,BUF,0,left,current,2025-2026,standard_level
+Jackson,Hallum,Left Wing,9/8/02,Vegas,Golden Knights,VGK,0,left,current,2026-2027,entry_level
+Jack,Thompson,Defense,3/19/02,San Jose,Sharks,SJS,0,right,current,2025-2026,standard_level
+Michael,Benning,Defense,1/5/02,Florida,Panthers,FLA,0,right,current,2025-2026,standard_level
+Adam,Wilsby,Defense,8/7/00,Nashville,Predators,NAS,1,left,current,2026-2027,standard_level
+Dylan,Garand,Goaltender,6/7/02,New York,Rangers,NYR,0,,current,2025-2026,standard_level
+Artur,Akhtyamov,Goaltender,10/31/01,Toronto,Maple Leafs,TOR,0,,current,2025-2026,entry_level
+Mikael,Pyyhtia,Left Wing,12/17/01,Columbus,Blue Jackets,CBJ,0,left,current,2025-2026,standard_level
+Bogdan,Trineyev,Left Wing,3/4/02,Washington,Capitals,WAS,0,right,current,2025-2026,standard_level
+Ethan,Edwards,Defense,6/6/02,New Jersey,Devils,NJD,0,left,current,2026-2027,entry_level
+Alex,Jefferies,Left Wing,11/8/01,New York,Islanders,NYI,0,right,current,2025-2026,entry_level
+William,Villeneuve,Defense,3/20/02,Toronto,Maple Leafs,TOR,0,right,current,2025-2026,standard_level
+Antonio,Stranges,Left Wing,2/5/02,Dallas,Stars,DAL,0,left,current,2025-2026,standard_level
+Sean,Farrell,Center,11/2/01,Montreal,Canadiens,MTL,0,left,current,2025-2026,standard_level
+Jesper,Vikman,Goaltender,3/11/02,Vegas,Golden Knights,VGK,0,,current,2025-2026,entry_level
+Martin,Chromiak,Right Wing,8/20/02,Los Angeles,Kings,LAK,0,right,current,2025-2026,standard_level
+Brett,Berard,Left Wing,9/9/02,New York,Rangers,NYR,0,left,current,2025-2026,entry_level
+Jakub,Dobes,Goaltender,5/27/01,Montreal,Canadiens,MTL,1,,current,2026-2027,standard_level
+Ryder,Rolston,Center,10/31/01,Nashville,Predators,NAS,0,right,current,2025-2026,entry_level
+Isaak,Phillips,Defense,9/28/01,Winnipeg,Jets,WPG,1,left,current,2026-2027,standard_level
+Matthew,Kessel,Defense,6/23/00,St. Louis,Blues,STL,1,right,current,2025-2026,standard_level
+Lucas,Mercuri,Center,3/7/02,Tampa Bay,Lightning,TBL,0,right,current,2026-2027,entry_level
+Will,Cranley,Goaltender,2/26/02,St. Louis,Blues,STL,0,,current,2025-2026,standard_level
+Tyrel,Bauer,Defense,3/23/02,Winnipeg,Jets,WPG,0,right,current,2025-2026,standard_level
+Matt,Rempe,Right Wing,6/29/02,New York,Rangers,NYR,1,right,current,2026-2027,standard_level
+Nils,Aman,Center,2/7/00,Vancouver,Canucks,VAN,0,left,current,2025-2026,standard_level
+Rory,Kerins,Center,4/12/02,Calgary,Flames,CGY,0,left,current,2025-2026,standard_level
+Samuel,Johannesson,Defense,12/27/00,St. Louis,Blues,STL,0,right,current,2025-2026,entry_level
+Garin,Bjorklund,Goaltender,5/28/02,Washington,Capitals,WAS,0,,current,2025-2026,standard_level
+Cole,Reinhardt,Left Wing,2/1/00,Vegas,Golden Knights,VGK,1,left,current,2026-2027,standard_level
+Riley,Duran,Center,1/25/02,Boston,Bruins,BOS,0,right,current,2025-2026,entry_level
+Remi,Poirier,Goaltender,10/6/01,Dallas,Stars,DAL,0,,current,2026-2027,standard_level
+Amir,Miftakhov,Goaltender,4/26/00,Carolina,Hurricanes,CAR,0,,current,2025-2026,standard_level
+Louis,Crevier,Defense,5/4/01,Chicago,Blackhawks,CHI,1,right,current,2026-2027,standard_level
+Aatu,Jamsen,Right Wing,7/22/02,Los Angeles,Kings,LAK,0,left,current,2025-2026,entry_level
+Noah,Beck,Defense,3/25/01,San Jose,Sharks,SJS,0,left,current,2025-2026,entry_level
+Hugo,Ollas,Goaltender,4/24/02,New York,Rangers,NYR,0,,current,2025-2026,entry_level
+Chase,Bradley,Left Wing,1/9/02,Colorado,Avalanche,COL,0,left,current,2025-2026,entry_level
+Ben,McCartney,Left Wing,7/13/01,Utah,Mammoth,UTA,0,left,current,2026-2027,standard_level
+Ilya,Solovyov,Defense,7/20/00,Colorado,Avalanche,COL,1,left,current,2025-2026,standard_level
+Ronan,Seeley,Defense,8/2/02,Carolina,Hurricanes,CAR,0,left,current,2025-2026,standard_level
+Devon,Levi,Goaltender,12/27/01,Buffalo,Sabres,BUF,0,,current,2026-2027,standard_level
+Ryan,Tverberg,Center,1/30/02,Toronto,Maple Leafs,TOR,0,right,current,2025-2026,entry_level
+Henrik,Tikkanen,Goaltender,9/28/00,New York,Islanders,NYI,0,,current,2025-2026,entry_level
+Tim,Stutzle,Left Wing,1/15/02,Ottawa,Senators,OTT,1,left,current,2030-2031,standard_level
+Joshua,Dunne,Center,12/8/98,Buffalo,Sabres,BUF,1,left,current,2025-2026,standard_level
+Daniil,Miromanov,Defense,7/11/97,Calgary,Flames,CGY,0,right,current,2025-2026,standard_level
+Alex,Steeves,Center,12/10/99,Boston,Bruins,BOS,1,left,current,2025-2026,standard_level
+Mike,Hardman,Center,2/5/99,New Jersey,Devils,NJD,0,left,current,2025-2026,standard_level
+Matt,Kiersted,Defense,4/14/98,Minnesota,Wild,MIN,0,left,current,2026-2027,standard_level
+Walker,Duehr,Right Wing,11/23/97,Winnipeg,Jets,WPG,0,right,current,2025-2026,standard_level
+Justin,Danforth,Right Wing,3/15/93,Buffalo,Sabres,BUF,1,right,current,2026-2027,standard_level
+Arvid,Soderblom,Goaltender,8/19/99,Chicago,Blackhawks,CHI,1,,current,2026-2027,standard_level
+Jeff,Malott,Left Wing,8/7/96,Los Angeles,Kings,LAK,1,left,current,2025-2026,standard_level
+Mason,McTavish,Center,1/30/03,Anaheim,Ducks,ANA,1,left,current,2030-2031,standard_level
+Dylan,Guenther,Right Wing,4/10/03,Utah,Mammoth,UTA,1,right,current,2032-2033,standard_level
+Nolan,Allan,Defense,4/28/03,San Jose,Sharks,SJS,0,left,current,2025-2026,entry_level
+Cole,Sillinger,Center,5/16/03,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,standard_level
+Wyatt,Johnston,Center,5/14/03,Dallas,Stars,DAL,1,right,current,2029-2030,standard_level
+Sebastian,Cossa,Goaltender,11/21/02,Detroit,Red Wings,DET,0,,current,2025-2026,entry_level
+Xavier,Bourgault,Right Wing,10/22/02,Ottawa,Senators,OTT,0,right,current,2025-2026,standard_level
+Brandt,Clarke,Defense,2/9/03,Los Angeles,Kings,LAK,1,right,current,2025-2026,entry_level
+Zachary,L'Heureux,Left Wing,5/15/03,Nashville,Predators,NAS,0,left,current,2025-2026,entry_level
+Carson,Lambos,Defense,1/14/03,Minnesota,Wild,MIN,0,left,current,2025-2026,entry_level
+Logan,Mailloux,Defense,4/15/03,St. Louis,Blues,STL,1,right,current,2025-2026,entry_level
+Chase,Stillman,Right Wing,3/19/03,Vancouver,Canucks,VAN,0,right,current,2025-2026,entry_level
+Brennan,Othmann,Left Wing,1/5/03,New York,Rangers,NYR,1,left,current,2025-2026,entry_level
+Zack,Bolduc,Center,2/24/03,Montreal,Canadiens,MTL,1,left,current,2025-2026,entry_level
+Zach,Dean,Center,1/4/03,St. Louis,Blues,STL,0,left,current,2025-2026,entry_level
+Tyson,Hinds,Defense,3/12/03,Anaheim,Ducks,ANA,0,left,current,2025-2026,entry_level
+Olen,Zellweger,Defense,9/10/03,Anaheim,Ducks,ANA,1,left,current,2025-2026,entry_level
+Brett,Harrison,Center,6/7/03,Boston,Bruins,BOS,0,left,current,2025-2026,entry_level
+Josh,Bloom,Left Wing,6/8/03,Vancouver,Canucks,VAN,0,left,current,2025-2026,entry_level
+Olivier,Nadeau,Right Wing,1/15/03,Buffalo,Sabres,BUF,0,right,current,2025-2026,entry_level
+Colton,Dach,Center,1/4/03,Chicago,Blackhawks,CHI,1,left,current,2025-2026,entry_level
+Logan,Stankoven,Center,2/26/03,Carolina,Hurricanes,CAR,1,right,current,2025-2026,entry_level
+Evan,Nause,Defense,1/20/03,Florida,Panthers,FLA,0,left,current,2025-2026,entry_level
+Francesco,Pinelli,Center,4/11/03,Los Angeles,Kings,LAK,0,left,current,2025-2026,entry_level
+Caedan,Bankier,Center,1/26/03,Minnesota,Wild,MIN,0,left,current,2025-2026,entry_level
+Riley,Kidney,Center,3/25/03,Montreal,Canadiens,MTL,0,left,current,2025-2026,entry_level
+Tristan,Lennox,Goaltender,10/21/02,New York,Islanders,NYI,0,,current,2025-2026,entry_level
+Jayden,Grubbe,Center,1/12/03,Edmonton,Oilers,EDM,0,right,current,2025-2026,entry_level
+Zack,Ostapchuk,Center,5/29/03,San Jose,Sharks,SJS,1,left,current,2025-2026,entry_level
+Ryker,Evans,Defense,12/13/01,Seattle,Kraken,SEA,1,left,current,2026-2027,standard_level
+Ryan,Winterton,Center,9/4/03,Seattle,Kraken,SEA,1,right,current,2025-2026,entry_level
+Roman,Schmidt,Defense,2/27/03,Philadelphia,Flyers,PHI,0,right,current,2025-2026,entry_level
+Vincent,Iorio,Defense,11/14/02,San Jose,Sharks,SJS,1,right,current,2025-2026,entry_level
+Danila,Klimovich,Right Wing,1/9/03,Vancouver,Canucks,VAN,0,right,current,2025-2026,entry_level
+Hunter,Shepard,Goaltender,11/7/95,Ottawa,Senators,OTT,0,,current,2025-2026,standard_level
+Owen,Power,Defense,11/22/02,Buffalo,Sabres,BUF,1,left,current,2030-2031,standard_level
+Matthew,Beniers,Center,11/5/02,Seattle,Kraken,SEA,1,left,current,2030-2031,standard_level
+Luke,Hughes,Defense,9/9/03,New Jersey,Devils,NJD,1,left,current,2031-2032,standard_level
+Kent,Johnson,Center,10/18/02,Columbus,Blue Jackets,CBJ,1,left,current,2026-2027,standard_level
+Simon,Edvinsson,Defense,2/5/03,Detroit,Red Wings,DET,1,left,current,2025-2026,entry_level
+William,Eklund,Left Wing,10/12/02,San Jose,Sharks,SJS,1,left,current,2025-2026,entry_level
+Tyler,Boucher,Right Wing,1/16/03,Ottawa,Senators,OTT,0,right,current,2025-2026,entry_level
+Matt,Coronato,Right Wing,11/14/02,Calgary,Flames,CGY,1,right,current,2031-2032,standard_level
+Isak,Rosén,Center,3/15/03,Buffalo,Sabres,BUF,0,left,current,2025-2026,entry_level
+Fyodor,Svechkov,Center,4/5/03,Nashville,Predators,NAS,1,left,current,2025-2026,entry_level
+Jesper,Wallstedt,Goaltender,11/14/02,Minnesota,Wild,MIN,1,,current,2026-2027,standard_level
+Fabian,Lysell,Right Wing,1/19/03,Boston,Bruins,BOS,0,right,current,2025-2026,entry_level
+Mackie,Samoskevich,Right Wing,11/15/02,Florida,Panthers,FLA,1,right,current,2025-2026,standard_level
+Corson,Ceulemans,Defense,5/5/03,Columbus,Blue Jackets,CBJ,0,right,current,2025-2026,entry_level
+Oskar,Olausson,Center,11/10/02,Minnesota,Wild,MIN,0,left,current,2025-2026,entry_level
+Shai,Buium,Defense,3/26/03,Detroit,Red Wings,DET,0,left,current,2026-2027,entry_level
+Josh,Doan,Center,2/1/02,Buffalo,Sabres,BUF,1,right,current,2025-2026,entry_level
+Scott,Morrow,Defense,11/1/02,New York,Rangers,NYR,1,right,current,2025-2026,entry_level
+Aleksi,Heimosalmi,Defense,5/8/03,Carolina,Hurricanes,CAR,0,right,current,2025-2026,entry_level
+William,Strömgren,Left Wing,6/7/03,Calgary,Flames,CGY,0,left,current,2025-2026,entry_level
+Samu,Tuomaala,Right Wing,1/8/03,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Artyom,Grushnikov,Defense,3/20/03,Calgary,Flames,CGY,0,left,current,2025-2026,entry_level
+Nikita,Chibrikov,Left Wing,2/16/03,Winnipeg,Jets,WPG,0,left,current,2025-2026,entry_level
+Ville,Koivunen,Center,6/13/03,Pittsburgh,Penguins,PIT,0,left,current,2025-2026,entry_level
+Aatu,Räty,Center,11/14/02,Vancouver,Canucks,VAN,1,left,current,2026-2027,standard_level
+Jack,Peart,Defense,5/15/03,Minnesota,Wild,MIN,0,left,current,2026-2027,entry_level
+Matthew,Knies,Left Wing,10/17/02,Toronto,Maple Leafs,TOR,1,left,current,2030-2031,standard_level
+Tristan,Broz,Center,10/10/02,Pittsburgh,Penguins,PIT,0,left,current,2026-2027,entry_level
+Samuel,Helenius,Center,11/26/02,Los Angeles,Kings,LAK,1,left,current,2025-2026,entry_level
+Janis Jérôme ,Moser,Defense,6/6/00,Tampa Bay,Lightning,TBL,1,left,current,2025-2026,standard_level
+Sean,Behrens,Defense,3/31/03,Colorado,Avalanche,COL,0,left,current,2026-2027,entry_level
+Oliver,Kapanen,Center,7/29/03,Montreal,Canadiens,MTL,1,right,current,2026-2027,entry_level
+Sasha,Pastujov,Right Wing,7/15/03,Anaheim,Ducks,ANA,0,left,current,2025-2026,entry_level
+Stanislav,Svozil,Defense,1/17/03,Columbus,Blue Jackets,CBJ,0,left,current,2025-2026,entry_level
+Carter,Mazur,Left Wing,3/28/02,Detroit,Red Wings,DET,0,right,current,2025-2026,entry_level
+Simon,Robertsson,Right Wing,2/5/03,St. Louis,Blues,STL,0,left,current,2026-2027,entry_level
+Ayrton,Martino,Left Wing,9/28/02,Dallas,Stars,DAL,0,left,current,2026-2027,entry_level
+Alexei,Kolosov,Goaltender,1/4/02,Philadelphia,Flyers,PHI,1,,current,2025-2026,entry_level
+Justin,Ertel,Left Wing,5/27/03,Dallas,Stars,DAL,0,left,current,2026-2027,entry_level
+Dmitri,Kuzmin,Defense,4/23/03,Chicago,Blackhawks,CHI,0,left,current,2025-2026,entry_level
+Kirill,Kirsanov,Defense,9/19/02,Los Angeles,Kings,LAK,0,left,current,2026-2027,entry_level
+Taige,Harding,Defense,1/3/02,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Ville,Ottavainen,Defense,8/12/02,Seattle,Kraken,SEA,0,right,current,2025-2026,entry_level
+Jakub,Málek,Goaltender,4/11/02,New Jersey,Devils,NJD,0,,current,2025-2026,entry_level
+Guillaume,Richard,Defense,2/10/03,Columbus,Blue Jackets,CBJ,0,left,current,2026-2027,entry_level
+Jakub,Brabenec,Center,9/11/03,Vegas,Golden Knights,VGK,0,left,current,2025-2026,entry_level
+Gannon,Laroque,Defense,8/20/03,Montreal,Canadiens,MTL,0,right,current,2025-2026,entry_level
+Ethan,Del Mastro,Defense,1/15/03,Chicago,Blackhawks,CHI,0,left,current,2025-2026,entry_level
+Kalle,Väisänen,Left Wing,1/28/03,New York,Rangers,NYR,0,right,current,2026-2027,entry_level
+Emil,Lilleberg,Defense,2/2/01,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,standard_level
+Jackson,Blake,Right Wing,8/3/03,Carolina,Hurricanes,CAR,1,right,current,2025-2026,entry_level
+Talyn,Boyko,Goaltender,10/16/02,New York,Rangers,NYR,0,,current,2025-2026,standard_level
+William,Trudeau,Defense,10/11/02,Montreal,Canadiens,MTL,0,left,current,2025-2026,standard_level
+Ryan,Ufko,Defense,5/7/03,Nashville,Predators,NAS,0,right,current,2026-2027,entry_level
+Kyle,Masters,Defense,4/9/03,Carolina,Hurricanes,CAR,0,right,current,2025-2026,entry_level
+Ethan,Cardwell,Right Wing,8/30/02,San Jose,Sharks,SJS,0,right,current,2025-2026,entry_level
+Jack,Matier,Defense,4/8/03,Nashville,Predators,NAS,0,right,current,2025-2026,entry_level
+Dylan,Duke,Left Wing,3/4/03,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Jakub,Demek,Center,6/6/03,Vegas,Golden Knights,VGK,0,left,current,2025-2026,entry_level
+Topias,Vilen,Defense,4/1/03,New Jersey,Devils,NJD,0,left,current,2025-2026,entry_level
+Jacob,Melanson,Right Wing,4/22/03,Seattle,Kraken,SEA,0,right,current,2025-2026,entry_level
+James,Malatesta,Left Wing,5/31/03,Columbus,Blue Jackets,CBJ,0,left,current,2025-2026,entry_level
+Artem,Guryev,Defense,5/17/03,Philadelphia,Flyers,PHI,0,left,current,2025-2026,entry_level
+Aku,Koskenvuo,Goaltender,2/26/03,Vancouver,Canucks,VAN,0,,current,2026-2027,entry_level
+Jaroslav,Chmelar,Right Wing,7/20/03,New York,Rangers,NYR,0,right,current,2026-2027,entry_level
+Justin,Robidas,Center,3/13/03,Carolina,Hurricanes,CAR,0,right,current,2025-2026,entry_level
+Joshua,Roy,Center,8/6/03,Montreal,Canadiens,MTL,0,left,current,2025-2026,entry_level
+Kirill,Gerasimyuk,Goaltender,8/22/03,Florida,Panthers,FLA,0,,current,2026-2027,entry_level
+Isaac,Belliveau,Defense,11/26/02,Buffalo,Sabres,BUF,0,left,current,2025-2026,entry_level
+Max,McCue,Center,2/10/03,Columbus,Blue Jackets,CBJ,0,left,current,2026-2027,entry_level
+Eetu,Liukas,Left Wing,9/25/02,New York,Islanders,NYI,0,left,current,2025-2026,entry_level
+Ty,Murchison,Defense,2/2/03,Philadelphia,Flyers,PHI,0,left,current,2026-2027,entry_level
+Viljami,Marjala,Left Wing,1/29/03,Edmonton,Oilers,EDM,0,left,current,2026-2027,entry_level
+Bryce,Montgomery,Defense,11/12/02,Carolina,Hurricanes,CAR,0,right,current,2026-2027,entry_level
+Lucas,Ciona,Left Wing,1/8/03,Calgary,Flames,CGY,0,left,current,2025-2026,entry_level
+Ethan,Samson,Defense,8/23/03,Tampa Bay,Lightning,TBL,0,right,current,2025-2026,entry_level
+Francesco,Arcuri,Center,6/13/03,Dallas,Stars,DAL,0,left,current,2025-2026,entry_level
+Matvei,Petrov,Left Wing,3/12/03,Edmonton,Oilers,EDM,0,right,current,2025-2026,entry_level
+Ryan,Mast,Defense,1/14/03,Chicago,Blackhawks,CHI,0,right,current,2025-2026,entry_level
+Vyacheslav,Peksa,Goaltender,8/27/02,Toronto,Maple Leafs,TOR,0,,current,2025-2026,entry_level
+Shane,Lachance,Left Wing,8/30/03,New Jersey,Devils,NJD,0,left,current,2026-2027,entry_level
+Nikita,Quapp,Goaltender,1/25/03,Carolina,Hurricanes,CAR,0,,current,2025-2026,entry_level
+Nikita,Novikov,Defense,7/25/03,Buffalo,Sabres,BUF,0,left,current,2025-2026,entry_level
+Alex,Gagne,Defense,8/12/02,Colorado,Avalanche,COL,0,left,current,2026-2027,entry_level
+Tyson,Kozak,Center,12/29/02,Buffalo,Sabres,BUF,1,left,current,2027-2028,standard_level
+Zakhar,Bardakov,Center,2/24/01,Colorado,Avalanche,COL,1,left,current,2025-2026,entry_level
+Arseni,Sergeyev,Goaltender,12/16/02,Calgary,Flames,CGY,0,,current,2026-2027,entry_level
+Robert,Flinton,Left Wing,8/16/03,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Max,Wanner,Defense,3/12/03,Boston,Bruins,BOS,0,right,current,2025-2026,entry_level
+Daniel,Laatsch,Defense,2/13/02,Pittsburgh,Penguins,PIT,0,left,current,2026-2027,entry_level
+Joel,Nystrom,Defense,5/14/02,Carolina,Hurricanes,CAR,1,right,current,2025-2026,entry_level
+Taylor,Makar,Left Wing,3/13/01,Colorado,Avalanche,COL,0,left,current,2025-2026,entry_level
+Carl,Lindbom,Goaltender,5/20/03,Vegas,Golden Knights,VGK,0,,current,2025-2026,entry_level
+Sam,Lipkin,Left Wing,1/3/03,Utah,Mammoth,UTA,0,left,current,2026-2027,entry_level
+Jon-Randall,Avon,Center,7/4/03,Seattle,Kraken,SEA,0,left,current,2025-2026,entry_level
+Braeden,Kressler,Center,1/5/03,Toronto,Maple Leafs,TOR,0,right,current,2025-2026,entry_level
+James,Hamblin,Left Wing,4/27/99,Edmonton,Oilers,EDM,0,left,current,2025-2026,standard_level
+Arber,Xhekaj,Defense,1/30/01,Montreal,Canadiens,MTL,1,left,current,2025-2026,standard_level
+Anson,Thornton,Goaltender,6/28/03,Utah,Mammoth,UTA,0,,current,2025-2026,entry_level
+Jet,Greaves,Goaltender,3/30/01,Columbus,Blue Jackets,CBJ,1,,current,2025-2026,standard_level
+Tye,Kartye,Left Wing,4/30/01,Seattle,Kraken,SEA,1,left,current,2026-2027,standard_level
+Billy,Sweezey,Defense,2/6/96,Boston,Bruins,BOS,1,right,current,2025-2026,standard_level
+Navrin,Mutter,Left Wing,3/15/01,Nashville,Predators,NAS,0,left,current,2025-2026,standard_level
+Arshdeep,Bains,Left Wing,1/9/01,Vancouver,Canucks,VAN,1,left,current,2026-2027,standard_level
+Marc,McLaughlin,Center,7/26/99,New Jersey,Devils,NJD,0,right,current,2025-2026,standard_level
+Declan,Carlile,Defense,5/18/00,Tampa Bay,Lightning,TBL,1,left,current,2025-2026,standard_level
+Taylor,Ward,Right Wing,3/31/98,Los Angeles,Kings,LAK,1,right,current,2025-2026,standard_level
+Brandon,Scanlin,Defense,6/2/99,New York,Rangers,NYR,0,left,current,2025-2026,standard_level
+Hayden,Hodgson,Right Wing,3/2/96,Ottawa,Senators,OTT,0,right,current,2026-2027,standard_level
+Jaxson,Stauber,Goaltender,4/27/99,Utah,Mammoth,UTA,0,,current,2026-2027,standard_level
+Brian,Halonen,Left Wing,1/11/99,New Jersey,Devils,NJD,0,right,current,2025-2026,standard_level
+Ryan,Fanti,Goaltender,10/3/99,Tampa Bay,Lightning,TBL,0,,current,2025-2026,standard_level
+Clay,Stevenson,Goaltender,3/3/99,Washington,Capitals,WAS,0,,current,2026-2027,standard_level
+Brandon,Bussi,Goaltender,6/25/98,Carolina,Hurricanes,CAR,1,,current,2025-2026,standard_level
+Lucas,Condotta,Center,11/6/97,Montreal,Canadiens,MTL,0,left,current,2026-2027,standard_level
+Noah,Philp,Center,8/31/98,Carolina,Hurricanes,CAR,1,right,current,2025-2026,standard_level
+Nick,Blankenburg,Defense,5/12/98,Nashville,Predators,NAS,1,right,current,2025-2026,standard_level
+Georgii,Merkulov,Center,10/10/00,Boston,Bruins,BOS,0,left,current,2025-2026,standard_level
+Nick,Cicek,Defense,5/29/00,Calgary,Flames,CGY,0,left,current,2025-2026,standard_level
+Wyatt,Aamodt,Defense,11/22/97,Colorado,Avalanche,COL,0,left,current,2026-2027,standard_level
+Ben,Meyers,Center,11/15/98,Seattle,Kraken,SEA,1,left,current,2025-2026,standard_level
+Wyatt,Bongiovanni,Center,7/24/99,Ottawa,Senators,OTT,0,left,current,2025-2026,standard_level
+Bobby,McMann,Center,6/15/96,Toronto,Maple Leafs,TOR,1,left,current,2025-2026,standard_level
+Adam,Klapka,Right Wing,9/14/00,Calgary,Flames,CGY,1,right,current,2026-2027,standard_level
+Pavol,Regenda,Left Wing,12/7/99,San Jose,Sharks,SJS,1,left,current,2025-2026,standard_level
+Andrei,Kuzmenko,Left Wing,2/4/96,Los Angeles,Kings,LAK,1,right,current,2025-2026,standard_level
+Nathan,Gaucher,Center,11/6/03,Anaheim,Ducks,ANA,0,right,current,2026-2027,entry_level
+Pavel,Mintyukov,Defense,11/25/03,Anaheim,Ducks,ANA,1,left,current,2025-2026,entry_level
+Conor,Geekie,Right Wing,5/5/04,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Maveric,Lamoureux,Defense,1/13/04,Utah,Mammoth,UTA,0,right,current,2026-2027,entry_level
+Matthew,Savoie,Center,1/1/04,Edmonton,Oilers,EDM,1,right,current,2026-2027,entry_level
+Kevin,Korchinski,Defense,6/21/04,Chicago,Blackhawks,CHI,0,left,current,2025-2026,entry_level
+Denton,Mateychuk,Defense,7/12/04,Columbus,Blue Jackets,CBJ,1,left,current,2026-2027,entry_level
+Reid,Schaefer,Left Wing,9/21/03,Nashville,Predators,NAS,1,left,current,2026-2027,entry_level
+Filip,Mesar,Right Wing,1/3/04,Montreal,Canadiens,MTL,0,right,current,2026-2027,entry_level
+Owen,Pickering,Defense,1/27/04,Pittsburgh,Penguins,PIT,0,left,current,2026-2027,entry_level
+Shane,Wright,Center,1/5/04,Seattle,Kraken,SEA,1,right,current,2026-2027,entry_level
+Jonathan,Lekkerimaki,Right Wing,7/24/04,Vancouver,Canucks,VAN,0,right,current,2026-2027,entry_level
+Tristan,Luneau,Defense,1/12/04,Anaheim,Ducks,ANA,0,right,current,2026-2027,entry_level
+Noah,Warren,Defense,7/15/04,Anaheim,Ducks,ANA,0,right,current,2026-2027,entry_level
+Matthew,Poitras,Center,3/10/04,Boston,Bruins,BOS,0,right,current,2025-2026,entry_level
+Gavin,Hayes,Left Wing,5/14/04,Chicago,Blackhawks,CHI,0,right,current,2026-2027,entry_level
+Paul,Ludwinski,Center,4/23/04,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Samuel,Savoie,Left Wing,3/25/04,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Luca,Del Bel Belluz,Center,11/10/03,Columbus,Blue Jackets,CBJ,0,left,current,2026-2027,entry_level
+Jordan,Dumais,Right Wing,4/15/04,Columbus,Blue Jackets,CBJ,0,right,current,2026-2027,entry_level
+Christian,Kyrou,Defense,9/16/03,Philadelphia,Flyers,PHI,0,right,current,2025-2026,entry_level
+Matthew,Seminoff,Right Wing,12/27/03,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Marek,Alscher,Defense,4/7/04,Florida,Panthers,FLA,0,left,current,2026-2027,entry_level
+Angus,Booth,Defense,4/27/04,Los Angeles,Kings,LAK,0,left,current,2026-2027,entry_level
+Hunter,Haight,Center,4/4/04,Minnesota,Wild,MIN,1,right,current,2026-2027,entry_level
+Michael,Milne,Left Wing,9/21/02,Tampa Bay,Lightning,TBL,0,left,current,2025-2026,standard_level
+Owen,Beck,Center,2/3/04,Montreal,Canadiens,MTL,0,right,current,2026-2027,entry_level
+Vinzenz,Rohrer,Center,9/9/04,Montreal,Canadiens,MTL,0,right,current,2027-2028,entry_level
+Tyler,Brennan,Goaltender,9/27/03,New Jersey,Devils,NJD,0,,current,2025-2026,entry_level
+Josh,Filmon,Left Wing,3/18/04,New Jersey,Devils,NJD,0,left,current,2026-2027,entry_level
+Isaiah,George,Defense,2/15/04,New York,Islanders,NYI,0,left,current,2026-2027,entry_level
+Bryce,McConnell-Barker,Center,6/4/04,New York,Rangers,NYR,0,left,current,2026-2027,entry_level
+Jorian,Donovan,Defense,4/5/04,Ottawa,Senators,OTT,0,left,current,2026-2027,entry_level
+Jagger,Firkus,Right Wing,4/29/04,Seattle,Kraken,SEA,0,right,current,2026-2027,entry_level
+David,Goyette,Center,3/27/04,Seattle,Kraken,SEA,0,left,current,2026-2027,entry_level
+Ty,Nelson,Defense,3/30/04,Seattle,Kraken,SEA,0,right,current,2026-2027,entry_level
+Michael,Buchinger,Defense,4/25/04,St. Louis,Blues,STL,0,left,current,2026-2027,entry_level
+Fraser,Minten,Center,7/5/04,Boston,Bruins,BOS,1,left,current,2026-2027,entry_level
+Jordan,Gustafson,Center,1/20/04,Vegas,Golden Knights,VGK,0,left,current,2026-2027,entry_level
+Matyas,Sapovaliv,Center,2/12/04,Vegas,Golden Knights,VGK,0,left,current,2026-2027,entry_level
+Danny,Zhilkin,Center,12/19/03,Winnipeg,Jets,WPG,1,left,current,2026-2027,entry_level
+Juraj,Slafkovský,Right Wing,3/30/04,Montreal,Canadiens,MTL,1,left,current,2032-2033,standard_level
+Simon,Nemec,Defense,2/15/04,New Jersey,Devils,NJD,1,right,current,2025-2026,entry_level
+Logan,Cooley,Center,5/4/04,Utah,Mammoth,UTA,1,left,current,2025-2026,entry_level
+Cutter,Gauthier,Left Wing,1/19/04,Anaheim,Ducks,ANA,1,left,current,2025-2026,entry_level
+David,Jiricek,Defense,11/28/03,Minnesota,Wild,MIN,1,right,current,2025-2026,entry_level
+Marco,Kasper,Center,4/8/04,Detroit,Red Wings,DET,1,left,current,2026-2027,entry_level
+Frank,Nazar,Center,1/14/04,Chicago,Blackhawks,CHI,1,right,current,2025-2026,entry_level
+Rutger,McGroarty,Center,3/30/04,Pittsburgh,Penguins,PIT,0,left,current,2026-2027,entry_level
+Noah,Östlund,Center,3/11/04,Buffalo,Sabres,BUF,1,left,current,2026-2027,entry_level
+Joakim,Kemell,Right Wing,4/27/04,Nashville,Predators,NAS,0,right,current,2026-2027,entry_level
+Lian,Bichsel,Defense,5/18/04,Dallas,Stars,DAL,1,left,current,2026-2027,entry_level
+Liam,Öhgren,Left Wing,1/28/04,Vancouver,Canucks,VAN,1,left,current,2026-2027,entry_level
+Ivan,Miroshnichenko,Left Wing,2/4/04,Washington,Capitals,WAS,1,right,current,2025-2026,entry_level
+Jimmy,Snuggerud,Right Wing,6/1/04,St. Louis,Blues,STL,1,right,current,2026-2027,entry_level
+Danila,Yurov,Right Wing,12/22/03,Minnesota,Wild,MIN,1,left,current,2027-2028,entry_level
+Sam,Rinzel,Defense,6/25/04,Chicago,Blackhawks,CHI,0,right,current,2026-2027,entry_level
+Filip,Bystedt,Center,2/4/04,San Jose,Sharks,SJS,0,left,current,2026-2027,entry_level
+Jiri,Kulich,Center,4/14/04,Buffalo,Sabres,BUF,1,left,current,2026-2027,entry_level
+Brad,Lambert,Center,12/19/03,Winnipeg,Jets,WPG,0,right,current,2026-2027,entry_level
+Isaac,Howard,Left Wing,3/30/04,Edmonton,Oilers,EDM,1,left,current,2027-2028,entry_level
+Cameron,Lund,Center,6/7/04,San Jose,Sharks,SJS,0,right,current,2026-2027,entry_level
+Artyom,Duda,Defense,4/8/04,Utah,Mammoth,UTA,0,left,current,2026-2027,entry_level
+Ryan,Chesley,Defense,2/27/04,Washington,Capitals,WAS,0,right,current,2027-2028,entry_level
+Topias,Leinonen,Goaltender,1/25/04,Buffalo,Sabres,BUF,0,,current,2027-2028,entry_level
+Julian,Lutz,Center,2/29/04,Utah,Mammoth,UTA,0,left,current,2026-2027,entry_level
+Mattias,Hävelid,Defense,1/1/04,San Jose,Sharks,SJS,0,right,current,2027-2028,entry_level
+Seamus,Casey,Defense,1/8/04,New Jersey,Devils,NJD,0,right,current,2026-2027,entry_level
+Jani,Nyman,Right Wing,7/30/04,Seattle,Kraken,SEA,0,left,current,2026-2027,entry_level
+Elias,Salomonsson,Defense,8/31/04,Winnipeg,Jets,WPG,1,right,current,2026-2027,entry_level
+Ryan,Greene,Center,10/21/03,Chicago,Blackhawks,CHI,1,right,current,2026-2027,entry_level
+Niklas,Kokko,Goaltender,3/14/04,Seattle,Kraken,SEA,0,,current,2026-2027,entry_level
+Gleb,Trikozov,Left Wing,8/12/04,Carolina,Hurricanes,CAR,0,right,current,2026-2027,entry_level
+Lane,Hutson,Defense,2/14/04,Montreal,Canadiens,MTL,1,left,current,2025-2026,entry_level
+Adam,Sýkora,Left Wing,9/7/04,New York,Rangers,NYR,0,left,current,2026-2027,entry_level
+Calle,Odelius,Defense,5/30/04,New York,Islanders,NYI,0,left,current,2026-2027,entry_level
+Miko,Matikka,Right Wing,10/26/03,Utah,Mammoth,UTA,0,right,current,2026-2027,entry_level
+Devin,Kaplan,Right Wing,1/10/04,Philadelphia,Flyers,PHI,0,right,current,2026-2027,entry_level
+Alexander,Suzdalev,Left Wing,3/5/04,Washington,Capitals,WAS,0,left,current,2026-2027,entry_level
+Oskar,Pettersson,Right Wing,2/4/04,Ottawa,Senators,OTT,0,right,current,2026-2027,entry_level
+Aleksanteri,Kaskimäki,Center,2/6/04,St. Louis,Blues,STL,0,left,current,2026-2027,entry_level
+Viktor,Neuchev,Left Wing,10/25/03,Buffalo,Sabres,BUF,0,left,current,2025-2026,entry_level
+Elias,Pettersson,Defense,2/16/04,Vancouver,Canucks,VAN,1,left,current,2026-2027,entry_level
+Ludwig,Persson,Left Wing,10/8/03,Washington,Capitals,WAS,0,left,current,2026-2027,entry_level
+Tomas,Hamara,Defense,3/9/04,Ottawa,Senators,OTT,0,left,current,2026-2027,entry_level
+Aidan,Thompson,Center,2/18/02,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Adam,Engström,Defense,11/17/03,Montreal,Canadiens,MTL,0,left,current,2026-2027,entry_level
+Tyson,Jugnauth,Defense,4/17/04,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Kenny,Connors,Center,3/10/03,Los Angeles,Kings,LAK,0,left,current,2026-2027,entry_level
+Stephen,Halliday,Center,7/2/02,Ottawa,Senators,OTT,0,left,current,2025-2026,entry_level
+Anton,Johansson,Defense,6/10/04,Detroit,Red Wings,DET,0,right,current,2027-2028,entry_level
+Noah,Laba,Center,8/4/03,New York,Rangers,NYR,1,right,current,2026-2027,entry_level
+Amadeus,Lombardi,Center,6/5/03,Detroit,Red Wings,DET,0,left,current,2025-2026,entry_level
+Cole,O'Hara,Right Wing,6/20/02,Nashville,Predators,NAS,0,right,current,2026-2027,entry_level
+Gavin,White,Defense,11/12/02,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Sergei,Murashov,Goaltender,4/1/04,Pittsburgh,Penguins,PIT,0,,current,2026-2027,entry_level
+Dans,Locmelis,Center,1/21/04,Boston,Bruins,BOS,0,left,current,2027-2028,entry_level
+Dennis,Hildeby,Goaltender,8/19/01,Toronto,Maple Leafs,TOR,1,,current,2027-2028,standard_level
+Tucker,Robertson,Center,6/22/03,Philadelphia,Flyers,PHI,0,right,current,2025-2026,entry_level
+Ludvig,Jansson,Defense,12/27/03,Florida,Panthers,FLA,0,right,current,2027-2028,entry_level
+Cameron,Whitehead,Goaltender,6/13/03,Vegas,Golden Knights,VGK,0,,current,2026-2027,entry_level
+Jared,Davidson,Center,7/7/02,Montreal,Canadiens,MTL,0,left,current,2025-2026,entry_level
+Frédéric,Brunet,Defense,8/21/03,Boston,Bruins,BOS,0,left,current,2025-2026,entry_level
+Alex,Bump,Left Wing,11/20/03,Philadelphia,Flyers,PHI,0,left,current,2027-2028,entry_level
+Vsevolod,Komarov,Defense,1/11/04,Buffalo,Sabres,BUF,0,right,current,2026-2027,entry_level
+Nikita,Grebenkin,Left Wing,5/2/03,Philadelphia,Flyers,PHI,1,left,current,2025-2026,entry_level
+Jake,Furlong,Defense,3/4/04,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Matt,Maggio,Right Wing,11/25/02,New York,Islanders,NYI,0,right,current,2025-2026,entry_level
+Ty,Young,Goaltender,9/11/04,Vancouver,Canucks,VAN,0,,current,2026-2027,entry_level
+Otto,Salin,Defense,3/7/04,Los Angeles,Kings,LAK,0,right,current,2027-2028,entry_level
+Marc-Andre,Gaudet,Defense,10/24/03,St. Louis,Blues,STL,0,left,current,2026-2027,entry_level
+David,Spacek,Defense,2/18/03,Minnesota,Wild,MIN,1,right,current,2025-2026,entry_level
+Parker,Bell,Left Wing,9/26/03,Calgary,Flames,CGY,0,left,current,2025-2026,entry_level
+Sandis,Vilmanis,Left Wing,1/23/04,Florida,Panthers,FLA,1,left,current,2026-2027,entry_level
+Samuel,Jonsson,Goaltender,12/15/03,Edmonton,Oilers,EDM,0,,current,2027-2028,entry_level
+Victor,Mancini,Defense,5/26/02,Vancouver,Canucks,VAN,0,right,current,2025-2026,entry_level
+Maksymilian,Szuber,Defense,8/25/02,Utah,Mammoth,UTA,0,left,current,2025-2026,entry_level
+Hunter,McDonald,Defense,5/11/02,Philadelphia,Flyers,PHI,1,left,current,2025-2026,entry_level
+Jared,Wright,Right Wing,11/22/02,Los Angeles,Kings,LAK,0,right,current,2026-2027,entry_level
+Dominic,James,Center,7/3/02,Tampa Bay,Lightning,TBL,1,left,current,2026-2027,entry_level
+Daylan,Kuefler,Left Wing,2/10/02,New York,Islanders,NYI,0,left,current,2025-2026,entry_level
+Fabian,Wagner,Center,5/7/04,Winnipeg,Jets,WPG,0,left,current,2026-2027,entry_level
+Jackson,Dorrington,Defense,4/13/04,New York,Rangers,NYR,0,left,current,2027-2028,entry_level
+Ben,Hemmerling,Right Wing,4/21/04,Vegas,Golden Knights,VGK,0,right,current,2026-2027,entry_level
+Vyacheslav,Buteyets,Goaltender,5/29/02,Anaheim,Ducks,ANA,0,,current,2025-2026,entry_level
+Ryan,Hofer,Center,5/10/02,Washington,Capitals,WAS,0,left,current,2025-2026,entry_level
+Joshua,Davies,Left Wing,3/24/04,Florida,Panthers,FLA,0,left,current,2026-2027,entry_level
+Connor,Kurth,Right Wing,7/30/03,Tampa Bay,Lightning,TBL,0,right,current,2026-2027,entry_level
+Jackson,Edward,Defense,2/27/04,Boston,Bruins,BOS,0,left,current,2026-2027,entry_level
+Domenic,DiVincentiis,Goaltender,3/4/04,Winnipeg,Jets,WPG,0,,current,2026-2027,entry_level
+Kirill,Kudryavtsev,Defense,2/5/04,Vancouver,Canucks,VAN,0,left,current,2026-2027,entry_level
+David,Gucciardi,Defense,10/9/02,Washington,Capitals,WAS,0,left,current,2026-2027,entry_level
+Kaleb,Lawrence,Center,1/10/03,Los Angeles,Kings,LAK,0,left,current,2026-2027,entry_level
+Alexis,Gendron,Right Wing,12/30/03,Philadelphia,Flyers,PHI,0,left,current,2025-2026,entry_level
+Jack,Devine,Right Wing,10/1/03,Florida,Panthers,FLA,0,right,current,2027-2028,entry_level
+Dyllan,Gill,Defense,6/7/04,Tampa Bay,Lightning,TBL,0,right,current,2026-2027,entry_level
+Patrick,Giles,Center,1/3/00,San Jose,Sharks,SJS,0,right,current,2025-2026,standard_level
+Logan,Morrison,Center,7/9/02,Seattle,Kraken,SEA,0,right,current,2025-2026,entry_level
+Joe,Fleming,Center,6/19/03,Vegas,Golden Knights,VGK,0,right,current,2025-2026,entry_level
+Kai,Schwindt,Left Wing,12/7/03,Florida,Panthers,FLA,0,left,current,2026-2027,entry_level
+Nolan,Lalonde,Goaltender,2/14/04,Columbus,Blue Jackets,CBJ,0,,current,2026-2027,entry_level
+Matthew,Murray,Goaltender,2/2/98,Nashville,Predators,NAS,0,,current,2026-2027,standard_level
+Alexandre,Doucet,Center,1/12/02,Detroit,Red Wings,DET,0,left,current,2025-2026,entry_level
+Ethen,Frank,Right Wing,2/5/98,Washington,Capitals,WAS,1,right,current,2025-2026,standard_level
+Jaxsen,Wiebe,Right Wing,5/16/02,Anaheim,Ducks,ANA,0,right,current,2025-2026,entry_level
+Christoffer,Sedoff,Defense,2/20/02,Vegas,Golden Knights,VGK,0,left,current,2025-2026,entry_level
+Kyle,McDonald,Right Wing,2/5/02,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Cameron,Butler,Right Wing,6/9/02,Minnesota,Wild,MIN,0,right,current,2025-2026,entry_level
+Chase,Wheatcroft,Center,5/28/02,Dallas,Stars,DAL,0,left,current,2025-2026,entry_level
+Jake,Chiasson,Center,5/25/03,Ottawa,Senators,OTT,0,right,current,2025-2026,entry_level
+Hunter,McKown,Center,8/18/02,Columbus,Blue Jackets,CBJ,0,right,current,2025-2026,standard_level
+Parker,Ford,Center,7/20/00,Winnipeg,Jets,WPG,0,right,current,2026-2027,standard_level
+Max,Sasson,Center,9/5/00,Vancouver,Canucks,VAN,1,left,current,2025-2026,standard_level
+Jason,Polin,Right Wing,6/17/99,Colorado,Avalanche,COL,0,right,current,2025-2026,standard_level
+Sam,Malinski,Defense,7/27/98,Colorado,Avalanche,COL,1,right,current,2025-2026,standard_level
+Nikita,Tolopilo,Goaltender,4/6/00,Vancouver,Canucks,VAN,0,,current,2026-2027,standard_level
+Travis,Mitchell,Defense,11/25/99,New York,Islanders,NYI,0,left,current,2025-2026,standard_level
+Ryan,McAllister,Center,12/19/01,Florida,Panthers,FLA,0,left,current,2025-2026,entry_level
+Cole,McWard,Defense,6/9/01,New York,Islanders,NYI,1,right,current,2025-2026,standard_level
+Uvis,Balinskis,Defense,8/1/96,Florida,Panthers,FLA,1,left,current,2025-2026,standard_level
+Georgii,Romanov,Goaltender,12/15/99,St. Louis,Blues,STL,0,,current,2025-2026,standard_level
+Nikolas,Matinpalo,Defense,10/5/98,Ottawa,Senators,OTT,1,right,current,2026-2027,standard_level
+Zach,Benson,Center,5/12/05,Buffalo,Sabres,BUF,1,left,current,2025-2026,entry_level
+Samuel,Honzek,Left Wing,11/12/04,Calgary,Flames,CGY,1,left,current,2027-2028,entry_level
+Connor,Bedard,Center,7/17/05,Chicago,Blackhawks,CHI,1,right,current,2025-2026,entry_level
+Calum,Ritchie,Center,1/21/05,New York,Islanders,NYI,1,right,current,2027-2028,entry_level
+Nate,Danielson,Center,9/27/04,Detroit,Red Wings,DET,0,right,current,2027-2028,entry_level
+Oliver,Bonk,Defense,1/9/05,Philadelphia,Flyers,PHI,0,right,current,2027-2028,entry_level
+Brayden,Yager,Center,1/3/05,Winnipeg,Jets,WPG,0,right,current,2027-2028,entry_level
+Quentin,Musty,Left Wing,7/6/05,San Jose,Sharks,SJS,0,left,current,2027-2028,entry_level
+Eduard,Sale,Right Wing,3/10/05,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Easton,Cowan,Center,5/20/05,Toronto,Maple Leafs,TOR,1,left,current,2027-2028,entry_level
+Colby,Barlow,Left Wing,2/14/05,Winnipeg,Jets,WPG,0,left,current,2027-2028,entry_level
+Nico,Myatovic,Left Wing,12/1/04,Anaheim,Ducks,ANA,0,left,current,2026-2027,entry_level
+Coulson,Pitre,Right Wing,12/13/04,Anaheim,Ducks,ANA,0,right,current,2026-2027,entry_level
+Yegor,Sidorov,Right Wing,6/18/04,Anaheim,Ducks,ANA,0,left,current,2026-2027,entry_level
+Carey,Terrance,Center,5/10/05,New York,Rangers,NYR,0,left,current,2027-2028,entry_level
+Etienne,Morin,Defense,3/9/05,Calgary,Flames,CGY,0,left,current,2027-2028,entry_level
+Nick,Lardis,Left Wing,7/8/05,Chicago,Blackhawks,CHI,1,left,current,2027-2028,entry_level
+Martin,Misiak,Right Wing,9/30/04,Chicago,Blackhawks,CHI,0,left,current,2026-2027,entry_level
+Tristan,Bertucci,Defense,7/12/05,Dallas,Stars,DAL,0,left,current,2027-2028,entry_level
+Andrew,Gibson,Defense,2/13/05,Nashville,Predators,NAS,0,right,current,2027-2028,entry_level
+Beau,Akey,Defense,2/11/05,Edmonton,Oilers,EDM,0,right,current,2027-2028,entry_level
+Gracyn,Sawchyn,Center,1/19/05,Florida,Panthers,FLA,0,right,current,2027-2028,entry_level
+Koehn,Ziemmer,Right Wing,12/8/04,Los Angeles,Kings,LAK,0,right,current,2027-2028,entry_level
+Riley,Heidt,Center,3/25/05,Minnesota,Wild,MIN,0,left,current,2027-2028,entry_level
+Kalan,Lind,Left Wing,1/25/05,Nashville,Predators,NAS,0,left,current,2027-2028,entry_level
+Denver,Barkey,Center,4/27/05,Philadelphia,Flyers,PHI,1,left,current,2027-2028,entry_level
+Carson,Bjarnason,Goaltender,6/30/05,Philadelphia,Flyers,PHI,0,,current,2027-2028,entry_level
+Luca,Cagnoni,Defense,12/21/04,San Jose,Sharks,SJS,0,left,current,2026-2027,entry_level
+Lukas,Dragicevic,Defense,4/25/05,Seattle,Kraken,SEA,0,right,current,2027-2028,entry_level
+Caden,Price,Defense,8/24/05,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Carson,Rehkopf,Center,1/7/05,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Quinton,Burns,Defense,4/14/05,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Ethan,Gauthier,Right Wing,1/26/05,Tampa Bay,Lightning,TBL,0,right,current,2027-2028,entry_level
+Hunter,Brzustewicz,Defense,11/29/04,Calgary,Flames,CGY,1,right,current,2026-2027,entry_level
+Sawyer,Mynio,Defense,4/30/05,Vancouver,Canucks,VAN,0,left,current,2027-2028,entry_level
+Mathieu,Cataford,Center,3/1/05,Vegas,Golden Knights,VGK,0,right,current,2027-2028,entry_level
+Cam,Allen,Defense,1/7/05,Washington,Capitals,WAS,0,right,current,2027-2028,entry_level
+Andrew,Cristall,Left Wing,2/4/05,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Leo,Carlsson,Center,12/26/04,Anaheim,Ducks,ANA,1,left,current,2025-2026,entry_level
+Adam,Fantilli,Center,10/12/04,Columbus,Blue Jackets,CBJ,1,left,current,2025-2026,entry_level
+Will,Smith,Center,3/17/05,San Jose,Sharks,SJS,1,right,current,2026-2027,entry_level
+David,Reinbacher,Defense,10/25/04,Montreal,Canadiens,MTL,0,right,current,2027-2028,entry_level
+Dmitri,Simashev,Defense,2/4/05,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Matvei,Michkov,Right Wing,12/9/04,Philadelphia,Flyers,PHI,1,left,current,2026-2027,entry_level
+Ryan,Leonard,Center,1/21/05,Washington,Capitals,WAS,1,right,current,2026-2027,entry_level
+Dalibor,Dvorský,Center,6/15/05,St. Louis,Blues,STL,1,left,current,2027-2028,entry_level
+Tom,Willander,Defense,2/9/05,Vancouver,Canucks,VAN,1,right,current,2027-2028,entry_level
+Daniil,But,Left Wing,2/15/05,Utah,Mammoth,UTA,1,right,current,2027-2028,entry_level
+Matthew,Wood,Left Wing,2/6/05,Nashville,Predators,NAS,1,right,current,2026-2027,entry_level
+Axel,Sandin Pellikka,Defense,3/11/05,Detroit,Red Wings,DET,1,right,current,2027-2028,entry_level
+Oliver,Moore,Center,1/22/05,Chicago,Blackhawks,CHI,1,left,current,2026-2027,entry_level
+Gabe,Perreault,Right Wing,5/7/05,New York,Rangers,NYR,1,left,current,2026-2027,entry_level
+Tanner,Molendyk,Defense,2/3/05,Nashville,Predators,NAS,0,left,current,2027-2028,entry_level
+Otto,Stenberg,Center,5/29/05,St. Louis,Blues,STL,1,left,current,2027-2028,entry_level
+Theo,Lindstein,Defense,1/5/05,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Bradly,Nadeau,Left Wing,5/5/05,Carolina,Hurricanes,CAR,0,right,current,2026-2027,entry_level
+David,Edstrom,Center,2/18/05,Nashville,Predators,NAS,0,left,current,2027-2028,entry_level
+Gavin,Brindley,Right Wing,10/5/04,Colorado,Avalanche,COL,1,right,current,2025-2026,entry_level
+Kasper,Halttunen,Right Wing,6/7/05,San Jose,Sharks,SJS,0,right,current,2027-2028,entry_level
+Anton,Wahlberg,Center,7/4/05,Buffalo,Sabres,BUF,0,left,current,2027-2028,entry_level
+Oscar,Fisker Molgaard,Center,2/18/05,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Rasmus,Kumpulainen,Center,8/8/05,Minnesota,Wild,MIN,0,left,current,2027-2028,entry_level
+Jakub,Dvorak,Defense,5/25/05,Los Angeles,Kings,LAK,0,left,current,2027-2028,entry_level
+Lenni,Hämeenaho,Right Wing,11/7/04,New Jersey,Devils,NJD,1,right,current,2027-2028,entry_level
+Damian,Clara,Goaltender,1/13/05,Anaheim,Ducks,ANA,0,,current,2027-2028,entry_level
+Felix,Unger Sörum,Right Wing,9/14/05,Carolina,Hurricanes,CAR,0,right,current,2027-2028,entry_level
+Jesse,Kiiskinen,Right Wing,8/23/05,Detroit,Red Wings,DET,0,right,current,2027-2028,entry_level
+Jacob,Fowler,Goaltender,11/24/04,Montreal,Canadiens,MTL,0,,current,2027-2028,entry_level
+Noel,Nordh,Left Wing,1/25/05,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Juraj,Pekarcik,Center,9/12/05,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Aydar,Suniev,Left Wing,11/16/04,Calgary,Flames,CGY,0,left,current,2026-2027,entry_level
+Emil,Pieniniemi,Defense,3/2/05,Pittsburgh,Penguins,PIT,0,left,current,2027-2028,entry_level
+Konnor,Smith,Defense,11/6/04,Anaheim,Ducks,ANA,0,left,current,2027-2028,entry_level
+Florian,Xhekaj,Left Wing,6/27/04,Montreal,Canadiens,MTL,0,left,current,2026-2027,entry_level
+Terrell,Goldsmith,Defense,5/13/05,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Patrick,Thomas,Center,8/21/04,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Ty,Mueller,Center,2/26/03,Vancouver,Canucks,VAN,0,left,current,2026-2027,entry_level
+Jakub,Stancl,Left Wing,4/10/05,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Vilmer,Alriksson,Left Wing,2/18/05,Vancouver,Canucks,VAN,0,left,current,2027-2028,entry_level
+Joseph,Willis,Center,3/14/05,Nashville,Predators,NAS,0,left,current,2027-2028,entry_level
+Jesse,Nurmi,Left Wing,3/7/05,New York,Islanders,NYI,0,left,current,2027-2028,entry_level
+Luca,Pinelli,Center,4/5/05,Columbus,Blue Jackets,CBJ,0,left,current,2027-2028,entry_level
+Andrei,Loshko,Right Wing,10/7/04,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Cam,Squires,Right Wing,4/11/05,New Jersey,Devils,NJD,0,right,current,2027-2028,entry_level
+Charles-Alexis,Legault,Defense,9/5/03,Carolina,Hurricanes,CAR,1,right,current,2026-2027,entry_level
+Matthew,Andonovski,Defense,3/14/05,Ottawa,Senators,OTT,0,left,current,2027-2028,entry_level
+Scott,Ratzlaff,Goaltender,3/9/05,Buffalo,Sabres,BUF,0,,current,2027-2028,entry_level
+Mikhail Ye.,Ilyin,Left Wing,2/15/05,Pittsburgh,Penguins,PIT,0,left,current,2027-2028,entry_level
+Jacob,Julien,Center,9/12/04,Winnipeg,Jets,WPG,0,left,current,2027-2028,entry_level
+Kaden,Hammell,Defense,3/12/05,Seattle,Kraken,SEA,0,right,current,2027-2028,entry_level
+Thomas,Milic,Goaltender,4/14/03,Winnipeg,Jets,WPG,0,,current,2026-2027,entry_level
+Arno,Tiefensee,Goaltender,5/1/02,Dallas,Stars,DAL,0,,current,2026-2027,entry_level
+Ruslan,Khazheyev,Goaltender,11/20/04,Carolina,Hurricanes,CAR,0,,current,2026-2027,entry_level
+Austin,Roest,Right Wing,1/22/04,Nashville,Predators,NAS,0,right,current,2026-2027,entry_level
+Dylan,Roobroeck,Center,7/27/04,New York,Rangers,NYR,0,left,current,2026-2027,entry_level
+Nathaniel,Day,Goaltender,2/4/05,Edmonton,Oilers,EDM,0,,current,2027-2028,entry_level
+Noah,Chadwick,Defense,5/10/05,Toronto,Maple Leafs,TOR,0,left,current,2027-2028,entry_level
+Jeremy,Hanzel,Defense,2/27/03,New Jersey,Devils,NJD,0,left,current,2026-2027,entry_level
+Angus,MacDonell,Center,5/11/05,Dallas,Stars,DAL,0,left,current,2027-2028,entry_level
+Tuomas,Uronen,Center,3/19/05,Vegas,Golden Knights,VGK,0,right,current,2027-2028,entry_level
+Oiva,Keskinen,Center,2/28/04,Columbus,Blue Jackets,CBJ,0,left,current,2027-2028,entry_level
+Emmitt,Finnie,Center,6/27/05,Detroit,Red Wings,DET,1,left,current,2027-2028,entry_level
+Nikita,Susuyev,Left Wing,2/6/05,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Marshall,Rifai,Defense,3/16/98,Toronto,Maple Leafs,TOR,0,left,current,2026-2027,standard_level
+Tristen,Nielsen,Center,2/23/00,Colorado,Avalanche,COL,0,left,current,2026-2027,standard_level
+Montana,Onyebuchi,Defense,3/8/00,Utah,Mammoth,UTA,0,right,current,2026-2027,standard_level
+Jérémie,Biakabutuka,Defense,3/5/02,Anaheim,Ducks,ANA,0,right,current,2025-2026,entry_level
+Djibril,Toure,Defense,6/5/03,Ottawa,Senators,OTT,0,right,current,2025-2026,entry_level
+Ivan,Ivan,Center,8/20/02,Colorado,Avalanche,COL,1,left,current,2025-2026,entry_level
+Brady,Stonehouse,Right Wing,8/6/04,Edmonton,Oilers,EDM,0,left,current,2026-2027,entry_level
+Saige,Weinstein,Defense,5/30/05,Colorado,Avalanche,COL,0,left,current,2027-2028,entry_level
+Isaac,Poulter,Goaltender,9/12/01,Winnipeg,Jets,WPG,0,,current,2025-2026,standard_level
+Milo,Roelens,Center,1/16/03,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Zac,Funk,Left Wing,7/20/03,Washington,Capitals,WAS,0,left,current,2026-2027,entry_level
+Mikael,Diotte,Defense,4/10/03,New Jersey,Devils,NJD,0,right,current,2026-2027,entry_level
+Gabriel,Szturc,Center,9/24/03,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Connor,Punnett,Defense,6/16/03,Dallas,Stars,DAL,0,left,current,2026-2027,entry_level
+Connor,Ungar,Goaltender,1/12/02,Edmonton,Oilers,EDM,0,,current,2025-2026,entry_level
+Sam,Morton,Center,7/28/99,Calgary,Flames,CGY,0,left,current,2025-2026,standard_level
+Luke,Krys,Defense,9/27/00,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Justin,Hryckowian,Center,2/23/01,Dallas,Stars,DAL,1,left,current,2025-2026,entry_level
+James,Stefan,Right Wing,8/9/03,Edmonton,Oilers,EDM,0,right,current,2026-2027,entry_level
+Tomas,Suchanek,Goaltender,4/30/03,Anaheim,Ducks,ANA,0,,current,2026-2027,entry_level
+Cam,Thiesing,Center,3/26/01,New York,Islanders,NYI,0,right,current,2025-2026,entry_level
+Ben,Steeves,Left Wing,5/10/02,Florida,Panthers,FLA,0,left,current,2025-2026,entry_level
+Benjamin,Kraws,Goaltender,8/2/00,Dallas,Stars,DAL,0,,current,2025-2026,standard_level
+Lleyton,Roed,Left Wing,8/8/02,Seattle,Kraken,SEA,0,left,current,2025-2026,entry_level
+Jacob,Quillan,Center,2/2/02,Toronto,Maple Leafs,TOR,1,left,current,2025-2026,entry_level
+Cooper,Black,Goaltender,6/14/01,Florida,Panthers,FLA,0,,current,2025-2026,entry_level
+Collin,Graf,Right Wing,9/21/02,San Jose,Sharks,SJS,1,right,current,2025-2026,entry_level
+Victor,Ostman,Goaltender,10/3/00,Seattle,Kraken,SEA,0,,current,2025-2026,entry_level
+Dylan,Wendt,Right Wing,1/9/01,New Jersey,Devils,NJD,0,right,current,2025-2026,entry_level
+Samuel,Hlavaj,Goaltender,5/29/01,Minnesota,Wild,MIN,0,,current,2025-2026,entry_level
+Oscar,Eklind,Center,7/14/98,Philadelphia,Flyers,PHI,0,left,current,2025-2026,standard_level
+Juha,Jaaska,Left Wing,2/9/98,Carolina,Hurricanes,CAR,0,left,current,2026-2027,standard_level
+Wilmer,Skoog,Center,7/17/99,Florida,Panthers,FLA,0,left,current,2025-2026,standard_level
+Arttu,Hyry,Center,4/6/01,Dallas,Stars,DAL,0,right,current,2025-2026,entry_level
+Maxim,Tsyplakov,Right Wing,9/19/98,New York,Islanders,NYI,1,left,current,2026-2027,standard_level
+Jakub,Rychlovsky,Left Wing,8/7/01,Detroit,Red Wings,DET,0,left,current,2025-2026,entry_level
+Mikulas,Hovorka,Defense,7/1/01,Florida,Panthers,FLA,0,right,current,2025-2026,entry_level
+Beckett,Sennecke,Right Wing,1/28/06,Anaheim,Ducks,ANA,1,right,current,2027-2028,entry_level
+Zayne,Parekh,Defense,2/15/06,Calgary,Flames,CGY,1,right,current,2027-2028,entry_level
+Marek,Vanacker,Left Wing,4/12/06,Chicago,Blackhawks,CHI,0,left,current,2027-2028,entry_level
+Emil,Hemming,Right Wing,6/27/06,Dallas,Stars,DAL,0,right,current,2027-2028,entry_level
+Sam,O'Reilly,Center,3/30/06,Tampa Bay,Lightning,TBL,0,right,current,2027-2028,entry_level
+Liam,Greentree,Right Wing,1/1/06,Los Angeles,Kings,LAK,0,left,current,2027-2028,entry_level
+Carter,Yakemchuk,Defense,9/29/05,Ottawa,Senators,OTT,0,right,current,2027-2028,entry_level
+Jett,Luchanko,Center,8/21/06,Philadelphia,Flyers,PHI,0,right,current,2027-2028,entry_level
+Sam,Dickinson,Defense,6/7/06,San Jose,Sharks,SJS,1,left,current,2027-2028,entry_level
+Berkly,Catton,Center,1/14/06,Seattle,Kraken,SEA,1,left,current,2027-2028,entry_level
+Ben,Danford,Defense,2/6/06,Toronto,Maple Leafs,TOR,0,right,current,2027-2028,entry_level
+Terik,Parascak,Right Wing,5/28/06,Washington,Capitals,WAS,0,right,current,2027-2028,entry_level
+Andrew,Basha,Left Wing,11/8/05,Calgary,Flames,CGY,0,left,current,2027-2028,entry_level
+Jacob,Battaglia,Right Wing,3/17/06,Calgary,Flames,CGY,0,left,current,2027-2028,entry_level
+AJ,Spellacy,Right Wing,2/24/06,Chicago,Blackhawks,CHI,0,right,current,2027-2028,entry_level
+Charlie,Elick,Defense,1/17/06,Columbus,Blue Jackets,CBJ,0,right,current,2027-2028,entry_level
+Luca,Marrelli,Defense,10/4/05,Columbus,Blue Jackets,CBJ,0,right,current,2027-2028,entry_level
+Ondrej,Becher,Center,2/22/04,Detroit,Red Wings,DET,0,left,current,2026-2027,entry_level
+Carter,George,Goaltender,5/20/06,Los Angeles,Kings,LAK,0,,current,2027-2028,entry_level
+Hiroki,Gojsic,Right Wing,5/1/06,Nashville,Predators,NAS,0,right,current,2027-2028,entry_level
+Spencer,Gill,Defense,8/17/06,Philadelphia,Flyers,PHI,0,right,current,2027-2028,entry_level
+Tanner,Howe,Left Wing,11/28/05,Pittsburgh,Penguins,PIT,0,left,current,2027-2028,entry_level
+Leo,Sahlin Wallenius,Defense,4/10/06,San Jose,Sharks,SJS,0,left,current,2027-2028,entry_level
+Nathan,Villeneuve,Center,4/13/06,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Lukas,Fischer,Defense,9/9/06,St. Louis,Blues,STL,0,left,current,2027-2028,entry_level
+Adam,Jecho,Center,3/24/06,St. Louis,Blues,STL,0,right,current,2027-2028,entry_level
+Eriks,Mateiko,Left Wing,11/18/05,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Ilya,Protas,Center,7/18/06,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Macklin,Celebrini,Center,6/13/06,San Jose,Sharks,SJS,1,left,current,2026-2027,entry_level
+Artyom,Levshunov,Defense,10/28/05,Chicago,Blackhawks,CHI,1,right,current,2026-2027,entry_level
+Ivan,Demidov,Right Wing,12/10/05,Montreal,Canadiens,MTL,1,left,current,2026-2027,entry_level
+Tij,Iginla,Left Wing,8/4/06,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Zeev,Buium,Defense,12/7/05,Vancouver,Canucks,VAN,1,left,current,2026-2027,entry_level
+Konsta,Helenius,Center,5/11/06,Buffalo,Sabres,BUF,1,right,current,2027-2028,entry_level
+Michael,Brandsegg-Nygård,Right Wing,10/5/05,Detroit,Red Wings,DET,0,right,current,2027-2028,entry_level
+Adam,Jiříček,Defense,6/28/06,St. Louis,Blues,STL,0,right,current,2027-2028,entry_level
+Trevor,Connelly,Left Wing,2/28/06,Vegas,Golden Knights,VGK,0,left,current,2027-2028,entry_level
+Stian,Solberg,Defense,12/29/05,Anaheim,Ducks,ANA,0,left,current,2027-2028,entry_level
+Cole,Beaudoin,Center,4/24/06,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Matvei,Gridin,Right Wing,3/1/06,Calgary,Flames,CGY,1,left,current,2027-2028,entry_level
+Igor,Chernyshov,Left Wing,11/30/05,San Jose,Sharks,SJS,1,right,current,2027-2028,entry_level
+Dominik,Badinka,Defense,11/27/05,Carolina,Hurricanes,CAR,0,right,current,2027-2028,entry_level
+Lucas,Pettersson,Center,4/17/06,Anaheim,Ducks,ANA,0,left,current,2027-2028,entry_level
+Alfons,Freij,Defense,2/12/06,Winnipeg,Jets,WPG,0,left,current,2027-2028,entry_level
+Ilya,Nabokov,Goaltender,3/27/03,Colorado,Avalanche,COL,0,,current,2026-2027,entry_level
+Julius,Miettinen,Center,1/20/06,Seattle,Kraken,SEA,0,left,current,2027-2028,entry_level
+Harrison,Brunicke,Defense,5/8/06,Pittsburgh,Penguins,PIT,0,right,current,2027-2028,entry_level
+Leon,Muggli,Defense,7/9/06,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Jesse,Pulkkinen,Defense,12/27/04,New York,Islanders,NYI,0,left,current,2026-2027,entry_level
+Evan,Gardner,Goaltender,1/25/06,Columbus,Blue Jackets,CBJ,0,,current,2027-2028,entry_level
+Kim,Saarinen,Goaltender,7/22/06,Seattle,Kraken,SEA,0,,current,2027-2028,entry_level
+Tomas,Lavoie,Defense,3/31/06,Utah,Mammoth,UTA,0,right,current,2027-2028,entry_level
+Melvin,Fernström,Right Wing,2/28/06,Pittsburgh,Penguins,PIT,0,right,current,2027-2028,entry_level
+Gabe,Smith,Center,8/3/06,Utah,Mammoth,UTA,0,left,current,2027-2028,entry_level
+Lucas,Ellinas,Center,3/12/06,Ottawa,Senators,OTT,0,left,current,2027-2028,entry_level
+Kevin,He,Left Wing,4/30/06,Winnipeg,Jets,WPG,0,left,current,2027-2028,entry_level
+Chase,Pietila,Defense,3/3/04,Pittsburgh,Penguins,PIT,0,right,current,2027-2028,entry_level
+Riley,Patterson,Center,3/22/06,Vancouver,Canucks,VAN,0,right,current,2027-2028,entry_level
+Tyler,Thorpe,Right Wing,8/11/05,Montreal,Canadiens,MTL,0,right,current,2027-2028,entry_level
+Owen,Allard,Center,1/13/04,Utah,Mammoth,UTA,0,left,current,2026-2027,entry_level
+Chase,Wutzke,Goaltender,7/26/06,Minnesota,Wild,MIN,0,,current,2027-2028,entry_level
+Miroslav,Holinka,Center,11/10/05,Toronto,Maple Leafs,TOR,0,right,current,2027-2028,entry_level
+Niilopekka,Muhonen,Defense,2/28/06,Dallas,Stars,DAL,0,left,current,2027-2028,entry_level
+Nathan,Aspinall,Left Wing,3/30/06,New York,Rangers,NYR,0,left,current,2027-2028,entry_level
+Connor,Clattenburg,Center,5/2/05,Edmonton,Oilers,EDM,0,left,current,2027-2028,entry_level
+Jared,Woolley,Defense,2/27/06,Los Angeles,Kings,LAK,0,left,current,2027-2028,entry_level
+Stevie,Leskovar,Defense,9/9/04,Minnesota,Wild,MIN,0,left,current,2027-2028,entry_level
+Trent,Swick,Left Wing,4/25/04,Vegas,Golden Knights,VGK,0,left,current,2027-2028,entry_level
+Loke,Johansson,Defense,12/14/05,Boston,Bruins,BOS,0,left,current,2027-2028,entry_level
+Kieron,Walton,Center,4/22/06,Winnipeg,Jets,WPG,0,left,current,2027-2028,entry_level
+Hunter,St. Martin,Left Wing,6/13/05,Florida,Panthers,FLA,0,left,current,2027-2028,entry_level
+Harrison,Meneghin,Goaltender,9/13/04,Tampa Bay,Lightning,TBL,0,,current,2027-2028,entry_level
+Nikita,Prishchepov,Center,2/20/04,Colorado,Avalanche,COL,0,left,current,2026-2027,entry_level
+Finn,Harding,Defense,3/2/05,Pittsburgh,Penguins,PIT,0,right,current,2027-2028,entry_level
+Cole,Clayton,Defense,2/29/00,Vancouver,Canucks,VAN,0,right,current,2025-2026,standard_level
+Owen,Sillinger,Center,9/23/97,Columbus,Blue Jackets,CBJ,0,left,current,2025-2026,standard_level
+Marc,Gatcomb,Center,7/22/99,New York,Islanders,NYI,1,right,current,2025-2026,standard_level
+Anton,Frondell,Center,5/7/07,Chicago,Blackhawks,CHI,0,left,current,2027-2028,entry_level
+Matthew,Schaefer,Defense,9/5/07,New York,Islanders,NYI,1,left,current,2027-2028,entry_level
+Ivan,Ryabkin,Center,4/25/07,Carolina,Hurricanes,CAR,0,left,current,2027-2028,entry_level
+Michael,Misa,Center,2/16/07,San Jose,Sharks,SJS,1,left,current,2027-2028,entry_level
+Viliam,Kmec,Defense,1/2/04,Vegas,Golden Knights,VGK,0,right,current,2026-2027,entry_level
+Jake,O'Brien,Center,6/16/07,Seattle,Kraken,SEA,0,right,current,2027-2028,entry_level
+Radim,Mrtka,Defense,6/9/07,Buffalo,Sabres,BUF,0,right,current,2027-2028,entry_level
+Braeden,Cootes,Center,2/9/07,Vancouver,Canucks,VAN,0,right,current,2027-2028,entry_level
+Milton,Gästrin,Center,6/2/07,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Brady,Martin,Center,3/16/07,Nashville,Predators,NAS,0,right,current,2027-2028,entry_level
+Vojtech,Cihar,Left Wing,3/29/07,Los Angeles,Kings,LAK,0,left,current,2027-2028,entry_level
+Victor,Eklund,Right Wing,10/3/06,New York,Islanders,NYI,0,right,current,2027-2028,entry_level
+Justin,Carbonneau,Right Wing,11/25/06,St. Louis,Blues,STL,0,right,current,2027-2028,entry_level
+Carter,Bear,Left Wing,11/4/06,Detroit,Red Wings,DET,0,left,current,2027-2028,entry_level
+Lynden,Lakovic,Left Wing,12/12/06,Washington,Capitals,WAS,0,left,current,2027-2028,entry_level
+Jacob,Gaucher,Center,3/9/01,Philadelphia,Flyers,PHI,0,right,current,2025-2026,entry_level
+Ethan,Czata,Center,5/29/07,Tampa Bay,Lightning,TBL,0,left,current,2027-2028,entry_level
+Jimmy,Lombardi,Center,2/16/07,Los Angeles,Kings,LAK,0,left,current,2027-2028,entry_level
+Peyton,Kettles,Defense,9/1/07,Pittsburgh,Penguins,PIT,0,right,current,2027-2028,entry_level
+Aleksei,Medvedev,Goaltender,9/10/07,Vancouver,Canucks,VAN,0,,current,2027-2028,entry_level
+Borya,Valis,Right Wing,4/8/04,Toronto,Maple Leafs,TOR,0,right,current,2027-2028,entry_level
+Kai,Uchacz,Center,6/24/03,Vegas,Golden Knights,VGK,0,right,current,2026-2027,entry_level
+Braeden,Bowman,Right Wing,6/26/03,Vegas,Golden Knights,VGK,1,right,current,2026-2027,entry_level
+Gabriel,Carriere,Goaltender,11/5/00,San Jose,Sharks,SJS,0,,current,2025-2026,standard_level
+Avery,Hayes,Center,10/10/02,Pittsburgh,Penguins,PIT,0,right,current,2026-2027,entry_level
+Xavier,Parent,Left Wing,3/23/01,New Jersey,Devils,NJD,0,left,current,2025-2026,entry_level
+John,Prokop,Defense,5/13/01,Toronto,Maple Leafs,TOR,0,left,current,2025-2026,entry_level
+Gleb,Veremyev,Center,6/28/03,New York,Islanders,NYI,0,left,current,2026-2027,entry_level
+Eduards,Tralmaks,Center,2/17/97,Detroit,Red Wings,DET,0,left,current,2025-2026,standard_level
+Owen,Say,Goaltender,6/5/01,Calgary,Flames,CGY,0,,current,2025-2026,entry_level
+Luke,Haymes,Center,7/28/03,Toronto,Maple Leafs,TOR,0,left,current,2026-2027,entry_level
+Jack,Williams,Right Wing,3/2/02,Columbus,Blue Jackets,CBJ,0,right,current,2025-2026,entry_level
+Tyler,Kopff,Center,4/22/03,Buffalo,Sabres,BUF,0,left,current,2026-2027,entry_level
+Trey,Taylor,Defense,2/4/02,Dallas,Stars,DAL,0,left,current,2026-2027,entry_level
+Caleb,MacDonald,Defense,11/29/02,Columbus,Blue Jackets,CBJ,0,left,current,2026-2027,entry_level
+Isak,Posch,Goaltender,1/31/02,Colorado,Avalanche,COL,0,,current,2026-2027,entry_level
+Cooper,Gay,Right Wing,3/15/02,Colorado,Avalanche,COL,0,left,current,2026-2027,entry_level
+Karsen,Dorwart,Left Wing,9/17/02,Philadelphia,Flyers,PHI,0,left,current,2025-2026,entry_level
+Harrison,Scott,Center,9/27/00,Dallas,Stars,DAL,0,left,current,2025-2026,entry_level
+Callum,Tung,Goaltender,11/23/03,New York,Rangers,NYR,0,,current,2027-2028,entry_level
+Joey,Larson,Right Wing,3/27/01,New York,Islanders,NYI,0,right,current,2025-2026,entry_level
+Damien,Carfagna,Defense,12/12/02,Edmonton,Oilers,EDM,0,left,current,2026-2027,entry_level
+Josh,Samanski,Center,3/22/02,Edmonton,Oilers,EDM,0,left,current,2026-2027,entry_level
+Dalton,Bancroft,Right Wing,2/26/01,Boston,Bruins,BOS,0,right,current,2025-2026,entry_level
+Blake,Smith,Defense,10/5/04,Toronto,Maple Leafs,TOR,0,left,current,2027-2028,entry_level
+Carter,King,Center,8/30/01,Calgary,Flames,CGY,0,left,current,2025-2026,entry_level
+Quinn,Hutson,Right Wing,1/1/02,Edmonton,Oilers,EDM,0,right,current,2025-2026,entry_level
+Atro,Leppänen,Defense,12/14/98,Edmonton,Oilers,EDM,0,left,current,2025-2026,entry_level
+Tim,Washe,Center,8/25/01,Anaheim,Ducks,ANA,1,left,current,2026-2027,standard_level
+Michal,Kunc,Left Wing,10/31/00,Utah,Mammoth,UTA,0,left,current,2025-2026,entry_level
+Riley,Mercer,Goaltender,3/31/04,Minnesota,Wild,MIN,0,,current,2027-2028,entry_level
+Benjamin,Kindel,Right Wing,4/19/07,Pittsburgh,Penguins,PIT,1,right,current,2027-2028,entry_level
+Gabe,Chiarot,Right Wing,9/17/06,Vancouver,Canucks,VAN,0,right,current,2027-2028,entry_level
+Jaxon,Fuder,Left Wing,4/2/06,Dallas,Stars,DAL,0,left,current,2027-2028,entry_level
+Bryce,Pickford,Defense,4/2/06,Montreal,Canadiens,MTL,0,right,current,2027-2028,entry_level
+Daniil,Prokhorov,Right Wing,4/27/07,New York,Islanders,NYI,0,left,current,2027-2028,entry_level
+Simon,Zajicek,Goaltender,6/25/01,Boston,Bruins,BOS,0,,current,2025-2026,entry_level
+Anri,Ravinskis,Right Wing,1/2/03,Vancouver,Canucks,VAN,0,left,current,2026-2027,entry_level
+Wojciech,Stachowiak,Left Wing,7/3/99,Tampa Bay,Lightning,TBL,0,left,current,2025-2026,standard_level
+Michal,Postava,Goaltender,2/28/02,Detroit,Red Wings,DET,0,,current,2026-2027,entry_level
+Tristan,Allard,Center,6/23/02,Tampa Bay,Lightning,TBL,0,left,current,2026-2027,entry_level
+Riley,Fiddler-Schultz,Center,5/13/02,Buffalo,Sabres,BUF,0,left,current,2026-2027,entry_level
+Zach,Metsa,Defense,10/19/98,Buffalo,Sabres,BUF,1,right,current,2026-2027,standard_level
+Luke,Cavallin,Goaltender,4/29/01,Boston,Bruins,BOS,0,,current,2025-2026,entry_level
+Maxim,Shabanov,Right Wing,10/7/00,New York,Islanders,NYI,1,left,current,2025-2026,entry_level
+Jackson,Parsons,Goaltender,11/23/04,Ottawa,Senators,OTT,0,,current,2027-2028,entry_level
+Bradley,Marek,Left Wing,11/13/00,Minnesota,Wild,MIN,0,left,current,2025-2026,entry_level
+Stanislav,Berezhnoy,Goaltender,6/7/03,Chicago,Blackhawks,CHI,0,,current,2026-2027,entry_level
