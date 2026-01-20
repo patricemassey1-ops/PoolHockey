@@ -9372,14 +9372,24 @@ if active_tab == "🛠️ Gestion Admin":
             return _sportradar_get_json(f"/players/{urn}/profile", locale=locale)
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
-        def sr_competition_competitors(competition_urn: str, locale="en"):
-            urn = _sr_norm_urn(competition_urn, 'competition')
-            return _sportradar_get_json(f"/competitions/{urn}/competitors", locale=locale)
+        def sr_season_competitors(season_urn: str, locale="en"):
+            """List competitors (teams) participating in a season.
+
+            Endpoint (Global Ice Hockey v2):
+              /seasons/{season_id}/competitors.json
+            """
+            urn = _sr_norm_urn(season_urn, 'season')
+            return _sportradar_get_json(f"/seasons/{urn}/competitors", locale=locale)
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
-        def sr_team_players(team_urn: str, locale="en"):
-            urn = _sr_norm_urn(team_urn, 'team')
-            return _sportradar_get_json(f"/teams/{urn}/players", locale=locale)
+        def sr_competitor_profile(competitor_urn: str, locale="en"):
+            """Competitor (team) profile including roster.
+
+            Endpoint (Global Ice Hockey v2):
+              /competitors/{competitor_id}/profile.json
+            """
+            urn = _sr_norm_urn(competitor_urn, 'competitor')
+            return _sportradar_get_json(f"/competitors/{urn}/profile", locale=locale)
 
         def _sr_extract_competitors(payload: dict) -> list[dict]:
             # Try multiple known shapes.
@@ -9398,11 +9408,15 @@ if active_tab == "🛠️ Gestion Admin":
         def _sr_extract_players(payload: dict) -> list[dict]:
             if not isinstance(payload, dict):
                 return []
+            # common shapes
             if isinstance(payload.get('players'), list):
                 return payload.get('players') or []
             team = payload.get('team')
             if isinstance(team, dict) and isinstance(team.get('players'), list):
                 return team.get('players') or []
+            comp = payload.get('competitor')
+            if isinstance(comp, dict) and isinstance(comp.get('players'), list):
+                return comp.get('players') or []
             return []
 
         @st.cache_data(show_spinner=False, ttl=24 * 3600)
@@ -9716,14 +9730,9 @@ if active_tab == "🛠️ Gestion Admin":
                         if not season_obj:
                             st.error('❌ Saison introuvable via /seasons.json. Choisis-la via le sélecteur ci-dessus.')
                             st.stop()
-                        comp_id = str(season_obj.get('competition_id','') or '').strip()
-                        if not comp_id:
-                            st.error("❌ Cette saison n'a pas de competition_id dans /seasons.json (impossible de remonter les équipes).")
-                            st.stop()
-                        comp_id = _sr_norm_urn(comp_id, 'competition')
-                        teams_json = sr_competition_competitors(comp_id, locale=locale)
+                        teams_json = sr_season_competitors(season_id, locale=locale)
                         if isinstance(teams_json, dict) and teams_json.get('_error'):
-                            st.error(f"❌ Competition competitors KO — {teams_json.get('_error')}")
+                            st.error(f"❌ Season competitors KO — {teams_json.get('_error')}")
                             if teams_json.get('_url'): st.code(teams_json['_url'])
                             if teams_json.get('_text'): st.code(teams_json['_text'])
                             st.stop()
@@ -9737,16 +9746,16 @@ if active_tab == "🛠️ Gestion Admin":
                         all_players = []
                         seen = set()
                         for i, t in enumerate(teams, start=1):
-                            tid = _sr_norm_urn(str(t.get('id','') or '').strip(), 'team')
+                            tid = _sr_norm_urn(str(t.get('id','') or '').strip(), 'competitor')
                             tname = str(t.get('name','') or '').strip()
                             if not tid:
                                 continue
                             status_txt.caption(f"Chargement roster: {tname or tid} ({i}/{len(teams)})")
-                            pj = sr_team_players(tid, locale=locale)
+                            pj = sr_competitor_profile(tid, locale=locale)
                             if isinstance(pj, dict) and pj.get('_error'):
                                 # on continue (certaines équipes peuvent être vides selon le feed)
                                 continue
-                            plist_team = (pj or {}).get('players', []) or []
+                            plist_team = _sr_extract_players(pj)
                             for pl in plist_team:
                                 pid = str(pl.get('id','') or '').strip()
                                 nm = str(pl.get('name','') or '').strip()
