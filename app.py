@@ -2832,6 +2832,47 @@ def fill_level_and_expiry_from_players_db(df: pd.DataFrame, players_db: pd.DataF
 
 
 # =====================================================
+# Level mapping — single source of truth
+#   - Used by Alignement rendering to guarantee Level is filled (STD/ELC)
+# =====================================================
+def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill df['Level'] (STD/ELC) and df['Expiry Year'] using the local Players DB.
+
+    This wrapper prevents "Level = 0" / blank issues in Alignement (ex: Juraj Slafkovský).
+    """
+    try:
+        if df is None or not hasattr(df, 'empty') or df.empty:
+            return df
+    except Exception:
+        return df
+
+    try:
+        # Prefer session_state DB if already loaded
+        pdb = st.session_state.get('players_db')
+    except Exception:
+        pdb = None
+
+    # If not loaded yet, try reading default path
+    if (pdb is None) or (not isinstance(pdb, pd.DataFrame)) or pdb.empty:
+        try:
+            pdb_path = os.path.join(DATA_DIR, 'hockey.players.csv') if 'DATA_DIR' in globals() else 'data/hockey.players.csv'
+            if os.path.exists(pdb_path):
+                pdb = pd.read_csv(pdb_path)
+                st.session_state['players_db'] = pdb
+        except Exception:
+            pdb = pd.DataFrame()
+
+    try:
+        if isinstance(pdb, pd.DataFrame) and not pdb.empty and 'enrich_level_from_players_db' in globals() and callable(globals()['enrich_level_from_players_db']):
+            # enrich_level_from_players_db reads st.session_state['players_db']
+            return enrich_level_from_players_db(df)
+    except Exception:
+        pass
+
+    return df
+
+
+# =====================================================
 # HELPERS UI — Pills + Alert cards (1 seule fois)
 # =====================================================
 def pill(label: str, value: str, level: str = "ok", pulse: bool = False):
@@ -6688,10 +6729,9 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     q = str(st.session_state.get('align_filter_q','') or '').strip().lower()
     only_elc = bool(st.session_state.get('align_filter_only_elc', False))
     only_std = bool(st.session_state.get('align_filter_only_std', False))
-    exp_soon = bool(st.session_state.get('align_filter_exp_soon', False))
 
     # colonnes minimales
-    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": "", "Expiry Year": ""}.items():
+    for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": "", }.items():
         if c not in t.columns:
             t[c] = d
 
@@ -6699,7 +6739,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
     t["Equipe"] = t["Equipe"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Level"]  = t["Level"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Level"] = t["Level"].replace({"0": "", "0.0": ""})
-    t["Expiry Year"] = t["Expiry Year"].astype(str).fillna("").map(lambda x: re.sub(r"\s+", " ", x).strip())
     t["Salaire"] = pd.to_numeric(t["Salaire"], errors="coerce").fillna(0).astype(int)
 
     bad = {"", "none", "nan", "null"}
@@ -6712,10 +6751,6 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         t = t[t['Level'].astype(str).str.upper().eq('ELC')].copy()
     if only_std and not only_elc:
         t = t[t['Level'].astype(str).str.upper().eq('STD')].copy()
-    if exp_soon:
-        end_year = _season_end_year()
-        t['_exp'] = t['Expiry Year'].apply(lambda x: _to_int_safe(x, default=None))
-        t = t[t['_exp'].apply(lambda y: (y is not None) and (int(y) - int(end_year) <= 1))].copy()
 
     if t.empty:
         st.info("Aucun joueur (filtres).")
@@ -6739,13 +6774,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.1, 4.0, 0.9, 1.4, 1.7])
+    h = st.columns([0.8, 1.1, 4.8, 0.9, 1.7])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
-    h[4].markdown("**Contrat**")
-    h[5].markdown("**Salaire**")
+    h[4].markdown("**Salaire**")
 
     clicked = None
     for _, r in t.iterrows():
@@ -6776,7 +6810,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.1, 4.0, 0.9, 1.4, 1.7])
+        c = st.columns([0.8, 1.1, 4.8, 0.9, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -6795,18 +6829,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             unsafe_allow_html=True,
         )
 
-        end_year = _season_end_year()
-        exp_y = _to_int_safe(r.get('Expiry Year', ''), default=None)
-        pill = _expiry_pill_html(exp_y, end_year)
-        alert = _contract_alert_html(lvl_u, exp_y, end_year)
-        bar, remain_txt = _contract_bar_html(lvl_u, exp_y, end_year)
-        remain_html = f"<span class='remainText'>{remain_txt}</span>" if remain_txt else ""
-        c[4].markdown(
-            f"<div class='contractWrap'>{pill}{alert}{bar}{remain_html}</div>",
-            unsafe_allow_html=True,
-        )
-
-        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -7410,7 +7433,79 @@ def render_tab_gm():
     except Exception:
         pass
 
+
     # =========================
+    # 📄 Contrats — tous les joueurs de l'équipe (source: hockey.players.csv + puckpedia.contracts.csv)
+    #   - Ici (GM), on affiche les infos contrat; on les retire de l'Alignement.
+    # =========================
+    try:
+        pdb = st.session_state.get('players_db', pd.DataFrame())
+        if not isinstance(pdb, pd.DataFrame) or pdb.empty:
+            pdb_path = os.path.join(DATA_DIR, 'hockey.players.csv') if 'DATA_DIR' in globals() else 'data/hockey.players.csv'
+            if os.path.exists(pdb_path):
+                pdb = pd.read_csv(pdb_path)
+                st.session_state['players_db'] = pdb
+
+        show = dprop.copy() if isinstance(dprop, pd.DataFrame) else pd.DataFrame()
+        if not show.empty:
+            # Normalize roster columns
+            for col, default in {'Joueur':'','Pos':'','Equipe':'','Salaire':0,'Level':'','Expiry Year':''}.items():
+                if col not in show.columns:
+                    show[col] = default
+
+            # Map roster -> players_db for contract fields
+            if isinstance(pdb, pd.DataFrame) and (not pdb.empty) and ('Player' in pdb.columns):
+                p = pdb.copy()
+                p['_k'] = p['Player'].astype(str).apply(_norm_name)
+                p_cols = [c for c in ['Country','Flag','FlagISO2','Level','Expiry Year','contract_end','contract_level','Cap Hit','nhl_id'] if c in p.columns]
+                p = p[['_k'] + p_cols].drop_duplicates('_k')
+
+                show['_k'] = show['Joueur'].astype(str).apply(_norm_name)
+                show = show.merge(p, on='_k', how='left', suffixes=('','_pdb'))
+
+                # Prefer roster Level if present, else players_db
+                show['Level'] = show['Level'].astype(str).str.strip()
+                show['Level'] = show['Level'].where(show['Level'].str.strip()!='', show.get('Level_pdb',''))
+
+                # Ensure expiry
+                if 'Expiry Year_pdb' in show.columns:
+                    show['Expiry Year'] = show['Expiry Year'].astype(str).str.strip()
+                    show['Expiry Year'] = show['Expiry Year'].where(show['Expiry Year'].str.strip()!='', show['Expiry Year_pdb'].astype(str))
+
+            # Render
+            st.markdown('### 📄 Contrats (équipe complète)')
+            st.caption('Tous les joueurs de ton équipe avec **Level (ELC/STD)** et infos de contrat. (Alignement = flags + lineups seulement.)')
+
+            # Compute ELC remaining years (same logic)
+            end_year = _season_end_year()
+            def _elc_rem(level, exp):
+                lvl = str(level or '').upper().strip()
+                if lvl != 'ELC':
+                    return ''
+                y = _to_int_safe(exp, default=None)
+                return '' if y is None else f"{max(0, int(y)-int(end_year))}y"
+
+            show['ELC reste'] = show.apply(lambda r: _elc_rem(r.get('Level',''), r.get('Expiry Year','')), axis=1)
+
+            cols = []
+            # Flag + player name
+            if 'Flag' in show.columns:
+                show['Joueur'] = show.apply(lambda r: (str(r.get('Flag') or '').strip()+" "+str(r.get('Joueur') or '').strip()).strip(), axis=1)
+            cols = [c for c in ['Joueur','Pos','Equipe','Level','ELC reste','contract_level','contract_end','Expiry Year','Cap Hit','Salaire'] if c in show.columns]
+
+            # Format money fields
+            if 'Cap Hit' in show.columns:
+                show['Cap Hit'] = pd.to_numeric(show['Cap Hit'], errors='coerce').fillna(0).astype(int).map(money)
+            if 'Salaire' in show.columns:
+                show['Salaire'] = pd.to_numeric(show['Salaire'], errors='coerce').fillna(0).astype(int).map(money)
+
+            st.dataframe(show[cols].sort_values(['Level','Joueur']), use_container_width=True, hide_index=True)
+        else:
+            st.info('Aucun joueur importé pour cette équipe (Admin → Import).')
+    except Exception as e:
+        st.warning(f"Contrats GM indisponibles: {e}")
+
+
     # GM — picks & buyouts
     # =========================
     render_tab_gm_picks_buyout(owner, dprop)
@@ -8481,15 +8576,13 @@ elif active_tab == "🧾 Alignement":
     # 🎛️ UI polish — filtres Alignement
     # =====================================================
     with st.expander('🎛️ Filtres Alignement (rapide)', expanded=False):
-        f1, f2, f3, f4 = st.columns([2.2, 1, 1, 1])
+        f1, f2, f3 = st.columns([2.2, 1, 1])
         with f1:
             st.text_input('Recherche joueur', value=str(st.session_state.get('align_filter_q','') or ''), key='align_filter_q', placeholder='ex: Suzuki')
         with f2:
             st.checkbox('ELC', value=bool(st.session_state.get('align_filter_only_elc', False)), key='align_filter_only_elc')
         with f3:
             st.checkbox('STD', value=bool(st.session_state.get('align_filter_only_std', False)), key='align_filter_only_std')
-        with f4:
-            st.checkbox('Expire ≤ 1 an', value=bool(st.session_state.get('align_filter_exp_soon', False)), key='align_filter_exp_soon')
 
     # --- ✅ Pills + Alert cards (après calculs)
     show_status_alerts(
