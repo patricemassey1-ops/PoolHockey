@@ -1576,7 +1576,7 @@ THEME_CSS = """<style>
   opacity: 0.95;
   filter: drop-shadow(0 12px 24px rgba(0,0,0,0.35));
   display:flex;
-  justify-content:center;
+  justify-content:flex-start;padding-left:4px;
   align-items:center;
   height: 100%;
 }
@@ -1829,7 +1829,7 @@ div[data-testid="stButton"] > button{
    ========================================= */
 .gm-logo-wrap{
   display:flex;
-  justify-content:center;
+  justify-content:flex-start;padding-left:4px;
   margin: 2px 0 8px 0;
 }
 .gm-logo{
@@ -6755,23 +6755,52 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             # Build lookup map once per run
             def _keys(n: str):
                 n = str(n or '').strip()
-                if not n: return []
+                if not n:
+                    return []
                 base = _norm_name(n)
                 out = {base}
-                # if 'Last, First' -> add 'First Last'
-                if ',' in n:
-                    parts = [p.strip() for p in n.split(',', 1)]
-                    if len(parts)==2 and parts[0] and parts[1]:
-                        out.add(_norm_name(parts[1] + ' ' + parts[0]))
-                        out.add(_norm_name(parts[0] + ' ' + parts[1]))
-                else:
-                    # if 'First Last' -> add 'Last, First' and 'Last First'
-                    toks = n.split()
-                    if len(toks) >= 2:
-                        first = ' '.join(toks[:-1])
-                        last = toks[-1]
-                        out.add(_norm_name(f'{last}, {first}'))
-                        out.add(_norm_name(f'{last} {first}'))
+
+                # Normalize tokens for variants
+                raw = n.replace(",", " ").strip()
+                toks = [t for t in raw.split() if t]
+                if len(toks) >= 2:
+                    first = " ".join(toks[:-1])
+                    last = toks[-1]
+                    # swapped / comma variants
+                    out.add(_norm_name(f"{last}, {first}"))
+                    out.add(_norm_name(f"{last} {first}"))
+                    out.add(_norm_name(f"{first} {last}"))
+                    # last + first initial (helps Matt/Mathew, Mitch/Mitchell, etc.)
+                    fi = first[:1].upper() if first else ""
+                    if fi:
+                        out.add(_norm_name(f"{last} {fi}"))
+                        out.add(_norm_name(f"{last}{fi}"))
+
+                    # common nickname expansions (bidirectional)
+                    nick_map = {
+                        "MATT": "MATTHEW",
+                        "MITCH": "MITCHELL",
+                        "ALEX": "ALEXANDER",
+                        "NICK": "NICHOLAS",
+                        "TONY": "ANTHONY",
+                        "MIKE": "MICHAEL",
+                        "JIM": "JAMES",
+                        "DAVE": "DAVID",
+                    }
+                    first_up = first.strip().split()[0].upper() if first else ""
+                    if first_up in nick_map:
+                        alt = nick_map[first_up]
+                        out.add(_norm_name(f"{alt} {last}"))
+                        out.add(_norm_name(f"{last}, {alt}"))
+                        out.add(_norm_name(f"{last} {alt}"))
+                    # reverse mapping (e.g., MATTHEW -> MATT)
+                    rev = {v: k for k, v in nick_map.items()}
+                    if first_up in rev:
+                        alt = rev[first_up]
+                        out.add(_norm_name(f"{alt} {last}"))
+                        out.add(_norm_name(f"{last}, {alt}"))
+                        out.add(_norm_name(f"{last} {alt}"))
+
                 return [k for k in out if k]
 
             flag_map = {}
@@ -6858,11 +6887,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([1.15, 2.15, 0.85, 5.6, 1.35, 2.35])
-    h[0].markdown("**Pos**")
+    h = st.columns([1.05, 2.05, 0.55, 5.1, 1.2, 3.05])
+    h[0].markdown("<b style='white-space:nowrap'>Pos</b>", unsafe_allow_html=True)
     h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
     h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
-    h[3].markdown("**Joueur**")
+    h[3].markdown("<b style='white-space:nowrap'>Joueur</b>", unsafe_allow_html=True)
     h[4].markdown("<b style='white-space:nowrap'>Level</b>", unsafe_allow_html=True)
     h[5].markdown("<b style='white-space:nowrap'>Salaire</b>", unsafe_allow_html=True)
     clicked = None
@@ -6906,21 +6935,21 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.15, 2.15, 0.85, 5.6, 1.35, 2.35])
+        c = st.columns([1.05, 2.05, 0.55, 5.1, 1.2, 3.05])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
         # Flag + bouton joueur (no nested columns)
         if flag_url and str(flag_url).startswith("http"):
             c[2].markdown(
-                f"<div style='display:flex;align-items:center;justify-content:center;height:38px;'>"
+                f"<div style='display:flex;align-items:center;justify-content:flex-start;padding-left:4px;height:38px;'>"
                 f"<img src='{html.escape(flag_url)}' width='22'/>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
         elif flag_emoji:
             c[2].markdown(
-                f"<div style='display:flex;align-items:center;justify-content:center;height:38px;font-size:18px;'>"
+                f"<div style='display:flex;align-items:center;justify-content:flex-start;padding-left:4px;height:38px;font-size:18px;'>"
                 f"{html.escape(flag_emoji)}"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -6944,7 +6973,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             unsafe_allow_html=True,
         )
 
-        c[5].markdown(f"<span class='salaryCell'>{money(salaire).replace(' ', '&nbsp;')}</span>", unsafe_allow_html=True)
+        c[5].markdown(f"<span class='salaryCell' style='white-space:nowrap;'>{money(salaire).replace(' ', '&nbsp;')}</span>", unsafe_allow_html=True)
 
     return clicked
 
@@ -7690,18 +7719,18 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
             "white-space:nowrap;padding:6px 0 10px 0;-webkit-overflow-scrolling:touch;"
         )
         pill_mine = (
-            "display:inline-flex;align-items:center;justify-content:center;"
+            "display:inline-flex;align-items:center;justify-content:flex-start;padding-left:4px;"
             "padding:7px 10px;border-radius:999px;font-weight:700;font-size:13px;"
             "border:1px solid rgba(34,197,94,.55);background:rgba(34,197,94,.10);"
         )
         pill_other = (
-            "display:inline-flex;align-items:center;justify-content:center;"
+            "display:inline-flex;align-items:center;justify-content:flex-start;padding-left:4px;"
             "padding:7px 10px;border-radius:999px;font-weight:700;font-size:13px;"
             "border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);"
             "opacity:.92;"
         )
         year_badge = (
-            "display:inline-flex;align-items:center;justify-content:center;"
+            "display:inline-flex;align-items:center;justify-content:flex-start;padding-left:4px;"
             "padding:8px 10px;border-radius:999px;font-weight:900;font-size:13px;"
             "border:1px solid rgba(34,197,94,.55);background:rgba(34,197,94,.10);"
             "width:70px;"
