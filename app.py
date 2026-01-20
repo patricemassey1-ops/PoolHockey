@@ -10112,6 +10112,35 @@ if active_tab == "🛠️ Gestion Admin":
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
+    # =====================================================
+    # 🔍 Sportradar NHL Trial Access Test (SAFE)
+    # =====================================================
+    st.markdown("### 🧪 Test accès Sportradar NHL")
+
+    API_KEY = (st.secrets.get("SPORTRADAR_API_KEY") or "").strip()
+
+    if not API_KEY:
+        st.error("❌ SPORTRADAR_API_KEY manquant dans secrets")
+    else:
+        if st.button("Tester accès NHL"):
+            url = "https://api.sportradar.com/nhl/trial/v7/en/league/teams.json"
+            params = {"api_key": API_KEY}
+
+            try:
+                r = requests.get(url, params=params, timeout=10)
+                st.write("Status:", r.status_code)
+
+                if r.status_code == 200:
+                    st.success("✅ Accès NHL confirmé")
+                    st.json(r.json())
+                else:
+                    st.error("❌ Accès NHL non autorisé")
+                    st.text(r.text[:500])
+
+            except Exception as e:
+                st.exception(e)
+
+
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
