@@ -8322,6 +8322,40 @@ if active_tab == "🛠️ Gestion Admin":
 
     st.subheader("🛠️ Gestion Admin")
 
+    # =====================================================
+    # 🧪 Test accès Sportradar NHL
+    # =====================================================
+    st.markdown("### 🧪 Test accès Sportradar NHL")
+
+    API_KEY = (
+        st.secrets.get("SPORTRADAR_API_KEY")
+        or st.secrets.get("sportradar", {}).get("api_key")
+        or ""
+    ).strip()
+
+    st.write("Top-level keys:", list(st.secrets.keys()))
+    st.write("[sportradar]:", st.secrets.get("sportradar"))
+
+    if not API_KEY:
+        st.error(
+            "❌ Sportradar API key manquant dans secrets "
+            "(SPORTRADAR_API_KEY ou [sportradar].api_key)"
+        )
+    else:
+        if st.button("Tester accès NHL"):
+            url = "https://api.sportradar.com/nhl/trial/v7/en/league/teams.json"
+            params = {"api_key": API_KEY}
+
+            try:
+                r = requests.get(url, params=params, timeout=10)
+                st.write("Status:", r.status_code)
+                st.text(r.text[:600])
+            except Exception as e:
+                st.exception(e)
+
+    st.divider()
+
+
     # --- Drive readiness (required before Backups expander)
     cfg_drive = st.secrets.get("gdrive_oauth", {}) or {}
     folder_id = str(cfg_drive.get("folder_id", "") or "").strip()
@@ -10142,50 +10176,7 @@ if active_tab == "🛠️ Gestion Admin":
                     st.toast("🧹 Transaction réinitialisée", icon="🧹")
                     do_rerun()
 
-    if active_tab == "🛠️ Gestion Admin":
-    if not is_admin:
-        st.warning("Accès admin requis.")
-        st.stop()
-
-    st.subheader("🛠️ Gestion Admin")
-
-    # =====================================================
-    # 🧪 Test accès Sportradar NHL
-    # =====================================================
-    st.markdown("### 🧪 Test accès Sportradar NHL")
-
-    API_KEY = (
-        st.secrets.get("SPORTRADAR_API_KEY")
-        or st.secrets.get("sportradar", {}).get("api_key")
-        or ""
-    ).strip()
-
-    st.write("Top-level keys:", list(st.secrets.keys()))
-    st.write("[sportradar]:", st.secrets.get("sportradar"))
-
-    if not API_KEY:
-        st.error(
-            "❌ Sportradar API key manquant dans secrets "
-            "(SPORTRADAR_API_KEY ou [sportradar].api_key)"
-        )
-    else:
-        if st.button("Tester accès NHL"):
-            url = "https://api.sportradar.com/nhl/trial/v7/en/league/teams.json"
-            params = {"api_key": API_KEY}
-
-            try:
-                r = requests.get(url, params=params, timeout=10)
-                st.write("Status:", r.status_code)
-                st.text(r.text[:600])
-            except Exception as e:
-                st.exception(e)
-
-    st.divider()
-
-    # 👇 (le reste de ton Admin continue ici)
-
-
-
+   
 elif active_tab == "🧠 Recommandations":
     st.subheader("🧠 Recommandations")
     st.caption("Une recommandation unique par équipe (résumé).")
