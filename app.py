@@ -16,6 +16,20 @@ import streamlit as st
 st.set_page_config(page_title="PMS", layout="wide")
 
 # =====================================================
+# Players DB loader (cached) — used across app
+#   - 'mtime' is passed only to bust Streamlit cache when file changes
+# =====================================================
+@st.cache_data(show_spinner=False)
+def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
+    try:
+        if not csv_path or not os.path.exists(csv_path):
+            return pd.DataFrame()
+        return pd.read_csv(csv_path)
+    except Exception:
+        return pd.DataFrame()
+
+
+# =====================================================
 # 🩺 PING endpoint (pour pinger externe / uptime monitor)
 #   URL: https://<ton-app>.streamlit.app/?ping=1&token=...
 #   - Optionnel: secrets [pinger].token pour protéger
