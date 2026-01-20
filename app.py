@@ -9521,15 +9521,47 @@ if active_tab == "🛠️ Gestion Admin":
                 uniq.append({"triCode": tri, "name": str(t.get("name") or tri).strip() or tri})
             return uniq
 
-        @st.cache_data(show_spinner=False, ttl=6 * 3600)
-        def nhl_get_roster(tri_code: str, season: str):
-            """Roster d’une équipe pour une saison: /v1/roster/{TEAM}/{SEASON}."""
+        def _nhl_get_json_with_retry(url: str, *, session: requests.Session | None = None, timeout: int = 20,
+                                     max_tries: int = 6, base_sleep: float = 0.6):
+            """GET JSON avec retry/backoff (gère 429 Too Many Requests).
+
+            NHL api-web peut rate-limit (429), surtout sur Streamlit Cloud (IP partagée).
+            On respecte Retry-After si présent, sinon backoff exponentiel.
+            """
+            import time
+            s = session or requests.Session()
+            last_exc = None
+            for attempt in range(1, max_tries + 1):
+                try:
+                    r = s.get(url, timeout=timeout)
+                    if r.status_code == 429:
+                        ra = r.headers.get("Retry-After")
+                        try:
+                            wait = float(ra) if ra else 0.0
+                        except Exception:
+                            wait = 0.0
+                        if wait <= 0:
+                            wait = base_sleep * (2 ** (attempt - 1))
+                        time.sleep(min(wait, 20.0))
+                        continue
+                    r.raise_for_status()
+                    return r.json()
+                except Exception as e:
+                    last_exc = e
+                    # Backoff léger sur erreurs transitoires
+                    time.sleep(min(base_sleep * (2 ** (attempt - 1)), 10.0))
+            raise last_exc or RuntimeError("NHL API request failed")
+
+        def nhl_get_roster(tri_code: str, season: str, *, session: requests.Session | None = None):
+            """Roster d’une équipe pour une saison: /v1/roster/{TEAM}/{SEASON}.
+
+            ⚠️ Pas en cache ici: on veut gérer correctement le rate limit (429)
+            et pouvoir throttler l’exécution.
+            """
             tri_code = str(tri_code or "").strip().upper()
             season = str(season or "").strip()
             url = f"{NHL_BASE}/v1/roster/{tri_code}/{season}"
-            r = requests.get(url, timeout=20)
-            r.raise_for_status()
-            return r.json()
+            return _nhl_get_json_with_retry(url, session=session)
 
         def extract_players_from_roster(roster_json: dict, tri_code: str):
             out = []
@@ -9572,11 +9604,14 @@ if active_tab == "🛠️ Gestion Admin":
             key="nhl_free_season",
         )
 
-        colA, colB = st.columns([1, 1])
+        colA, colB, colC = st.columns([1, 1, 1])
         with colA:
             fetch_btn = st.button("📥 Charger rosters NHL", use_container_width=True, key="nhl_free_fetch")
         with colB:
             cutoff = st.slider("Seuil fuzzy (plus haut = plus strict)", 0.80, 0.99, 0.92, 0.01, key="nhl_free_cutoff")
+        with colC:
+            max_teams = st.slider("Max équipes par run", 5, 32, 12, 1, key="nhl_free_max_teams",
+                                  help="Évite les 429 (rate limit). Re-clique pour compléter si besoin.")
 
         roster_df = st.session_state.get("nhl_free_roster_df")
 
@@ -9587,12 +9622,18 @@ if active_tab == "🛠️ Gestion Admin":
                     st.error("Aucune équipe trouvée via /v1/teams.")
                 else:
                     all_players = []
+                    # limiter le volume de requêtes pour éviter 429
+                    teams_run = teams[: int(max_teams or 12)]
+                    import time
+                    sess = requests.Session()
                     prog = st.progress(0)
-                    for i, t in enumerate(teams, start=1):
+                    for i, t in enumerate(teams_run, start=1):
                         tri = t["triCode"]
-                        j = nhl_get_roster(tri, season)
+                        # throttle + retry/backoff inside nhl_get_roster
+                        j = nhl_get_roster(tri, season, session=sess)
                         all_players.extend(extract_players_from_roster(j, tri))
-                        prog.progress(int(i / max(1, len(teams)) * 100))
+                        prog.progress(int(i / max(1, len(teams_run)) * 100))
+                        time.sleep(0.45)  # throttle doux (IP partagée Streamlit Cloud)
                     prog.empty()
 
                     roster_df = pd.DataFrame(all_players)
@@ -9601,7 +9642,10 @@ if active_tab == "🛠️ Gestion Admin":
                     else:
                         roster_df = roster_df.drop_duplicates(subset=["nhl_player_id"])
                         st.session_state["nhl_free_roster_df"] = roster_df
-                        st.success(f"✅ Rosters: {roster_df['team'].nunique()} équipes | {len(roster_df)} joueurs uniques")
+                        st.success(
+                            f"✅ Rosters: {roster_df['team'].nunique()} équipes | {len(roster_df)} joueurs uniques "
+                            f"(run: {len(teams_run)}/{len(teams)} équipes — re-clique pour compléter)"
+                        )
             except Exception as e:
                 st.error(f"❌ NHL API KO — {type(e).__name__}: {e}")
 
