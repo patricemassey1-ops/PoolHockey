@@ -21,9 +21,70 @@ st.set_page_config(page_title="PMS", layout="wide")
 # =====================================================
 @st.cache_data(show_spinner=False)
 def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
+    """Load hockey.players.csv robustly (supports CSV or TSV) and return a clean DataFrame.
+
+    - Auto-detect delimiter (tab vs comma)
+    - Keeps text columns as strings where possible
+    - Normalizes NaN -> '' for key columns
+    - Ensures Flag/FlagISO2 are computed from Country when missing
+    """
     try:
         if not csv_path or not os.path.exists(csv_path):
             return pd.DataFrame()
+
+        # Detect delimiter from the first line
+        sep = ","
+        try:
+            with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                head = f.readline()
+            if head.count("\t") > head.count(","):
+                sep = "\t"
+        except Exception:
+            pass
+
+        df = pd.read_csv(csv_path, sep=sep, engine="python")
+
+        # Clean common NaNs in important columns
+        for col in ["Player", "Country", "Flag", "FlagISO2", "Level", "Expiry Year", "nhl_id", "playerId"]:
+            if col in df.columns:
+                df[col] = df[col].fillna("").astype(str)
+
+        # If Flag is missing but FlagISO2 exists, compute emoji
+        if "Flag" in df.columns and "FlagISO2" in df.columns:
+            try:
+                df["FlagISO2"] = df["FlagISO2"].astype(str).str.strip().str.upper()
+                df["Flag"] = df["Flag"].astype(str).replace({"nan": ""}).fillna("").astype(str)
+                mask = (df["Flag"].str.strip() == "") & (df["FlagISO2"].str.len() == 2)
+                if mask.any() and "_iso2_to_flag_emoji" in globals() and callable(globals()["_iso2_to_flag_emoji"]):
+                    df.loc[mask, "Flag"] = df.loc[mask, "FlagISO2"].map(globals()["_iso2_to_flag_emoji"]).fillna("")
+            except Exception:
+                pass
+
+        # If FlagISO2 is missing but Country exists, try to derive ISO2 then emoji
+        if "Country" in df.columns:
+            try:
+                df["Country"] = df["Country"].astype(str).replace({"nan": ""}).fillna("").str.strip()
+                if "FlagISO2" not in df.columns:
+                    df["FlagISO2"] = ""
+                df["FlagISO2"] = df["FlagISO2"].astype(str).replace({"nan": ""}).fillna("").str.strip().str.upper()
+                if ("_country_to_iso2" in globals()) and callable(globals()["_country_to_iso2"]):
+                    mask2 = (df["FlagISO2"].str.strip() == "") & (df["Country"].str.strip() != "")
+                    if mask2.any():
+                        df.loc[mask2, "FlagISO2"] = df.loc[mask2, "Country"].map(globals()["_country_to_iso2"]).fillna("")
+                if "Flag" not in df.columns:
+                    df["Flag"] = ""
+                df["Flag"] = df["Flag"].astype(str).replace({"nan": ""}).fillna("").str.strip()
+                if ("_iso2_to_flag_emoji" in globals()) and callable(globals()["_iso2_to_flag_emoji"]):
+                    mask3 = (df["Flag"].str.strip() == "") & (df["FlagISO2"].str.len() == 2)
+                    if mask3.any():
+                        df.loc[mask3, "Flag"] = df.loc[mask3, "FlagISO2"].map(globals()["_iso2_to_flag_emoji"]).fillna("")
+            except Exception:
+                pass
+
+        return df
+    except Exception:
+        return pd.DataFrame()
+
         return pd.read_csv(csv_path)
     except Exception:
         return pd.DataFrame()
@@ -6670,7 +6731,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             if "Level" in tmpdb.columns:
                 level_map = {k: str(v).strip().upper() for k, v in zip(tmpdb["_k"], tmpdb["Level"]) if str(k).strip()}
             if "Flag" in tmpdb.columns:
-                flag_map = {k: str(v).strip() for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
+                flag_map = {k: ("" if (pd.isna(v) or str(v).strip().lower()=="nan") else str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
             # fallback: compute flag from iso2 if emoji missing
             if (not flag_map) and ("FlagISO2" in tmpdb.columns):
                 flag_map = {k: _iso2_to_flag_emoji(str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["FlagISO2"]) if str(k).strip() and str(v).strip()}
@@ -6708,7 +6769,8 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                 lvl = "—"
 
         # Flag: priorité Players DB -> sinon rien
-        flag = str(flag_map.get(key, "") or "").strip()
+        fv = flag_map.get(key, "")
+        flag = "" if (fv is None or (isinstance(fv,float) and pd.isna(fv)) or str(fv).strip().lower()=="nan") else str(fv).strip()
         display_name = f"{flag} {joueur}".strip() if flag else joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
