@@ -6743,19 +6743,25 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                 level_map = {k: str(v).strip().upper() for k, v in zip(tmpdb["_k"], tmpdb["Level"]) if str(k).strip()}
             if "Flag" in tmpdb.columns:
                 flag_map = {k: str(v).strip() for k, v in zip(tmpdb["_k"], tmpdb["Flag"]) if str(k).strip()}
-            # fallback: compute flag from iso2 if emoji missing
-            if (not flag_map) and ("FlagISO2" in tmpdb.columns):
-                flag_map = {k: _iso2_to_flag_emoji(str(v).strip()) for k, v in zip(tmpdb["_k"], tmpdb["FlagISO2"]) if str(k).strip() and str(v).strip()}
+            # fallback: compute flag from iso2 if Flag missing (always)
+            if "FlagISO2" in tmpdb.columns:
+                for k, v in zip(tmpdb["_k"], tmpdb["FlagISO2"]):
+                    kk = str(k).strip()
+                    vv = str(v).strip()
+                    if not kk or not vv:
+                        continue
+                    if kk not in flag_map or not str(flag_map.get(kk, "")).strip():
+                        flag_map[kk] = _iso2_to_flag_emoji(vv)
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.6, 0.6, 4.2, 0.9, 1.7])
+    h = st.columns([0.8, 1.9, 0.7, 4.8, 1.2, 1.8])
     h[0].markdown("**Pos**")
     h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
     h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
     h[3].markdown("**Joueur**")
-    h[4].markdown("**Level**")
-    h[5].markdown("**Salaire**")
+    h[4].markdown("<b style='white-space:nowrap'>Level</b>", unsafe_allow_html=True)
+    h[5].markdown("<b style='white-space:nowrap'>Salaire</b>", unsafe_allow_html=True)
     clicked = None
     for _, r in t.iterrows():
         joueur = str(r.get("Joueur", "")).strip()
@@ -6792,21 +6798,30 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         flag = "" if (fv is None or (isinstance(fv, float) and pd.isna(fv)) or str(fv).strip().lower() == "nan") else str(fv).strip()
         flag_url = flag if str(flag).lower().startswith("http") else ""
         flag_emoji = "" if flag_url else flag
-        display_name = f"{flag_emoji} {joueur}".strip() if flag_emoji else joueur
+        display_name = joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.6, 0.6, 4.2, 0.9, 1.7])
+        c = st.columns([0.8, 1.9, 0.7, 4.8, 1.2, 1.8])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
         # Flag + bouton joueur (no nested columns)
         if flag_url and str(flag_url).startswith("http"):
-            try:
-                c[2].image(flag_url, width=22)
-            except Exception:
-                pass
+            c[2].markdown(
+                f"<div style='display:flex;align-items:center;justify-content:center;height:38px;'>"
+                f"<img src='{html.escape(flag_url)}' width='22'/>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        elif flag_emoji:
+            c[2].markdown(
+                f"<div style='display:flex;align-items:center;justify-content:center;height:38px;font-size:18px;'>"
+                f"{html.escape(flag_emoji)}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
         else:
             c[2].markdown("")
 
@@ -8566,39 +8581,30 @@ elif active_tab == "🧾 Alignement":
     st.write("")
 
     # =====================================================
-    # 📅 Projections cap — année suivante (Salary cap intelligence)
+    # 💰 Résumé cap (maintenant) — GC / IR+Banc / CE
+    #   - Pas de "an prochain" ici (Alignement = simple & lisible)
     # =====================================================
-    end_year = _season_end_year()
-    next_end = end_year + 1
+    nb_ir = int(injured_all.shape[0]) if isinstance(injured_all, pd.DataFrame) else 0
+    nb_banc = int(gc_banc.shape[0]) if isinstance(gc_banc, pd.DataFrame) else 0
 
-    def _cap_next_year(df_cap: pd.DataFrame) -> int:
-        if df_cap is None or df_cap.empty:
-            return 0
-        tmp = df_cap.copy()
-        if 'Salaire' not in tmp.columns:
-            return 0
-        tmp['Salaire'] = pd.to_numeric(tmp['Salaire'], errors='coerce').fillna(0).astype(int)
-        tmp['_exp'] = tmp.get('Expiry Year','').apply(lambda x: _to_int_safe(x, default=None))
-        # Keep players whose contract runs through next season end.
-        tmp['_keep'] = tmp['_exp'].apply(lambda y: True if (y is None or pd.isna(y)) else int(y) >= int(next_end))
-        return int(tmp.loc[tmp['_keep'], 'Salaire'].sum())
+    left, mid, right = st.columns([1.35, 0.9, 1.35])
 
-    cap_next_gc = _cap_next_year(gc_all)
-    cap_next_ce = _cap_next_year(ce_all)
+    with left:
+        st.metric("💰 Cap GC (maint.)", money(int(used_gc)))
+        st.metric("✅ Cap GC (restant)", money(int(remain_gc)))
 
-    p1, p2, p3, p4 = st.columns(4)
-    with p1:
-        st.metric('💰 Cap GC (maint.)', money(int(used_gc)))
-    with p2:
-        st.metric('📅 Cap GC (an prochain)', money(int(cap_next_gc)))
-    with p3:
-        st.metric('💰 Cap CE (maint.)', money(int(used_ce)))
-    with p4:
-        st.metric('📅 Cap CE (an prochain)', money(int(cap_next_ce)))
+    with mid:
+        st.metric("🩹 IR", f"{nb_ir} joueur(s)")
+        st.metric("🟡 Banc", f"{nb_banc} joueur(s)")
+
+    with right:
+        st.metric("💰 Cap CE (maint.)", money(int(used_ce)))
+        st.metric("✅ Cap CE (restant)", money(int(remain_ce)))
 
     st.write("")
 
     st.markdown(
+
         f"**Actifs** — F {_count_badge(nb_F, 12)} • D {_count_badge(nb_D, 6)} • G {_count_badge(nb_G, 2)}",
         unsafe_allow_html=True,
     )
