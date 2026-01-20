@@ -120,9 +120,10 @@ SPORTRADAR_API_KEY = (
     or ""
 ).strip()
 
-
 if not SPORTRADAR_API_KEY:
     st.warning("⚠️ Sportradar API key non trouvée dans secrets")
+
+st.write("DEBUG sportradar secrets:", st.secrets.get("sportradar"))
 
 
 
