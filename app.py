@@ -115,8 +115,11 @@ import pandas as pd
 API_KEY = (
     st.secrets.get("SPORTRADAR_API_KEY")
     or st.secrets.get("SPORTRADAR_KEY")
+    or st.secrets.get("sportradar", {}).get("api_key")
+    or st.secrets.get("sportradar", {}).get("SPORTRADAR_API_KEY")
     or ""
 ).strip()
+
 
 if not API_KEY:
     st.warning("⚠️ Sportradar API key non trouvée dans secrets")
