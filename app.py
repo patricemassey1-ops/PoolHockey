@@ -1900,6 +1900,16 @@ div[data-testid="stButton"] > button{
   margin-top: 2px;
 }
 
+
+/* ===== Contracts UI polish ===== */
+.ctrAlert{ margin-left:6px; font-size:14px; vertical-align:middle; opacity:0.95;}
+.contractWrap{ display:flex; align-items:center; gap:8px;}
+.expiryPill{ padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,.12); }
+.expiryPill.expirySoon{ background:rgba(255,80,80,.18); border-color:rgba(255,80,80,.35);}
+.expiryPill.expiryMid{ background:rgba(255,180,80,.18); border-color:rgba(255,180,80,.35);}
+.expiryPill.expiryOk{ background:rgba(80,255,120,.12); border-color:rgba(80,255,120,.25);}
+.remainText{ font-size:12px; opacity:.85; font-weight:700;}
+
 """
 
 def apply_theme():
@@ -1944,6 +1954,73 @@ def format_date_fr(x) -> str:
 # =====================================================
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
+
+
+# =====================================================
+# ✅ Data Pipeline Lock (schema + defaults + version)
+#   - évite les blancs silencieux
+#   - ajoute les colonnes manquantes avec des valeurs par défaut
+# =====================================================
+DATA_PIPELINE_VERSION = "1.0"
+
+def _ensure_columns(df: pd.DataFrame, defaults: dict) -> pd.DataFrame:
+    if df is None or not isinstance(df, pd.DataFrame):
+        return pd.DataFrame()
+    out = df.copy()
+    for col, default in (defaults or {}).items():
+        if col not in out.columns:
+            out[col] = default
+    return out
+
+def validate_players_db(dfp: pd.DataFrame):
+    """Ensure hockey.players.csv schema is safe for the app."""
+    issues = []
+    if dfp is None or not isinstance(dfp, pd.DataFrame) or dfp.empty:
+        return (dfp if isinstance(dfp, pd.DataFrame) else pd.DataFrame()), issues
+
+    # Core columns expected by the app
+    dfp = _ensure_columns(dfp, {
+        "Player": "",
+        "Team": "",
+        "Position": "",
+        "Country": "",
+        "FlagISO2": "",
+        "Flag": "",
+        "Level": "",
+        "Expiry Year": "",
+        "Cap Hit": "",
+        "nhl_id": "",
+        "contract_end": "",
+        "contract_level": "",
+    })
+
+    # Normalize Level values
+    try:
+        dfp["Level"] = (
+            dfp["Level"].astype(str).str.strip().str.upper()
+            .replace({
+                "ENTRY_LEVEL": "ELC",
+                "STANDARD_LEVEL": "STD",
+                "0": "",
+                "0.0": "",
+                "NONE": "",
+                "NAN": "",
+            })
+        )
+    except Exception:
+        issues.append("Level_normalization_failed")
+
+    # Normalize Expiry Year as 4-digit year string
+    try:
+        dfp["Expiry Year"] = (
+            dfp["Expiry Year"].astype(str)
+            .str.extract(r"(20\d{2})", expand=False)
+            .fillna("")
+        )
+    except Exception:
+        issues.append("ExpiryYear_normalization_failed")
+
+    return dfp, issues
 
 # =====================================================
 # AUTO — Players DB enrichment (no button needed)
@@ -4816,6 +4893,14 @@ def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
             dfp.loc[miss_flag, "Flag"] = dfp.loc[miss_flag, "FlagISO2"].map(_iso2_to_flag)
 
 
+    # --- Data pipeline lock (schema validation)
+    try:
+        dfp, _issues = validate_players_db(dfp)
+        st.session_state['_players_db_schema_issues'] = _issues
+        st.session_state['DATA_PIPELINE_VERSION'] = DATA_PIPELINE_VERSION
+    except Exception:
+        pass
+
     return dfp
 
 def parse_fantrax(upload) -> pd.DataFrame:
@@ -5668,9 +5753,15 @@ def save_scoring_rules(df: "pd.DataFrame") -> None:
         folder_id = str(cfg.get("folder_id", "")).strip()
         if folder_id:
             s = _drive()
-            _drive_upsert_csv_bytes(s, folder_id, os.path.basename(SCORING_RULES_FILE), df.to_csv(index=False).encode("utf-8"))
+            _drive_upsert_csv_bytes(
+                s,
+                folder_id,
+                os.path.basename(SCORING_RULES_FILE),
+                df.to_csv(index=False).encode("utf-8"),
+            )
     except Exception:
         pass
+
 
 def season_lbl_to_nhl(season_lbl: str) -> str:
     s = str(season_lbl or "").strip()
@@ -6556,6 +6647,30 @@ def _contract_bar_html(level: str, expiry_year: int | None, end_year: int) -> tu
     return bar, txt
 
 
+
+def _contract_alert_html(level: str, expiry_year: int | None, end_year: int) -> str:
+    """Small warning icon with tooltip for expiring contracts."""
+    lvl = str(level or "").strip().upper()
+    if not expiry_year:
+        return ""
+    remain = max(0, int(expiry_year) - int(end_year))
+
+    # Rules:
+    # - Expired/this year: red warning
+    # - Next year: yellow warning
+    # - For ELC: if remaining years <= 1, highlight
+    if remain <= 0:
+        return "<span class='ctWarn ctRed' title='Contrat à renouveler (expire cette saison)'>⚠️</span>"
+    if remain == 1:
+        tip = "Contrat expire l'an prochain"
+        if lvl == "ELC":
+            tip = "ELC expire l'an prochain"
+        return f"<span class='ctWarn ctYel' title='{html.escape(tip)}'>⚠️</span>"
+    if lvl == "ELC" and remain == 2:
+        return "<span class='ctWarn ctDim' title='ELC: 2 ans restants'>ℹ️</span>"
+    return ""
+
+
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     # v38: force Level (STD/ELC) via Hockey.Players.csv before rendering
     try:
@@ -6568,6 +6683,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # CSS injecté 1x
     t = df_src.copy()
+
+    # --- Alignement filters (UI polish)
+    q = str(st.session_state.get('align_filter_q','') or '').strip().lower()
+    only_elc = bool(st.session_state.get('align_filter_only_elc', False))
+    only_std = bool(st.session_state.get('align_filter_only_std', False))
+    exp_soon = bool(st.session_state.get('align_filter_exp_soon', False))
 
     # colonnes minimales
     for c, d in {"Joueur": "", "Pos": "F", "Equipe": "", "Salaire": 0, "Level": "", "Expiry Year": ""}.items():
@@ -6583,8 +6704,21 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     bad = {"", "none", "nan", "null"}
     t = t[~t["Joueur"].str.lower().isin(bad)].copy()
+
+    # Apply filters
+    if q:
+        t = t[t['Joueur'].astype(str).str.lower().str.contains(q, na=False)].copy()
+    if only_elc and not only_std:
+        t = t[t['Level'].astype(str).str.upper().eq('ELC')].copy()
+    if only_std and not only_elc:
+        t = t[t['Level'].astype(str).str.upper().eq('STD')].copy()
+    if exp_soon:
+        end_year = _season_end_year()
+        t['_exp'] = t['Expiry Year'].apply(lambda x: _to_int_safe(x, default=None))
+        t = t[t['_exp'].apply(lambda y: (y is not None) and (int(y) - int(end_year) <= 1))].copy()
+
     if t.empty:
-        st.info("Aucun joueur.")
+        st.info("Aucun joueur (filtres).")
         return None
 
     # tri
@@ -6634,7 +6768,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         if pid > 0:
             try:
                 landing = nhl_player_landing_cached(pid)
-                flag = _player_flag(pid, landing, pname) if landing else _player_flag(pid, None, joueur)
+                flag = _player_flag(pid, landing, joueur) if landing else _player_flag(pid, None, joueur)
             except Exception:
                 flag = ''
         display_name = f"{flag} {joueur}".strip() if flag else joueur
@@ -6664,10 +6798,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         end_year = _season_end_year()
         exp_y = _to_int_safe(r.get('Expiry Year', ''), default=None)
         pill = _expiry_pill_html(exp_y, end_year)
+        alert = _contract_alert_html(lvl_u, exp_y, end_year)
         bar, remain_txt = _contract_bar_html(lvl_u, exp_y, end_year)
         remain_html = f"<span class='remainText'>{remain_txt}</span>" if remain_txt else ""
         c[4].markdown(
-            f"<div class='contractWrap'>{pill}{bar}{remain_html}</div>",
+            f"<div class='contractWrap'>{pill}{alert}{bar}{remain_html}</div>",
             unsafe_allow_html=True,
         )
 
@@ -7120,7 +7255,7 @@ def render_player_profile_page():
         st.warning("Aucune donnée NHL pour ce joueur (API indisponible).")
         return
 
-    flag = _player_flag(pid, landing, pname)
+    flag = _player_flag(pid, landing, joueur)
     first = str(_landing_field(landing, ["firstName","default"], "") or _landing_field(landing, ["firstName"], "") or "").strip()
     last  = str(_landing_field(landing, ["lastName","default"], "") or _landing_field(landing, ["lastName"], "") or "").strip()
     full  = (first + " " + last).strip() or str(landing.get("fullName") or pname or "").strip()
@@ -8310,6 +8445,51 @@ elif active_tab == "🧾 Alignement":
         st.markdown(cap_bar_html(used_ce, cap_ce, f"📊 Plafond CE — {proprietaire}"), unsafe_allow_html=True)
 
     st.write("")
+
+    # =====================================================
+    # 📅 Projections cap — année suivante (Salary cap intelligence)
+    # =====================================================
+    end_year = _season_end_year()
+    next_end = end_year + 1
+
+    def _cap_next_year(df_cap: pd.DataFrame) -> int:
+        if df_cap is None or df_cap.empty:
+            return 0
+        tmp = df_cap.copy()
+        if 'Salaire' not in tmp.columns:
+            return 0
+        tmp['Salaire'] = pd.to_numeric(tmp['Salaire'], errors='coerce').fillna(0).astype(int)
+        tmp['_exp'] = tmp.get('Expiry Year','').apply(lambda x: _to_int_safe(x, default=None))
+        # Keep players whose contract runs through next season end.
+        tmp['_keep'] = tmp['_exp'].apply(lambda y: True if y is None else int(y) >= int(next_end))
+        return int(tmp.loc[tmp['_keep'], 'Salaire'].sum())
+
+    cap_next_gc = _cap_next_year(gc_all)
+    cap_next_ce = _cap_next_year(ce_all)
+
+    p1, p2, p3, p4 = st.columns(4)
+    with p1:
+        st.metric('💰 Cap GC (maint.)', money(int(used_gc)))
+    with p2:
+        st.metric('📅 Cap GC (an prochain)', money(int(cap_next_gc)))
+    with p3:
+        st.metric('💰 Cap CE (maint.)', money(int(used_ce)))
+    with p4:
+        st.metric('📅 Cap CE (an prochain)', money(int(cap_next_ce)))
+
+    # =====================================================
+    # 🎛️ UI polish — filtres Alignement
+    # =====================================================
+    with st.expander('🎛️ Filtres Alignement (rapide)', expanded=False):
+        f1, f2, f3, f4 = st.columns([2.2, 1, 1, 1])
+        with f1:
+            st.text_input('Recherche joueur', value=str(st.session_state.get('align_filter_q','') or ''), key='align_filter_q', placeholder='ex: Suzuki')
+        with f2:
+            st.checkbox('ELC', value=bool(st.session_state.get('align_filter_only_elc', False)), key='align_filter_only_elc')
+        with f3:
+            st.checkbox('STD', value=bool(st.session_state.get('align_filter_only_std', False)), key='align_filter_only_std')
+        with f4:
+            st.checkbox('Expire ≤ 1 an', value=bool(st.session_state.get('align_filter_exp_soon', False)), key='align_filter_exp_soon')
 
     # --- ✅ Pills + Alert cards (après calculs)
     show_status_alerts(
