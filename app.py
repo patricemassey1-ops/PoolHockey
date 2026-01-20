@@ -9953,3 +9953,4 @@ elif active_tab == "🧠 Recommandations":
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out, use_container_width=True, hide_index=True)
+
