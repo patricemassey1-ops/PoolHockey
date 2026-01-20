@@ -1643,6 +1643,23 @@ div[data-testid="stButton"] > button{
               .lvlSTD{ color:#60a5fa; font-weight:900; }
               .lvlELC{ color:#a78bfa; font-weight:900; }
 
+              /* Contract / Expiry pills */
+              .expiryPill{display:inline-block;padding:2px 8px;border-radius:999px;
+                border:1px solid rgba(255,255,255,.14);
+                background:rgba(255,255,255,.06);
+                font-weight:900;font-size:12px;white-space:nowrap;}
+              .expirySoon{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);}
+              .expiryMid{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);}
+              .expiryOk{border-color:rgba(34,197,94,.30);background:rgba(34,197,94,.08);}
+
+              .contractWrap{display:flex;align-items:center;gap:8px;justify-content:flex-start;}
+              .contractBar{width:76px;height:8px;border-radius:999px;overflow:hidden;
+                background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12)}
+              .contractFill{height:100%;border-radius:999px;background:rgba(96,165,250,.85)}
+              .contractFillELC{background:rgba(167,139,250,.85)}
+              .remainText{font-weight:900;font-size:12px;opacity:.85;white-space:nowrap}
+
+
 .pms-mobile .block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}
 /* =========================================
    🔐 Login header (password page)
@@ -4555,6 +4572,128 @@ def suggest_country_web(player_name: str) -> tuple[str, str, float]:
     _save_country_cache(cache)
     return (iso2, 'Wikipedia+Wikidata', conf)
 
+
+@st.cache_data(show_spinner=False)
+def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
+    """Charge puckpedia.contracts.csv (si présent) et prépare une clé de jointure.
+
+    Colonnes attendues (flex):
+      - player name: Player / Name / Joueur
+      - contract_level: contract_level / level / contract_level
+      - contract_end: contract_end / end / expiry / expires
+
+    Retourne un DF avec _name_key + contract_level + contract_end.
+    """
+    if not path or not os.path.exists(path):
+        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+
+    try:
+        dfc = pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+
+    # détecter colonne nom
+    name_col = None
+    for c in dfc.columns:
+        cl = str(c).strip().lower()
+        if cl in {"player","joueur","name","full name","fullname","player_name"}:
+            name_col = c
+            break
+
+    if name_col is None:
+        return pd.DataFrame(columns=["_name_key","contract_level","contract_end"])
+
+    # détecter colonnes contrats
+    lvl_col = None
+    end_col = None
+    for c in dfc.columns:
+        cl = str(c).strip().lower().replace(" ", "_")
+        if lvl_col is None and cl in {"contract_level","level","contractlevel","contract_type"}:
+            lvl_col = c
+        if end_col is None and cl in {"contract_end","end","expiry","expires","expiration","expiry_year","contract_end_year"}:
+            end_col = c
+
+    # fallback: heuristiques par contains
+    if lvl_col is None:
+        for c in dfc.columns:
+            cl = str(c).strip().lower()
+            if "level" in cl and "contract" in cl:
+                lvl_col = c
+                break
+    if end_col is None:
+        for c in dfc.columns:
+            cl = str(c).strip().lower()
+            if "end" in cl or "expiry" in cl or "expire" in cl:
+                end_col = c
+                break
+
+    out = pd.DataFrame()
+    out["_name_key"] = dfc[name_col].astype(str).map(_norm_name)
+    out["contract_level"] = dfc[lvl_col].astype(str).str.strip() if lvl_col else ""
+    out["contract_end"] = dfc[end_col].astype(str).str.strip() if end_col else ""
+
+    # normaliser contract_level -> STD/ELC
+    def _norm_lvl(x: str) -> str:
+        s = str(x or "").strip().upper()
+        if not s:
+            return ""
+        if s in {"ELC","ENTRY","ENTRY_LEVEL","ENTRYLEVEL"} or "ENTRY" in s:
+            return "ELC"
+        if s in {"STD","STANDARD","STANDARD_LEVEL","STANDARDLEVEL"} or "STANDARD" in s:
+            return "STD"
+        return s
+
+    out["contract_level"] = out["contract_level"].map(_norm_lvl)
+
+    # contract_end: extraire une année si possible (utile pour Expiry Year)
+    def _extract_year(v: str) -> str:
+        s = str(v or "").strip()
+        m = re.search(r"(20\d{2})", s)
+        return m.group(1) if m else ""
+
+    out["contract_end_year"] = out["contract_end"].map(_extract_year)
+
+    # garder seulement lignes valides
+    out = out[out["_name_key"].astype(str).str.len() > 0].copy()
+    out = out.drop_duplicates(subset=["_name_key"], keep="first")
+    return out
+
+
+def _ensure_flag_columns(dfp: pd.DataFrame) -> pd.DataFrame:
+    """Assure que FlagISO2 + Flag sont remplis quand Country est présent.
+
+    - Country peut être ISO2 (CA), ISO3 (CAN) ou nom (Canada)
+    - Remplit FlagISO2 (ISO2) et Flag (emoji)
+    """
+    if dfp is None or dfp.empty:
+        return dfp
+
+    for col in ["Country", "FlagISO2", "Flag"]:
+        if col not in dfp.columns:
+            dfp[col] = ""
+
+    def _to_iso2(country: str) -> str:
+        raw = str(country or "").strip()
+        if not raw:
+            return ""
+        if len(raw) == 2 and raw.isalpha():
+            return raw.upper()
+        if len(raw) == 3 and raw.isalpha():
+            return _COUNTRY3_TO2.get(raw.upper(), "")
+        return _COUNTRYNAME_TO2.get(raw.lower(), "")
+
+    # remplir FlagISO2
+    mask_iso2 = dfp["FlagISO2"].astype(str).str.strip().eq("")
+    if mask_iso2.any():
+        dfp.loc[mask_iso2, "FlagISO2"] = dfp.loc[mask_iso2, "Country"].map(_to_iso2)
+
+    # remplir Flag emoji
+    mask_flag = dfp["Flag"].astype(str).str.strip().eq("")
+    if mask_flag.any():
+        dfp.loc[mask_flag, "Flag"] = dfp.loc[mask_flag, "FlagISO2"].map(_iso2_to_flag)
+
+    return dfp
+
 @st.cache_data(show_spinner=False)
 def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """
@@ -4579,6 +4718,103 @@ def load_players_db(path: str, mtime: float = 0.0) -> pd.DataFrame:
 
     if name_col is not None:
         dfp["_name_key"] = dfp[name_col].astype(str).map(_norm_name)
+
+    # --- Auto-enrich: puckpedia.contracts.csv (STD/ELC + contract_end)
+    try:
+        contracts_path = os.path.join(os.path.dirname(path) or DATA_DIR, "puckpedia.contracts.csv")
+    except Exception:
+        contracts_path = os.path.join(DATA_DIR, "puckpedia.contracts.csv")
+
+    # Try common fallbacks
+    if not os.path.exists(contracts_path):
+        contracts_path = os.path.join(DATA_DIR, "puckpedia.contracts.csv")
+
+    if os.path.exists(contracts_path) and "_name_key" in dfp.columns:
+        try:
+            c_mtime = os.path.getmtime(contracts_path)
+        except Exception:
+            c_mtime = 0.0
+
+        dfc = load_puckpedia_contracts(contracts_path, mtime=c_mtime)
+        if dfc is not None and not dfc.empty:
+            # rename to avoid collisions
+            dfc = dfc.rename(columns={
+                "contract_level": "contract_level_puck",
+                "contract_end": "contract_end_puck",
+                "contract_end_year": "contract_end_year_puck",
+            })
+
+            # ensure destination cols exist
+            for col in ["contract_level", "contract_end", "Level", "Expiry Year"]:
+                if col not in dfp.columns:
+                    dfp[col] = ""
+
+            dfp = dfp.merge(
+                dfc[["_name_key", "contract_level_puck", "contract_end_puck", "contract_end_year_puck"]],
+                on="_name_key",
+                how="left",
+            )
+
+            # Fill raw contract columns if empty
+            dfp["contract_level"] = dfp["contract_level"].astype(str)
+            dfp["contract_level"] = dfp["contract_level"].where(
+                dfp["contract_level"].str.strip() != "",
+                dfp["contract_level_puck"].fillna("")
+            )
+
+            dfp["contract_end"] = dfp["contract_end"].astype(str)
+            dfp["contract_end"] = dfp["contract_end"].where(
+                dfp["contract_end"].str.strip() != "",
+                dfp["contract_end_puck"].fillna("")
+            )
+
+            # Also backfill your existing columns (only if empty)
+            dfp["Level"] = dfp["Level"].astype(str)
+            dfp["Level"] = dfp["Level"].where(
+                dfp["Level"].str.strip() != "",
+                dfp["contract_level_puck"].fillna("")
+            )
+
+            dfp["Expiry Year"] = dfp["Expiry Year"].astype(str)
+            dfp["Expiry Year"] = dfp["Expiry Year"].where(
+                dfp["Expiry Year"].str.strip() != "",
+                dfp["contract_end_year_puck"].fillna("")
+            )
+
+            # cleanup
+            dfp.drop(columns=[c for c in ["contract_level_puck", "contract_end_puck", "contract_end_year_puck"] if c in dfp.columns], inplace=True, errors="ignore")
+
+    # --- Auto-enrich flags from Country (no button needed)
+    # Ensure FlagISO2 + Flag always consistent if Country exists
+    if "Country" in dfp.columns:
+        if "FlagISO2" not in dfp.columns:
+            dfp["FlagISO2"] = ""
+        if "Flag" not in dfp.columns:
+            dfp["Flag"] = ""
+
+        def _resolve_iso2(raw: str) -> str:
+            s = str(raw or "").strip()
+            if not s or s.lower() in {"nan", "none", "null", "-"}:
+                return ""
+            # already ISO2
+            if len(s) == 2 and s.isalpha():
+                return s.upper()
+            # ISO3
+            if len(s) == 3 and s.isalpha():
+                return _COUNTRY3_TO2.get(s.upper(), "")
+            # country name
+            return _COUNTRYNAME_TO2.get(s.lower(), "")
+
+        # fill iso2 if missing
+        miss_iso2 = dfp["FlagISO2"].astype(str).str.strip().eq("")
+        if miss_iso2.any():
+            dfp.loc[miss_iso2, "FlagISO2"] = dfp.loc[miss_iso2, "Country"].map(_resolve_iso2)
+
+        # fill emoji if missing
+        miss_flag = dfp["Flag"].astype(str).str.strip().eq("")
+        if miss_flag.any():
+            dfp.loc[miss_flag, "Flag"] = dfp.loc[miss_flag, "FlagISO2"].map(_iso2_to_flag)
+
 
     return dfp
 
@@ -6259,6 +6495,67 @@ if _has_data and _has_hist:
 # UI — roster click list (compact list)
 #   ⚠️ DOIT être défini AVANT Alignement (car appelé dans _render_gc_block)
 # =====================================================
+
+# =====================================================
+# Contract helpers (pills / bars) — used in Alignement lists
+# =====================================================
+
+def _season_end_year() -> int:
+    """Best-effort end year for current season. Defaults to current year."""
+    s = str(st.session_state.get("season") or st.session_state.get("season_lbl") or "").strip()
+    # accepts '2025-2026' or '20252026'
+    m = re.search(r"(20\d{2})\s*[-/]\s*(20\d{2})", s)
+    if m:
+        return int(m.group(2))
+    m2 = re.search(r"(20\d{2})(20\d{2})", s)
+    if m2:
+        return int(m2.group(2))
+    return datetime.now().year
+
+
+def _to_int_safe(x, default=None):
+    try:
+        if x is None:
+            return default
+        s = str(x).strip()
+        if s == "" or s.lower() in {"nan","none","null"}:
+            return default
+        return int(float(s))
+    except Exception:
+        return default
+
+
+def _expiry_pill_html(expiry_year: int | None, end_year: int) -> str:
+    if not expiry_year:
+        return "<span class='expiryPill'>—</span>"
+    remain = max(0, int(expiry_year) - int(end_year))
+    cls = "expiryOk"
+    if remain <= 0:
+        cls = "expirySoon"
+    elif remain == 1:
+        cls = "expiryMid"
+    return f"<span class='expiryPill {cls}'>Exp {expiry_year}</span>"
+
+
+def _contract_bar_html(level: str, expiry_year: int | None, end_year: int) -> tuple[str,str]:
+    """Returns (bar_html, remain_text). For ELC shows remaining years."""
+    lvl_u = str(level or "").strip().upper()
+    if not expiry_year:
+        return "<div class='contractBar'></div>", ""
+    remain = max(0, int(expiry_year) - int(end_year))
+    # Scale bar: ELC usually 0-3, STD up to ~8
+    cap = 3 if lvl_u == "ELC" else 8
+    pct = 0
+    try:
+        pct = int(round(min(remain, cap) / cap * 100))
+    except Exception:
+        pct = 0
+    fill_cls = "contractFillELC" if lvl_u == "ELC" else "contractFill"
+    bar = f"<div class='contractBar'><div class='contractFill {fill_cls}' style='width:{pct}%'></div></div>"
+    txt = f"{remain}y" if (lvl_u == "ELC" and remain is not None) else ""
+    return bar, txt
+
+
 def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str | None:
     # v38: force Level (STD/ELC) via Hockey.Players.csv before rendering
     try:
@@ -6308,12 +6605,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.1, 4.0, 0.9, 1.7])
+    h = st.columns([0.8, 1.1, 4.0, 0.9, 1.4, 1.7])
     h[0].markdown("**Pos**")
     h[1].markdown("**Équipe**")
     h[2].markdown("**Joueur**")
     h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
+    h[4].markdown("**Contrat**")
+    h[5].markdown("**Salaire**")
 
     clicked = None
     for _, r in t.iterrows():
@@ -6344,7 +6642,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.1, 4.0, 0.9, 1.7])
+        c = st.columns([0.8, 1.1, 4.0, 0.9, 1.4, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
@@ -6362,7 +6660,18 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             f"<span class='levelCell {lvl_cls}'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
-        c[4].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
+
+        end_year = _season_end_year()
+        exp_y = _to_int_safe(r.get('Expiry Year', ''), default=None)
+        pill = _expiry_pill_html(exp_y, end_year)
+        bar, remain_txt = _contract_bar_html(lvl_u, exp_y, end_year)
+        remain_html = f"<span class='remainText'>{remain_txt}</span>" if remain_txt else ""
+        c[4].markdown(
+            f"<div class='contractWrap'>{pill}{bar}{remain_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+        c[5].markdown(f"<span class='salaryCell'>{money(salaire)}</span>", unsafe_allow_html=True)
 
     return clicked
 
