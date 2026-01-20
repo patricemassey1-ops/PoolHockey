@@ -1928,6 +1928,141 @@ def format_date_fr(x) -> str:
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# =====================================================
+# AUTO — Players DB enrichment (no button needed)
+#   Goal: Always show country flags in Alignement without pressing buttons.
+#   We keep it lightweight:
+#     - Fill a limited number of missing playerId via NHL search
+#     - Fill a limited number of missing Country via NHL landing
+#   Runs once per session (session_state) and writes back to hockey.players.csv.
+# =====================================================
+
+def _players_db_path() -> str:
+    # Prefer existing fallback list if available
+    try:
+        p = _first_existing(PLAYERS_DB_FALLBACKS) if 'PLAYERS_DB_FALLBACKS' in globals() else ''
+    except Exception:
+        p = ''
+    return p or os.path.join(DATA_DIR, 'hockey.players.csv')
+
+
+def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 200) -> dict:
+    """Auto-enrich Players DB so flags are always available.
+
+    Returns a small stats dict for debugging.
+    """
+    stats = {
+        'ran': False,
+        'path': '',
+        'filled_playerid': 0,
+        'filled_country': 0,
+        'skipped_reason': '',
+    }
+
+    # Run once per session
+    if st.session_state.get('_players_db_auto_enriched'):
+        stats['skipped_reason'] = 'already_ran_this_session'
+        return stats
+
+    path = _players_db_path()
+    stats['path'] = path
+    if not path or not os.path.exists(path):
+        stats['skipped_reason'] = 'missing_players_db_file'
+        st.session_state['_players_db_auto_enriched'] = True
+        return stats
+
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        stats['skipped_reason'] = 'read_error'
+        st.session_state['_players_db_auto_enriched'] = True
+        return stats
+
+    if df is None or df.empty:
+        stats['skipped_reason'] = 'empty'
+        st.session_state['_players_db_auto_enriched'] = True
+        return stats
+
+    # Normalize columns
+    if 'Player' not in df.columns:
+        # Try to infer a name column
+        for c in df.columns:
+            if str(c).strip().lower() in {'player','joueur','name','full name','fullname'}:
+                df = df.rename(columns={c: 'Player'})
+                break
+    if 'Player' not in df.columns:
+        stats['skipped_reason'] = 'no_player_name_column'
+        st.session_state['_players_db_auto_enriched'] = True
+        return stats
+
+    if 'playerId' not in df.columns:
+        df['playerId'] = pd.NA
+    if 'Country' not in df.columns:
+        df['Country'] = ''
+
+    # 1) Fill missing playerId (limited)
+    try:
+        miss_pid = df['playerId'].isna() | df['playerId'].astype(str).str.strip().eq('')
+    except Exception:
+        miss_pid = pd.Series([False] * len(df), index=df.index)
+
+    if bool(miss_pid.any()) and max_fill_playerid > 0:
+        for i in df.index[miss_pid].tolist()[: int(max_fill_playerid)]:
+            nm = str(df.at[i, 'Player'] or '').strip()
+            if not nm:
+                continue
+            try:
+                pid = _nhl_search_playerid(nm)
+            except Exception:
+                pid = 0
+            if pid:
+                df.at[i, 'playerId'] = int(pid)
+                stats['filled_playerid'] += 1
+
+    # 2) Fill missing Country using landing (limited)
+    try:
+        miss_cty = df['Country'].astype(str).str.strip().eq('')
+    except Exception:
+        miss_cty = pd.Series([False] * len(df), index=df.index)
+
+    if bool(miss_cty.any()) and max_fill_country > 0:
+        filled = 0
+        for i in df.index[miss_cty].tolist():
+            if filled >= int(max_fill_country):
+                break
+            pid = df.at[i, 'playerId']
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            if pid_i <= 0:
+                continue
+            try:
+                iso2 = _nhl_landing_country(pid_i)
+            except Exception:
+                iso2 = ''
+            if iso2:
+                df.at[i, 'Country'] = str(iso2).strip().upper()
+                stats['filled_country'] += 1
+                filled += 1
+
+    # Save only if we changed something
+    stats['ran'] = True
+    if stats['filled_playerid'] or stats['filled_country']:
+        try:
+            df.to_csv(path, index=False)
+        except Exception:
+            pass
+
+        # Invalidate cached load_players_db by bumping session copy
+        try:
+            st.session_state['players_db'] = df
+        except Exception:
+            pass
+
+    st.session_state['_players_db_auto_enriched'] = True
+    return stats
+
 PLAYERS_DB_FILE = os.path.join(DATA_DIR, "Hockey.players.csv")  # source: /data/Hockey.players.csv
 PLAYERS_DB_FALLBACKS = [
     "data/hockey.players.csv",
@@ -2065,6 +2200,21 @@ if bool(st.secrets.get("security", {}).get("enable_hash_tool", False)):
         st.code(h)
         st.info("⬆️ Copie ce hash dans Streamlit Secrets puis remet enable_hash_tool=false.")
     st.divider()
+
+
+# =====================================================
+# AUTO Players DB enrichment (flags always available)
+#   - Runs once per session
+#   - Lightweight (limited fills)
+# =====================================================
+try:
+    st.session_state["_players_db_auto_stats"] = auto_enrich_players_db(
+        max_fill_playerid=60,
+        max_fill_country=250,
+    )
+except Exception:
+    # Never block the app UI for an enrichment attempt
+    pass
 
 
 # =====================================================
