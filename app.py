@@ -6652,6 +6652,55 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     bad = {"", "none", "nan", "null"}
     t = t[~t["Joueur"].str.lower().isin(bad)].copy()
+    # --- Auto-fill flags from Players DB (robust name matching: 'First Last' / 'Last, First')
+    try:
+        if 'Flag' not in t.columns: t['Flag'] = ''
+        if 'FlagISO2' not in t.columns: t['FlagISO2'] = ''
+        pdb = st.session_state.get('players_db') if isinstance(st.session_state.get('players_db'), pd.DataFrame) else pd.DataFrame()
+        if isinstance(pdb, pd.DataFrame) and not pdb.empty and 'Player' in pdb.columns:
+            # Build lookup map once per run
+            def _keys(n: str):
+                n = str(n or '').strip()
+                if not n: return []
+                base = _norm_name(n)
+                out = {base}
+                # if 'Last, First' -> add 'First Last'
+                if ',' in n:
+                    parts = [p.strip() for p in n.split(',', 1)]
+                    if len(parts)==2 and parts[0] and parts[1]:
+                        out.add(_norm_name(parts[1] + ' ' + parts[0]))
+                        out.add(_norm_name(parts[0] + ' ' + parts[1]))
+                else:
+                    # if 'First Last' -> add 'Last, First' and 'Last First'
+                    toks = n.split()
+                    if len(toks) >= 2:
+                        first = ' '.join(toks[:-1])
+                        last = toks[-1]
+                        out.add(_norm_name(f'{last}, {first}'))
+                        out.add(_norm_name(f'{last} {first}'))
+                return [k for k in out if k]
+
+            flag_map = {}
+            for _, rr in pdb[['Player','Flag']].fillna('').iterrows():
+                pname = str(rr.get('Player','')).strip()
+                fval = str(rr.get('Flag','')).strip()
+                if not fval: continue
+                for k in _keys(pname):
+                    if k and k not in flag_map:
+                        flag_map[k] = fval
+
+            def _pick_flag(name: str, cur: str):
+                cur = str(cur or '').strip()
+                if cur: return cur
+                for k in _keys(name):
+                    v = flag_map.get(k,'')
+                    if v: return v
+                return ''
+
+            t['Flag'] = [ _pick_flag(n, f) for n,f in zip(t['Joueur'].astype(str), t['Flag'].astype(str)) ]
+    except Exception:
+        pass
+
 
     # Apply filters
     if q:
@@ -6700,13 +6749,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([0.8, 1.1, 4.8, 0.9, 1.7])
+    h = st.columns([0.8, 1.6, 0.6, 4.2, 0.9, 1.7])
     h[0].markdown("**Pos**")
-    h[1].markdown("**Équipe**")
-    h[2].markdown("**Joueur**")
-    h[3].markdown("**Level**")
-    h[4].markdown("**Salaire**")
-
+    h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
+    h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
+    h[3].markdown("**Joueur**")
+    h[4].markdown("**Level**")
+    h[5].markdown("**Salaire**")
     clicked = None
     for _, r in t.iterrows():
         joueur = str(r.get("Joueur", "")).strip()
@@ -6748,7 +6797,7 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([0.8, 1.1, 0.6, 4.2, 0.9, 1.7])
+        c = st.columns([0.8, 1.6, 0.6, 4.2, 0.9, 1.7])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
