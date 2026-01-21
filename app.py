@@ -1368,12 +1368,18 @@ def update_players_db(
     """
 
     # Defaults
-    path = str(path or "data/hockey.players.csv")
-    cache_path = str(cache_path or "data/nhl_country_cache.json")
+    path = str(path or os.path.join(DATA_DIR, "hockey.players.csv"))
+    cache_path = str(cache_path or os.path.join(DATA_DIR, "nhl_country_cache.json"))
+    # normalize to DATA_DIR if caller passed relative paths
+    if not os.path.isabs(path):
+        path = os.path.join(DATA_DIR, path)
+    if not os.path.isabs(cache_path):
+        cache_path = os.path.join(DATA_DIR, cache_path)
+
     season_lbl = str(season_lbl or "").strip() or "2025-2026"
 
     # Tunables (resume-friendly)
-    FAIL_TTL_SEC = 999_999_999 * 24 * 3600   # ne pas retenter un échec avant 7 jours
+    FAIL_TTL_SEC = 999_999_999  # infinite-ish; skip failed lookups for a very long time   # ne pas retenter un échec avant 7 jours
     YIELD_EVERY = 50              # petit "yield" UI pour éviter SessionInfo crash
 
     stats = {
@@ -1415,9 +1421,20 @@ def update_players_db(
             df.to_csv(path, index=False)
             # atomic cache save
             _save_json_atomic(cache_path, cache)
-            stats["saved_increments"] += 1
-        except Exception:
-            pass
+            # small checkpoint so Resume can prove it continued
+            ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+            _save_json_atomic(ckpt_path, {
+                "ts": _now(),
+                "players_db": path,
+                "cache_path": cache_path,
+                "saved_increments": int(stats.get("saved_increments", 0)) + 1,
+            })
+            stats["saved_increments"] = int(stats.get("saved_increments", 0)) + 1
+            stats.pop("save_error", None)
+        except Exception as e:
+            # DO NOT swallow: record for UI diagnostics
+            stats["save_error"] = f"{type(e).__name__}: {e}"
+
 
     def _cache_get_name_entry(nk: str):
         v = cache.get("name_to_id", {}).get(nk)
