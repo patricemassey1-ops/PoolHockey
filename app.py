@@ -1228,118 +1228,81 @@ def _to_iso2_country(raw: str) -> str:
     return _COUNTRYNAME_TO2.get(s.lower(), "")
 
 
-# ==============================
-# NHL Country cache (JSON) — Streamlit-safe
-# ==============================
-def _country_cache_path() -> str:
-    try:
-        return os.path.join(DATA_DIR, "nhl_country_cache.json")
-    except Exception:
-        return "nhl_country_cache.json"
-
-def _load_country_cache(path: str | None = None) -> dict:
-    p = path or _country_cache_path()
-    try:
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                js = json.load(f) or {}
-                return js if isinstance(js, dict) else {}
-    except Exception:
-        pass
-    return {}
-
-def _save_country_cache(cache: dict, path: str | None = None) -> None:
-    p = path or _country_cache_path()
-    try:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-    except Exception:
-        pass
-    try:
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cache or {}, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, p)
-    except Exception:
-        # best effort
-        try:
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(cache or {}, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-def _get_country_cache() -> dict:
-    """Returns a mutable dict cached in session_state (if available)."""
-    try:
-        if "_nhl_country_cache" not in st.session_state:
-            st.session_state["_nhl_country_cache"] = _load_country_cache()
-        return st.session_state["_nhl_country_cache"]
-    except Exception:
-        # outside streamlit
-        global _NHL_COUNTRY_CACHE_FALLBACK
-        try:
-            return _NHL_COUNTRY_CACHE_FALLBACK
-        except Exception:
-            _NHL_COUNTRY_CACHE_FALLBACK = _load_country_cache()
-            return _NHL_COUNTRY_CACHE_FALLBACK
-
-
 def _nhl_search_playerid(name: str) -> int | None:
-    """Fallback search when playerId is missing.
+    """Fallback search when playerId is missing (SECURE).
 
-    Uses NHL public search endpoint (best-effort).
-    Returns best-matching playerId or None.
+    Uses NHL public search endpoint and returns a playerId ONLY if:
+      - an exact (soft-normalized) name match exists, OR
+      - there is a single result whose last name matches and first initial matches.
+
+    Otherwise returns None (prevents wrong IDs).
     """
     q = str(name or "").strip()
     if not q:
         return None
-    # Endpoint used by nhl.com search (stable-ish)
+
+    nk = _soft_player_key(q)
     url = "https://search.d3.nhle.com/api/v1/search/player"
     try:
         r = requests.get(url, params={"culture": "en-us", "limit": "10", "q": q}, timeout=15)
         if r.status_code != 200:
             return None
         js = r.json()
-        items = js.get("players") if isinstance(js, dict) else js
+        items = js.get("docs") if isinstance(js, dict) else None
         if not isinstance(items, list) or not items:
             return None
-        # Pick first exact-ish match by normalized name
-        nk = _soft_player_key(q)
-        best = None
+
+        # 1) exact soft match
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            pid = it.get("playerId") or it.get("id")
             try:
-                pid_i = int(pid)
+                pid_i = int(it.get("playerId") or it.get("id") or 0)
             except Exception:
                 continue
             nm = str(it.get("name") or it.get("playerName") or "").strip()
             if nm and _soft_player_key(nm) == nk:
                 return pid_i
-            if best is None:
-                best = pid_i
-        return best
+
+        # 2) safe single-candidate heuristic (last name + first initial)
+        # Split requested name
+        parts = q.split()
+        if len(parts) >= 2:
+            first = parts[0].strip().lower()
+            last = parts[-1].strip().lower()
+            first_init = first[:1]
+            candidates = []
+            for it in items:
+                nm = str(it.get("name") or it.get("playerName") or "").strip()
+                if not nm:
+                    continue
+                nm_parts = nm.split()
+                if len(nm_parts) < 2:
+                    continue
+                f2 = nm_parts[0].strip().lower()
+                l2 = nm_parts[-1].strip().lower()
+                if l2 == last and f2[:1] == first_init:
+                    candidates.append(it)
+            if len(candidates) == 1:
+                it = candidates[0]
+                try:
+                    return int(it.get("playerId") or it.get("id") or 0) or None
+                except Exception:
+                    return None
+
+        return None
     except Exception:
         return None
 
 
+def _nhl_landing_country(pid: int) -> str:
+    """Get Country (ISO2) from NHL player landing endpoint (best-effort).
 
-def _nhl_landing_country(pid: int, *, cache: dict | None = None, save_cache_every: int = 200) -> str:
-    """Get ISO2 Country from NHL player landing endpoint (official, best-effort) with JSON cache.
-
-    - Returns ISO2 (CA/US/SE/FI/...) or "" if unknown.
-    - Uses cache (data/nhl_country_cache.json) to avoid repeat calls.
+    Returns ISO2 (CA/US/SE/FI/...) when possible.
+    Accepts birthCountryCode/nationalityCode as ISO3 or ISO2, plus some older keys.
     """
     try:
         pid_i = int(pid)
     except Exception:
         return ""
-
-    c = cache if isinstance(cache, dict) else _get_country_cache()
-    k = str(pid_i)
-    if k in c:
-        return str(c.get(k) or "").strip()
-
     url = f"https://api-web.nhle.com/v1/player/{pid_i}/landing"
     try:
         r = requests.get(url, timeout=15)
@@ -1349,32 +1312,39 @@ def _nhl_landing_country(pid: int, *, cache: dict | None = None, save_cache_ever
         if not isinstance(js, dict):
             return ""
 
-        # NHL payload often uses codes
-        raw = (
+        # Prefer codes (most reliable)
+        code = (
             js.get("birthCountryCode")
             or js.get("nationalityCode")
             or js.get("countryCode")
-            or js.get("birthCountry")
-            or js.get("nationality")
             or ""
         )
+        code = str(code or "").strip().upper()
 
-        iso2 = _to_iso2_country(raw)
+        # Some payloads provide names instead of codes
+        raw = (
+            js.get("nationality")
+            or js.get("birthCountry")
+            or (js.get("birthPlace") or {}).get("country")
+            or ""
+        )
+        raw = str(raw or "").strip()
 
-        # store even empty? store empty to prevent repeated bad calls
-        c[k] = iso2 or ""
-        # periodic persist
-        try:
-            n = int(c.get("__writes__", 0) or 0) + 1
-            c["__writes__"] = n
-            if save_cache_every and n % int(save_cache_every) == 0:
-                c2 = dict(c)
-                c2.pop("__writes__", None)
-                _save_country_cache(c2)
-        except Exception:
-            pass
+        # Convert ISO3 -> ISO2 if needed
+        if len(code) == 2 and code.isalpha():
+            return code
+        if len(code) == 3 and code.isalpha():
+            # minimal ISO3 -> ISO2 mapping for hockey countries
+            iso3_to2 = {
+                "CAN":"CA","USA":"US","SWE":"SE","FIN":"FI","RUS":"RU","CZE":"CZ","SVK":"SK",
+                "DEU":"DE","CHE":"CH","AUT":"AT","DNK":"DK","NOR":"NO","LVA":"LV","SVN":"SI",
+                "FRA":"FR","GBR":"GB","IRL":"IE","ITA":"IT","NLD":"NL","BEL":"BE","POL":"PL",
+                "UKR":"UA","BLR":"BY","KAZ":"KZ","AUS":"AU","JPN":"JP","KOR":"KR","CHN":"CN",
+            }
+            return iso3_to2.get(code, "")
 
-        return iso2
+        # Last resort: country name -> ISO2
+        return _to_iso2_country(raw)
     except Exception:
         return ""
 
@@ -1384,177 +1354,57 @@ def update_players_db(
     season_lbl: str | None = None,
     fill_country: bool = True,
     *,
-    save_every: int = 500,
     resume_only: bool = False,
+    save_every: int = 500,
+    cache_path: str | None = None,
     progress_cb=None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Met à jour data/hockey.players.csv + remplit Country automatiquement (NHL officiel) avec cache + sauvegardes incrémentales.
+    """Wrapper attendu par l'UI Admin (Streamlit-safe).
 
-    - resume_only=True : ne fait que compléter Country/Flag manquants (pas de rebuild via stats/rest)
-    - save_every : sauvegarde hockey.players.csv toutes les N lignes remplies (anti-crash Streamlit)
-    - progress_cb(done,total,phase) : callback UI optionnel
+    - Mode normal: met à jour via stats/rest (skaters+goalies) => base DB
+    - Puis complète les playerId manquants via search (fallback par nom sécurisé)
+    - Puis (optionnel) complète Country (ISO2) + Flag via landing endpoint
+    - Mode resume_only: ne refait PAS la base update; reprend sur le CSV existant.
+
+    Sauvegarde incrémentale: écrit le CSV + cache JSON toutes les `save_every`.
     """
-    stats: dict = {}
 
-    # Determine path
+    # Determine paths
     if not path:
-        try:
-            path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
-        except Exception:
-            path = os.path.join("data", "hockey.players.csv")
+        path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
+    if not cache_path:
+        cache_path = _nhl_cache_path_default()
 
-    # Load / rebuild
+    stats = {
+        "season_lbl": str(season_lbl or "").strip(),
+        "resume_only": bool(resume_only),
+        "filled_playerid_search": 0,
+        "filled_country_landing": 0,
+        "nhl_ids_added": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "saved_increments": 0,
+    }
+
+    # 1) Load / base update
     if resume_only:
         try:
             df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
         except Exception:
             df = pd.DataFrame()
     else:
-        df_upd, stats0 = update_players_db_via_nhl_apis(season_lbl=season_lbl)
-        stats.update(stats0 or {})
+        df_upd, stats_upd = update_players_db_via_nhl_apis(season_lbl=season_lbl)
+        if isinstance(stats_upd, dict):
+            stats.update(stats_upd)
         df = df_upd.copy() if isinstance(df_upd, pd.DataFrame) else pd.DataFrame()
 
-    if df is None or df.empty:
-        # nothing to do
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         try:
-            st.session_state["players_db"] = df
-        except Exception:
-            pass
-        return df, stats
-    # Ensure id column (nhl_id)
-    if "nhl_id" not in df.columns:
-        if "playerId" in df.columns:
-            df["nhl_id"] = df["playerId"]
-        else:
-            df["nhl_id"] = ""
-
-    # Ensure columns for country/flag
-    for c in ("Country", "FlagISO2", "Flag"):
-        if c not in df.columns:
-            df[c] = ""
-
-    filled_from_cache = 0
-    filled_from_api = 0
-
-    if fill_country:
-        cache = _get_country_cache()  # mutable dict
-        # candidates: has nhl_id, missing Country/Flag
-        cand_mask = df["nhl_id"].astype(str).str.strip().ne("") & (
-            df["Country"].astype(str).str.strip().eq("") |
-            df["Flag"].astype(str).str.strip().eq("")
-        )
-        idxs = df.index[cand_mask].tolist()
-
-        total = len(idxs)
-        done = 0
-
-        for n, i in enumerate(idxs, start=1):
-            nhl_id = str(df.at[i, "nhl_id"] or "").strip()
-            if not nhl_id:
-                continue
-
-            # 1) cache hit
-            c = cache.get(nhl_id)
-            if isinstance(c, dict) and c.get("iso2"):
-                iso2 = str(c.get("iso2") or "").strip().upper()
-                if iso2 and not str(df.at[i, "Country"] or "").strip():
-                    df.at[i, "Country"] = iso2
-                if iso2 and not str(df.at[i, "FlagISO2"] or "").strip():
-                    df.at[i, "FlagISO2"] = iso2
-                if iso2 and not str(df.at[i, "Flag"] or "").strip():
-                    df.at[i, "Flag"] = _iso2_to_flag(iso2)
-                filled_from_cache += 1
-                done += 1
-            else:
-                # 2) NHL landing
-                payload = _nhl_player_landing(nhl_id)
-                iso2 = ""
-                c3 = _country3_from_landing(payload)
-                if c3:
-                    iso2 = _COUNTRY3_TO2.get(str(c3).upper(), "")
-                if not iso2:
-                    # sometimes landing provides 2-letter directly in Country field in some APIs
-                    iso2 = str(payload.get("birthCountryCode") or payload.get("nationalityCode") or payload.get("countryCode") or "").strip().upper()
-                    iso2 = iso2 if len(iso2) == 2 else ""
-
-                if iso2:
-                    if not str(df.at[i, "Country"] or "").strip():
-                        df.at[i, "Country"] = iso2
-                    if not str(df.at[i, "FlagISO2"] or "").strip():
-                        df.at[i, "FlagISO2"] = iso2
-                    if not str(df.at[i, "Flag"] or "").strip():
-                        df.at[i, "Flag"] = _iso2_to_flag(iso2)
-
-                    cache[nhl_id] = {"iso2": iso2}
-                    filled_from_api += 1
-                    done += 1
-
-            # progress callback
-            if progress_cb:
-                try:
-                    progress_cb(done, total, "country")
-                except Exception:
-                    pass
-
-            # incremental save
-            if save_every and done > 0 and (done % int(save_every) == 0):
-                try:
-                    df.to_csv(path, index=False)
-                except Exception:
-                    pass
-                try:
-                    _save_country_cache(cache)
-                except Exception:
-                    pass
-
-        # final save
-        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             df.to_csv(path, index=False)
         except Exception:
             pass
-        try:
-            _save_country_cache(cache)
-        except Exception:
-            pass
-
-        stats["filled_country_cache"] = int(filled_from_cache)
-        stats["filled_country_landing"] = int(filled_from_api)
-
-    # Refresh session cache if present
-    try:
-        st.session_state["players_db"] = df
-    except Exception:
-        pass
-
-    return df, stats
-
-def _run_players_db_update_ui(pdb_path: str, *, resume_only: bool = False):
-    """Streamlit UI runner with progress + incremental save."""
-    prog = st.progress(0.0)
-    status = st.empty()
-
-    def _cb(done: int, total: int, phase: str):
-        total = max(int(total or 1), 1)
-        pct = min(1.0, float(done) / float(total))
-        prog.progress(pct)
-        if phase == "playerId":
-            status.caption(f"🔎 playerId: {done}/{total}")
-        else:
-            status.caption(f"🏳️ Country: {done}/{total}")
-
-    try:
-        df, stats = update_players_db(
-            pdb_path,
-            fill_country=True,
-            save_every=500,
-            resume_only=resume_only,
-            progress_cb=_cb,
-        )
-        status.success(f"✅ Terminé. Country remplis: {stats.get('filled_country_landing', 0)}")
         return df, stats
-    except Exception as e:
-        status.error(f"❌ Update KO — {type(e).__name__}: {e}")
-        return None, {"error": f"{type(e).__name__}: {e}"}
 
     # Ensure columns
     if "Player" not in df.columns:
@@ -1568,83 +1418,117 @@ def _run_players_db_update_ui(pdb_path: str, *, resume_only: bool = False):
     if "FlagISO2" not in df.columns:
         df["FlagISO2"] = ""
 
-    # 1) Fill missing playerId (only if not resume_only)
-    stats["filled_playerid_search"] = 0
-    if not resume_only:
-        missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
-        if missing_pid.any() and "_nhl_search_playerid" in globals() and callable(globals()["_nhl_search_playerid"]):
-            idxs = df.index[missing_pid].tolist()
-            total = len(idxs)
-            for n, i in enumerate(idxs, start=1):
-                nm = str(df.at[i, "Player"] or "").strip()
-                if not nm:
-                    continue
-                pid = _nhl_search_playerid(nm)
+    cache = _load_nhl_country_cache(cache_path)
+
+    # helper to save incrementally
+    def _save_increment():
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            df.to_csv(path, index=False)
+            _save_nhl_country_cache(cache_path, cache)
+            stats["saved_increments"] += 1
+        except Exception:
+            pass
+
+    # progress helper
+    def _progress(done: int, total: int, phase: str):
+        if callable(progress_cb):
+            try:
+                progress_cb(done, total, phase)
+            except Exception:
+                pass
+
+    # 2) Fill missing playerId using SECURE search + cache name->id
+    missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
+    if missing_pid.any():
+        idxs = df.index[missing_pid].tolist()
+        total = len(idxs)
+        for n, i in enumerate(idxs, start=1):
+            nm = str(df.at[i, "Player"] or "").strip()
+            if not nm:
+                _progress(n, total, "playerId")
+                continue
+
+            nk = _soft_player_key(nm)
+            pid = None
+
+            # cache name->id
+            try:
+                pid = cache.get("name_to_id", {}).get(nk)
+            except Exception:
+                pid = None
+
+            if not pid:
+                pid = _nhl_search_playerid(nm)  # secure
                 if pid:
-                    df.at[i, "playerId"] = int(pid)
-                    stats["filled_playerid_search"] += 1
-                if progress_cb and n % 10 == 0:
                     try:
-                        progress_cb(n, total, "playerId")
+                        cache.setdefault("name_to_id", {})[nk] = int(pid)
                     except Exception:
                         pass
 
-    # 2) Fill Country (resume-friendly + cached)
-    stats["filled_country_landing"] = 0
+            if pid:
+                before = str(df.at[i, "playerId"] or "").strip()
+                df.at[i, "playerId"] = int(pid)
+                stats["filled_playerid_search"] += 1
+                if not before:
+                    stats["nhl_ids_added"] += 1
+
+            _progress(n, total, "playerId")
+
+            if save_every and n % save_every == 0:
+                _save_increment()
+
+    # 3) Fill Country (only if empty) using landing + cache by_id
     if fill_country:
-        cache = _get_country_cache()
         miss_cty = df["Country"].astype(str).str.strip().eq("")
-        # only candidates with playerId
-        cand = df.index[miss_cty & df["playerId"].astype(str).str.strip().ne("")].tolist()
-        total = len(cand)
-
-        for n, i in enumerate(cand, start=1):
-            pid = df.at[i, "playerId"]
-            try:
-                pid_i = int(pid)
-            except Exception:
-                continue
-
-            iso2 = _nhl_landing_country(pid_i, cache=cache, save_cache_every=200)
-            if iso2:
-                df.at[i, "Country"] = iso2
-                if str(df.at[i, "FlagISO2"] or "").strip() == "":
-                    df.at[i, "FlagISO2"] = iso2
-                if str(df.at[i, "Flag"] or "").strip() == "":
-                    df.at[i, "Flag"] = _iso2_to_flag(iso2)
-                stats["filled_country_landing"] += 1
-
-            # progress yield
-            if progress_cb and (n % 5 == 0 or n == total):
+        if miss_cty.any():
+            idxs = df.index[miss_cty].tolist()
+            total = len(idxs)
+            done = 0
+            for n, i in enumerate(idxs, start=1):
+                pid = df.at[i, "playerId"]
                 try:
-                    progress_cb(n, total, "country")
+                    pid_i = int(pid)
                 except Exception:
-                    pass
+                    _progress(n, total, "country")
+                    continue
 
-            # incremental save (anti Streamlit crash)
-            if save_every and (n % int(save_every) == 0):
-                try:
-                    df.to_csv(path, index=False)
-                except Exception:
-                    pass
-                try:
-                    c2 = dict(cache)
-                    c2.pop("__writes__", None)
-                    _save_country_cache(c2)
-                except Exception:
-                    pass
+                pid_key = str(pid_i)
+                cached = cache.get("by_id", {}).get(pid_key)
+                if isinstance(cached, dict) and str(cached.get("country","")).strip():
+                    iso2 = str(cached.get("country","")).strip().upper()
+                    df.at[i, "Country"] = iso2
+                    df.at[i, "FlagISO2"] = df.at[i, "FlagISO2"] or iso2
+                    df.at[i, "Flag"] = df.at[i, "Flag"] or str(cached.get("flag","")).strip() or _iso2_to_flag(iso2)
+                    stats["cache_hits"] += 1
+                    stats["filled_country_landing"] += 1
+                    _progress(n, total, "country")
+                    continue
 
-    # Final save
-    try:
-        df.to_csv(path, index=False)
-    except Exception:
-        pass
-    try:
-        c2 = dict(_get_country_cache())
-        c2.pop("__writes__", None)
-        _save_country_cache(c2)
-    except Exception:
-        pass
+                stats["cache_misses"] += 1
+                iso2 = _nhl_landing_country(pid_i)
+                if iso2:
+                    iso2 = str(iso2).strip().upper()
+                    df.at[i, "Country"] = iso2
+                    df.at[i, "FlagISO2"] = df.at[i, "FlagISO2"] or iso2
+                    df.at[i, "Flag"] = df.at[i, "Flag"] or _iso2_to_flag(iso2)
+                    stats["filled_country_landing"] += 1
+                    try:
+                        cache.setdefault("by_id", {})[pid_key] = {
+                            "country": iso2,
+                            "flag": df.at[i, "Flag"],
+                            "ts": int(time.time()),
+                        }
+                    except Exception:
+                        pass
+
+                _progress(n, total, "country")
+
+                if save_every and n % save_every == 0:
+                    _save_increment()
+
+    # final save
+    _save_increment()
 
     # Refresh session cache if present
     try:
@@ -1707,6 +1591,42 @@ def _run_players_db_update_ui(pdb_path: str, *, resume_only: bool = False):
 
 
 
+
+
+# ==============================
+# NHL Country cache (JSON) — persistent between runs
+# ==============================
+def _nhl_cache_path_default() -> str:
+    return os.path.join(DATA_DIR, "nhl_country_cache.json")
+
+def _load_nhl_country_cache(path: str) -> dict:
+    try:
+        if path and os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                js = json.load(f)
+            if isinstance(js, dict):
+                js.setdefault("by_id", {})
+                js.setdefault("name_to_id", {})
+                return js
+    except Exception:
+        pass
+    return {"by_id": {}, "name_to_id": {}}
+
+def _save_nhl_country_cache(path: str, cache: dict) -> None:
+    try:
+        if not path:
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def _iso2_to_flag(iso2: str) -> str:
+    iso2 = str(iso2 or "").strip().upper()
+    if len(iso2) != 2 or not iso2.isalpha():
+        return ""
+    return chr(0x1F1E6 + (ord(iso2[0]) - ord("A"))) + chr(0x1F1E6 + (ord(iso2[1]) - ord("A")))
 
 # ==============================
 # NHL PUBLIC API (no key) — targeted enrichment (Country/Flag) for missing rows
@@ -10006,19 +9926,81 @@ if active_tab == "🛠️ Gestion Admin":
                 except Exception as e:
                     st.error(f"❌ Rechargement KO — {type(e).__name__}: {e}")
 
-
-
         with cB:
             if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
-                # rebuild + fill country (with progress + incremental saves)
-                _run_players_db_update_ui(pdb_path, resume_only=False)
+                try:
+                    prog = st.progress(0.0)
+                    status = st.empty()
+
+                    def _cb(done: int, total: int, phase: str):
+                        total = max(int(total or 0), 1)
+                        done = int(done or 0)
+                        pct = min(1.0, max(0.0, done / total))
+                        prog.progress(pct)
+                        status.caption(f"{'playerId' if phase=='playerId' else 'Country'}: {done}/{total}")
+
+                    df, stats = update_players_db(
+                        path=pdb_path,
+                        season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
+                        fill_country=True,
+                        resume_only=False,
+                        save_every=500,
+                        cache_path=_nhl_cache_path_default(),
+                        progress_cb=_cb,
+                    )
+
+                    status.empty()
+                    prog.empty()
+
+                    st.success(
+                        f"✅ Terminé. Country remplis: {stats.get('filled_country_landing',0)} | "
+                        f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
+                        f"Cache hits: {stats.get('cache_hits',0)}"
+                    )
+                    with st.expander("Détails de la mise à jour", expanded=False):
+                        st.json(stats)
+
+                except Exception as e:
+                    st.error(f"❌ Update KO — {type(e).__name__}: {e}")
 
         with cC:
             if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
-                # only fill missing country/flags (fast resume)
-                _run_players_db_update_ui(pdb_path, resume_only=True)
-            st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
+                try:
+                    prog = st.progress(0.0)
+                    status = st.empty()
 
+                    def _cb(done: int, total: int, phase: str):
+                        total = max(int(total or 0), 1)
+                        done = int(done or 0)
+                        pct = min(1.0, max(0.0, done / total))
+                        prog.progress(pct)
+                        status.caption(f"{'playerId' if phase=='playerId' else 'Country'}: {done}/{total}")
+
+                    df, stats = update_players_db(
+                        path=pdb_path,
+                        season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
+                        fill_country=True,
+                        resume_only=True,
+                        save_every=500,
+                        cache_path=_nhl_cache_path_default(),
+                        progress_cb=_cb,
+                    )
+
+                    status.empty()
+                    prog.empty()
+
+                    st.success(
+                        f"✅ Terminé (resume). Country remplis: {stats.get('filled_country_landing',0)} | "
+                        f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
+                        f"Cache hits: {stats.get('cache_hits',0)}"
+                    )
+                    with st.expander("Détails (resume)", expanded=False):
+                        st.json(stats)
+
+                except Exception as e:
+                    st.error(f"❌ Resume KO — {type(e).__name__}: {e}")
+
+            st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
 
 
         # Aperçu rapide (PAS d'expander dans un expander -> Streamlit interdit)
