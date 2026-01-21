@@ -10072,8 +10072,9 @@ if active_tab == "🛠️ Gestion Admin":
                         f"Cache hits: {stats.get('cache_hits',0)} | "
                         f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
                     )
-                    with st.expander("Détails (resume)", expanded=False):
-                        st.json(stats)
+                    st.markdown("**Détails**")
+                    st.json(stats)
+
 
                 except Exception as e:
                     st.error(f"❌ Resume KO — {type(e).__name__}: {e}")
