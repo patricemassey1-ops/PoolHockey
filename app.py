@@ -6920,11 +6920,11 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                     if not kk or not vv:
                         continue
                     if kk not in flag_map or not str(flag_map.get(kk, "")).strip():
-                        flag_map[kk] = _iso2_to_flag_emoji(vv)
+                        flag_map[kk] = _iso2_to_flag(vv)
 
     # header
     # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([1.05, 2.05, 0.55, 5.1, 1.2, 3.05])
+    h = st.columns([1.0, 2.4, 0.5, 5.0, 1.15, 3.0])
     h[0].markdown("<b style='white-space:nowrap'>Pos</b>", unsafe_allow_html=True)
     h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
     h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
@@ -6958,21 +6958,85 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
             lvl = str(lvl or "").strip().upper()
             if lvl not in ("ELC", "STD"):
                 lvl = "—"
-
         fv = ""
         for k in (key1, key2, key3):
             if not fv:
                 fv = flag_map.get(k, "")
 
-        flag = "" if (fv is None or (isinstance(fv, float) and pd.isna(fv)) or str(fv).strip().lower() == "nan") else str(fv).strip()
-        flag_url = flag if str(flag).lower().startswith("http") else ""
-        flag_emoji = "" if flag_url else flag
+        # Normalize "fv" into either a URL (image) or an emoji (unicode flag)
+        flag_url = ""
+        flag_emoji = ""
+
+        def _flag_from_row(rr: pd.Series) -> tuple[str, str]:
+            """Fallback: try to derive a flag from the roster row itself."""
+            # 1) Direct URL
+            for col in ("Flag", "flag", "FlagURL", "FlagUrl"):
+                if col in rr and str(rr.get(col, "")).strip():
+                    v = str(rr.get(col, "")).strip()
+                    if v.lower().startswith("http"):
+                        return v, ""
+            # 2) ISO2 direct
+            iso2 = ""
+            for col in ("FlagISO2", "flagiso2", "ISO2", "iso2"):
+                if col in rr and str(rr.get(col, "")).strip():
+                    iso2 = str(rr.get(col, "")).strip().upper()
+                    break
+            # 3) ISO3 / country name
+            if not iso2:
+                for col in ("sr_country_code3", "sr_nationality", "Country", "country", "Nationality", "nationality"):
+                    if col in rr and str(rr.get(col, "")).strip():
+                        v = str(rr.get(col, "")).strip()
+                        v_up = v.upper()
+                        v_lo = v.lower()
+                        if v_up in _COUNTRY3_TO2:
+                            iso2 = _COUNTRY3_TO2[v_up]
+                            break
+                        if v_lo in _COUNTRYNAME_TO2:
+                            iso2 = _COUNTRYNAME_TO2[v_lo]
+                            break
+                        if len(v_up) == 2 and v_up.isalpha():
+                            iso2 = v_up
+                            break
+            # 4) Try to infer ISO2 from an URL stored in some column
+            if not iso2:
+                for col in ("Flag", "flag", "FlagURL", "FlagUrl"):
+                    if col in rr and str(rr.get(col, "")).strip():
+                        v = str(rr.get(col, "")).strip()
+                        if v.lower().startswith("http"):
+                            m = re.search(r"/([a-z]{2})\.png", v.lower())
+                            if m:
+                                iso2 = m.group(1).upper()
+                                break
+            return "", (_iso2_to_flag(iso2) if iso2 else "")
+
+        if fv is not None and not (isinstance(fv, float) and pd.isna(fv)):
+            sflag = str(fv).strip()
+        else:
+            sflag = ""
+
+        if sflag and sflag.lower() != "nan":
+            if sflag.lower().startswith("http"):
+                flag_url = sflag
+            else:
+                sf_up = sflag.upper()
+                iso2 = ""
+                if len(sf_up) == 2 and sf_up.isalpha():
+                    iso2 = sf_up
+                elif sf_up in _COUNTRY3_TO2:
+                    iso2 = _COUNTRY3_TO2[sf_up]
+                elif sflag.lower() in _COUNTRYNAME_TO2:
+                    iso2 = _COUNTRYNAME_TO2[sflag.lower()]
+                flag_emoji = _iso2_to_flag(iso2) if iso2 else sflag
+
+        if not flag_url and not flag_emoji:
+            flag_url, flag_emoji = _flag_from_row(r)
+
         display_name = joueur
 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.05, 2.05, 0.55, 5.1, 1.2, 3.05])
+        c = st.columns([1.0, 2.4, 0.5, 5.0, 1.15, 3.0])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
