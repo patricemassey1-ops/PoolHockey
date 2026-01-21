@@ -1421,6 +1421,112 @@ def update_players_db(
         except Exception:
             pass
         return df, stats
+    # Ensure id column (nhl_id)
+    if "nhl_id" not in df.columns:
+        if "playerId" in df.columns:
+            df["nhl_id"] = df["playerId"]
+        else:
+            df["nhl_id"] = ""
+
+    # Ensure columns for country/flag
+    for c in ("Country", "FlagISO2", "Flag"):
+        if c not in df.columns:
+            df[c] = ""
+
+    filled_from_cache = 0
+    filled_from_api = 0
+
+    if fill_country:
+        cache = _get_country_cache()  # mutable dict
+        # candidates: has nhl_id, missing Country/Flag
+        cand_mask = df["nhl_id"].astype(str).str.strip().ne("") & (
+            df["Country"].astype(str).str.strip().eq("") |
+            df["Flag"].astype(str).str.strip().eq("")
+        )
+        idxs = df.index[cand_mask].tolist()
+
+        total = len(idxs)
+        done = 0
+
+        for n, i in enumerate(idxs, start=1):
+            nhl_id = str(df.at[i, "nhl_id"] or "").strip()
+            if not nhl_id:
+                continue
+
+            # 1) cache hit
+            c = cache.get(nhl_id)
+            if isinstance(c, dict) and c.get("iso2"):
+                iso2 = str(c.get("iso2") or "").strip().upper()
+                if iso2 and not str(df.at[i, "Country"] or "").strip():
+                    df.at[i, "Country"] = iso2
+                if iso2 and not str(df.at[i, "FlagISO2"] or "").strip():
+                    df.at[i, "FlagISO2"] = iso2
+                if iso2 and not str(df.at[i, "Flag"] or "").strip():
+                    df.at[i, "Flag"] = _iso2_to_flag(iso2)
+                filled_from_cache += 1
+                done += 1
+            else:
+                # 2) NHL landing
+                payload = _nhl_player_landing(nhl_id)
+                iso2 = ""
+                c3 = _country3_from_landing(payload)
+                if c3:
+                    iso2 = _COUNTRY3_TO2.get(str(c3).upper(), "")
+                if not iso2:
+                    # sometimes landing provides 2-letter directly in Country field in some APIs
+                    iso2 = str(payload.get("birthCountryCode") or payload.get("nationalityCode") or payload.get("countryCode") or "").strip().upper()
+                    iso2 = iso2 if len(iso2) == 2 else ""
+
+                if iso2:
+                    if not str(df.at[i, "Country"] or "").strip():
+                        df.at[i, "Country"] = iso2
+                    if not str(df.at[i, "FlagISO2"] or "").strip():
+                        df.at[i, "FlagISO2"] = iso2
+                    if not str(df.at[i, "Flag"] or "").strip():
+                        df.at[i, "Flag"] = _iso2_to_flag(iso2)
+
+                    cache[nhl_id] = {"iso2": iso2}
+                    filled_from_api += 1
+                    done += 1
+
+            # progress callback
+            if progress_cb:
+                try:
+                    progress_cb(done, total, "country")
+                except Exception:
+                    pass
+
+            # incremental save
+            if save_every and done > 0 and (done % int(save_every) == 0):
+                try:
+                    df.to_csv(path, index=False)
+                except Exception:
+                    pass
+                try:
+                    _save_country_cache(cache)
+                except Exception:
+                    pass
+
+        # final save
+        try:
+            df.to_csv(path, index=False)
+        except Exception:
+            pass
+        try:
+            _save_country_cache(cache)
+        except Exception:
+            pass
+
+        stats["filled_country_cache"] = int(filled_from_cache)
+        stats["filled_country_landing"] = int(filled_from_api)
+
+    # Refresh session cache if present
+    try:
+        st.session_state["players_db"] = df
+    except Exception:
+        pass
+
+    return df, stats
 
 def _run_players_db_update_ui(pdb_path: str, *, resume_only: bool = False):
     """Streamlit UI runner with progress + incremental save."""
