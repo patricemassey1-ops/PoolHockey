@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+
+def _nhl_cache_path_default() -> str:
+    """Default JSON cache path for NHL lookups."""
+    base = os.path.join(os.getcwd(), "data")
+    try:
+        # Prefer existing DATA_DIR if defined later in file
+        base = globals().get("DATA_DIR", base) or base
+    except Exception:
+        pass
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "nhl_country_cache.json")
+
 import os
 import io
 import re
