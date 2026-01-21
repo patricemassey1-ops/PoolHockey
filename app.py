@@ -5,7 +5,6 @@ import io
 import re
 import unicodedata
 import json
-import time
 import html
 import base64
 import hashlib
@@ -855,7 +854,7 @@ def upsert_single_player_from_api(player_id: int) -> bool:
         }])], ignore_index=True)
 
     try:
-        _save_csv_atomic(path, df)
+        df.to_csv(path, index=False)
         return True
     except Exception:
         return False
@@ -967,16 +966,6 @@ def _statsrest_fetch_summary(kind: str, season_id: str) -> list[dict]:
             break
 
     return out
-
-
-def _cache_key_name(full_name: str) -> str:
-    return "name:" + _norm_name(_to_last_comma_first(full_name or ""))
-
-def _cache_should_skip_name(cache: dict, full_name: str) -> bool:
-    return _cache_key_name(full_name) in (cache or {})
-
-def _cache_set_name_attempt(cache: dict, full_name: str, nhl_id: str = "") -> None:
-    cache[_cache_key_name(full_name)] = {"nhl_id": str(nhl_id or ""), "ts": _now()}
 
 
 def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
@@ -1360,51 +1349,36 @@ def _nhl_landing_country(pid: int) -> str:
         return ""
 
 
-def _ensure_players_db_loaded(path: str) -> pd.DataFrame:
-    """Guarantee Players DB is loaded from disk into session state and returned."""
-    try:
-        df = st.session_state.get("players_db_df")
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            return df
-    except Exception:
-        pass
-
-    # Load from disk
-    df = load_players_db(path)
-    st.session_state["players_db_df"] = df
-    return df
 
 def update_players_db(
     path: str | None = None,
-    season_lbl: str | None = None,
-    fill_country: bool = True,
+    cache_path: str | None = None,
     *,
     resume_only: bool = False,
     save_every: int = 500,
-    cache_path: str | None = None,
+    yield_every: int = 50,
     progress_cb=None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Met à jour hockey.players.csv + complète playerId + Country/Flag (Streamlit-safe, resumable).
-
-    ✅ Résumable: sauvegarde CSV + cache JSON toutes les `save_every` itérations.
-    ✅ Cache JSON persistant: évite de rappeler l'API pour les mêmes IDs.
-    ✅ Negative caching: mémorise les échecs (ok=False) pour éviter de recommencer à l'infini.
     """
+    Update Players DB (data/hockey.players.csv):
+      1) Ensure nhl_id/playerId is filled (secure fallback by name)
+      2) Fill Country (ISO2) + Flag using NHL landing by id
+    Persistence:
+      - JSON cache at data/nhl_country_cache.json (name->id attempts + id->country)
+      - autosave CSV + cache every `save_every`
+    Returns (df, stats).
+    """
+    # ---- Paths (absolute under DATA_DIR)
+    base_dir = DATA_DIR if "DATA_DIR" in globals() else "data"
+    os.makedirs(base_dir, exist_ok=True)
 
-    # Defaults
-    path = str(path or os.path.join(DATA_DIR, "hockey.players.csv"))
-    cache_path = str(cache_path or os.path.join(DATA_DIR, "nhl_country_cache.json"))
-    # normalize to DATA_DIR if caller passed relative paths
+    path = str(path or os.path.join(base_dir, "hockey.players.csv"))
+    cache_path = str(cache_path or os.path.join(base_dir, "nhl_country_cache.json"))
+
     if not os.path.isabs(path):
-        path = os.path.join(DATA_DIR, path)
+        path = os.path.join(base_dir, path)
     if not os.path.isabs(cache_path):
-        cache_path = os.path.join(DATA_DIR, cache_path)
-
-    season_lbl = str(season_lbl or "").strip() or "2025-2026"
-
-    # Tunables (resume-friendly)
-    FAIL_TTL_SEC = 999_999_999  # infinite-ish; skip failed lookups for a very long time   # ne pas retenter un échec avant 7 jours
-    YIELD_EVERY = 50              # petit "yield" UI pour éviter SessionInfo crash
+        cache_path = os.path.join(base_dir, cache_path)
 
     stats = {
         "base_updated_rows": 0,
@@ -1415,87 +1389,75 @@ def update_players_db(
         "cache_misses": 0,
         "skipped_cached_fail": 0,
         "saved_increments": 0,
+        "save_error": "",
+        "last_phase": "",
+        "last_index": 0,
+        "last_total": 0,
     }
+
+    FAIL_TTL_SEC = 999_999_999  # never retry failures unless cache cleared
 
     def _now() -> int:
         return int(time.time())
 
-    def _progress(done: int, total: int, phase: str):
-        if callable(progress_cb):
-            try:
-                progress_cb(done, total, phase)
-            except Exception:
-                pass
+    def _save_json_atomic(pth: str, obj: dict) -> None:
+        if not pth:
+            return
+        os.makedirs(os.path.dirname(pth) or ".", exist_ok=True)
+        tmp = pth + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, pth)
 
-    
-def _save_csv_atomic(path: str, df: pd.DataFrame) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp = path + ".tmp"
-    df.to_csv(tmp, index=False)
-    os.replace(tmp, path)
+    def _save_csv_atomic(pth: str, _df: pd.DataFrame) -> None:
+        os.makedirs(os.path.dirname(pth) or ".", exist_ok=True)
+        tmp = pth + ".tmp"
+        _df.to_csv(tmp, index=False)
+        os.replace(tmp, pth)
 
-def _save_json_atomic(p: str, obj: dict) -> None:
+    def _load_cache(pth: str) -> dict:
         try:
-            if not p:
-                return
-            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-            tmp = p + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(obj, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, p)
+            if os.path.exists(pth):
+                with open(pth, "r", encoding="utf-8") as f:
+                    obj = json.load(f)
+                    if isinstance(obj, dict):
+                        obj.setdefault("by_id", {})
+                        obj.setdefault("name_to_id", {})
+                        return obj
         except Exception:
             pass
-        def _save_increment():
-            try:
-                _save_csv_atomic(path, df)
-                _save_json_atomic(cache_path, cache)
-                try:
-                    _load_players_db_cached.clear()
-                except Exception:
-                    pass
-                stats["saved_increments"] = int(stats.get("saved_increments", 0)) + 1
-                stats.pop("save_error", None)
-            except Exception as e:
-                stats["save_error"] = f"{type(e).__name__}: {e}"
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            _save_csv_atomic(path, df)
-            # atomic cache save
-            _save_json_atomic(cache_path, cache)
-            try:
-                _load_players_db_cached.clear()
-            except Exception:
-                pass
-            # small checkpoint so Resume can prove it continued
-            ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
-            _save_json_atomic(ckpt_path, {
-                "ts": _now(),
-                "players_db": path,
-                "cache_path": cache_path,
-                "saved_increments": int(stats.get("saved_increments", 0)) + 1,
-            })
-            stats["saved_increments"] = int(stats.get("saved_increments", 0)) + 1
-            stats.pop("save_error", None)
-        except Exception as e:
-            # DO NOT swallow: record for UI diagnostics
-            stats["save_error"] = f"{type(e).__name__}: {e}"
+        return {"by_id": {}, "name_to_id": {}}
 
+    cache = _load_cache(cache_path)
 
-    def _cache_get_name_entry(nk: str):
+    def _cache_should_skip_fail(entry: dict) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        if entry.get("ok") is True:
+            return True
+        if entry.get("ok") is False:
+            ts = int(entry.get("ts") or 0)
+            if ts and (_now() - ts) < FAIL_TTL_SEC:
+                return True
+        return False
+
+    def _cache_get_name(nk: str) -> dict | None:
         v = cache.get("name_to_id", {}).get(nk)
-        if isinstance(v, int):
-            return {"id": v, "ok": True, "ts": 0}
         if isinstance(v, dict):
+            v.setdefault("ok", bool(int(v.get("id") or 0) > 0))
+            v.setdefault("ts", 0)
             return v
+        if isinstance(v, int):
+            return {"id": int(v), "ok": True, "ts": 0}
         return None
 
     def _cache_set_name(nk: str, pid: int | None, ok: bool):
         cache.setdefault("name_to_id", {})[nk] = {"id": int(pid or 0), "ok": bool(ok), "ts": _now()}
 
-    def _cache_get_id_entry(pid_key: str):
+    def _cache_get_id(pid_key: str) -> dict | None:
         v = cache.get("by_id", {}).get(pid_key)
         if isinstance(v, dict):
-            # backward compat: old caches may have {"country": "...", "flag": "..."} without ok/ts
-            v.setdefault("ok", bool(str(v.get("country", "")).strip()))
+            v.setdefault("ok", bool(str(v.get("country","")).strip()))
             v.setdefault("ts", 0)
             return v
         return None
@@ -1503,186 +1465,199 @@ def _save_json_atomic(p: str, obj: dict) -> None:
     def _cache_set_id(pid_key: str, iso2: str, flag: str, ok: bool):
         cache.setdefault("by_id", {})[pid_key] = {"country": iso2 or "", "flag": flag or "", "ok": bool(ok), "ts": _now()}
 
-    def _cache_should_skip_fail(entry: dict) -> bool:
-        if entry.get("ok") is True:
-            return True
-        ts = int(entry.get("ts") or 0)
-        if ts and (_now() - ts) < FAIL_TTL_SEC:
-            return True
-        return False
+    def _progress(done: int, total: int, phase: str):
+        stats["last_index"] = int(done or 0)
+        stats["last_total"] = int(total or 0)
+        stats["last_phase"] = str(phase or "")
+        if callable(progress_cb):
+            try:
+                try:
+                    progress_cb(done, total, phase, stats)
+                except TypeError:
+                    progress_cb(done, total, phase)
+            except Exception:
+                pass
 
-    # Load cache
-    cache = _load_nhl_country_cache(cache_path)
-    if not isinstance(cache, dict):
-        cache = {"by_id": {}, "name_to_id": {}}
-    cache.setdefault("by_id", {})
-    cache.setdefault("name_to_id", {})
-
-    # Load / base update
-    if resume_only:
+    def _save_increment(df: pd.DataFrame):
         try:
-            df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
-        except Exception:
-            df = pd.DataFrame()
-    else:
-        df_upd, stats_upd = update_players_db_via_nhl_apis(season_lbl=season_lbl)
-        if isinstance(df_upd, pd.DataFrame):
-            df = df_upd.copy()
-            stats["base_updated_rows"] = len(df)
-        else:
-            df = pd.DataFrame()
-        if isinstance(stats_upd, dict):
-            # keep some diagnostics if present
-            for k in ("skaters", "goalies", "unique_players"):
-                if k in stats_upd:
-                    stats[k] = stats_upd.get(k)
+            _save_csv_atomic(path, df)
+            _save_json_atomic(cache_path, cache)
+            ckpt_path = os.path.join(base_dir, "nhl_country_checkpoint.json")
+            _save_json_atomic(ckpt_path, {
+                "ts": _now(),
+                "players_db": path,
+                "cache_path": cache_path,
+                "last_phase": stats.get("last_phase",""),
+                "last_index": int(stats.get("last_index", 0)),
+                "last_total": int(stats.get("last_total", 0)),
+                "saved_increments": int(stats.get("saved_increments", 0)) + 1,
+            })
+            stats["saved_increments"] = int(stats.get("saved_increments", 0)) + 1
+            stats["save_error"] = ""
+            try:
+                load_players_db.clear()  # if it's cache_data
+            except Exception:
+                pass
+        except Exception as e:
+            stats["save_error"] = f"{type(e).__name__}: {e}"
+
+    # ---- Load DB
+    try:
+        df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+    except Exception:
+        df = pd.DataFrame()
+
+    if df.empty:
+        return df, stats
 
     # Ensure columns
-    if "Player" not in df.columns:
-        df["Player"] = ""
-    if "playerId" not in df.columns:
-        df["playerId"] = pd.NA
-    if "Country" not in df.columns:
-        df["Country"] = ""
-    if "FlagISO2" not in df.columns:
-        df["FlagISO2"] = ""
-    if "Flag" not in df.columns:
-        df["Flag"] = ""
+    if "nhl_id" not in df.columns:
+        if "playerId" in df.columns:
+            df["nhl_id"] = df["playerId"]
+        else:
+            df["nhl_id"] = ""
 
-    # ---------------------------
-    # Step 1: Fill missing playerId (secure fallback + cache)
-    # ---------------------------
-    missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
-    if missing_pid.any():
-        idxs = df.index[missing_pid].tolist()
-        total = len(idxs)
-        for n, i in enumerate(idxs, start=1):
-            nm = str(df.at[i, "Player"] or "").strip()
+    for c in ("Country", "FlagISO2", "Flag"):
+        if c not in df.columns:
+            df[c] = ""
+
+    # -------------------------
+    # Phase A: fill playerId (secure fallback)
+    # -------------------------
+    if not resume_only:
+        cand_idx = df.index.tolist()
+        total = len(cand_idx)
+        for n, i in enumerate(cand_idx, start=1):
+            nm = str(df.at[i, "Player"] if "Player" in df.columns else df.at[i, "Joueur"] if "Joueur" in df.columns else "").strip()
             if not nm:
                 _progress(n, total, "playerId")
                 continue
 
-            nk = _soft_player_key(nm)
+            cur = str(df.at[i, "nhl_id"] or "").strip()
+            if cur:
+                _progress(n, total, "playerId")
+                continue
 
-            # cache hit?
-            ent = _cache_get_name_entry(nk)
+            nk = _norm_name(_to_last_comma_first(nm)) if ("_norm_name" in globals() and "_to_last_comma_first" in globals()) else nm.lower()
+
+            ent = _cache_get_name(nk)
             pid = None
             if isinstance(ent, dict):
                 if ent.get("ok") is True and int(ent.get("id") or 0) > 0:
                     pid = int(ent.get("id"))
+                    stats["cache_hits"] += 1
                 elif ent.get("ok") is False and _cache_should_skip_fail(ent):
                     stats["skipped_cached_fail"] += 1
                     _progress(n, total, "playerId")
                     if save_every and n % save_every == 0:
-                        _save_increment()
-                    if YIELD_EVERY and n % YIELD_EVERY == 0:
+                        _save_increment(df)
+                    if yield_every and n % yield_every == 0:
                         time.sleep(0.02)
                     continue
 
             if not pid:
-                pid = _nhl_search_playerid(nm)
+                # secure search by name (must exist in file)
+                try:
+                    pid = _nhl_search_playerid(nm)
+                except Exception:
+                    pid = None
+                stats["cache_misses"] += 1
 
             if pid:
-                # set + cache success
-                df.at[i, "playerId"] = int(pid)
+                df.at[i, "nhl_id"] = int(pid)
+                if "playerId" in df.columns:
+                    df.at[i, "playerId"] = int(pid)
                 _cache_set_name(nk, int(pid), ok=True)
                 stats["filled_playerid_search"] += 1
-                    if save_every and (stats[\"filled_playerid_search\"] % save_every == 0):
-                        _save_increment()
                 stats["nhl_ids_added"] += 1
             else:
-                # negative cache
                 _cache_set_name(nk, 0, ok=False)
 
             _progress(n, total, "playerId")
-
             if save_every and n % save_every == 0:
-                _save_increment()
-            if YIELD_EVERY and n % YIELD_EVERY == 0:
+                _save_increment(df)
+            if yield_every and n % yield_every == 0:
                 time.sleep(0.02)
 
-    # ---------------------------
-    # Step 2: Fill Country + Flag (landing + by_id cache)
-    # ---------------------------
-    if fill_country:
-        missing_country = df["Country"].astype(str).str.strip().eq("")
-        if missing_country.any():
-            idxs = df.index[missing_country].tolist()
-            total = len(idxs)
-            for n, i in enumerate(idxs, start=1):
-                pid = df.at[i, "playerId"]
-                try:
-                    pid_i = int(pid)
-                except Exception:
-                    _progress(n, total, "country")
-                    continue
+    # -------------------------
+    # Phase B: fill Country by landing
+    # -------------------------
+    cand = df[df["Country"].astype(str).str.strip().eq("") & df["nhl_id"].astype(str).str.strip().ne("")].copy()
+    idxs = cand.index.tolist()
+    total = len(idxs)
 
-                pid_key = str(pid_i)
+    for n, i in enumerate(idxs, start=1):
+        pid_i = str(df.at[i, "nhl_id"] or "").strip()
+        if not pid_i:
+            _progress(n, total, "country")
+            continue
 
-                # cache by_id
-                ent = _cache_get_id_entry(pid_key)
-                if isinstance(ent, dict):
-                    if ent.get("ok") is True and str(ent.get("country","")).strip():
-                        iso2 = str(ent.get("country","")).strip().upper()
-                        df.at[i, "Country"] = iso2
-                        df.at[i, "FlagISO2"] = str(df.at[i, "FlagISO2"] or "").strip() or iso2
-                        df.at[i, "Flag"] = str(df.at[i, "Flag"] or "").strip() or str(ent.get("flag","")).strip() or _iso2_to_flag(iso2)
-                        stats["cache_hits"] += 1
-                        stats["filled_country_landing"] += 1
-                        _progress(n, total, "country")
-                        if save_every and n % save_every == 0:
-                            _save_increment()
-                        if YIELD_EVERY and n % YIELD_EVERY == 0:
-                            time.sleep(0.02)
-                        continue
-
-                    # negative cached fail (recent)
-                    if ent.get("ok") is False and _cache_should_skip_fail(ent):
-                        stats["skipped_cached_fail"] += 1
-                        _progress(n, total, "country")
-                        if save_every and n % save_every == 0:
-                            _save_increment()
-                        if YIELD_EVERY and n % YIELD_EVERY == 0:
-                            time.sleep(0.02)
-                        continue
-
-                stats["cache_misses"] += 1
-                iso2 = _nhl_landing_country(pid_i) or ""
-                iso2 = str(iso2).strip().upper()
-
-                if iso2:
-                    df.at[i, "Country"] = iso2
-                    df.at[i, "FlagISO2"] = str(df.at[i, "FlagISO2"] or "").strip() or iso2
-                    df.at[i, "Flag"] = str(df.at[i, "Flag"] or "").strip() or _iso2_to_flag(iso2)
-                    stats["filled_country_landing"] += 1
-                    _cache_set_id(pid_key, iso2=iso2, flag=_iso2_to_flag(iso2), ok=True)
-                else:
-                    _cache_set_id(pid_key, iso2="", flag="", ok=False)
-
+        ent = _cache_get_id(pid_i)
+        if isinstance(ent, dict):
+            if ent.get("ok") is True and str(ent.get("country","")).strip():
+                iso2 = str(ent.get("country","")).strip().upper()
+                df.at[i, "Country"] = iso2
+                df.at[i, "FlagISO2"] = str(df.at[i, "FlagISO2"] or "").strip() or iso2
+                df.at[i, "Flag"] = str(df.at[i, "Flag"] or "").strip() or str(ent.get("flag","")).strip() or _iso2_to_flag(iso2)
+                stats["cache_hits"] += 1
+                stats["filled_country_landing"] += 1
                 _progress(n, total, "country")
-
                 if save_every and n % save_every == 0:
-                    _save_increment()
-                if YIELD_EVERY and n % YIELD_EVERY == 0:
+                    _save_increment(df)
+                if yield_every and n % yield_every == 0:
                     time.sleep(0.02)
+                continue
+            if ent.get("ok") is False and _cache_should_skip_fail(ent):
+                stats["skipped_cached_fail"] += 1
+                _progress(n, total, "country")
+                if save_every and n % save_every == 0:
+                    _save_increment(df)
+                if yield_every and n % yield_every == 0:
+                    time.sleep(0.02)
+                continue
+
+        # call landing
+        payload = None
+        try:
+            payload = _nhl_player_landing(pid_i)
+        except Exception:
+            payload = None
+
+        iso2 = ""
+        if isinstance(payload, dict):
+            c3 = ""
+            for k in ("birthCountryCode", "nationalityCode", "countryCode"):
+                v = payload.get(k)
+                if isinstance(v, str) and v.strip():
+                    s = v.strip().upper()
+                    if len(s) == 3:
+                        c3 = s
+                        break
+                    if len(s) == 2 and not iso2:
+                        iso2 = s
+            if c3 and not iso2:
+                iso2 = _COUNTRY3_TO2.get(c3, "") if "_COUNTRY3_TO2" in globals() else ""
+
+        if iso2:
+            flag = _iso2_to_flag(iso2)
+            df.at[i, "Country"] = iso2
+            df.at[i, "FlagISO2"] = str(df.at[i, "FlagISO2"] or "").strip() or iso2
+            df.at[i, "Flag"] = str(df.at[i, "Flag"] or "").strip() or flag
+            _cache_set_id(pid_i, iso2, flag, ok=True)
+            stats["filled_country_landing"] += 1
+        else:
+            _cache_set_id(pid_i, "", "", ok=False)
+
+        _progress(n, total, "country")
+        if save_every and n % save_every == 0:
+            _save_increment(df)
+        if yield_every and n % yield_every == 0:
+            time.sleep(0.02)
 
     # final save
-    _save_increment()
-
-    # refresh session cache if present
-    try:
-        st.session_state["players_db"] = df
-    except Exception:
-        pass
-
+    _save_increment(df)
     return df, stats
 
-
-# ==============================
-# NHL Country cache (JSON) — persistent between runs
-# ==============================
-def _nhl_cache_path_default() -> str:
-    return os.path.join(DATA_DIR, "nhl_country_cache.json")
 
 def _load_nhl_country_cache(path: str) -> dict:
     try:
@@ -1698,15 +1673,12 @@ def _load_nhl_country_cache(path: str) -> dict:
     return {"by_id": {}, "name_to_id": {}}
 
 def _save_nhl_country_cache(path: str, cache: dict) -> None:
-    """Atomic JSON save to avoid corruption if Streamlit restarts mid-write."""
     try:
         if not path:
             return
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
     except Exception:
         pass
 
@@ -2657,7 +2629,7 @@ def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 
     stats['ran'] = True
     if stats['filled_playerid'] or stats['filled_country']:
         try:
-            _save_csv_atomic(path, df)
+            df.to_csv(path, index=False)
         except Exception:
             pass
 
@@ -10016,7 +9988,6 @@ if active_tab == "🛠️ Gestion Admin":
 
         with cB:
             if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
-                df = _ensure_players_db_loaded(pdb_path)
                 try:
                     prog = st.progress(0.0)
                     status = st.empty()
@@ -10044,10 +10015,10 @@ if active_tab == "🛠️ Gestion Admin":
                     st.success(
                         f"✅ Terminé. Country remplis: {stats.get('filled_country_landing',0)} | "
                         f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)}"
+                        f"Cache hits: {stats.get('cache_hits',0)} | "
+                        f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
                     )
-                    with st.container():
-                        st.markdown("**Détails de la mise à jour**")
+                    with st.expander("Détails de la mise à jour", expanded=False):
                         st.json(stats)
 
                 except Exception as e:
@@ -10055,7 +10026,6 @@ if active_tab == "🛠️ Gestion Admin":
 
         with cC:
             if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
-                df = _ensure_players_db_loaded(pdb_path)
                 try:
                     prog = st.progress(0.0)
                     status = st.empty()
@@ -10083,10 +10053,10 @@ if active_tab == "🛠️ Gestion Admin":
                     st.success(
                         f"✅ Terminé (resume). Country remplis: {stats.get('filled_country_landing',0)} | "
                         f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)}"
+                        f"Cache hits: {stats.get('cache_hits',0)} | "
+                        f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
                     )
-                    with st.container():
-                        st.markdown("**Détails (resume)**")
+                    with st.expander("Détails (resume)", expanded=False):
                         st.json(stats)
 
                 except Exception as e:
