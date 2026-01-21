@@ -1445,9 +1445,18 @@ def _save_json_atomic(p: str, obj: dict) -> None:
             os.replace(tmp, p)
         except Exception:
             pass
-
-    def _save_increment():
-        try:
+        def _save_increment():
+            try:
+                _save_csv_atomic(path, df)
+                _save_json_atomic(cache_path, cache)
+                try:
+                    _load_players_db_cached.clear()
+                except Exception:
+                    pass
+                stats["saved_increments"] = int(stats.get("saved_increments", 0)) + 1
+                stats.pop("save_error", None)
+            except Exception as e:
+                stats["save_error"] = f"{type(e).__name__}: {e}"
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             _save_csv_atomic(path, df)
             # atomic cache save
