@@ -1363,14 +1363,12 @@ def _nhl_landing_country(pid: int) -> str:
 
 
 def update_players_db(
-    path: str | None = None,
-    cache_path: str | None = None,
-    *,
-    resume_only: bool = False,
+    path: str,
+    season_lbl: str | None = None,   # 👈 AJOUTÉ (compat UI)
+    resume: bool = False,
     save_every: int = 500,
-    yield_every: int = 50,
-    progress_cb=None,
-) -> tuple[pd.DataFrame, dict]:
+):
+
     """
     Update Players DB (data/hockey.players.csv):
       1) Ensure nhl_id/playerId is filled (secure fallback by name)
