@@ -9984,7 +9984,7 @@ if active_tab == "🛠️ Gestion Admin":
 
         with cB:
             if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
-                df = _ensure_players_db_loaded(path)
+                df = _ensure_players_db_loaded(pdb_path)
                 try:
                     prog = st.progress(0.0)
                     status = st.empty()
@@ -10023,7 +10023,7 @@ if active_tab == "🛠️ Gestion Admin":
 
         with cC:
             if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
-                df = _ensure_players_db_loaded(path)
+                df = _ensure_players_db_loaded(pdb_path)
                 try:
                     prog = st.progress(0.0)
                     status = st.empty()
