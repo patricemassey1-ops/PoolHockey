@@ -1364,10 +1364,16 @@ def _nhl_landing_country(pid: int) -> str:
 
 def update_players_db(
     path: str,
-    season_lbl: str | None = None,   # 👈 AJOUTÉ (compat UI)
+    season_lbl: str | None = None,
     resume: bool = False,
     save_every: int = 500,
+    fill_country: bool = True,       # ✅ AJOUTÉ
+    max_calls: int = 5000,           # ✅ AJOUTÉ (si ton UI le passe)
+    cache_path: str | None = None,   # ✅ AJOUTÉ
+    progress_cb=None,                # ✅ AJOUTÉ
+    **_ignored,                      # ✅ capture tout le reste (future-proof)
 ):
+
 
     """
     Update Players DB (data/hockey.players.csv):
