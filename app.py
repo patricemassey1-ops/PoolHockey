@@ -9999,7 +9999,8 @@ if active_tab == "🛠️ Gestion Admin":
                         f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
                         f"Cache hits: {stats.get('cache_hits',0)}"
                     )
-                    with st.expander("Détails de la mise à jour", expanded=False):
+                    with st.container():
+                        st.markdown("**Détails de la mise à jour**")
                         st.json(stats)
 
                 except Exception as e:
@@ -10036,7 +10037,8 @@ if active_tab == "🛠️ Gestion Admin":
                         f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
                         f"Cache hits: {stats.get('cache_hits',0)}"
                     )
-                    with st.expander("Détails (resume)", expanded=False):
+                    with st.container():
+                        st.markdown("**Détails (resume)**")
                         st.json(stats)
 
                 except Exception as e:
