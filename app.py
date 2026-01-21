@@ -6923,14 +6923,13 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
                         flag_map[kk] = _iso2_to_flag(vv)
 
     # header
-    # Ratios: garder tout sur une seule ligne (bouton moins "gourmand")
-    h = st.columns([1.0, 2.4, 0.5, 5.0, 1.15, 3.0])
+    # Ratios: garder tout sur une seule ligne (drapeau dans le bouton du joueur)
+    h = st.columns([1.0, 2.4, 5.6, 1.15, 3.0])
     h[0].markdown("<b style='white-space:nowrap'>Pos</b>", unsafe_allow_html=True)
     h[1].markdown("<b style='white-space:nowrap'>Équipe</b>", unsafe_allow_html=True)
-    h[2].markdown("<b style='white-space:nowrap'>🏳️</b>", unsafe_allow_html=True)
-    h[3].markdown("<b style='white-space:nowrap'>Joueur</b>", unsafe_allow_html=True)
-    h[4].markdown("<b style='white-space:nowrap'>Level</b>", unsafe_allow_html=True)
-    h[5].markdown("<b style='white-space:nowrap'>Salaire</b>", unsafe_allow_html=True)
+    h[2].markdown("<b style='white-space:nowrap'>Joueur</b>", unsafe_allow_html=True)
+    h[3].markdown("<b style='white-space:nowrap'>Level</b>", unsafe_allow_html=True)
+    h[4].markdown("<b style='white-space:nowrap'>Salaire</b>", unsafe_allow_html=True)
     clicked = None
     for _, r in t.iterrows():
         joueur = str(r.get("Joueur", "")).strip()
@@ -7036,32 +7035,23 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
         row_sig = f"{joueur}|{pos}|{team}|{lvl}|{salaire}"
         row_key = re.sub(r"[^a-zA-Z0-9_|\-]", "_", row_sig)[:120]
 
-        c = st.columns([1.0, 2.4, 0.5, 5.0, 1.15, 3.0])
+        c = st.columns([1.0, 2.4, 5.6, 1.15, 3.0])
         c[0].markdown(pos_badge_html(pos), unsafe_allow_html=True)
         c[1].markdown(team if team and team.lower() not in bad else "—")
 
-        # Flag + bouton joueur (no nested columns)
-        if flag_url and str(flag_url).startswith("http"):
-            c[2].markdown(
-                f"<div style='display:flex;align-items:center;justify-content:flex-start;padding-left:4px;height:38px;'>"
-                f"<img src='{html.escape(flag_url)}' width='22'/>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        elif flag_emoji:
-            c[2].markdown(
-                f"<div style='display:flex;align-items:center;justify-content:flex-start;padding-left:4px;height:38px;font-size:18px;'>"
-                f"{html.escape(flag_emoji)}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            c[2].markdown("")
+        # Option C: drapeau intégré au bouton (emoji)
+        # 1) priorité: colonne Flag (emoji) dans hockey.players.csv
+        # 2) fallback: URL de drapeau -> ISO2 -> emoji
+        if (not flag_emoji) and flag_url:
+            m = re.search(r"/([a-z]{2})\.png", str(flag_url).lower())
+            if m:
+                flag_emoji = _iso2_to_flag(m.group(1).upper())
 
-        if c[3].button(
-            display_name,
+        label = f"{flag_emoji} {display_name}".strip() if flag_emoji else display_name
+
+        if c[2].button(
+            label,
             key=f"{source_key}_{owner}_{row_key}",
-            # IMPORTANT: ne pas étirer le bouton (sinon ça "mange" la ligne)
             disabled=disabled,
         ):
             clicked = joueur
@@ -7069,12 +7059,12 @@ def roster_click_list(df_src: pd.DataFrame, owner: str, source_key: str) -> str 
 
         lvl_u = str(lvl or "").strip().upper()
         lvl_cls = "lvlELC" if lvl_u == "ELC" else ("lvlSTD" if lvl_u == "STD" else "")
-        c[4].markdown(
+        c[3].markdown(
             f"<span class='levelCell {lvl_cls}'>{html.escape(lvl) if lvl and lvl.lower() not in bad else '—'}</span>",
             unsafe_allow_html=True,
         )
 
-        c[5].markdown(f"<span class='salaryCell' style='white-space:nowrap;'>{money(salaire).replace(' ', '&nbsp;')}</span>", unsafe_allow_html=True)
+        c[4].markdown(f"<span class='salaryCell' style='white-space:nowrap;'>{money(salaire).replace(' ', '&nbsp;')}</span>", unsafe_allow_html=True)
 
     return clicked
 
