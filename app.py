@@ -855,7 +855,7 @@ def upsert_single_player_from_api(player_id: int) -> bool:
         }])], ignore_index=True)
 
     try:
-        df.to_csv(path, index=False)
+        _save_csv_atomic(path, df)
         return True
     except Exception:
         return False
@@ -967,6 +967,16 @@ def _statsrest_fetch_summary(kind: str, season_id: str) -> list[dict]:
             break
 
     return out
+
+
+def _cache_key_name(full_name: str) -> str:
+    return "name:" + _norm_name(_to_last_comma_first(full_name or ""))
+
+def _cache_should_skip_name(cache: dict, full_name: str) -> bool:
+    return _cache_key_name(full_name) in (cache or {})
+
+def _cache_set_name_attempt(cache: dict, full_name: str, nhl_id: str = "") -> None:
+    cache[_cache_key_name(full_name)] = {"nhl_id": str(nhl_id or ""), "ts": _now()}
 
 
 def update_players_db_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
@@ -1417,7 +1427,14 @@ def update_players_db(
             except Exception:
                 pass
 
-    def _save_json_atomic(p: str, obj: dict) -> None:
+    
+def _save_csv_atomic(path: str, df: pd.DataFrame) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    df.to_csv(tmp, index=False)
+    os.replace(tmp, path)
+
+def _save_json_atomic(p: str, obj: dict) -> None:
         try:
             if not p:
                 return
@@ -1432,9 +1449,13 @@ def update_players_db(
     def _save_increment():
         try:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            df.to_csv(path, index=False)
+            _save_csv_atomic(path, df)
             # atomic cache save
             _save_json_atomic(cache_path, cache)
+            try:
+                _load_players_db_cached.clear()
+            except Exception:
+                pass
             # small checkpoint so Resume can prove it continued
             ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
             _save_json_atomic(ckpt_path, {
@@ -1557,6 +1578,8 @@ def update_players_db(
                 df.at[i, "playerId"] = int(pid)
                 _cache_set_name(nk, int(pid), ok=True)
                 stats["filled_playerid_search"] += 1
+                    if save_every and (stats[\"filled_playerid_search\"] % save_every == 0):
+                        _save_increment()
                 stats["nhl_ids_added"] += 1
             else:
                 # negative cache
@@ -2625,7 +2648,7 @@ def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 
     stats['ran'] = True
     if stats['filled_playerid'] or stats['filled_country']:
         try:
-            df.to_csv(path, index=False)
+            _save_csv_atomic(path, df)
         except Exception:
             pass
 
