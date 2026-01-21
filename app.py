@@ -1373,7 +1373,7 @@ def update_players_db(
     season_lbl = str(season_lbl or "").strip() or "2025-2026"
 
     # Tunables (resume-friendly)
-    FAIL_TTL_SEC = 7 * 24 * 3600   # ne pas retenter un échec avant 7 jours
+    FAIL_TTL_SEC = 999_999_999 * 24 * 3600   # ne pas retenter un échec avant 7 jours
     YIELD_EVERY = 50              # petit "yield" UI pour éviter SessionInfo crash
 
     stats = {
