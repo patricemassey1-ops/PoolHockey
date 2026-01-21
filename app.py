@@ -21,10 +21,45 @@ st.set_page_config(page_title="PMS", layout="wide")
 # =====================================================
 @st.cache_data(show_spinner=False)
 def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
+    """Load hockey.players database (CSV/TSV) robustly.
+
+    - Tries comma-separated first, then auto-detects, then tab-separated.
+    - Handles common Streamlit Cloud issues where a CSV is actually tab-delimited.
+    """
     try:
         if not csv_path or not os.path.exists(csv_path):
             return pd.DataFrame()
-        return pd.read_csv(csv_path)
+
+        # 1) Standard CSV
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception:
+            df = pd.DataFrame()
+
+        # If it looks like a single-column TSV (header contains tabs), re-read as TSV.
+        if isinstance(df, pd.DataFrame) and (df.shape[1] <= 1):
+            try:
+                with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                    head = f.readline()
+                if "\t" in head:
+                    df = pd.read_csv(csv_path, sep="\t")
+            except Exception:
+                pass
+
+        # 2) Auto-detect delimiter if still single column
+        if isinstance(df, pd.DataFrame) and (df.shape[1] <= 1):
+            try:
+                df2 = pd.read_csv(csv_path, sep=None, engine="python")
+                if isinstance(df2, pd.DataFrame) and df2.shape[1] > df.shape[1]:
+                    df = df2
+            except Exception:
+                pass
+
+        # Light column cleanup
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            df.columns = [str(c).strip() for c in df.columns]
+
+        return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
