@@ -10106,7 +10106,7 @@ _update_label = "🌍 Start Country phase" if _phase_ck == "Country" else "⬆�
             cls = "pdb-country"
 
         st.markdown(
-            f"<div class='pdb-sticky {cls}'>Dernier : {phase or '—'} {int(last.get('index',0) or 0)}/{int(last.get('total',0) or 0)}</div>",
+            f\"<div class='pdb-sticky {cls}'>Dernier : {phase or '—'} {int(last.get('index',0) or 0)}/{int(last.get('total',0) or 0)} (reste: {max(int(last.get('total',0) or 0) - int(last.get('index',0) or 0), 0)})</div>\",
             unsafe_allow_html=True
         )
 
@@ -10173,7 +10173,8 @@ def _cb(done: int, total: int, phase: str):
         prog_pid.progress(pct)
     else:
         prog_cty.progress(pct)
-    status.caption(f"{phase}: {done}/{total}")
+    remaining = max(total - done, 0)
+                        status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
                     df, stats = _call_update_players_db(
@@ -10221,7 +10222,8 @@ def _cb(done: int, total: int, phase: str):
         prog_pid.progress(pct)
     else:
         prog_cty.progress(pct)
-    status.caption(f"{phase}: {done}/{total}")
+    remaining = max(total - done, 0)
+                        status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
                     df, stats = _call_update_players_db(
