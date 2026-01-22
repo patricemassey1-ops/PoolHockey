@@ -1061,6 +1061,13 @@ def update_players_db_via_nhl_api(*args, **kwargs):
     return fn(*args, **kwargs)
 
 
+
+# Backward-compatible alias (plural name used in some older code)
+def update_players_db_via_nhl_apis(*args, **kwargs):
+    """Legacy alias used by some UI paths (plural name)."""
+    return update_players_db_via_nhl_api(*args, **kwargs)
+
+
 def _update_players_db_impl_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
     """Met à jour data/hockey.players.csv en fusionnant des APIs NHL publiques.
 
