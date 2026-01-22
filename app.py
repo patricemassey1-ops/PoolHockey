@@ -1053,18 +1053,21 @@ def update_players_db(
 # ==============================
 # Backward-compatible alias
 # ==============================
+
+# ==============================
+# Backward-compatible aliases (avoid recursion)
+# ==============================
 def update_players_db_via_nhl_api(*args, **kwargs):
-    """Legacy alias used by some UI paths."""
-    fn = globals().get("update_players_db")
-    if not callable(fn):
-        raise RuntimeError("update_players_db is not defined")
-    return fn(*args, **kwargs)
+    """Legacy alias used by some UI paths (singular)."""
+    impl = globals().get("_update_players_db_impl_via_nhl_apis") or globals().get("_update_players_db_impl")
+    if not callable(impl):
+        raise RuntimeError("No NHL update implementation found")
+    # This impl expects season_lbl only; ignore extra kwargs safely
+    season_lbl = kwargs.get("season_lbl", None)
+    return impl(season_lbl=season_lbl)
 
-
-
-# Backward-compatible alias (plural name used in some older code)
 def update_players_db_via_nhl_apis(*args, **kwargs):
-    """Legacy alias used by some UI paths (plural name)."""
+    """Legacy alias used by some UI paths (plural)."""
     return update_players_db_via_nhl_api(*args, **kwargs)
 
 
@@ -1493,7 +1496,7 @@ def update_players_db(
         except Exception:
             df = pd.DataFrame()
     else:
-        df_upd, stats_upd = update_players_db_via_nhl_apis(season_lbl=season_lbl)
+        df_upd, stats_upd = _update_players_db_impl_via_nhl_apis(season_lbl=season_lbl)
         if isinstance(stats_upd, dict):
             stats.update(stats_upd)
         df = df_upd.copy() if isinstance(df_upd, pd.DataFrame) else pd.DataFrame()
