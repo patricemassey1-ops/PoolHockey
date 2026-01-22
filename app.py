@@ -10038,7 +10038,7 @@ if active_tab == "🛠️ Gestion Admin":
                         status.caption(f"{phase}: {done}/{total}")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
-                    df, stats = update_players_db(
+                    df, stats = _call_update_players_db(
                         path=pdb_path,
                         season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
                         fill_country=True,
@@ -10081,7 +10081,7 @@ if active_tab == "🛠️ Gestion Admin":
                         status.caption(f"{phase}: {done}/{total}")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
-                    df, stats = update_players_db(
+                    df, stats = _call_update_players_db(
                         path=pdb_path,
                         season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
                         fill_country=True,
@@ -11123,3 +11123,46 @@ elif active_tab == "🧠 Recommandations":
 
     out = pd.DataFrame(rows).sort_values(by=["Équipe"], kind="mergesort").reset_index(drop=True)
     st.dataframe(out, use_container_width=True, hide_index=True)
+# ==============================
+# Safe caller for update_players_db (filters unsupported kwargs)
+# ==============================
+def _call_update_players_db(**kwargs):
+    import inspect
+    fn = globals().get("update_players_db")
+    if not callable(fn):
+        raise RuntimeError("update_players_db is not defined")
+    sig = None
+    try:
+        sig = inspect.signature(fn)
+    except Exception:
+        sig = None
+
+    # If roster_only requested but function doesn't support it, try roster_df/max_calls fallback
+    roster_only = bool(kwargs.get("roster_only", False))
+    roster_df = kwargs.get("roster_df")
+    if roster_only and sig is not None:
+        params = set(sig.parameters.keys())
+        if "roster_only" not in params:
+            # drop unsupported arg
+            kwargs.pop("roster_only", None)
+            # Try pass roster_df if supported
+            if roster_df is None:
+                roster_df = st.session_state.get("data")
+            if "roster_df" in params:
+                kwargs["roster_df"] = roster_df
+            # Also cap max_calls to roster size if possible
+            try:
+                if roster_df is not None and hasattr(roster_df, "__len__"):
+                    kwargs["max_calls"] = min(int(kwargs.get("max_calls") or 5000), max(50, int(len(roster_df) * 2)))
+            except Exception:
+                pass
+
+    # Filter kwargs to supported parameters unless fn accepts **kwargs
+    if sig is not None:
+        params = sig.parameters
+        accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        if not accepts_kwargs:
+            kwargs = {k: v for k, v in kwargs.items() if k in params}
+
+    return fn(**kwargs)
+
