@@ -1,6 +1,45 @@
 from __future__ import annotations
 
 
+
+# ==============================
+# Safe caller for update_players_db (filters unsupported kwargs)
+# ==============================
+def _call_update_players_db(**kwargs):
+    import inspect
+    fn = globals().get("update_players_db")
+    if not callable(fn):
+        raise RuntimeError("update_players_db is not defined")
+    try:
+        sig = inspect.signature(fn)
+    except Exception:
+        sig = None
+
+    roster_only = bool(kwargs.get("roster_only", False))
+    roster_df = kwargs.get("roster_df")
+
+    if roster_only and sig is not None:
+        params = set(sig.parameters.keys())
+        if "roster_only" not in params:
+            kwargs.pop("roster_only", None)
+            if roster_df is None:
+                roster_df = st.session_state.get("data")
+            if "roster_df" in params:
+                kwargs["roster_df"] = roster_df
+            try:
+                if roster_df is not None and hasattr(roster_df, "__len__"):
+                    kwargs["max_calls"] = min(int(kwargs.get("max_calls") or 5000), max(50, int(len(roster_df) * 2)))
+            except Exception:
+                pass
+
+    if sig is not None:
+        params = sig.parameters
+        accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        if not accepts_kwargs:
+            kwargs = {k: v for k, v in kwargs.items() if k in params}
+
+    return fn(**kwargs)
+
 # =====================================================
 # Players DB fill LOCK (prevents Drive sync overwrite)
 # =====================================================
@@ -11126,6 +11165,7 @@ elif active_tab == "🧠 Recommandations":
 # ==============================
 # Safe caller for update_players_db (filters unsupported kwargs)
 # ==============================
+
 def _call_update_players_db(**kwargs):
     import inspect
     fn = globals().get("update_players_db")
