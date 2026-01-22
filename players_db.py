@@ -1029,6 +1029,7 @@ def update_players_db(
     season_lbl=None,
     fill_country: bool = True,
     resume_only: bool = False,
+    reset_progress: bool = False,
     roster_only: bool = False,
     save_every: int = 500,
     cache_path: str | None = None,
@@ -1565,7 +1566,7 @@ def update_players_db(
     except Exception:
         ckpt = {}
 
-    if not resume_only:
+    if reset_progress:
         ckpt = {}
     if ckpt.get("roster_only") != bool(roster_only):
         ckpt = {}
@@ -1593,6 +1594,8 @@ def update_players_db(
         "last_index": cursor,
         "last_total": 0,
         "remaining": 0,
+        "eta_seconds": None,
+        "rate_rows_per_sec": None,
     }
 
     def _norm_name(name: str) -> str:
@@ -1637,6 +1640,7 @@ def update_players_db(
 
     processed = 0
     save_counter = 0
+    _t0 = time.time()
 
     while processed < int(max_calls or 0):
         if phase == "playerId":
@@ -1753,6 +1757,15 @@ def update_players_db(
 
     stats["last_phase"] = phase
     stats["last_index"] = cursor
+    try:
+        elapsed = max(time.time() - _t0, 1e-6)
+        rate = float(processed) / elapsed if processed else None
+        stats["rate_rows_per_sec"] = rate
+        rem = int(stats.get("remaining") or 0)
+        stats["eta_seconds"] = (rem / rate) if (rate and rem > 0) else (0 if rem == 0 else None)
+        stats["is_done"] = bool(rem == 0 and stats.get("last_phase") == "Country")
+    except Exception:
+        pass
     return df, stats
 
 
@@ -2854,7 +2867,9 @@ def require_password():
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
-                st.success("✅ Accès autorisé")
+                st.session_state["pdb_last_stats"] = stats
+                    st.session_state["pdb_last_stats"] = stats
+                    st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
@@ -10086,6 +10101,15 @@ def _read_pdb_checkpoint():
 _ck = _read_pdb_checkpoint()
 _phase_ck = str(_ck.get("phase") or "playerId")
 _update_label = "🌍 Start Country phase" if _phase_ck == "Country" else "⬆️ Mettre à jour Players DB"
+
+# ---- Auto-run settings (Streamlit Cloud safe)
+if "pdb_autorun" not in st.session_state:
+    st.session_state["pdb_autorun"] = False
+if "pdb_last_stats" not in st.session_state:
+    st.session_state["pdb_last_stats"] = None
+if "pdb_rows_per_click" not in st.session_state:
+    st.session_state["pdb_rows_per_click"] = 300
+
  : `{pdb_path}`")
 
         # --- Sticky badge (color by phase)
@@ -10147,7 +10171,7 @@ _update_label = "🌍 Start Country phase" if _phase_ck == "Country" else "⬆�
                     except Exception as e:
                         st.error(f"Reset failed KO — {type(e).__name__}: {e}")
 
-        cA, cB, cC = st.columns([1, 1, 2], vertical_alignment="center")
+        cA, cB, cC, cD = st.columns([1, 1, 2, 1], vertical_alignment="center")
 
         with cA:
             if st.button("🔄 Recharger Players DB", use_container_width=True, key="admin_reload_players_db"):
@@ -10186,6 +10210,7 @@ def _cb(done: int, total: int, phase: str):
                         save_every=500,
                         cache_path=_nhl_cache_path_default(),
                         progress_cb=_cb,
+                        max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
                     )
 
                     status.empty()
@@ -10206,7 +10231,31 @@ def _cb(done: int, total: int, phase: str):
                 finally:
                     _pdb_lock_off()
 
+with cD:
+    st.session_state["pdb_rows_per_click"] = st.slider(
+        "Rows/click",
+        min_value=100,
+        max_value=1000,
+        step=100,
+        value=int(st.session_state.get("pdb_rows_per_click") or 300),
+        key="pdb_rows_per_click_slider",
+    )
+    if st.button("🧹 Reset progress", use_container_width=True, key="admin_reset_pdb_progress"):
+        try:
+            ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+            if os.path.exists(ckpt_path):
+                os.remove(ckpt_path)
+            st.session_state["pdb_last"] = {"phase": "—", "index": 0, "total": 0}
+            st.success("✅ Progress reset (checkpoint supprimé).")
+        except Exception as e:
+            st.error(f"❌ Reset progress KO — {type(e).__name__}: {e}")
+
+
         with cC:
+            if st.button("🤖 Auto-run until finished" if not st.session_state.get("pdb_autorun") else "⏹ Stop auto-run", use_container_width=True, key="admin_autorun_pdb"):
+                st.session_state["pdb_autorun"] = not bool(st.session_state.get("pdb_autorun"))
+                st.rerun()
+
             if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
                 try:
                     _pdb_lock_on()
@@ -10235,6 +10284,7 @@ def _cb(done: int, total: int, phase: str):
                         save_every=500,
                         cache_path=_nhl_cache_path_default(),
                         progress_cb=_cb,
+                        max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
                     )
 
                     status.empty()
@@ -10255,12 +10305,73 @@ def _cb(done: int, total: int, phase: str):
                 finally:
                     _pdb_lock_off()
 
+# ---- Live stats / ETA
+_last_stats = st.session_state.get("pdb_last_stats") or {}
+if isinstance(_last_stats, dict) and _last_stats:
+    mA, mB, mC, mD = st.columns(4)
+    mA.metric("Déjà remplis", int(_last_stats.get("skipped_already_filled_playerid",0) + _last_stats.get("skipped_already_filled_country",0)))
+    mB.metric("Remplis via API", int(_last_stats.get("filled_playerid_search",0) + _last_stats.get("filled_country_landing",0)))
+    mC.metric("Cache hits", int(_last_stats.get("cache_hits",0)))
+    eta = _last_stats.get("eta_seconds")
+    if isinstance(eta, (int, float)) and eta >= 0:
+        mm = int(eta // 60)
+        ss = int(eta % 60)
+        mD.metric("ETA", f"{mm}m {ss}s")
+    else:
+        mD.metric("ETA", "—")
+
+
             st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
 
         pdb = st.session_state.get("players_db")
         if isinstance(pdb, pd.DataFrame) and not pdb.empty:
             cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
-            show_preview = st.checkbox("👀 Afficher un aperçu (20 lignes)", value=False, key="admin_playersdb_preview")
+            
+
+# ---- Auto-run loop (no manual resume)
+if st.session_state.get("pdb_autorun"):
+    try:
+        prog_pid = st.progress(0.0)
+        prog_cty = st.progress(0.0)
+        status = st.empty()
+
+        def _cb_auto(done: int, total: int, phase: str):
+            total = max(int(total or 0), 1)
+            done = int(done or 0)
+            pct = min(1.0, max(0.0, done / total))
+            (prog_pid if phase == "playerId" else prog_cty).progress(pct)
+            remaining = max(total - done, 0)
+            status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
+
+        df_auto, stats_auto = _call_update_players_db(
+            path=pdb_path,
+            fill_country=True,
+            resume_only=True,
+            reset_progress=False,
+            save_every=500,
+            cache_path=_nhl_cache_path_default(),
+            progress_cb=_cb_auto,
+            max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
+            roster_only=bool(st.session_state.get("pdb_roster_only") or False),
+        )
+        st.session_state["pdb_last_stats"] = stats_auto
+
+        try:
+            st.session_state["pdb_last"] = {"phase": stats_auto.get("last_phase"), "index": stats_auto.get("last_index"), "total": stats_auto.get("last_total")}
+        except Exception:
+            pass
+
+        if bool(stats_auto.get("is_done")):
+            st.session_state["pdb_autorun"] = False
+            st.success("✅ Auto-run terminé.")
+        else:
+            time.sleep(0.2)
+            st.rerun()
+    except Exception as e:
+        st.session_state["pdb_autorun"] = False
+        st.error(f"❌ Auto-run KO — {type(e).__name__}: {e}")
+
+show_preview = st.checkbox("👀 Afficher un aperçu (20 lignes)", value=False, key="admin_playersdb_preview")
             if show_preview:
                 st.dataframe(pdb[cols_show].head(20) if cols_show else pdb.head(20), use_container_width=True, hide_index=True)
         else:
