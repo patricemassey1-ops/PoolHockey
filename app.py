@@ -166,6 +166,22 @@ def force_level_from_players(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ==============================
+# NHL Country helpers (UI)
+# ==============================
+def _nhl_cache_path_default() -> str:
+    base = DATA_DIR
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "nhl_country_cache.json")
+
+def _reset_nhl_cache():
+    try:
+        p = _nhl_cache_path_default()
+        if os.path.exists(p):
+            os.remove(p)
+        return True
+    except Exception:
+        return False
 
 
 
@@ -2412,6 +2428,21 @@ div[data-testid="stButton"] > button{
 .remainText{ font-size:12px; opacity:.85; font-weight:700;}
 
 """
+st.markdown("""
+<style>
+.pdb-sticky {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 999;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: linear-gradient(90deg,#1f7a5a,#1d5f49);
+  color: #eafff6;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 def apply_theme():
     if st.session_state.get('_theme_css_injected', False):
@@ -9969,136 +10000,136 @@ if active_tab == "🛠️ Gestion Admin":
 
 
 
-    # -----------------------------
-    # 🗃️ Players DB (hockey.players.csv) — Admin
-    #   - sert de source pour Country (drapeaux) et parfois Level/Expiry
-    # -----------------------------
-    with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
-        st.caption("Source de vérité pour **Country** (drapeaux), et souvent **Level/Expiry** selon ta config.")
+# -----------------------------
+# 🗃️ Players DB (hockey.players.csv) — Admin
+# -----------------------------
+with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
+    st.caption("Source de vérité pour **Country** (drapeaux), et souvent **Level/Expiry**.")
 
-        # Local path (fallback)
-        pdb_path = ""
-        try:
-            if "PLAYERS_DB_FALLBACKS" in globals() and isinstance(PLAYERS_DB_FALLBACKS, (list, tuple)):
-                pdb_path = _first_existing(PLAYERS_DB_FALLBACKS)
-        except Exception:
-            pdb_path = ""
-        if not pdb_path:
-            pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+    # --- Path
+    pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
+    if not pdb_path:
+        pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
+    st.caption(f"Chemin utilisé : `{pdb_path}`")
 
-        st.caption(f"Chemin utilisé : `{pdb_path}`")
+    # --- Sticky badge (dernier index traité)
+    last = st.session_state.get("pdb_last", {})
+    st.markdown(
+        f"<div class='pdb-sticky'>Dernier : "
+        f"{last.get('phase','—')} "
+        f"{last.get('index',0)}/{last.get('total',0)}</div>",
+        unsafe_allow_html=True,
+    )
 
-        cA, cB, cC = st.columns([1, 1, 2], vertical_alignment="center")
+    # --- Options
+    optA, optB, optC = st.columns([1.3, 1.3, 1.6])
+    with optA:
+        roster_only = st.checkbox(
+            "⚡ Roster actif seulement",
+            value=False,
+            help="Ne traite que les joueurs présents dans l’alignement actif (très rapide).",
+            key="pdb_roster_only",
+        )
+    with optB:
+        show_details = st.checkbox(
+            "Afficher les détails",
+            value=False,
+            key="pdb_show_details",
+        )
+    with optC:
+        if st.button("🧹 Reset NHL cache", use_container_width=True):
+            ok = _reset_nhl_cache()
+            st.success("Cache NHL supprimé.") if ok else st.error("Impossible de supprimer le cache.")
 
-        with cA:
-            if st.button("🔄 Recharger Players DB", use_container_width=True, key="admin_reload_players_db"):
-                try:
-                    mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
-                    if "load_players_db" in globals() and callable(globals()["load_players_db"]) and mtime:
-                        st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                    else:
-                        st.session_state["players_db"] = pd.read_csv(pdb_path) if os.path.exists(pdb_path) else pd.DataFrame()
-                    st.success("✅ Players DB rechargée.")
-                except Exception as e:
-                    st.error(f"❌ Rechargement KO — {type(e).__name__}: {e}")
+    # --- Actions
+    cA, cB, cC = st.columns([1, 1, 1.4], vertical_alignment="center")
 
-        with cB:
-            if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
-                try:
-                    prog = st.progress(0.0)
-                    status = st.empty()
+    with cA:
+        if st.button("🔄 Recharger Players DB", use_container_width=True):
+            try:
+                st.session_state["players_db"] = pd.read_csv(pdb_path)
+                st.success("Players DB rechargée.")
+            except Exception as e:
+                st.error(f"Rechargement KO — {e}")
 
-                    def _cb(done: int, total: int, phase: str):
-                        total = max(int(total or 0), 1)
-                        done = int(done or 0)
-                        pct = min(1.0, max(0.0, done / total))
-                        prog.progress(pct)
-                        status.caption(f"{'playerId' if phase=='playerId' else 'Country'}: {done}/{total}")
+    def _progress_cb(done, total, phase):
+        total = max(int(total or 1), 1)
+        done = int(done or 0)
+        st.session_state["pdb_last"] = {
+            "phase": phase,
+            "index": done,
+            "total": total,
+        }
+        prog.progress(min(1.0, done / total))
+        status.caption(f"{phase}: {done}/{total}")
 
-                    df, stats = update_players_db(
-                        path=pdb_path,
-                        season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
-                        fill_country=True,
-                        resume_only=False,
-                        save_every=500,
-                        cache_path=_nhl_cache_path_default(),
-                        progress_cb=_cb,
-                    )
+    with cB:
+        if st.button("⬆️ Mettre à jour Players DB", use_container_width=True):
+            try:
+                prog = st.progress(0.0)
+                status = st.empty()
 
-                    status.empty()
-                    prog.empty()
+                df, stats = update_players_db(
+                    path=pdb_path,
+                    fill_country=True,
+                    resume_only=False,
+                    roster_only=roster_only,
+                    save_every=500,
+                    cache_path=_nhl_cache_path_default(),
+                    progress_cb=_progress_cb,
+                )
 
-                    st.success(
-                        f"✅ Terminé. Country remplis: {stats.get('filled_country_landing',0)} | "
-                        f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)} | "
-                        f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
-                    )
-                    with st.expander("Détails de la mise à jour", expanded=False):
-                        st.json(stats)
+                prog.empty()
+                status.empty()
 
-                except Exception as e:
-                    st.error(f"❌ Update KO — {type(e).__name__}: {e}")
-
-        with cC:
-            if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
-                try:
-                    prog = st.progress(0.0)
-                    status = st.empty()
-
-                    def _cb(done: int, total: int, phase: str):
-                        total = max(int(total or 0), 1)
-                        done = int(done or 0)
-                        pct = min(1.0, max(0.0, done / total))
-                        prog.progress(pct)
-                        status.caption(f"{'playerId' if phase=='playerId' else 'Country'}: {done}/{total}")
-
-                    df, stats = update_players_db(
-                        path=pdb_path,
-                        season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
-                        fill_country=True,
-                        resume_only=True,
-                        save_every=500,
-                        cache_path=_nhl_cache_path_default(),
-                        progress_cb=_cb,
-                    )
-
-                    status.empty()
-                    prog.empty()
-
-                    st.success(
-                        f"✅ Terminé (resume). Country remplis: {stats.get('filled_country_landing',0)} | "
-                        f"IDs NHL ajoutés: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)} | "
-                        f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
-                    )
-                    st.markdown("**Détails**")
+                st.success(
+                    f"✅ Terminé — Country: {stats.get('filled_country_landing',0)} | "
+                    f"IDs NHL: {stats.get('nhl_ids_added',0)} | "
+                    f"Cache hits: {stats.get('cache_hits',0)}"
+                )
+                if show_details:
                     st.json(stats)
 
+            except Exception as e:
+                st.error(f"Update KO — {e}")
 
-                except Exception as e:
-                    st.error(f"❌ Resume KO — {type(e).__name__}: {e}")
+    with cC:
+        if st.button("▶️ Resume Country fill", use_container_width=True):
+            try:
+                prog = st.progress(0.0)
+                status = st.empty()
 
-            st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
-
-
-        # Aperçu rapide (PAS d'expander dans un expander -> Streamlit interdit)
-        pdb = st.session_state.get("players_db")
-        if isinstance(pdb, pd.DataFrame) and not pdb.empty:
-            cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
-            show_preview = st.checkbox(
-                "👀 Afficher un aperçu (20 lignes)",
-                value=False,
-                key="admin_playersdb_preview",
-            )
-            if show_preview:
-                st.dataframe(
-                    pdb[cols_show].head(20) if cols_show else pdb.head(20),
-                    use_container_width=True,
-                    hide_index=True,
+                df, stats = update_players_db(
+                    path=pdb_path,
+                    fill_country=True,
+                    resume_only=True,
+                    roster_only=roster_only,
+                    save_every=500,
+                    cache_path=_nhl_cache_path_default(),
+                    progress_cb=_progress_cb,
                 )
-        else:
-            st.warning("Players DB non chargée. Clique **Recharger Players DB**.")
+
+                prog.empty()
+                status.empty()
+
+                st.success(
+                    f"✅ Resume — Country: {stats.get('filled_country_landing',0)} | "
+                    f"IDs NHL: {stats.get('nhl_ids_added',0)} | "
+                    f"Cache hits: {stats.get('cache_hits',0)}"
+                )
+                if show_details:
+                    st.json(stats)
+
+            except Exception as e:
+                st.error(f"Resume KO — {e}")
+
+    # --- Preview (SAFE)
+    pdb = st.session_state.get("players_db")
+    if isinstance(pdb, pd.DataFrame) and not pdb.empty:
+        if st.checkbox("👀 Aperçu (20 lignes)", key="pdb_preview"):
+            cols = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
+            st.dataframe(pdb[cols].head(20), use_container_width=True, hide_index=True)
+
         # 🧩 Outil — Joueurs sans drapeau (Country manquant)
         #   Liste les joueurs présents dans le roster actif dont le flag
         #   ne peut pas être affiché sans une valeur Country.
