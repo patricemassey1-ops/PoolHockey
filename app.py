@@ -1049,6 +1049,18 @@ def update_players_db(
         **_ignored,
     )
 
+
+# ==============================
+# Backward-compatible alias
+# ==============================
+def update_players_db_via_nhl_api(*args, **kwargs):
+    """Legacy alias used by some UI paths."""
+    fn = globals().get("update_players_db")
+    if not callable(fn):
+        raise RuntimeError("update_players_db is not defined")
+    return fn(*args, **kwargs)
+
+
 def _update_players_db_impl_via_nhl_apis(season_lbl: str | None = None) -> tuple[pd.DataFrame, dict]:
     """Met à jour data/hockey.players.csv en fusionnant des APIs NHL publiques.
 
