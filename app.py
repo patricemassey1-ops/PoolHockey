@@ -10681,318 +10681,318 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
     # 🌐 NHL (API gratuite) — Auto-mapping IDs joueurs
     #   ✅ Remplace complètement API payante
     # =====================================================
-    with st.expander("🌐 NHL (API gratuite) — Auto-mapping IDs joueurs", expanded=False):
-        st.caption(
-            "Récupère les rosters via l’API publique NHL (sans clé) et auto-map des IDs dans data/hockey.players.csv. "
-            "Pratique pour enrichir ton Players DB sans clé payante."
-        )
+    st.markdown("### 🌐 NHL (API gratuite) — Auto-mapping IDs joueurs")
+    st.caption(
+        "Récupère les rosters via l’API publique NHL (sans clé) et auto-map des IDs dans data/hockey.players.csv. "
+        "Pratique pour enrichir ton Players DB sans clé payante."
+    )
 
-        import re
-        import unicodedata
-        from difflib import SequenceMatcher
+    import re
+    import unicodedata
+    from difflib import SequenceMatcher
 
-        NHL_BASE = "https://api-web.nhle.com"
+    NHL_BASE = "https://api-web.nhle.com"
 
-        def _strip_accents(s: str) -> str:
-            return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+    def _strip_accents(s: str) -> str:
+        return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
 
-        def _norm_name(s: str) -> str:
-            s = _strip_accents(str(s or "")).lower().strip()
-            s = s.replace(".", " ")
-            s = re.sub(r"[^a-z\s\-\']", " ", s)
-            s = re.sub(r"\s+", " ", s).strip()
-            return s
+    def _norm_name(s: str) -> str:
+        s = _strip_accents(str(s or "")).lower().strip()
+        s = s.replace(".", " ")
+        s = re.sub(r"[^a-z\s\-\']", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
 
-        def _ratio(a: str, b: str) -> float:
-            if not a or not b:
-                return 0.0
-            return SequenceMatcher(None, a, b).ratio()
+    def _ratio(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a, b).ratio()
 
-        @st.cache_data(show_spinner=False, ttl=24 * 3600)
-        def nhl_get_teams():
-            """Retourne la liste des équipes NHL (triCode + noms) via l’API publique.
+    @st.cache_data(show_spinner=False, ttl=24 * 3600)
+    def nhl_get_teams():
+        """Retourne la liste des équipes NHL (triCode + noms) via l’API publique.
 
-            ⚠️ /v1/teams retourne parfois 404. On utilise donc /v1/standings/now (fiable)
-            pour obtenir les équipes actives.
-            """
-            teams: list[dict] = []
+        ⚠️ /v1/teams retourne parfois 404. On utilise donc /v1/standings/now (fiable)
+        pour obtenir les équipes actives.
+        """
+        teams: list[dict] = []
 
-            # 1) Source principale: standings/now
+        # 1) Source principale: standings/now
+        try:
+            url = f"{NHL_BASE}/v1/standings/now"
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            j = r.json()
+
+            # Structure typique: {"standings": [ {"teamAbbrev": {"default": "TOR"}, "teamName": {"default": "Maple Leafs"}, ...}, ... ]}
+            rows = None
+            if isinstance(j, dict):
+                rows = j.get("standings")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    ab = row.get("teamAbbrev")
+                    name = row.get("teamName")
+
+                    tri = ""
+                    if isinstance(ab, dict):
+                        tri = str(ab.get("default") or ab.get("fr") or "").strip()
+                    else:
+                        tri = str(ab or "").strip()
+
+                    nm = ""
+                    if isinstance(name, dict):
+                        nm = str(name.get("default") or name.get("fr") or "").strip()
+                    else:
+                        nm = str(name or "").strip()
+
+                    if tri:
+                        teams.append({"triCode": tri.upper(), "name": nm or tri.upper()})
+        except Exception:
+            teams = []
+
+        # 2) Fallback: liste hardcodée (au cas où NHL change la réponse)
+        if not teams:
+            fallback_tris = [
+                "ANA","BOS","BUF","CGY","CAR","CHI","COL","CBJ","DAL","DET","EDM","FLA","LAK","MIN","MTL","NJD",
+                "NSH","NYI","NYR","OTT","PHI","PIT","SEA","SJS","STL","TBL","TOR","UTA","VAN","VGK","WSH","WPG",
+            ]
+            teams = [{"triCode": t, "name": t} for t in fallback_tris]
+
+        # dédupe
+        seen = set()
+        uniq = []
+        for t in teams:
+            tri = str(t.get("triCode") or "").strip().upper()
+            if not tri or tri in seen:
+                continue
+            seen.add(tri)
+            uniq.append({"triCode": tri, "name": str(t.get("name") or tri).strip() or tri})
+        return uniq
+
+    def _nhl_get_json_with_retry(url: str, *, session: requests.Session | None = None, timeout: int = 20,
+                                 max_tries: int = 6, base_sleep: float = 0.6):
+        """GET JSON avec retry/backoff (gère 429 Too Many Requests).
+
+        NHL api-web peut rate-limit (429), surtout sur Streamlit Cloud (IP partagée).
+        On respecte Retry-After si présent, sinon backoff exponentiel.
+        """
+        import time
+        s = session or requests.Session()
+        last_exc = None
+        for attempt in range(1, max_tries + 1):
             try:
-                url = f"{NHL_BASE}/v1/standings/now"
-                r = requests.get(url, timeout=20)
+                r = s.get(url, timeout=timeout)
+                if r.status_code == 429:
+                    ra = r.headers.get("Retry-After")
+                    try:
+                        wait = float(ra) if ra else 0.0
+                    except Exception:
+                        wait = 0.0
+                    if wait <= 0:
+                        wait = base_sleep * (2 ** (attempt - 1))
+                    time.sleep(min(wait, 20.0))
+                    continue
                 r.raise_for_status()
-                j = r.json()
+                return r.json()
+            except Exception as e:
+                last_exc = e
+                # Backoff léger sur erreurs transitoires
+                time.sleep(min(base_sleep * (2 ** (attempt - 1)), 10.0))
+        raise last_exc or RuntimeError("NHL API request failed")
 
-                # Structure typique: {"standings": [ {"teamAbbrev": {"default": "TOR"}, "teamName": {"default": "Maple Leafs"}, ...}, ... ]}
-                rows = None
-                if isinstance(j, dict):
-                    rows = j.get("standings")
-                if isinstance(rows, list):
-                    for row in rows:
-                        if not isinstance(row, dict):
-                            continue
-                        ab = row.get("teamAbbrev")
-                        name = row.get("teamName")
+    def nhl_get_roster(tri_code: str, season: str, *, session: requests.Session | None = None):
+        """Roster d’une équipe pour une saison: /v1/roster/{TEAM}/{SEASON}.
 
-                        tri = ""
-                        if isinstance(ab, dict):
-                            tri = str(ab.get("default") or ab.get("fr") or "").strip()
-                        else:
-                            tri = str(ab or "").strip()
+        ⚠️ Pas en cache ici: on veut gérer correctement le rate limit (429)
+        et pouvoir throttler l’exécution.
+        """
+        tri_code = str(tri_code or "").strip().upper()
+        season = str(season or "").strip()
+        url = f"{NHL_BASE}/v1/roster/{tri_code}/{season}"
+        return _nhl_get_json_with_retry(url, session=session)
 
-                        nm = ""
-                        if isinstance(name, dict):
-                            nm = str(name.get("default") or name.get("fr") or "").strip()
-                        else:
-                            nm = str(name or "").strip()
-
-                        if tri:
-                            teams.append({"triCode": tri.upper(), "name": nm or tri.upper()})
-            except Exception:
-                teams = []
-
-            # 2) Fallback: liste hardcodée (au cas où NHL change la réponse)
-            if not teams:
-                fallback_tris = [
-                    "ANA","BOS","BUF","CGY","CAR","CHI","COL","CBJ","DAL","DET","EDM","FLA","LAK","MIN","MTL","NJD",
-                    "NSH","NYI","NYR","OTT","PHI","PIT","SEA","SJS","STL","TBL","TOR","UTA","VAN","VGK","WSH","WPG",
-                ]
-                teams = [{"triCode": t, "name": t} for t in fallback_tris]
-
-            # dédupe
-            seen = set()
-            uniq = []
-            for t in teams:
-                tri = str(t.get("triCode") or "").strip().upper()
-                if not tri or tri in seen:
-                    continue
-                seen.add(tri)
-                uniq.append({"triCode": tri, "name": str(t.get("name") or tri).strip() or tri})
-            return uniq
-
-        def _nhl_get_json_with_retry(url: str, *, session: requests.Session | None = None, timeout: int = 20,
-                                     max_tries: int = 6, base_sleep: float = 0.6):
-            """GET JSON avec retry/backoff (gère 429 Too Many Requests).
-
-            NHL api-web peut rate-limit (429), surtout sur Streamlit Cloud (IP partagée).
-            On respecte Retry-After si présent, sinon backoff exponentiel.
-            """
-            import time
-            s = session or requests.Session()
-            last_exc = None
-            for attempt in range(1, max_tries + 1):
-                try:
-                    r = s.get(url, timeout=timeout)
-                    if r.status_code == 429:
-                        ra = r.headers.get("Retry-After")
-                        try:
-                            wait = float(ra) if ra else 0.0
-                        except Exception:
-                            wait = 0.0
-                        if wait <= 0:
-                            wait = base_sleep * (2 ** (attempt - 1))
-                        time.sleep(min(wait, 20.0))
-                        continue
-                    r.raise_for_status()
-                    return r.json()
-                except Exception as e:
-                    last_exc = e
-                    # Backoff léger sur erreurs transitoires
-                    time.sleep(min(base_sleep * (2 ** (attempt - 1)), 10.0))
-            raise last_exc or RuntimeError("NHL API request failed")
-
-        def nhl_get_roster(tri_code: str, season: str, *, session: requests.Session | None = None):
-            """Roster d’une équipe pour une saison: /v1/roster/{TEAM}/{SEASON}.
-
-            ⚠️ Pas en cache ici: on veut gérer correctement le rate limit (429)
-            et pouvoir throttler l’exécution.
-            """
-            tri_code = str(tri_code or "").strip().upper()
-            season = str(season or "").strip()
-            url = f"{NHL_BASE}/v1/roster/{tri_code}/{season}"
-            return _nhl_get_json_with_retry(url, session=session)
-
-        def extract_players_from_roster(roster_json: dict, tri_code: str):
-            out = []
-            if not isinstance(roster_json, dict):
-                return out
-
-            # Sections typiques
-            for group_key in ["forwards", "defensemen", "goalies"]:
-                grp = roster_json.get(group_key)
-                if not isinstance(grp, list):
-                    continue
-                for p in grp:
-                    if not isinstance(p, dict):
-                        continue
-                    pid = p.get("id")
-                    first = p.get("firstName")
-                    last = p.get("lastName")
-                    # parfois firstName/lastName sont dicts multi-lang
-                    if isinstance(first, dict):
-                        first = first.get("default") or first.get("fr") or next(iter(first.values()), "")
-                    if isinstance(last, dict):
-                        last = last.get("default") or last.get("fr") or next(iter(last.values()), "")
-                    full = " ".join([str(first or "").strip(), str(last or "").strip()]).strip()
-                    if pid and full:
-                        out.append({
-                            "nhl_player_id": int(pid),
-                            "player_name": full,
-                            "team": tri_code,
-                        })
+    def extract_players_from_roster(roster_json: dict, tri_code: str):
+        out = []
+        if not isinstance(roster_json, dict):
             return out
 
-        # --- UI
-        today = datetime.now(MTL_TZ).date() if "MTL_TZ" in globals() else date.today()
-        default_season = f"{today.year}{today.year+1}" if today.month >= 7 else f"{today.year-1}{today.year}"
+        # Sections typiques
+        for group_key in ["forwards", "defensemen", "goalies"]:
+            grp = roster_json.get(group_key)
+            if not isinstance(grp, list):
+                continue
+            for p in grp:
+                if not isinstance(p, dict):
+                    continue
+                pid = p.get("id")
+                first = p.get("firstName")
+                last = p.get("lastName")
+                # parfois firstName/lastName sont dicts multi-lang
+                if isinstance(first, dict):
+                    first = first.get("default") or first.get("fr") or next(iter(first.values()), "")
+                if isinstance(last, dict):
+                    last = last.get("default") or last.get("fr") or next(iter(last.values()), "")
+                full = " ".join([str(first or "").strip(), str(last or "").strip()]).strip()
+                if pid and full:
+                    out.append({
+                        "nhl_player_id": int(pid),
+                        "player_name": full,
+                        "team": tri_code,
+                    })
+        return out
 
-        season = st.text_input(
-            "Saison (format NHL: 20252026)",
-            value=default_season,
-            help="Format attendu par l’API NHL: 8 chiffres, ex: 20252026",
-            key="nhl_free_season",
-        )
+    # --- UI
+    today = datetime.now(MTL_TZ).date() if "MTL_TZ" in globals() else date.today()
+    default_season = f"{today.year}{today.year+1}" if today.month >= 7 else f"{today.year-1}{today.year}"
 
-        colA, colB, colC = st.columns([1, 1, 1])
-        with colA:
-            fetch_btn = st.button("📥 Charger rosters NHL", use_container_width=True, key="nhl_free_fetch")
-        with colB:
-            cutoff = st.slider("Seuil fuzzy (plus haut = plus strict)", 0.80, 0.99, 0.92, 0.01, key="nhl_free_cutoff")
-        with colC:
-            max_teams = st.slider("Max équipes par run", 5, 32, 12, 1, key="nhl_free_max_teams",
-                                  help="Évite les 429 (rate limit). Re-clique pour compléter si besoin.")
+    season = st.text_input(
+        "Saison (format NHL: 20252026)",
+        value=default_season,
+        help="Format attendu par l’API NHL: 8 chiffres, ex: 20252026",
+        key="nhl_free_season",
+    )
 
-        roster_df = st.session_state.get("nhl_free_roster_df")
+    colA, colB, colC = st.columns([1, 1, 1])
+    with colA:
+        fetch_btn = st.button("📥 Charger rosters NHL", use_container_width=True, key="nhl_free_fetch")
+    with colB:
+        cutoff = st.slider("Seuil fuzzy (plus haut = plus strict)", 0.80, 0.99, 0.92, 0.01, key="nhl_free_cutoff")
+    with colC:
+        max_teams = st.slider("Max équipes par run", 5, 32, 12, 1, key="nhl_free_max_teams",
+                              help="Évite les 429 (rate limit). Re-clique pour compléter si besoin.")
 
-        if fetch_btn:
-            try:
-                teams = nhl_get_teams()
-                if not teams:
-                    st.error("Aucune équipe trouvée via /v1/teams.")
+    roster_df = st.session_state.get("nhl_free_roster_df")
+
+    if fetch_btn:
+        try:
+            teams = nhl_get_teams()
+            if not teams:
+                st.error("Aucune équipe trouvée via /v1/teams.")
+            else:
+                all_players = []
+                # limiter le volume de requêtes pour éviter 429
+                teams_run = teams[: int(max_teams or 12)]
+                import time
+                sess = requests.Session()
+                prog = st.progress(0)
+                for i, t in enumerate(teams_run, start=1):
+                    tri = t["triCode"]
+                    # throttle + retry/backoff inside nhl_get_roster
+                    j = nhl_get_roster(tri, season, session=sess)
+                    all_players.extend(extract_players_from_roster(j, tri))
+                    prog.progress(int(i / max(1, len(teams_run)) * 100))
+                    time.sleep(0.45)  # throttle doux (IP partagée Streamlit Cloud)
+                prog_pid.empty()
+                prog_cty.empty()
+
+                roster_df = pd.DataFrame(all_players)
+                if roster_df.empty:
+                    st.warning("Rosters chargés, mais 0 joueur trouvé. Vérifie le format de saison.")
                 else:
-                    all_players = []
-                    # limiter le volume de requêtes pour éviter 429
-                    teams_run = teams[: int(max_teams or 12)]
-                    import time
-                    sess = requests.Session()
-                    prog = st.progress(0)
-                    for i, t in enumerate(teams_run, start=1):
-                        tri = t["triCode"]
-                        # throttle + retry/backoff inside nhl_get_roster
-                        j = nhl_get_roster(tri, season, session=sess)
-                        all_players.extend(extract_players_from_roster(j, tri))
-                        prog.progress(int(i / max(1, len(teams_run)) * 100))
-                        time.sleep(0.45)  # throttle doux (IP partagée Streamlit Cloud)
-                    prog_pid.empty()
-                    prog_cty.empty()
+                    roster_df = roster_df.drop_duplicates(subset=["nhl_player_id"])
+                    st.session_state["nhl_free_roster_df"] = roster_df
+                    st.success(
+                        f"✅ Rosters: {roster_df['team'].nunique()} équipes | {len(roster_df)} joueurs uniques "
+                        f"(run: {len(teams_run)}/{len(teams)} équipes — re-clique pour compléter)"
+                    )
+        except Exception as e:
+            st.error(f"❌ NHL API KO — {type(e).__name__}: {e}")
 
-                    roster_df = pd.DataFrame(all_players)
-                    if roster_df.empty:
-                        st.warning("Rosters chargés, mais 0 joueur trouvé. Vérifie le format de saison.")
+    if isinstance(roster_df, pd.DataFrame) and not roster_df.empty:
+        st.dataframe(roster_df.head(200), use_container_width=True, hide_index=True)
+
+        # -----------------------------
+        # Auto-mapping -> hockey.players.csv
+        # -----------------------------
+        st.markdown("### 🔗 Auto-mapping vers data/hockey.players.csv")
+
+        def _detect_name_col(df: pd.DataFrame) -> str:
+            for c in ["Player", "Joueur", "Nom", "Name", "player_name"]:
+                if c in df.columns:
+                    return c
+            return ""
+
+        data_dir = globals().get("DATA_DIR") or "data"
+        players_path = os.path.join(str(data_dir), "hockey.players.csv")
+
+        st.caption(f"Fichier cible: {players_path}")
+
+        if st.button("🧠 Auto-mapper NHL IDs dans hockey.players.csv", use_container_width=True, key="nhl_free_map"):
+            try:
+                if not os.path.exists(players_path):
+                    st.error("hockey.players.csv introuvable.")
+                else:
+                    pdb = pd.read_csv(players_path)
+                    nmcol = _detect_name_col(pdb)
+                    if not nmcol:
+                        st.error("Aucune colonne nom joueur trouvée (Player/Joueur/Nom/Name).")
                     else:
-                        roster_df = roster_df.drop_duplicates(subset=["nhl_player_id"])
-                        st.session_state["nhl_free_roster_df"] = roster_df
+                        if "nhl_player_id" not in pdb.columns:
+                            pdb["nhl_player_id"] = ""
+
+                        # index rosters
+                        roster_df2 = roster_df.copy()
+                        roster_df2["_k"] = roster_df2["player_name"].map(_norm_name)
+                        key_to_id = dict(zip(roster_df2["_k"], roster_df2["nhl_player_id"]))
+                        roster_keys = list(key_to_id.keys())
+
+                        filled_exact = 0
+                        filled_fuzzy = 0
+                        misses = 0
+
+                        for i, row in pdb.iterrows():
+                            cur = str(row.get("nhl_player_id", "")).strip()
+                            if cur:
+                                continue
+                            raw = str(row.get(nmcol, "")).strip()
+                            if not raw:
+                                continue
+                            k = _norm_name(raw)
+                            if not k:
+                                continue
+
+                            # exact
+                            if k in key_to_id:
+                                pdb.at[i, "nhl_player_id"] = int(key_to_id[k])
+                                filled_exact += 1
+                                continue
+
+                            # fuzzy
+                            best_k = ""
+                            best_s = 0.0
+                            for rk in roster_keys:
+                                s = _ratio(k, rk)
+                                if s > best_s:
+                                    best_s = s
+                                    best_k = rk
+                            if best_k and best_s >= float(cutoff):
+                                pdb.at[i, "nhl_player_id"] = int(key_to_id[best_k])
+                                filled_fuzzy += 1
+                            else:
+                                misses += 1
+
+                        pdb.to_csv(players_path, index=False)
                         st.success(
-                            f"✅ Rosters: {roster_df['team'].nunique()} équipes | {len(roster_df)} joueurs uniques "
-                            f"(run: {len(teams_run)}/{len(teams)} équipes — re-clique pour compléter)"
+                            f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}"
                         )
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+
+                        st.download_button(
+                            "⬇️ Télécharger hockey.players.csv (mis à jour)",
+                            data=pdb.to_csv(index=False).encode("utf-8"),
+                            file_name="hockey.players.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key="nhl_free_dl",
+                        )
+
             except Exception as e:
-                st.error(f"❌ NHL API KO — {type(e).__name__}: {e}")
-
-        if isinstance(roster_df, pd.DataFrame) and not roster_df.empty:
-            st.dataframe(roster_df.head(200), use_container_width=True, hide_index=True)
-
-            # -----------------------------
-            # Auto-mapping -> hockey.players.csv
-            # -----------------------------
-            st.markdown("### 🔗 Auto-mapping vers data/hockey.players.csv")
-
-            def _detect_name_col(df: pd.DataFrame) -> str:
-                for c in ["Player", "Joueur", "Nom", "Name", "player_name"]:
-                    if c in df.columns:
-                        return c
-                return ""
-
-            data_dir = globals().get("DATA_DIR") or "data"
-            players_path = os.path.join(str(data_dir), "hockey.players.csv")
-
-            st.caption(f"Fichier cible: {players_path}")
-
-            if st.button("🧠 Auto-mapper NHL IDs dans hockey.players.csv", use_container_width=True, key="nhl_free_map"):
-                try:
-                    if not os.path.exists(players_path):
-                        st.error("hockey.players.csv introuvable.")
-                    else:
-                        pdb = pd.read_csv(players_path)
-                        nmcol = _detect_name_col(pdb)
-                        if not nmcol:
-                            st.error("Aucune colonne nom joueur trouvée (Player/Joueur/Nom/Name).")
-                        else:
-                            if "nhl_player_id" not in pdb.columns:
-                                pdb["nhl_player_id"] = ""
-
-                            # index rosters
-                            roster_df2 = roster_df.copy()
-                            roster_df2["_k"] = roster_df2["player_name"].map(_norm_name)
-                            key_to_id = dict(zip(roster_df2["_k"], roster_df2["nhl_player_id"]))
-                            roster_keys = list(key_to_id.keys())
-
-                            filled_exact = 0
-                            filled_fuzzy = 0
-                            misses = 0
-
-                            for i, row in pdb.iterrows():
-                                cur = str(row.get("nhl_player_id", "")).strip()
-                                if cur:
-                                    continue
-                                raw = str(row.get(nmcol, "")).strip()
-                                if not raw:
-                                    continue
-                                k = _norm_name(raw)
-                                if not k:
-                                    continue
-
-                                # exact
-                                if k in key_to_id:
-                                    pdb.at[i, "nhl_player_id"] = int(key_to_id[k])
-                                    filled_exact += 1
-                                    continue
-
-                                # fuzzy
-                                best_k = ""
-                                best_s = 0.0
-                                for rk in roster_keys:
-                                    s = _ratio(k, rk)
-                                    if s > best_s:
-                                        best_s = s
-                                        best_k = rk
-                                if best_k and best_s >= float(cutoff):
-                                    pdb.at[i, "nhl_player_id"] = int(key_to_id[best_k])
-                                    filled_fuzzy += 1
-                                else:
-                                    misses += 1
-
-                            pdb.to_csv(players_path, index=False)
-                            st.success(
-                                f"✅ Auto-mapping terminé — Exact: {filled_exact} | Fuzzy: {filled_fuzzy} | Non trouvés: {misses}"
-                            )
-                            try:
-                                st.cache_data.clear()
-                            except Exception:
-                                pass
-
-                            st.download_button(
-                                "⬇️ Télécharger hockey.players.csv (mis à jour)",
-                                data=pdb.to_csv(index=False).encode("utf-8"),
-                                file_name="hockey.players.csv",
-                                mime="text/csv",
-                                use_container_width=True,
-                                key="nhl_free_dl",
-                            )
-
-                except Exception as e:
-                    st.error(f"❌ Auto-mapping KO — {type(e).__name__}: {e}")
+                st.error(f"❌ Auto-mapping KO — {type(e).__name__}: {e}")
 
     with st.expander("📦 Transactions (Admin)", expanded=False):
         st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
