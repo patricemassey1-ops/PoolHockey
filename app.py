@@ -5,8 +5,14 @@ import os
 import json
 import re
 import unicodedata
+import time
+import zipfile
 from datetime import datetime
+from typing import Optional
 
+# =========================================================
+# MUST BE FIRST STREAMLIT COMMAND
+# =========================================================
 st.set_page_config(page_title="Pool Hockey", layout="wide")
 
 # =========================================================
@@ -16,28 +22,51 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_PATH_DEFAULT = os.path.join(DATA_DIR, "hockey.players.csv")
+
 NHL_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "nhl_country_cache.json")
 NHL_COUNTRY_CHECKPOINT_DEFAULT = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
 CLUB_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "club_country_cache.json")
 
+BACKUP_DIR_DEFAULT = os.path.join(DATA_DIR, "backups")
+os.makedirs(BACKUP_DIR_DEFAULT, exist_ok=True)
+
+# Transactions
+def _season_lbl_default() -> str:
+    # simple season label: "2025-2026" based on today
+    y = datetime.now().year
+    m = datetime.now().month
+    if m >= 8:
+        return f"{y}-{y+1}"
+    return f"{y-1}-{y}"
+
+TRANSACTIONS_PATH_DEFAULT = os.path.join(DATA_DIR, f"transactions_{_season_lbl_default()}.csv")
+
 # =========================================================
 # ONE SINGLE CSS INJECTION (règles d’or)
 # =========================================================
-THEME_CSS = r'''
+THEME_CSS = r"""
 <style>
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
 .muted { color: rgba(120,120,120,0.95); font-size: 0.90rem; }
-.roster-card { padding: 8px 10px; border: 1px solid rgba(120,120,120,0.25); border-radius: 12px; }
 .small { font-size: 0.92rem; }
+.card { padding: 10px 12px; border: 1px solid rgba(120,120,120,0.25); border-radius: 14px; }
+hr.soft { border: none; border-top: 1px solid rgba(120,120,120,0.25); margin: 0.7rem 0; }
 div.stButton > button { padding: 0.35rem 0.6rem; border-radius: 10px; }
 </style>
-'''
+"""
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 # =========================================================
-# JSON helpers (atomic)
+# ROBUSTNESS HELPERS
 # =========================================================
+def _ss_init(key: str, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+def _now_ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 def _read_json(path: str) -> dict:
     try:
         if path and os.path.exists(path):
@@ -56,9 +85,6 @@ def _write_json(path: str, data: dict) -> None:
         json.dump(data or {}, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
 
-# =========================================================
-# Checkpoint badge
-# =========================================================
 def checkpoint_status(path: str = NHL_COUNTRY_CHECKPOINT_DEFAULT):
     if path and os.path.exists(path):
         try:
@@ -68,8 +94,21 @@ def checkpoint_status(path: str = NHL_COUNTRY_CHECKPOINT_DEFAULT):
         return True, path, ts
     return False, path, ""
 
+def _anti_double_run_guard(tag: str, min_seconds: float = 0.8) -> bool:
+    """
+    Returns True if allowed to run, False if blocked (too soon).
+    Prevents double-click / double rerun issues for expensive actions.
+    """
+    k = f"_last_run__{tag}"
+    t = time.time()
+    last = float(st.session_state.get(k, 0.0) or 0.0)
+    if t - last < min_seconds:
+        return False
+    st.session_state[k] = t
+    return True
+
 # =========================================================
-# Flag helpers (country code -> emoji)
+# FLAG HELPERS
 # =========================================================
 def _country_to_flag_emoji(cc: str) -> str:
     cc = (cc or "").strip().upper()
@@ -85,14 +124,14 @@ def _fmt_money(x) -> str:
     return f"{int(round(v)):,}".replace(",", " ")
 
 # =========================================================
-# NHL API helpers (free)
+# NHL API (free)
 # =========================================================
 def _http_get_json(url: str, params=None, timeout: int = 12):
     r = requests.get(url, params=params or {}, timeout=timeout)
     r.raise_for_status()
     return r.json()
 
-def _nhl_search_playerid(player_name: str):
+def _nhl_search_playerid(player_name: str) -> Optional[int]:
     if not player_name:
         return None
     q = str(player_name).strip()
@@ -123,7 +162,7 @@ def _nhl_search_playerid(player_name: str):
             return pid_i
     return None
 
-def _nhl_landing_country(player_id: int):
+def _nhl_landing_country(player_id: int) -> str:
     try:
         data = _http_get_json(f"https://api-web.nhle.com/v1/player/{int(player_id)}/landing", timeout=12)
     except Exception:
@@ -139,7 +178,7 @@ def _nhl_landing_country(player_id: int):
     return ""
 
 # =========================================================
-# Fallbacks (League + Club)
+# FALLBACKS (League + Club)
 # =========================================================
 FALLBACK_LEAGUE_TO_COUNTRY = {
     "NCAA": "US",
@@ -175,7 +214,7 @@ def _strip_accents(s: str) -> str:
 
 def _club_slug(s: str) -> str:
     s = _strip_accents((s or "").upper())
-    s = re.sub(r"[\-/_,\.\(\)]+", " ", s)
+    s = re.sub(r"[\-/_\,\.\(\)]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     for w in [" HC", " IF", " IK", " SK", " HOCKEY", " CLUB", " TEAM", " U20", " J20", " U18", " J18"]:
         s = s.replace(w, "")
@@ -199,7 +238,7 @@ def _infer_from_club(row: dict, club_cache: dict) -> str:
         if isinstance(v, str) and v.strip():
             slug = _club_slug(v)
             if slug in club_cache:
-                return club_cache.get(slug, "")
+                return str(club_cache.get(slug) or "").strip().upper()
             for tok, cc in SEED_CLUB_TOKENS.items():
                 if tok in slug:
                     return cc
@@ -214,7 +253,7 @@ def _learn_club(row: dict, cc: str, club_cache: dict):
                 club_cache[slug] = cc
 
 # =========================================================
-# Update Players DB (fallback + resume/checkpoint)
+# PLAYERS DB UPDATE (resume/checkpoint + fallback)
 # =========================================================
 def update_players_db(
     path: str,
@@ -283,7 +322,6 @@ def update_players_db(
 
         name_key = f"NAME::{nm.lower().strip()}" if nm else ""
 
-        # Name cache hit (no pid needed)
         if pid is None and name_key:
             cached_name = cache.get(name_key)
             if isinstance(cached_name, dict) and cached_name.get("ok") is True and cached_name.get("country"):
@@ -294,7 +332,6 @@ def update_players_db(
                 _write_json(NHL_COUNTRY_CHECKPOINT_DEFAULT, {"cursor": pos + 1})
                 continue
 
-        # Resolve pid
         if pid is None and nm:
             pid = _nhl_search_playerid(nm)
 
@@ -317,7 +354,6 @@ def update_players_db(
                     _learn_club(rowd, cc, club_cache)
                     updated += 1
                 else:
-                    # fallback
                     cc2 = _infer_from_league(rowd) or _infer_from_club(rowd, club_cache)
                     if cc2:
                         df.at[i, "Country"] = cc2
@@ -333,7 +369,6 @@ def update_players_db(
                             cache[name_key] = {"ok": False, "reason": "no_country"}
                         errors += 1
         else:
-            # No pid -> fallback
             cc2 = _infer_from_league(rowd) or _infer_from_club(rowd, club_cache)
             if cc2:
                 df.at[i, "Country"] = cc2
@@ -368,7 +403,7 @@ def update_players_db(
     return {"ok": True, "updated": updated, "processed": processed, "cached": cached, "errors": errors, "total": total, "cursor": end}
 
 # =========================================================
-# ROSTER UI (pro) — Flag in button + no-wrap Pos/Salary + swap Banc/IR
+# ALIGNEMENT UI (Flag in button + nowrap + swap Banc/IR)
 # =========================================================
 def _guess_cols(df: pd.DataFrame):
     col_player = "Player" if "Player" in df.columns else ("Joueur" if "Joueur" in df.columns else None)
@@ -409,15 +444,79 @@ def roster_click_list(df: pd.DataFrame, title: str):
         with c2:
             st.markdown(f'<div class="nowrap small">{pos}</div>', unsafe_allow_html=True)
         with c3:
-            sval = _fmt_money(sal)
-            st.markdown(f'<div class="nowrap right small">{sval}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="nowrap right small">{_fmt_money(sal)}</div>', unsafe_allow_html=True)
 
     return chosen
 
 # =========================================================
-# UI
+# TRANSACTIONS (clean + CSV persistence)
 # =========================================================
-TABS = ["🏠 Home", "🧾 Alignement", "🛠️ Gestion Admin"]
+TRANSACTION_COLS = [
+    "trade_id","timestamp","season","owner_a","owner_b",
+    "a_players","b_players","a_picks","b_picks","a_cash","b_cash",
+    "status","notes"
+]
+
+def _tx_read(path: str) -> pd.DataFrame:
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path)
+            for c in TRANSACTION_COLS:
+                if c not in df.columns:
+                    df[c] = ""
+            return df[TRANSACTION_COLS].copy()
+        except Exception:
+            pass
+    return pd.DataFrame(columns=TRANSACTION_COLS)
+
+def _tx_write(path: str, df: pd.DataFrame) -> None:
+    try:
+        df.to_csv(path, index=False)
+    except Exception:
+        pass
+
+def _make_trade_id() -> str:
+    return "TR-" + datetime.now().strftime("%Y%m%d") + "-" + hex(int(time.time()*1000))[-6:].upper()
+
+# =========================================================
+# BACKUP/RESTORE (local + optional Drive placeholder)
+# =========================================================
+def _zip_backup(dest_dir: str, files: list[str]) -> str:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = os.path.join(dest_dir, f"backup_{ts}.zip")
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for fp in files:
+            if fp and os.path.exists(fp):
+                arc = os.path.relpath(fp, DATA_DIR) if fp.startswith(DATA_DIR + os.sep) else os.path.basename(fp)
+                z.write(fp, arcname=arc)
+    return out_path
+
+def _restore_zip(zip_path: str, dest_dir: str) -> dict:
+    if not os.path.exists(zip_path):
+        return {"ok": False, "error": "zip not found"}
+    try:
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(dest_dir)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def _drive_available() -> bool:
+    # Safe detection only. No hard deps that can crash.
+    try:
+        _ = st.secrets.get("gdrive_oauth", None)
+    except Exception:
+        return False
+    try:
+        import googleapiclient  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+# =========================================================
+# UI (NAV)
+# =========================================================
+TABS = ["🏠 Home", "🧾 Alignement", "⚖️ Transactions", "🛠️ Gestion Admin"]
 active_tab = st.radio("Navigation", TABS, horizontal=True)
 
 if active_tab == "🏠 Home":
@@ -451,7 +550,6 @@ elif active_tab == "🧾 Alignement":
         actifs, banc, ir, mineur = view.copy(), view.iloc[0:0].copy(), view.iloc[0:0].copy(), view.iloc[0:0].copy()
 
     left, center, right = st.columns([1.1, 1.1, 1.1])
-
     with left:
         roster_click_list(actifs, "⭐ Actifs")
     with center:
@@ -461,16 +559,72 @@ elif active_tab == "🧾 Alignement":
     with right:
         roster_click_list(mineur, "🧊 Mineur")
 
+elif active_tab == "⚖️ Transactions":
+    st.title("⚖️ Transactions")
+
+    season = st.text_input("Saison", value=_season_lbl_default())
+    tx_path = os.path.join(DATA_DIR, f"transactions_{season}.csv")
+
+    df_tx = _tx_read(tx_path)
+
+    st.markdown("#### ➕ Proposer une transaction")
+    c1, c2 = st.columns(2)
+    with c1:
+        owner_a = st.text_input("Équipe A (propose)", key="tx_owner_a")
+        a_players = st.text_area("Joueurs A (séparés par virgule)", key="tx_a_players")
+        a_picks = st.text_input("Picks A (ex: 2026-1,2027-2)", key="tx_a_picks")
+        a_cash = st.text_input("Cash A", key="tx_a_cash")
+    with c2:
+        owner_b = st.text_input("Équipe B", key="tx_owner_b")
+        b_players = st.text_area("Joueurs B (séparés par virgule)", key="tx_b_players")
+        b_picks = st.text_input("Picks B", key="tx_b_picks")
+        b_cash = st.text_input("Cash B", key="tx_b_cash")
+
+    notes = st.text_area("Notes", key="tx_notes")
+
+    if st.button("✅ Enregistrer la proposition", type="primary"):
+        if not _anti_double_run_guard("save_tx", 0.8):
+            st.info("Patiente une seconde (anti double-click).")
+        else:
+            tid = _make_trade_id()
+            new = {
+                "trade_id": tid,
+                "timestamp": _now_ts(),
+                "season": season,
+                "owner_a": owner_a,
+                "owner_b": owner_b,
+                "a_players": a_players,
+                "b_players": b_players,
+                "a_picks": a_picks,
+                "b_picks": b_picks,
+                "a_cash": a_cash,
+                "b_cash": b_cash,
+                "status": "PROPOSED",
+                "notes": notes,
+            }
+            df_tx = pd.concat([df_tx, pd.DataFrame([new])], ignore_index=True)
+            _tx_write(tx_path, df_tx)
+            st.success(f"Transaction enregistrée: {tid}")
+
+    st.divider()
+    st.markdown("#### 📋 Transactions enregistrées")
+    if df_tx.empty:
+        st.caption("Aucune transaction.")
+    else:
+        st.dataframe(df_tx.sort_values("timestamp", ascending=False), use_container_width=True)
+
 elif active_tab == "🛠️ Gestion Admin":
     st.title("🛠️ Gestion Admin")
 
     has_ckpt, ckpt_file, ckpt_ts = checkpoint_status()
     if has_ckpt:
-        st.warning(f"✅ **Checkpoint file detected** — {ckpt_ts}\n\n`{ckpt_file}`")
+        st.warning(f"✅ **Checkpoint file detected** — {ckpt_ts}
+
+`{ckpt_file}`")
     else:
         st.caption("Aucun checkpoint détecté.")
 
-    st.subheader("🗃️ Players DB — Country fill (NHL → League → Club)")
+    st.markdown("### 🗃️ Players DB — Country fill (NHL → League → Club)")
     players_path = st.text_input("Players DB path", value=PLAYERS_DB_PATH_DEFAULT)
 
     colA, colB, colC, colD = st.columns(4)
@@ -483,12 +637,12 @@ elif active_tab == "🛠️ Gestion Admin":
     with colD:
         failed_only = st.checkbox("Failed only", value=False)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    c_run, c_reset, c_cache = st.columns(3)
+    with c_run:
         run_btn = st.button("▶ Resume Country fill", type="primary")
-    with col2:
+    with c_reset:
         reset_btn = st.button("🔁 Reset progress")
-    with col3:
+    with c_cache:
         reset_failed_btn = st.button("♻️ Reset failed-only (keep ok cache)")
 
     if reset_failed_btn:
@@ -505,22 +659,78 @@ elif active_tab == "🛠️ Gestion Admin":
         st.success("Checkpoint reset.")
 
     if run_btn:
-        status_box = st.empty()
-        def _cb(stat):
-            status_box.info(stat)
+        if not _anti_double_run_guard("country_fill", 0.8):
+            st.info("Patiente une seconde (anti double-click).")
+        else:
+            status_box = st.empty()
 
-        res = update_players_db(
-            players_path,
-            max_calls=int(max_calls),
-            save_every=int(save_every),
-            resume_only=bool(resume_only),
-            reset_progress=False,
-            failed_only=bool(failed_only),
-            progress_cb=_cb,
-        )
-        st.success("Run completed.")
-        st.json(res)
+            def _cb(stat):
+                status_box.info(stat)
+
+            res = update_players_db(
+                players_path,
+                max_calls=int(max_calls),
+                save_every=int(save_every),
+                resume_only=bool(resume_only),
+                reset_progress=False,
+                failed_only=bool(failed_only),
+                progress_cb=_cb,
+            )
+            st.success("Run completed.")
+            st.json(res)
+
+    st.divider()
+
+    st.markdown("### 🧷 Backups & Restore (Local + Drive optionnel)")
+    st.caption("Local backups sont toujours disponibles. Drive est optionnel (si secrets + libs).")
+
+    backup_dir = st.text_input("Backup folder", value=BACKUP_DIR_DEFAULT)
+
+    critical_files = [
+        PLAYERS_DB_PATH_DEFAULT,
+        NHL_COUNTRY_CACHE_DEFAULT,
+        CLUB_COUNTRY_CACHE_DEFAULT,
+        NHL_COUNTRY_CHECKPOINT_DEFAULT,
+    ]
+
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        if st.button("📦 Create local backup (zip)"):
+            if not _anti_double_run_guard("backup_zip", 0.8):
+                st.info("Patiente une seconde.")
+            else:
+                os.makedirs(backup_dir, exist_ok=True)
+                zp = _zip_backup(backup_dir, critical_files)
+                st.success(f"Backup created: {zp}")
+
+    with b2:
+        zips = []
+        try:
+            if os.path.exists(backup_dir):
+                zips = sorted([f for f in os.listdir(backup_dir) if f.lower().endswith(".zip")], reverse=True)
+        except Exception:
+            zips = []
+        pick = st.selectbox("Restore from zip", options=[""] + zips)
+        if st.button("♻️ Restore selected zip"):
+            if not pick:
+                st.warning("Choisis un zip.")
+            else:
+                res = _restore_zip(os.path.join(backup_dir, pick), DATA_DIR)
+                if res.get("ok"):
+                    st.success("Restore completed. Relance l’app si nécessaire.")
+                else:
+                    st.error(res.get("error") or "Restore failed")
+
+    with b3:
+        st.markdown("**Drive**")
+        if _drive_available():
+            st.success("Drive: détecté (secrets + libs).")
+            st.caption("Intégration Drive complète = prochaine itération (OAuth / folder_id / upload & list).")
+        else:
+            st.info("Drive: non configuré (normal).")
+            st.caption("Pour l’activer: ajouter `gdrive_oauth` dans Secrets + installer googleapiclient.")
 
     st.divider()
     st.caption("Files used:")
-    st.code("\n".join([PLAYERS_DB_PATH_DEFAULT, NHL_COUNTRY_CACHE_DEFAULT, CLUB_COUNTRY_CACHE_DEFAULT, NHL_COUNTRY_CHECKPOINT_DEFAULT]))
+    st.code("
+".join([PLAYERS_DB_PATH_DEFAULT, NHL_COUNTRY_CACHE_DEFAULT, CLUB_COUNTRY_CACHE_DEFAULT, NHL_COUNTRY_CHECKPOINT_DEFAULT, TRANSACTIONS_PATH_DEFAULT]))
