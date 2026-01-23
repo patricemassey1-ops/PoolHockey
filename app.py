@@ -732,4 +732,3 @@ elif active_tab == "🛠️ Gestion Admin":
     st.divider()
     st.caption("Files used:")
     st.code("Files listed above")
-
