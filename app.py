@@ -10994,7 +10994,10 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
             except Exception as e:
                 st.error(f"❌ Auto-mapping KO — {type(e).__name__}: {e}")
 
-    with st.expander("📦 Transactions (Admin)", expanded=False):
+    st.markdown("### 📦 Transactions (Admin)")
+    _admin_section_6179 = st.container()
+    with _admin_section_6179:
+
         st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
 
         owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
