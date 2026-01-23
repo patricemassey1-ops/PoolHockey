@@ -620,7 +620,6 @@ elif active_tab == "🛠️ Gestion Admin":
     if has_ckpt:
     st.warning(f"✅ Checkpoint file detected — {ckpt_ts}")
 
-`{ckpt_file}`")
     else:
         st.caption("Aucun checkpoint détecté.")
 
