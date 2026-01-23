@@ -1029,6 +1029,7 @@ def update_players_db(
     season_lbl=None,
     fill_country: bool = True,
     resume_only: bool = False,
+    reset_progress: bool = False,
     roster_only: bool = False,
     save_every: int = 500,
     cache_path: str | None = None,
@@ -1452,253 +1453,322 @@ def _nhl_landing_country(pid: int) -> str:
         return ""
 
 
+
 def update_players_db(
     path: str | None = None,
     season_lbl: str | None = None,
     fill_country: bool = True,
     *,
     resume_only: bool = False,
+    roster_only: bool = False,
     save_every: int = 500,
     cache_path: str | None = None,
     progress_cb=None,
+    max_calls: int = 300,
+    **_ignored,
 ) -> tuple[pd.DataFrame, dict]:
-    """Wrapper attendu par l'UI Admin (Streamlit-safe).
+    """Chunked, resume-safe country fill for hockey.players.csv (Streamlit Cloud safe).
 
-    - Mode normal: met à jour via stats/rest (skaters+goalies) => base DB
-    - Puis complète les playerId manquants via search (fallback par nom sécurisé)
-    - Puis (optionnel) complète Country (ISO2) + Flag via landing endpoint
-    - Mode resume_only: ne refait PAS la base update; reprend sur le CSV existant.
-
-    Sauvegarde incrémentale: écrit le CSV + cache JSON toutes les `save_every`.
+    - Processes at most `max_calls` candidates per click to avoid timeouts.
+    - Persists cursor/phase in data/nhl_country_checkpoint.json for true resume.
+    - Uses persistent JSON cache data/nhl_country_cache.json.
+    - Optional roster_only: restrict to players present in st.session_state['data'] when available,
+      otherwise falls back to full DB (never returns 0/0 just because roster isn't loaded).
     """
 
-    # Determine paths
-    if not path:
-        path = _first_existing(PLAYERS_DB_FALLBACKS) or os.path.join(DATA_DIR, "hockey.players.csv")
+    # ---- paths
+    path = str(path or os.path.join(DATA_DIR, "hockey.players.csv"))
+    if not os.path.isabs(path):
+        path = os.path.join(DATA_DIR, path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
     if not cache_path:
-        cache_path = _nhl_cache_path_default()
+        cache_path = _nhl_cache_path_default() if "_nhl_cache_path_default" in globals() else os.path.join(DATA_DIR, "nhl_country_cache.json")
+    if not os.path.isabs(cache_path):
+        cache_path = os.path.join(DATA_DIR, cache_path)
+
+    ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+
+    # ---- load df
+    try:
+        df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+    except Exception:
+        df = pd.DataFrame()
+
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df, {"error": "Players DB vide ou introuvable", "path": path}
+
+    # normalize columns
+    if "Player" not in df.columns and "Joueur" in df.columns:
+        df["Player"] = df["Joueur"]
+    if "Player" not in df.columns:
+        return df, {"error": "Colonne 'Player' manquante dans hockey.players.csv", "path": path}
+    if "playerId" not in df.columns:
+        df["playerId"] = ""
+    if "Country" not in df.columns:
+        df["Country"] = ""
+
+    # ---- roster_only filter (by Player name)
+    roster_set = None
+    if roster_only:
+        try:
+            roster_df = st.session_state.get("data")
+            # If roster isn't loaded here, fallback to full DB (roster_set=None)
+            if not (isinstance(roster_df, pd.DataFrame) and not roster_df.empty):
+                roster_set = None
+            else:
+                col = "Joueur" if "Joueur" in roster_df.columns else ("Player" if "Player" in roster_df.columns else None)
+                if not col:
+                    roster_set = None
+                else:
+                    vals = [str(x).strip() for x in roster_df[col].dropna().tolist()]
+                    vals = [v for v in vals if v]
+                    roster_set = set(vals) if vals else None
+        except Exception:
+            roster_set = None
+
+    def _in_scope(player_name: str) -> bool:
+        if roster_set is None:
+            return True
+        return str(player_name or "").strip() in roster_set
+
+    # ---- cache helpers
+    def _load_cache():
+        try:
+            if os.path.exists(cache_path):
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f) or {}
+        except Exception:
+            pass
+        return {}
+
+    def _save_json_atomic(pth: str, obj: dict):
+        os.makedirs(os.path.dirname(pth) or ".", exist_ok=True)
+        tmp = pth + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, pth)
+
+    def _save_csv_atomic(pth: str, dff: pd.DataFrame):
+        os.makedirs(os.path.dirname(pth) or ".", exist_ok=True)
+        tmp = pth + ".tmp"
+        dff.to_csv(tmp, index=False)
+        os.replace(tmp, pth)
+
+    cache = _load_cache()
+
+    # ---- checkpoint
+    ckpt = {}
+    try:
+        if os.path.exists(ckpt_path):
+            with open(ckpt_path, "r", encoding="utf-8") as f:
+                ckpt = json.load(f) or {}
+    except Exception:
+        ckpt = {}
+
+    if reset_progress:
+        ckpt = {}
+    if ckpt.get("roster_only") != bool(roster_only):
+        ckpt = {}
+
+    phase = ckpt.get("phase") or "playerId"
+    cursor = int(ckpt.get("cursor") or 0)
 
     stats = {
-        "season_lbl": str(season_lbl or "").strip(),
-        "resume_only": bool(resume_only),
+        "path": path,
+        "cache_path": cache_path,
+        "phase": phase,
+        "cursor_start": cursor,
+        "max_calls": int(max_calls or 0),
+        "roster_only": bool(roster_only),
         "filled_playerid_search": 0,
         "filled_country_landing": 0,
         "nhl_ids_added": 0,
         "cache_hits": 0,
         "cache_misses": 0,
+        "skipped_cached_fail": 0,
+        "skipped_already_filled_playerid": 0,
+        "skipped_already_filled_country": 0,
         "saved_increments": 0,
+        "last_phase": phase,
+        "last_index": cursor,
+        "last_total": 0,
+        "remaining": 0,
+        "eta_seconds": None,
+        "rate_rows_per_sec": None,
     }
 
-    # 1) Load / base update
-    if resume_only:
-        try:
-            df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
-        except Exception:
-            df = pd.DataFrame()
-    else:
-        df_upd, stats_upd = _update_players_db_impl_via_nhl_apis(season_lbl=season_lbl)
-        if isinstance(stats_upd, dict):
-            stats.update(stats_upd)
-        df = df_upd.copy() if isinstance(df_upd, pd.DataFrame) else pd.DataFrame()
+    def _norm_name(name: str) -> str:
+        return re.sub(r"\s+", " ", str(name or "").strip()).lower()
 
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            df.to_csv(path, index=False)
-        except Exception:
-            pass
-        return df, stats
+    def _name_key(name: str) -> str:
+        return "name:" + _norm_name(name)
 
-    # Ensure columns
-    if "Player" not in df.columns:
-        df["Player"] = ""
-    if "playerId" not in df.columns:
-        df["playerId"] = pd.NA
-    if "Country" not in df.columns:
-        df["Country"] = ""
-    if "Flag" not in df.columns:
-        df["Flag"] = ""
-    if "FlagISO2" not in df.columns:
-        df["FlagISO2"] = ""
+    def _id_key(pid: str) -> str:
+        return "id:" + str(pid or "").strip()
 
-    cache = _load_nhl_country_cache(cache_path)
+    nhl_search = globals().get("_nhl_search_player_id_by_name") or globals().get("nhl_search_player_id_by_name")
+    nhl_country = globals().get("_nhl_country_from_player_id") or globals().get("nhl_country_from_player_id")
+    if not callable(nhl_search) or not callable(nhl_country):
+        return df, {"error": "Helpers NHL manquants (_nhl_search_player_id_by_name / _nhl_country_from_player_id)", "phase": phase}
 
-    # helper to save incrementally
-    def _save_increment():
-        try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            df.to_csv(path, index=False)
-            _save_nhl_country_cache(cache_path, cache)
-            stats["saved_increments"] += 1
-        except Exception:
-            pass
+    def build_candidates_playerid():
+        idxs = []
+        skipped_already = 0
+        for i, row in df.iterrows():
+            if not _in_scope(row.get("Player","")):
+                continue
+            if str(row.get("playerId","")).strip():
+                skipped_already += 1
+                continue
+            idxs.append(int(i))
+        return idxs, skipped_already
 
-    # progress helper
-    def _progress(done: int, total: int, phase: str):
-        if callable(progress_cb):
+    def build_candidates_country():
+        idxs = []
+        skipped_already = 0
+        for i, row in df.iterrows():
+            if not _in_scope(row.get("Player","")):
+                continue
+            if not str(row.get("playerId","")).strip():
+                continue
+            if str(row.get("Country","")).strip():
+                skipped_already += 1
+                continue
+            idxs.append(int(i))
+        return idxs, skipped_already
+
+    processed = 0
+    save_counter = 0
+    _t0 = time.time()
+
+    while processed < int(max_calls or 0):
+        if phase == "playerId":
+            cands, skipped_already = build_candidates_playerid()
+        else:
+            cands, skipped_already = build_candidates_country()
+
+        total = len(cands)
+        stats["last_total"] = total
+        if phase == "playerId":
+            stats["skipped_already_filled_playerid"] = int(skipped_already or 0)
+        else:
+            stats["skipped_already_filled_country"] = int(skipped_already or 0)
+
+        stats["remaining"] = max(total - cursor, 0)
+
+        if progress_cb:
             try:
-                progress_cb(done, total, phase)
+                progress_cb(min(cursor, total), max(total, 1), phase)
             except Exception:
                 pass
 
-    # 2) Fill missing playerId using SECURE search + cache name->id
-    missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
-    if missing_pid.any():
-        idxs = df.index[missing_pid].tolist()
-        total = len(idxs)
-        for n, i in enumerate(idxs, start=1):
-            nm = str(df.at[i, "Player"] or "").strip()
-            if not nm:
-                _progress(n, total, "playerId")
+        if cursor >= total:
+            if phase == "playerId":
+                phase = "Country"
+                cursor = 0
+                _save_json_atomic(ckpt_path, {"phase": phase, "cursor": cursor, "roster_only": bool(roster_only)})
                 continue
+            break
 
-            nk = _soft_player_key(nm)
-            pid = None
+        idx = cands[cursor]
+        row = df.loc[idx]
+        player = str(row.get("Player","")).strip()
 
-            # cache name->id
-            try:
-                pid = cache.get("name_to_id", {}).get(nk)
-            except Exception:
-                pid = None
-
-            if not pid:
-                pid = _nhl_search_playerid(nm)  # secure
+        if phase == "playerId":
+            k = _name_key(player)
+            cached = cache.get(k)
+            if cached is not None:
+                pid = str((cached or {}).get("nhl_id") or "").strip()
                 if pid:
-                    try:
-                        cache.setdefault("name_to_id", {})[nk] = int(pid)
-                    except Exception:
-                        pass
-
-            if pid:
-                before = str(df.at[i, "playerId"] or "").strip()
-                df.at[i, "playerId"] = int(pid)
-                stats["filled_playerid_search"] += 1
-                if not before:
-                    stats["nhl_ids_added"] += 1
-
-            _progress(n, total, "playerId")
-
-            if save_every and n % save_every == 0:
-                _save_increment()
-
-    # 3) Fill Country (only if empty) using landing + cache by_id
-    if fill_country:
-        miss_cty = df["Country"].astype(str).str.strip().eq("")
-        if miss_cty.any():
-            idxs = df.index[miss_cty].tolist()
-            total = len(idxs)
-            done = 0
-            for n, i in enumerate(idxs, start=1):
-                pid = df.at[i, "playerId"]
-                try:
-                    pid_i = int(pid)
-                except Exception:
-                    _progress(n, total, "country")
-                    continue
-
-                pid_key = str(pid_i)
-                cached = cache.get("by_id", {}).get(pid_key)
-                if isinstance(cached, dict) and str(cached.get("country","")).strip():
-                    iso2 = str(cached.get("country","")).strip().upper()
-                    df.at[i, "Country"] = iso2
-                    df.at[i, "FlagISO2"] = df.at[i, "FlagISO2"] or iso2
-                    df.at[i, "Flag"] = df.at[i, "Flag"] or str(cached.get("flag","")).strip() or _iso2_to_flag(iso2)
+                    df.at[idx, "playerId"] = pid
+                    stats["filled_playerid_search"] += 1
                     stats["cache_hits"] += 1
-                    stats["filled_country_landing"] += 1
-                    _progress(n, total, "country")
-                    continue
-
-                stats["cache_misses"] += 1
-                iso2 = _nhl_landing_country(pid_i)
-                if iso2:
-                    iso2 = str(iso2).strip().upper()
-                    df.at[i, "Country"] = iso2
-                    df.at[i, "FlagISO2"] = df.at[i, "FlagISO2"] or iso2
-                    df.at[i, "Flag"] = df.at[i, "Flag"] or _iso2_to_flag(iso2)
-                    stats["filled_country_landing"] += 1
-                    try:
-                        cache.setdefault("by_id", {})[pid_key] = {
-                            "country": iso2,
-                            "flag": df.at[i, "Flag"],
-                            "ts": int(time.time()),
-                        }
-                    except Exception:
-                        pass
-
-                _progress(n, total, "country")
-
-                if save_every and n % save_every == 0:
-                    _save_increment()
-
-    # final save
-    _save_increment()
-
-    # Refresh session cache if present
-    try:
-        st.session_state["players_db"] = df
-    except Exception:
-        pass
-
-    return df, stats
-
-    # Ensure columns
-    if "Player" not in df.columns:
-        df["Player"] = ""
-    if "playerId" not in df.columns:
-        df["playerId"] = pd.NA
-    if "Country" not in df.columns:
-        df["Country"] = ""
-
-    # 2) Fill missing playerId using search
-    missing_pid = df["playerId"].isna() | df["playerId"].astype(str).str.strip().eq("")
-    stats["filled_playerid_search"] = 0
-    if missing_pid.any():
-        for i in df.index[missing_pid].tolist():
-            nm = str(df.at[i, "Player"] or "").strip()
-            if not nm:
-                continue
-            pid = _nhl_search_playerid(nm)
-            if pid:
-                df.at[i, "playerId"] = int(pid)
-                stats["filled_playerid_search"] += 1
-
-    # 3) Fill Country (only if empty) using landing
-    stats["filled_country_landing"] = 0
-    if fill_country:
-        miss_cty = df["Country"].astype(str).str.strip().eq("")
-        if miss_cty.any():
-            for i in df.index[miss_cty].tolist():
-                pid = df.at[i, "playerId"]
+                else:
+                    stats["skipped_cached_fail"] += 1
+                    stats["cache_hits"] += 1
+            else:
+                pid = ""
                 try:
-                    pid_i = int(pid)
+                    pid = str(nhl_search(player) or "").strip()
                 except Exception:
-                    continue
-                iso2 = _nhl_landing_country(pid_i)
-                if iso2:
-                    df.at[i, "Country"] = iso2
+                    pid = ""
+                cache[k] = {"nhl_id": pid, "ok": bool(pid), "ts": time.time()}
+                stats["cache_misses"] += 1
+                if pid:
+                    df.at[idx, "playerId"] = pid
+                    stats["filled_playerid_search"] += 1
+                    stats["nhl_ids_added"] += 1
+        else:
+            pid = str(row.get("playerId","")).strip()
+            k = _id_key(pid)
+            cached = cache.get(k)
+            if cached is not None and str((cached or {}).get("country") or "").strip():
+                df.at[idx, "Country"] = str(cached.get("country") or "").strip()
+                stats["filled_country_landing"] += 1
+                stats["cache_hits"] += 1
+            elif cached is not None:
+                stats["skipped_cached_fail"] += 1
+                stats["cache_hits"] += 1
+            else:
+                cc = ""
+                try:
+                    cc = str(nhl_country(pid) or "").strip()
+                except Exception:
+                    cc = ""
+                cache[k] = {"country": cc, "ok": bool(cc), "ts": time.time()}
+                stats["cache_misses"] += 1
+                if cc:
+                    df.at[idx, "Country"] = cc
                     stats["filled_country_landing"] += 1
 
-    # Save back
+        cursor += 1
+        processed += 1
+        save_counter += 1
+
+        try:
+            st.session_state["pdb_last"] = {"phase": phase, "index": cursor, "total": max(total, 1)}
+        except Exception:
+            pass
+
+        if save_every and save_counter >= int(save_every):
+            try:
+                _save_csv_atomic(path, df)
+                _save_json_atomic(cache_path, cache)
+                _save_json_atomic(ckpt_path, {"phase": phase, "cursor": cursor, "roster_only": bool(roster_only)})
+                stats["saved_increments"] += 1
+            except Exception as e:
+                stats["save_error"] = f"{type(e).__name__}: {e}"
+            save_counter = 0
+
+        if processed % 50 == 0:
+            try:
+                time.sleep(0.05)
+            except Exception:
+                pass
+
     try:
-        df.to_csv(path, index=False)
+        _save_csv_atomic(path, df)
+        _save_json_atomic(cache_path, cache)
+        _save_json_atomic(ckpt_path, {"phase": phase, "cursor": cursor, "roster_only": bool(roster_only)})
+        stats["saved_increments"] += 1
+    except Exception as e:
+        stats["save_error"] = f"{type(e).__name__}: {e}"
+
+    stats["last_phase"] = phase
+    stats["last_index"] = cursor
+    try:
+        elapsed = max(time.time() - _t0, 1e-6)
+        rate = float(processed) / elapsed if processed else None
+        stats["rate_rows_per_sec"] = rate
+        rem = int(stats.get("remaining") or 0)
+        stats["eta_seconds"] = (rem / rate) if (rate and rem > 0) else (0 if rem == 0 else None)
+        stats["is_done"] = bool(rem == 0 and stats.get("last_phase") == "Country")
     except Exception:
         pass
-
-    # Refresh session cache if present
-    try:
-        st.session_state["players_db"] = df
-    except Exception:
-        pass
-
     return df, stats
 
 
-
-
-
-# ==============================
-# NHL Country cache (JSON) — persistent between runs
-# ==============================
 def _nhl_cache_path_default() -> str:
     return os.path.join(DATA_DIR, "nhl_country_cache.json")
 
@@ -2797,7 +2867,9 @@ def require_password():
         if st.button("Se connecter", type="primary", use_container_width=True):
             if _sha256(pwd) == expected:
                 st.session_state["authed"] = True
-                st.success("✅ Accès autorisé")
+                st.session_state["pdb_last_stats"] = stats
+                    st.session_state["pdb_last_stats"] = stats
+                    st.success("✅ Accès autorisé")
                 st.rerun()
             else:
                 st.error("❌ Mot de passe invalide")
@@ -6588,7 +6660,8 @@ def render_tab_classement():
                 except Exception:
                     pass
             try:
-                prog.empty()
+                prog_pid.empty()
+                    prog_cty.empty()
             except Exception:
                 pass
 
@@ -10013,7 +10086,31 @@ if active_tab == "🛠️ Gestion Admin":
         if not pdb_path:
             pdb_path = os.path.join(DATA_DIR, "hockey.players.csv")
 
-        st.caption(f"Chemin utilisé : `{pdb_path}`")
+        st.caption(f"Chemin utilisé
+# ---- checkpoint (auto label)
+def _read_pdb_checkpoint():
+    ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+    try:
+        if os.path.exists(ckpt_path):
+            with open(ckpt_path, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    return {}
+
+_ck = _read_pdb_checkpoint()
+_phase_ck = str(_ck.get("phase") or "playerId")
+_update_label = "🌍 Start Country phase" if _phase_ck == "Country" else "⬆️ Mettre à jour Players DB"
+
+# ---- Auto-run settings (Streamlit Cloud safe)
+if "pdb_autorun" not in st.session_state:
+    st.session_state["pdb_autorun"] = False
+if "pdb_last_stats" not in st.session_state:
+    st.session_state["pdb_last_stats"] = None
+if "pdb_rows_per_click" not in st.session_state:
+    st.session_state["pdb_rows_per_click"] = 300
+
+ : `{pdb_path}`")
 
         # --- Sticky badge (color by phase)
         st.markdown("""<style>
@@ -10033,7 +10130,7 @@ if active_tab == "🛠️ Gestion Admin":
             cls = "pdb-country"
 
         st.markdown(
-            f"<div class='pdb-sticky {cls}'>Dernier : {phase or '—'} {int(last.get('index',0) or 0)}/{int(last.get('total',0) or 0)}</div>",
+            f\"<div class='pdb-sticky {cls}'>Dernier : {phase or '—'} {int(last.get('index',0) or 0)}/{int(last.get('total',0) or 0)} (reste: {max(int(last.get('total',0) or 0) - int(last.get('index',0) or 0), 0)})</div>\",
             unsafe_allow_html=True
         )
 
@@ -10074,7 +10171,7 @@ if active_tab == "🛠️ Gestion Admin":
                     except Exception as e:
                         st.error(f"Reset failed KO — {type(e).__name__}: {e}")
 
-        cA, cB, cC = st.columns([1, 1, 2], vertical_alignment="center")
+        cA, cB, cC, cD = st.columns([1, 1, 2, 1], vertical_alignment="center")
 
         with cA:
             if st.button("🔄 Recharger Players DB", use_container_width=True, key="admin_reload_players_db"):
@@ -10085,18 +10182,23 @@ if active_tab == "🛠️ Gestion Admin":
                     st.error(f"❌ Rechargement KO — {type(e).__name__}: {e}")
 
         with cB:
-            if st.button("⬆️ Mettre à jour Players DB", use_container_width=True, key="admin_update_players_db"):
+            if st.button(_update_label, use_container_width=True, key="admin_update_players_db"):
                 try:
                     _pdb_lock_on()
-                    prog = st.progress(0.0)
-                    status = st.empty()
+                    prog_pid = st.progress(0.0)
+prog_cty = st.progress(0.0)
+status = st.empty()
 
-                    def _cb(done: int, total: int, phase: str):
-                        total = max(int(total or 0), 1)
-                        done = int(done or 0)
-                        pct = min(1.0, max(0.0, done / total))
-                        prog.progress(pct)
-                        status.caption(f"{phase}: {done}/{total}")
+def _cb(done: int, total: int, phase: str):
+    total = max(int(total or 0), 1)
+    done = int(done or 0)
+    pct = min(1.0, max(0.0, done / total))
+    if phase == "playerId":
+        prog_pid.progress(pct)
+    else:
+        prog_cty.progress(pct)
+    remaining = max(total - done, 0)
+                        status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
                     df, stats = _call_update_players_db(
@@ -10108,15 +10210,17 @@ if active_tab == "🛠️ Gestion Admin":
                         save_every=500,
                         cache_path=_nhl_cache_path_default(),
                         progress_cb=_cb,
+                        max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
                     )
 
                     status.empty()
-                    prog.empty()
+                    prog_pid.empty()
+                    prog_cty.empty()
 
                     st.success(
                         f"✅ Terminé. Country: {stats.get('filled_country_landing',0)} | "
                         f"IDs NHL: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)} | "
+                        f"Cache hits: {stats.get('cache_hits',0)} | Skippés: {stats.get('skipped_already_filled_playerid',0)+stats.get('skipped_already_filled_country',0)} | "
                         f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
                     )
                     if show_details:
@@ -10127,19 +10231,48 @@ if active_tab == "🛠️ Gestion Admin":
                 finally:
                     _pdb_lock_off()
 
+with cD:
+    st.session_state["pdb_rows_per_click"] = st.slider(
+        "Rows/click",
+        min_value=100,
+        max_value=1000,
+        step=100,
+        value=int(st.session_state.get("pdb_rows_per_click") or 300),
+        key="pdb_rows_per_click_slider",
+    )
+    if st.button("🧹 Reset progress", use_container_width=True, key="admin_reset_pdb_progress"):
+        try:
+            ckpt_path = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+            if os.path.exists(ckpt_path):
+                os.remove(ckpt_path)
+            st.session_state["pdb_last"] = {"phase": "—", "index": 0, "total": 0}
+            st.success("✅ Progress reset (checkpoint supprimé).")
+        except Exception as e:
+            st.error(f"❌ Reset progress KO — {type(e).__name__}: {e}")
+
+
         with cC:
+            if st.button("🤖 Auto-run until finished" if not st.session_state.get("pdb_autorun") else "⏹ Stop auto-run", use_container_width=True, key="admin_autorun_pdb"):
+                st.session_state["pdb_autorun"] = not bool(st.session_state.get("pdb_autorun"))
+                st.rerun()
+
             if st.button("▶️ Resume Country fill", use_container_width=True, key="admin_resume_country_fill"):
                 try:
                     _pdb_lock_on()
-                    prog = st.progress(0.0)
-                    status = st.empty()
+                    prog_pid = st.progress(0.0)
+prog_cty = st.progress(0.0)
+status = st.empty()
 
-                    def _cb(done: int, total: int, phase: str):
-                        total = max(int(total or 0), 1)
-                        done = int(done or 0)
-                        pct = min(1.0, max(0.0, done / total))
-                        prog.progress(pct)
-                        status.caption(f"{phase}: {done}/{total}")
+def _cb(done: int, total: int, phase: str):
+    total = max(int(total or 0), 1)
+    done = int(done or 0)
+    pct = min(1.0, max(0.0, done / total))
+    if phase == "playerId":
+        prog_pid.progress(pct)
+    else:
+        prog_cty.progress(pct)
+    remaining = max(total - done, 0)
+                        status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
                         st.session_state["pdb_last"] = {"phase": phase, "index": done, "total": total}
 
                     df, stats = _call_update_players_db(
@@ -10151,15 +10284,17 @@ if active_tab == "🛠️ Gestion Admin":
                         save_every=500,
                         cache_path=_nhl_cache_path_default(),
                         progress_cb=_cb,
+                        max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
                     )
 
                     status.empty()
-                    prog.empty()
+                    prog_pid.empty()
+                    prog_cty.empty()
 
                     st.success(
                         f"✅ Terminé (resume). Country: {stats.get('filled_country_landing',0)} | "
                         f"IDs NHL: {stats.get('nhl_ids_added',0)} | "
-                        f"Cache hits: {stats.get('cache_hits',0)} | "
+                        f"Cache hits: {stats.get('cache_hits',0)} | Skippés: {stats.get('skipped_already_filled_playerid',0)+stats.get('skipped_already_filled_country',0)} | "
                         f"Dernier: {stats.get('last_phase','')} {stats.get('last_index',0)}/{stats.get('last_total',0)}"
                     )
                     if show_details:
@@ -10170,12 +10305,73 @@ if active_tab == "🛠️ Gestion Admin":
                 finally:
                     _pdb_lock_off()
 
+# ---- Live stats / ETA
+_last_stats = st.session_state.get("pdb_last_stats") or {}
+if isinstance(_last_stats, dict) and _last_stats:
+    mA, mB, mC, mD = st.columns(4)
+    mA.metric("Déjà remplis", int(_last_stats.get("skipped_already_filled_playerid",0) + _last_stats.get("skipped_already_filled_country",0)))
+    mB.metric("Remplis via API", int(_last_stats.get("filled_playerid_search",0) + _last_stats.get("filled_country_landing",0)))
+    mC.metric("Cache hits", int(_last_stats.get("cache_hits",0)))
+    eta = _last_stats.get("eta_seconds")
+    if isinstance(eta, (int, float)) and eta >= 0:
+        mm = int(eta // 60)
+        ss = int(eta % 60)
+        mD.metric("ETA", f"{mm}m {ss}s")
+    else:
+        mD.metric("ETA", "—")
+
+
             st.caption("Astuce: pour forcer les drapeaux, remplis **Country** (CA/US/SE/FI…) dans hockey.players.csv.")
 
         pdb = st.session_state.get("players_db")
         if isinstance(pdb, pd.DataFrame) and not pdb.empty:
             cols_show = [c for c in ["Player", "Country", "playerId"] if c in pdb.columns]
-            show_preview = st.checkbox("👀 Afficher un aperçu (20 lignes)", value=False, key="admin_playersdb_preview")
+            
+
+# ---- Auto-run loop (no manual resume)
+if st.session_state.get("pdb_autorun"):
+    try:
+        prog_pid = st.progress(0.0)
+        prog_cty = st.progress(0.0)
+        status = st.empty()
+
+        def _cb_auto(done: int, total: int, phase: str):
+            total = max(int(total or 0), 1)
+            done = int(done or 0)
+            pct = min(1.0, max(0.0, done / total))
+            (prog_pid if phase == "playerId" else prog_cty).progress(pct)
+            remaining = max(total - done, 0)
+            status.caption(f"{phase} — remaining: {remaining}/{total}  (done: {done}/{total})")
+
+        df_auto, stats_auto = _call_update_players_db(
+            path=pdb_path,
+            fill_country=True,
+            resume_only=True,
+            reset_progress=False,
+            save_every=500,
+            cache_path=_nhl_cache_path_default(),
+            progress_cb=_cb_auto,
+            max_calls=int(st.session_state.get("pdb_rows_per_click") or 300),
+            roster_only=bool(st.session_state.get("pdb_roster_only") or False),
+        )
+        st.session_state["pdb_last_stats"] = stats_auto
+
+        try:
+            st.session_state["pdb_last"] = {"phase": stats_auto.get("last_phase"), "index": stats_auto.get("last_index"), "total": stats_auto.get("last_total")}
+        except Exception:
+            pass
+
+        if bool(stats_auto.get("is_done")):
+            st.session_state["pdb_autorun"] = False
+            st.success("✅ Auto-run terminé.")
+        else:
+            time.sleep(0.2)
+            st.rerun()
+    except Exception as e:
+        st.session_state["pdb_autorun"] = False
+        st.error(f"❌ Auto-run KO — {type(e).__name__}: {e}")
+
+show_preview = st.checkbox("👀 Afficher un aperçu (20 lignes)", value=False, key="admin_playersdb_preview")
             if show_preview:
                 st.dataframe(pdb[cols_show].head(20) if cols_show else pdb.head(20), use_container_width=True, hide_index=True)
         else:
@@ -10941,7 +11137,8 @@ if active_tab == "🛠️ Gestion Admin":
                         all_players.extend(extract_players_from_roster(j, tri))
                         prog.progress(int(i / max(1, len(teams_run)) * 100))
                         time.sleep(0.45)  # throttle doux (IP partagée Streamlit Cloud)
-                    prog.empty()
+                    prog_pid.empty()
+                    prog_cty.empty()
 
                     roster_df = pd.DataFrame(all_players)
                     if roster_df.empty:
