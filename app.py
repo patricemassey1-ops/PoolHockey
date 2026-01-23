@@ -7,25 +7,25 @@ import re
 import unicodedata
 import time
 import zipfile
+import shutil
 from datetime import datetime
 from typing import Optional, Dict, Tuple
 
-# =========================================================
-# MUST BE FIRST STREAMLIT COMMAND
-# =========================================================
 st.set_page_config(page_title="Pool Hockey", layout="wide")
 
-# =========================================================
-# CONFIG
-# =========================================================
-DATA_DIR = "data"
+def _pick_data_dir() -> str:
+    for cand in ["Data", "data"]:
+        if os.path.isdir(cand):
+            return cand
+    os.makedirs("data", exist_ok=True)
+    return "data"
+
+DATA_DIR = _pick_data_dir()
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# User files (confirmed)
 PLAYERS_DB_PATH_DEFAULT = os.path.join(DATA_DIR, "hockey.players.csv")
 BACKUP_HISTORY_PATH_DEFAULT = os.path.join(DATA_DIR, "backup_history.csv")
 
-# Caches / checkpoint
 NHL_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "nhl_country_cache.json")
 NHL_COUNTRY_CHECKPOINT_DEFAULT = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
 CLUB_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "club_country_cache.json")
@@ -33,26 +33,19 @@ CLUB_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "club_country_cache.json")
 BACKUP_DIR_DEFAULT = os.path.join(DATA_DIR, "backups")
 os.makedirs(BACKUP_DIR_DEFAULT, exist_ok=True)
 
-
 def _season_lbl_default() -> str:
     y = datetime.now().year
     m = datetime.now().month
     return f"{y}-{y+1}" if m >= 8 else f"{y-1}-{y}"
 
-
 def _roster_path(season: str) -> str:
     season = (season or "").strip() or _season_lbl_default()
     return os.path.join(DATA_DIR, f"equipes_joueurs_{season}.csv")
-
 
 def _transactions_path(season: str) -> str:
     season = (season or "").strip() or _season_lbl_default()
     return os.path.join(DATA_DIR, f"transactions_{season}.csv")
 
-
-# =========================================================
-# ONE SINGLE CSS INJECTION (règles d’or)
-# =========================================================
 THEME_CSS = r'''
 <style>
 .nowrap { white-space: nowrap; }
@@ -65,9 +58,6 @@ div.stButton > button { padding: 0.35rem 0.6rem; border-radius: 10px; }
 '''
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 
-# =========================================================
-# Helpers (robustness)
-# =========================================================
 def _read_json(path: str) -> dict:
     try:
         if path and os.path.exists(path):
@@ -78,7 +68,6 @@ def _read_json(path: str) -> dict:
         pass
     return {}
 
-
 def _write_json(path: str, data: dict) -> None:
     if not path:
         return
@@ -86,7 +75,6 @@ def _write_json(path: str, data: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data or {}, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
-
 
 def checkpoint_status(path: str) -> Tuple[bool, str]:
     if path and os.path.exists(path):
@@ -97,7 +85,6 @@ def checkpoint_status(path: str) -> Tuple[bool, str]:
         return True, ts
     return False, ""
 
-
 def _anti_double_run_guard(tag: str, min_seconds: float = 0.8) -> bool:
     k = f"_last_run__{tag}"
     t = time.time()
@@ -107,30 +94,22 @@ def _anti_double_run_guard(tag: str, min_seconds: float = 0.8) -> bool:
     st.session_state[k] = t
     return True
 
-
-# =========================================================
-# Normalization + flags
-# =========================================================
 def _strip_accents(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-
 
 def _norm_player_key(name: str) -> str:
     s = _strip_accents(str(name or "")).lower().strip()
     s = re.sub(r"[^a-z0-9\s\-']", " ", s)
     s = s.replace("’", "'")
     s = re.sub(r"\s+", " ", s).strip()
-    # small convenience for common variants (optional)
     s = s.replace("matthew ", "matt ")
     return s
-
 
 def _country_to_flag_emoji(cc: str) -> str:
     cc = (cc or "").strip().upper()
     if len(cc) != 2 or not cc.isalpha():
         return ""
     return chr(127397 + ord(cc[0])) + chr(127397 + ord(cc[1]))
-
 
 def _fmt_money(x) -> str:
     try:
@@ -139,10 +118,6 @@ def _fmt_money(x) -> str:
         return str(x or "").strip()
     return f"{int(round(v)):,}".replace(",", " ")
 
-
-# =========================================================
-# Players DB mapping (for flags + optional salary/pos)
-# =========================================================
 @st.cache_data(show_spinner=False)
 def load_players_db_map(path: str) -> Dict[str, dict]:
     if not path or not os.path.exists(path):
@@ -152,7 +127,6 @@ def load_players_db_map(path: str) -> Dict[str, dict]:
     except Exception:
         return {}
 
-    # Guess columns (players DB)
     col_name = None
     for c in ["Joueur", "Player", "Name", "Nom"]:
         if c in df.columns:
@@ -178,15 +152,10 @@ def load_players_db_map(path: str) -> Dict[str, dict]:
             }
     return out
 
-
-# =========================================================
-# NHL API (free) + fallback caches
-# =========================================================
 def _http_get_json(url: str, params=None, timeout: int = 12):
     r = requests.get(url, params=params or {}, timeout=timeout)
     r.raise_for_status()
     return r.json()
-
 
 def _nhl_search_playerid(player_name: str) -> Optional[int]:
     if not player_name:
@@ -195,11 +164,7 @@ def _nhl_search_playerid(player_name: str) -> Optional[int]:
     if not q:
         return None
     try:
-        data = _http_get_json(
-            "https://search.d3.nhle.com/api/v1/search/player",
-            params={"q": q, "limit": 10},
-            timeout=12,
-        )
+        data = _http_get_json("https://search.d3.nhle.com/api/v1/search/player", params={"q": q, "limit": 10}, timeout=12)
     except Exception:
         return None
 
@@ -219,7 +184,6 @@ def _nhl_search_playerid(player_name: str) -> Optional[int]:
             return pid_i
     return None
 
-
 def _nhl_landing_country(player_id: int) -> str:
     try:
         data = _http_get_json(f"https://api-web.nhle.com/v1/player/{int(player_id)}/landing", timeout=12)
@@ -235,48 +199,19 @@ def _nhl_landing_country(player_id: int) -> str:
                 return cc[:2]
     return ""
 
-
-FALLBACK_LEAGUE_TO_COUNTRY = {
-    "NCAA": "US",
-    "USHL": "US",
-    "OHL": "CA",
-    "WHL": "CA",
-    "QMJHL": "CA",
-    "CHL": "CA",
-    "SHL": "SE",
-    "ALLSVENSKAN": "SE",
-    "LIIGA": "FI",
-    "MESTIS": "FI",
-    "KHL": "RU",
-    "NL": "CH",
-    "NLA": "CH",
-    "DEL": "DE",
-    "DEL2": "DE",
-    "LIGUE MAGNUS": "FR",
-}
-
-SEED_CLUB_TOKENS = {
-    "FROLUNDA": "SE",
-    "FÄRJESTAD": "SE",
-    "DJURGARDEN": "SE",
-    "KARPAT": "FI",
-    "HIFK": "FI",
-    "DAVOS": "CH",
-    "LUGANO": "CH",
-}
-
+FALLBACK_LEAGUE_TO_COUNTRY = {"NCAA":"US","USHL":"US","OHL":"CA","WHL":"CA","QMJHL":"CA","CHL":"CA","SHL":"SE","ALLSVENSKAN":"SE","LIIGA":"FI","MESTIS":"FI","KHL":"RU","NL":"CH","NLA":"CH","DEL":"DE","DEL2":"DE","LIGUE MAGNUS":"FR"}
+SEED_CLUB_TOKENS = {"FROLUNDA":"SE","FÄRJESTAD":"SE","DJURGARDEN":"SE","KARPAT":"FI","HIFK":"FI","DAVOS":"CH","LUGANO":"CH"}
 
 def _club_slug(s: str) -> str:
     s = _strip_accents((s or "").upper())
     s = re.sub(r"[\-/_\,\.\(\)]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    for w in [" HC", " IF", " IK", " SK", " HOCKEY", " CLUB", " TEAM", " U20", " J20", " U18", " J18"]:
+    for w in [" HC"," IF"," IK"," SK"," HOCKEY"," CLUB"," TEAM"," U20"," J20"," U18"," J18"]:
         s = s.replace(w, "")
     return s.strip()
 
-
 def _infer_from_league(row: dict) -> str:
-    for col in ["League", "League Name", "Competition", "Junior League", "Jr League"]:
+    for col in ["League","League Name","Competition","Junior League","Jr League"]:
         v = row.get(col)
         if isinstance(v, str) and v.strip():
             up = v.upper()
@@ -287,9 +222,8 @@ def _infer_from_league(row: dict) -> str:
                     return cc
     return ""
 
-
 def _infer_from_club(row: dict, club_cache: dict) -> str:
-    for col in ["Club", "Team", "Current Team", "Junior Team", "Jr Team"]:
+    for col in ["Club","Team","Current Team","Junior Team","Jr Team"]:
         v = row.get(col)
         if isinstance(v, str) and v.strip():
             slug = _club_slug(v)
@@ -300,26 +234,15 @@ def _infer_from_club(row: dict, club_cache: dict) -> str:
                     return cc
     return ""
 
-
 def _learn_club(row: dict, cc: str, club_cache: dict) -> None:
-    for col in ["Club", "Team", "Current Team", "Junior Team", "Jr Team"]:
+    for col in ["Club","Team","Current Team","Junior Team","Jr Team"]:
         v = row.get(col)
         if isinstance(v, str) and v.strip():
             slug = _club_slug(v)
             if slug and slug not in club_cache:
                 club_cache[slug] = cc
 
-
-def update_players_db(
-    path: str,
-    *,
-    max_calls: int = 300,
-    save_every: int = 500,
-    resume_only: bool = True,
-    reset_progress: bool = False,
-    failed_only: bool = False,
-    progress_cb=None,
-):
+def update_players_db(path: str, *, max_calls: int = 300, save_every: int = 500, resume_only: bool = True, reset_progress: bool = False, failed_only: bool = False, progress_cb=None):
     if not os.path.exists(path):
         return {"ok": False, "error": f"File not found: {path}"}
 
@@ -457,37 +380,26 @@ def update_players_db(
 
     return {"ok": True, "updated": updated, "processed": processed, "cached": cached, "errors": errors, "total": total, "cursor": end}
 
+ROSTER_COLS = {"owner":"Propriétaire","player":"Joueur","pos":"Pos","team":"Equipe","salary":"Salaire","level":"Level","status":"Statut","slot":"Slot","ir_date":"IR Date"}
 
-# =========================================================
-# Roster: EXPLICIT mapping (confirmed columns)
-# =========================================================
-ROSTER_COLS = {
-    "owner": "Propriétaire",
-    "player": "Joueur",
-    "pos": "Pos",
-    "team": "Equipe",
-    "salary": "Salaire",
-    "level": "Level",
-    "status": "Statut",
-    "slot": "Slot",
-    "ir_date": "IR Date",
-}
-
-
-def _slot_bucket(slot_val: str) -> str:
+def _slot_bucket(slot_val: str, statut_val: str = "") -> str:
     s = str(slot_val or "").strip().lower()
-    # expected in your file
+    t = str(statut_val or "").strip().lower()
     if "actif" in s:
         return "ACTIFS"
     if "banc" in s:
         return "BANC"
-    if s == "ir" or " ir" in s or "inj" in s or "bless" in s:
+    if s == "ir" or "inj" in s or "bless" in s:
         return "IR"
     if "mineur" in s or "minor" in s or "ahl" in s or "farm" in s:
         return "MINEUR"
-    # fallback: treat unknown as actifs (safer UX)
-    return "ACTIFS" if s else "ACTIFS"
-
+    if "ir" in t or "inj" in t or "bless" in t:
+        return "IR"
+    if "mineur" in t or "ahl" in t:
+        return "MINEUR"
+    if "banc" in t:
+        return "BANC"
+    return "ACTIFS"
 
 def roster_click_list(df: pd.DataFrame, title: str, *, players_map: Dict[str, dict]):
     st.markdown(f"### {title}")
@@ -507,12 +419,9 @@ def roster_click_list(df: pd.DataFrame, title: str, *, players_map: Dict[str, di
     for idx, row in df.iterrows():
         name = str(row.get(ROSTER_COLS["player"]) or "").strip()
         k = _norm_player_key(name)
-
-        # country comes from players_db (roster has none) — but if you add it later, we can read it too.
         cc = ""
         if k and k in players_map:
             cc = str(players_map[k].get("country") or "").strip().upper()
-
         flag = _country_to_flag_emoji(cc)
 
         pos = str(row.get(ROSTER_COLS["pos"]) or "").strip()
@@ -529,16 +438,7 @@ def roster_click_list(df: pd.DataFrame, title: str, *, players_map: Dict[str, di
 
     return chosen
 
-
-# =========================================================
-# Transactions
-# =========================================================
-TX_COLS = [
-    "trade_id","timestamp","season","owner_a","owner_b",
-    "a_players","b_players","a_picks","b_picks","a_cash","b_cash",
-    "status","notes"
-]
-
+TX_COLS = ["trade_id","timestamp","season","owner_a","owner_b","a_players","b_players","a_picks","b_picks","a_cash","b_cash","status","notes"]
 
 def _tx_read(path: str) -> pd.DataFrame:
     if os.path.exists(path):
@@ -552,21 +452,15 @@ def _tx_read(path: str) -> pd.DataFrame:
             pass
     return pd.DataFrame(columns=TX_COLS)
 
-
 def _tx_write(path: str, df: pd.DataFrame) -> None:
     try:
         df.to_csv(path, index=False)
     except Exception:
         pass
 
-
 def _make_trade_id() -> str:
     return "TR-" + datetime.now().strftime("%Y%m%d") + "-" + hex(int(time.time() * 1000))[-6:].upper()
 
-
-# =========================================================
-# Backup / Restore (local zip)
-# =========================================================
 def _zip_backup(dest_dir: str, files: list[str]) -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = os.path.join(dest_dir, f"backup_{ts}.zip")
@@ -576,7 +470,6 @@ def _zip_backup(dest_dir: str, files: list[str]) -> str:
                 arc = os.path.relpath(fp, DATA_DIR) if fp.startswith(DATA_DIR + os.sep) else os.path.basename(fp)
                 z.write(fp, arcname=arc)
     return out_path
-
 
 def _restore_zip(zip_path: str, dest_dir: str) -> dict:
     if not os.path.exists(zip_path):
@@ -588,6 +481,15 @@ def _restore_zip(zip_path: str, dest_dir: str) -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+def _restore_csv_file(src_csv: str, dst_csv: str) -> dict:
+    if not src_csv or not os.path.exists(src_csv):
+        return {"ok": False, "error": "source csv not found"}
+    try:
+        os.makedirs(os.path.dirname(dst_csv) or ".", exist_ok=True)
+        shutil.copy2(src_csv, dst_csv)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def _drive_available() -> bool:
     try:
@@ -600,11 +502,7 @@ def _drive_available() -> bool:
     except Exception:
         return False
 
-
-# =========================================================
-# UI
-# =========================================================
-st.title("Pool Hockey — Full 4 (Fused)")
+st.title("Pool Hockey — Full 4 (Admin restore CSV + Drive path)")
 
 season = st.text_input("Saison active", value="2025-2026")
 roster_file = _roster_path(season)
@@ -614,6 +512,7 @@ active_tab = st.radio("Navigation", TABS, horizontal=True)
 
 if active_tab == "🏠 Home":
     st.info("Home clean. (Players DB est seulement dans Gestion Admin.)")
+    st.caption(f"DATA_DIR = {DATA_DIR}")
     st.caption(f"Roster attendu: {roster_file}")
 
 elif active_tab == "🧾 Alignement":
@@ -625,7 +524,6 @@ elif active_tab == "🧾 Alignement":
 
     df_r = pd.read_csv(roster_file)
 
-    # Validate required columns
     missing = [ROSTER_COLS["owner"], ROSTER_COLS["player"], ROSTER_COLS["pos"], ROSTER_COLS["salary"], ROSTER_COLS["slot"]]
     missing = [c for c in missing if c not in df_r.columns]
     if missing:
@@ -639,7 +537,8 @@ elif active_tab == "🧾 Alignement":
     owner = st.selectbox("Équipe", owners) if owners else ""
     view = df_r[df_r[ROSTER_COLS["owner"]].astype(str).eq(owner)].copy() if owner else df_r.copy()
 
-    view["_bucket"] = view[ROSTER_COLS["slot"]].apply(_slot_bucket)
+    statut_col = ROSTER_COLS["status"] if ROSTER_COLS["status"] in view.columns else ""
+    view["_bucket"] = view.apply(lambda r: _slot_bucket(r.get(ROSTER_COLS["slot"]), r.get(statut_col, "")), axis=1)
 
     actifs = view[view["_bucket"].eq("ACTIFS")].copy()
     banc = view[view["_bucket"].eq("BANC")].copy()
@@ -772,57 +671,89 @@ elif active_tab == "🛠️ Gestion Admin":
             st.json(res)
 
     st.divider()
-    st.markdown("### 🧷 Backups & Restore (Local + Drive optionnel)")
-    backup_dir = st.text_input("Backup folder", value=BACKUP_DIR_DEFAULT)
+    st.markdown("### 🧷 Backups & Restore")
+    st.caption("Drive target (chemin humain): My Drive / PMS Pool Data / PoolHockeyData  — (nécessite OAuth + folder_id pour API).")
 
-    critical_files = [
-        roster_file,
-        PLAYERS_DB_PATH_DEFAULT,
-        BACKUP_HISTORY_PATH_DEFAULT,
-        NHL_COUNTRY_CACHE_DEFAULT,
-        CLUB_COUNTRY_CACHE_DEFAULT,
-        NHL_COUNTRY_CHECKPOINT_DEFAULT,
-    ]
+    backup_dir = st.text_input("Backup folder (local)", value=BACKUP_DIR_DEFAULT)
 
-    b1, b2, b3 = st.columns(3)
-    with b1:
-        if st.button("📦 Create local backup (zip)"):
-            if not _anti_double_run_guard("backup_zip", 0.8):
-                st.info("Patiente une seconde.")
-            else:
-                os.makedirs(backup_dir, exist_ok=True)
-                zp = _zip_backup(backup_dir, critical_files)
-                st.success(f"Backup created: {zp}")
+    critical_targets = {
+        "Roster (equipes_joueurs_...)": roster_file,
+        "Players DB (hockey.players.csv)": PLAYERS_DB_PATH_DEFAULT,
+        "Backup history (backup_history.csv)": BACKUP_HISTORY_PATH_DEFAULT,
+        "Country cache": NHL_COUNTRY_CACHE_DEFAULT,
+        "Club cache": CLUB_COUNTRY_CACHE_DEFAULT,
+        "Country checkpoint": NHL_COUNTRY_CHECKPOINT_DEFAULT,
+    }
 
-    with b2:
+    if st.button("📦 Create local backup (zip)"):
+        if not _anti_double_run_guard("backup_zip", 0.8):
+            st.info("Patiente une seconde.")
+        else:
+            os.makedirs(backup_dir, exist_ok=True)
+            zp = _zip_backup(backup_dir, list(critical_targets.values()))
+            st.success(f"Backup created: {zp}")
+
+    st.markdown("#### ♻️ Restore from ZIP (local)")
+    zips = []
+    try:
+        if os.path.exists(backup_dir):
+            zips = sorted([f for f in os.listdir(backup_dir) if f.lower().endswith('.zip')], reverse=True)
+    except Exception:
         zips = []
-        try:
-            if os.path.exists(backup_dir):
-                zips = sorted([f for f in os.listdir(backup_dir) if f.lower().endswith(".zip")], reverse=True)
-        except Exception:
-            zips = []
-        pick = st.selectbox("Restore from zip", options=[""] + zips)
-        if st.button("♻️ Restore selected zip"):
-            if not pick:
-                st.warning("Choisis un zip.")
+    pick_zip = st.selectbox("ZIP", options=[""] + zips, key="pick_zip")
+    if st.button("♻️ Restore selected ZIP"):
+        if not pick_zip:
+            st.warning("Choisis un zip.")
+        else:
+            res = _restore_zip(os.path.join(backup_dir, pick_zip), DATA_DIR)
+            if res.get("ok"):
+                st.success("Restore ZIP completed. Relance l’app si nécessaire.")
             else:
-                res = _restore_zip(os.path.join(backup_dir, pick), DATA_DIR)
+                st.error(res.get("error") or "Restore ZIP failed")
+
+    st.markdown("#### 🧩 Restore selected CSV (local)")
+    st.caption("Choisis un CSV de backup et écrase le fichier cible (Roster / Players DB / Backup history).")
+
+    csvs = []
+    try:
+        if os.path.exists(backup_dir):
+            csvs = sorted([f for f in os.listdir(backup_dir) if f.lower().endswith('.csv')], reverse=True)
+    except Exception:
+        csvs = []
+
+    a, b = st.columns([1.2, 1.2])
+    with a:
+        pick_csv = st.selectbox("Backup CSV (source)", options=[""] + csvs, key="pick_csv")
+    with b:
+        target_name = st.selectbox("Restore into (target)", options=list(critical_targets.keys()), key="pick_target")
+
+    if st.button("✅ Restore selected CSV → target", type="primary"):
+        if not pick_csv:
+            st.warning("Choisis un CSV source.")
+        else:
+            src_path = os.path.join(backup_dir, pick_csv)
+            dst_path = critical_targets.get(target_name)
+            if not dst_path:
+                st.error("Target invalide.")
+            else:
+                res = _restore_csv_file(src_path, dst_path)
                 if res.get("ok"):
-                    st.success("Restore completed. Relance l’app si nécessaire.")
+                    st.success(f"Restore OK → {dst_path}")
+                    st.caption("Relance l’app si tu veux recharger les caches/CSV.")
                 else:
                     st.error(res.get("error") or "Restore failed")
 
-    with b3:
-        st.markdown("**Drive**")
-        if _drive_available():
-            st.success("Drive détecté (secrets + libs).")
-            st.caption("Intégration Drive complète = prochaine itération (OAuth / folder_id / upload & list).")
-        else:
-            st.info("Drive non configuré (normal).")
+    st.markdown("#### ☁️ Drive (optionnel)")
+    if _drive_available():
+        st.success("Drive détecté (secrets + libs).")
+        st.caption("Prochaine étape: lister le dossier Drive et restaurer/backup directement via folder_id.")
+    else:
+        st.info("Drive API non configurée ici (normal). Si tu veux Drive direct: ajoute folder_id + OAuth valid scope.")
 
     st.divider()
     st.caption("Debug paths:")
     st.code("\\n".join([
+        f"DATA_DIR={DATA_DIR}",
         roster_file,
         PLAYERS_DB_PATH_DEFAULT,
         BACKUP_HISTORY_PATH_DEFAULT,
