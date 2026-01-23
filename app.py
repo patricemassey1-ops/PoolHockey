@@ -280,15 +280,16 @@ def _nhl_search_playerid(name: str) -> int | None:
             return None
 
         # 1) strict match on full name
+        # 1) strict match on full name
         for it in items:
-            pass
-        try:
+            try:
                 pid_i = int(it.get("playerId") or it.get("id") or 0)
-        except Exception:
+            except Exception:
                 continue
             nm = str(it.get("name") or it.get("playerName") or "").strip()
             if nm and _soft(nm) == nk:
                 return pid_i
+
 
         # 2) relaxed match: same last name + first name prefix/initial (unique)
         cand = []
