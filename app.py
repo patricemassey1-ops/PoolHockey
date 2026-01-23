@@ -43,62 +43,6 @@ def _unused_call_update_players_db(**kwargs):
 # =====================================================
 # Players DB fill LOCK (prevents Drive sync overwrite)
 # =====================================================
-
-
-# ==============================
-# Public API used by players_db module
-# ==============================
-
-def update_players_db(
-    path: str,
-    season_lbl=None,
-    fill_country: bool = True,
-    resume_only: bool = False,
-    reset_progress: bool = False,
-    roster_only: bool = False,
-    save_every: int = 500,
-    cache_path: str | None = None,
-    progress_cb=None,
-    max_calls: int = 5000,
-    **_ignored,
-):
-    """Update hockey.players.csv using NHL public APIs (free).
-
-    This is a thin wrapper around the internal implementation in this file.
-    It exists so the split module `players_db.py` can call a stable function.
-
-    Notes:
-    - `resume_only`, `reset_progress`, `save_every`, `cache_path`, `max_calls` are accepted for compatibility.
-    - The internal updater is idempotent and uses caching internally where available.
-    """
-    # Run internal updater (returns updated dataframe + stats)
-    df_upd, stats = _update_players_db_impl_via_nhl_apis(season_lbl=season_lbl)
-
-    # Ensure destination folder exists
-    try:
-        d = os.path.dirname(path) if isinstance(path, str) else ""
-        if d:
-            os.makedirs(d, exist_ok=True)
-    except Exception:
-        pass
-
-    # Save
-    try:
-        df_upd.to_csv(path, index=False)
-        stats = stats or {}
-        stats["saved_to"] = path
-    except Exception as e:
-        stats = stats or {}
-        stats["save_error"] = str(e)
-
-    # Notify progress at end (best effort)
-    if callable(progress_cb):
-        try:
-            progress_cb(len(df_upd), len(df_upd), "DONE")
-        except Exception:
-            pass
-
-    return df_upd, stats
 def _pdb_lock_on():
     try: st.session_state["pdb_lock"] = True
     except Exception: pass
@@ -1094,7 +1038,7 @@ def _unused_update_players_db(
     max_calls: int = 5000,
     **_ignored,
 ):
-    return update_players_db(
+    return _update_players_db_impl(
         path=path,
         season_lbl=season_lbl,
         fill_country=fill_country,
@@ -10134,7 +10078,7 @@ if active_tab == "🛠️ Gestion Admin":
 #   - Source de vérité pour Country (drapeaux)
 #   - Remplissage auto via NHL API + cache + resume + autorun
 # -----------------------------
-with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
+if active_tab == "🛠️ Gestion Admin" and is_admin:
     st.caption("Source de vérité pour **Country** (drapeaux), et souvent **Level/Expiry** selon ta config.")
 
     # Local path (fallback)
@@ -10155,8 +10099,7 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
             pdb_path=pdb_path,
             data_dir=DATA_DIR,
             season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
-            update_fn=update_players_db,
-)
+        )
     except Exception as e:
         st.error(f"❌ Players DB module KO — {type(e).__name__}: {e}")
 # -----------------------------
@@ -10518,7 +10461,7 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
     # -----------------------------
     # 💰 Plafonds (édition admin)
     # -----------------------------
-    with st.expander("💰 Plafonds (Admin)", expanded=False):
+    if active_tab == "🛠️ Gestion Admin" and is_admin:
         locked = bool(st.session_state.get("LOCKED", False))
         if locked:
             st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
@@ -10712,7 +10655,7 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
     # 🌐 NHL (API gratuite) — Auto-mapping IDs joueurs
     #   ✅ Remplace complètement API payante
     # =====================================================
-    with st.expander("🌐 NHL (API gratuite) — Auto-mapping IDs joueurs", expanded=False):
+    if active_tab == "🛠️ Gestion Admin" and is_admin:
         st.caption(
             "Récupère les rosters via l’API publique NHL (sans clé) et auto-map des IDs dans data/hockey.players.csv. "
             "Pratique pour enrichir ton Players DB sans clé payante."
@@ -11025,7 +10968,7 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
                 except Exception as e:
                     st.error(f"❌ Auto-mapping KO — {type(e).__name__}: {e}")
 
-    with st.expander("📦 Transactions (Admin)", expanded=False):
+    if active_tab == "🛠️ Gestion Admin" and is_admin:
         st.caption("Sauvegarde une proposition de transaction (ne modifie pas les alignements).")
 
         owner_a = str(st.session_state.get("tx_owner_a", "") or "").strip()
