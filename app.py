@@ -6924,6 +6924,30 @@ season_pick = st.sidebar.selectbox("Saison", saisons, index=saisons.index(auto),
 st.session_state["season"] = season_pick
 st.session_state["LOCKED"] = saison_verrouillee(season_pick)
 
+# ✅ Indicateur checkpoint (resume / API)
+_ckpt_files = []
+try:
+    _ck1 = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
+    if os.path.exists(_ck1):
+        _ckpt_files.append(("nhl_country_checkpoint.json", _ck1))
+    for _fn in os.listdir(DATA_DIR) if os.path.isdir(DATA_DIR) else []:
+        if _fn.startswith("checkpoint_") and _fn.lower().endswith(".json"):
+            _p = os.path.join(DATA_DIR, _fn)
+            if os.path.exists(_p):
+                _ckpt_files.append((_fn, _p))
+except Exception:
+    _ckpt_files = []
+
+if _ckpt_files:
+    try:
+        _newest = max(_ckpt_files, key=lambda t: os.path.getmtime(t[1]))
+        _ts = datetime.fromtimestamp(os.path.getmtime(_newest[1]), TZ_TOR).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        _newest = _ckpt_files[0]
+        _ts = ""
+    st.sidebar.warning("✅ Checkpoint file detected: **%s**%s" % (_newest[0], (" — " + _ts) if _ts else ""))
+
+
 
 def _tx_pending_from_state() -> bool:
     """Detecte une transaction en cours (sélections joueurs/picks/cash) via session_state."""
@@ -10461,7 +10485,8 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
     # -----------------------------
     # 💰 Plafonds (édition admin)
     # -----------------------------
-    with st.expander("💰 Plafonds (Admin)", expanded=False):
+    show_plafonds_admin = st.toggle("💰 Plafonds (Admin)", value=False, key="admin_show_plafonds")
+    if show_plafonds_admin:
         locked = bool(st.session_state.get("LOCKED", False))
         if locked:
             st.warning("🔒 Saison verrouillée : les plafonds sont bloqués pour cette saison.")
@@ -10487,7 +10512,8 @@ with st.expander("🗃️ Players DB (hockey.players.csv)", expanded=False):
     #   - liste déroulante Équipe (destination)
     #   - puis même UI que Joueurs autonomes
     # -----------------------------
-    with st.expander("➕ Ajout de joueurs (Admin)", expanded=False):
+    show_addplayers_admin = st.toggle("➕ Ajout de joueurs (Admin)", value=False, key="admin_show_addplayers")
+    if show_addplayers_admin:
         teams_add = sorted(list(LOGOS.keys())) if 'LOGOS' in globals() else []
         if not teams_add:
             teams_add = [str(get_selected_team() or 'Whalers').strip() or 'Whalers']
@@ -11145,4 +11171,3 @@ def _call_update_players_db(**kwargs):
             kwargs = {k: v for k, v in kwargs.items() if k in params}
 
     return fn(**kwargs)
-
