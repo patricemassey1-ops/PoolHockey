@@ -255,6 +255,7 @@ def _nhl_search_playerid(name: str) -> int | None:
 
     def _soft(s: str) -> str:
         if "_soft_player_key" in globals():
+            pass
         try:
                 return _soft_player_key(s)
         except Exception:
@@ -308,6 +309,7 @@ def _nhl_search_playerid(name: str) -> int | None:
                 continue
             ok = (a.startswith(b) or b.startswith(a) or a[:1] == b[:1])
             if ok:
+                pass
                 try:
                     pid_i = int(it.get("playerId") or it.get("id") or 0)
                 except Exception:
@@ -548,6 +550,7 @@ def update_players_db(
     # roster_only filter (names from imported roster if present)
     roster_set = None
     if roster_only:
+        pass
         try:
             roster_df = st.session_state.get("data")
             if isinstance(roster_df, pd.DataFrame) and "Joueur" in roster_df.columns:
@@ -677,6 +680,7 @@ def update_players_db(
 
         # progress callback
         if callable(progress_cb):
+            pass
         try:
                 progress_cb({"phase":"Country", "index":cursor, "total": total, "updated": updated, "processed": processed})
         except Exception:
@@ -684,6 +688,7 @@ def update_players_db(
 
         # periodic saves
         if save_every and processed % int(save_every) == 0:
+            pass
         try:
                 df.to_csv(path, index=False)
         except Exception:
@@ -762,6 +767,7 @@ def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
 
         # If it looks like a single-column TSV (header contains tabs), re-read as TSV.
         if isinstance(df, pd.DataFrame) and (df.shape[1] <= 1):
+            pass
         try:
                 with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
                     head = f.readline()
@@ -772,6 +778,7 @@ def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
 
         # 2) Auto-detect delimiter if still single column
         if isinstance(df, pd.DataFrame) and (df.shape[1] <= 1):
+            pass
         try:
                 df2 = pd.read_csv(csv_path, sep=None, engine="python")
                 if isinstance(df2, pd.DataFrame) and df2.shape[1] > df.shape[1]:
@@ -1064,6 +1071,7 @@ def _drive_next_vname(backups, base_filename: str):
         if n.startswith(base + '_v'):
             m = re.match(re.escape(base) + r'_v(\d{3})\.csv$', n)
             if m:
+                pass
                 try:
                     mx = max(mx, int(m.group(1)))
                 except Exception:
@@ -1467,6 +1475,7 @@ def nhl_find_playerid_by_name_cached(full_name: str, season_lbl: str | None = No
         for p in players:
             nm = _norm_fullname_for_match(p.get("fullName",""))
             if nm and nm == target:
+                pass
                 try:
                     return int(p.get("playerId") or 0)
                 except Exception:
@@ -1494,6 +1503,7 @@ def nhl_find_playerid_by_name_cached(full_name: str, season_lbl: str | None = No
                 if not pid or not nm:
                     continue
                 if _norm_fullname_for_match(nm) == target:
+                    pass
                     try:
                         return int(pid)
                     except Exception:
@@ -1528,6 +1538,7 @@ def upsert_single_player_from_api(player_id: int) -> bool:
         path = os.path.join(DATA_DIR, "hockey.players.csv")
 
     if os.path.exists(path):
+        pass
         try:
             df = pd.read_csv(path)
         except Exception:
@@ -1757,6 +1768,7 @@ def _update_players_db_impl_via_nhl_apis(season_lbl: str | None = None) -> tuple
         path = os.path.join(DATA_DIR, "hockey.players.csv")
 
     if os.path.exists(path):
+        pass
         try:
             df0 = pd.read_csv(path)
         except Exception:
@@ -2180,6 +2192,7 @@ def _unused_update_players_db(
     # ---- roster_only filter (by Player name)
     roster_set = None
     if roster_only:
+        pass
         try:
             roster_df = st.session_state.get("data")
             # If roster isn't loaded here, fallback to full DB (roster_set=None)
@@ -2327,6 +2340,7 @@ def _unused_update_players_db(
         stats["remaining"] = max(total - cursor, 0)
 
         if progress_cb:
+            pass
         try:
                 progress_cb(min(cursor, total), max(total, 1), phase)
         except Exception:
@@ -2401,6 +2415,7 @@ def _unused_update_players_db(
             pass
 
         if save_every and save_counter >= int(save_every):
+            pass
         try:
                 _save_csv_atomic(path, df)
                 _save_json_atomic(cache_path, cache)
@@ -2411,6 +2426,7 @@ def _unused_update_players_db(
             save_counter = 0
 
         if processed % 50 == 0:
+            pass
         try:
                 time.sleep(0.05)
         except Exception:
@@ -3410,6 +3426,7 @@ def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 
     # Save only if we changed something
     stats['ran'] = True
     if stats['filled_playerid'] or stats['filled_country']:
+        pass
         try:
             df.to_csv(path, index=False)
         except Exception:
@@ -3646,6 +3663,7 @@ def _cap_to_int(x) -> int:
     if x is None:
         return 0
     if isinstance(x, (int, float)):
+        pass
         try:
             if pd.isna(x):
                 return 0
@@ -4123,6 +4141,7 @@ def apply_players_level(df: pd.DataFrame) -> pd.DataFrame:
 
     # If not loaded yet, try reading default path
     if (pdb is None) or (not isinstance(pdb, pd.DataFrame)) or pdb.empty:
+        pass
         try:
             pdb_path = os.path.join(DATA_DIR, 'hockey.players.csv') if 'DATA_DIR' in globals() else 'data/hockey.players.csv'
             if os.path.exists(pdb_path):
@@ -4669,6 +4688,7 @@ def update_points_periods_from_roster(season_lbl: str) -> pd.DataFrame:
             pos = pos_map.get((owner,player),'')
             pts0 = 0.0
             if pid:
+                pass
                 try:
                     pts0 = _fantasy_points_for_player(pid, pos, season_lbl, rules)
                 except Exception:
@@ -4776,6 +4796,7 @@ def team_points_snapshot(owner: str, season_lbl: str) -> tuple[float, pd.DataFra
             start = 0.0
         cur = 0.0
         if pid:
+            pass
         try:
                 cur = _fantasy_points_for_player(pid, pos, season_lbl, rules)
         except Exception:
@@ -4957,6 +4978,7 @@ def _picks_path(season_lbl: str) -> str:
 def load_picks(season_lbl: str, teams: list[str]) -> dict:
     path = _picks_path(season_lbl)
     if os.path.exists(path):
+        pass
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f) or {}
@@ -4993,6 +5015,7 @@ def load_buyouts(season_lbl: str) -> pd.DataFrame:
     path = _buyouts_path(season_lbl)
     cols = ["timestamp", "season", "proprietaire", "joueur", "salaire", "penalite", "bucket"]
     if os.path.exists(path):
+        pass
         try:
             b = pd.read_csv(path)
             for c in cols:
@@ -5349,6 +5372,7 @@ def load_trade_market(season_lbl: str) -> pd.DataFrame:
     path = _trade_market_path(season_lbl)
     cols = ["season", "proprietaire", "joueur", "is_available", "updated_at"]
     if os.path.exists(path):
+        pass
         try:
             t = pd.read_csv(path)
             for c in cols:
@@ -5600,6 +5624,7 @@ def _country_override_flag_from_players_db(player_id: int, player_name: str | No
 
     # Match by playerId first
     if pid > 0 and 'playerId' in db.columns:
+        pass
         try:
             pid_series = pd.to_numeric(db['playerId'], errors='coerce').fillna(0).astype(int)
             m = pid_series.eq(pid)
@@ -5613,6 +5638,7 @@ def _country_override_flag_from_players_db(player_id: int, player_name: str | No
 
     # Fallback by name
     if player_name and 'Player' in db.columns:
+        pass
         try:
             key = _norm_name(player_name)
             # also try 'Last, First' swap if present
@@ -5670,6 +5696,7 @@ def _player_flag(player_id: int, landing: dict | None = None, player_name: str |
 
     # 3) draft prospects fallback (no NHL playerId yet)
     if player_name:
+        pass
         try:
             mp = _draft_prospects_map_cached()
             raw = mp.get(_norm_name(player_name), '') if isinstance(mp, dict) else ''
@@ -6041,11 +6068,13 @@ def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
 
     # fallback to last columns if not found
     if lvl_col is None:
+        pass
         try:
             lvl_col = dfc.columns[-1]
         except Exception:
             lvl_col = None
     if end_col is None:
+        pass
         try:
             end_col = dfc.columns[-2]
         except Exception:
@@ -6110,6 +6139,7 @@ def load_players_db_enriched(pdb_path: str, mtime_pdb: float = 0.0, mtime_contra
     # merge contracts if present
     contracts_path = os.path.join(os.path.dirname(pdb_path), "puckpedia.contracts.csv")
     if os.path.exists(contracts_path):
+        pass
         try:
             dfc = load_puckpedia_contracts(contracts_path, mtime=mtime_contracts)
         except Exception:
@@ -6296,6 +6326,7 @@ def process_pending_moves():
 
     st.session_state["pending_moves"] = keep
     if applied:
+        pass
         try:
             persist_data(st.session_state.get("data"), st.session_state.get("season"))
         except Exception:
@@ -6483,6 +6514,7 @@ def open_move_dialog():
 
         # fallback: try Players DB mapping by name
         if cur_pid <= 0:
+            pass
         try:
                 pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
                 if not pdb_path:
@@ -6521,6 +6553,7 @@ def open_move_dialog():
         landing = None
         headshot = ""
         if cur_pid > 0:
+            pass
         try:
                 landing = nhl_player_landing_cached(cur_pid)
                 if isinstance(landing, dict):
@@ -6530,6 +6563,7 @@ def open_move_dialog():
 
         # Photo du joueur (affichée tout de suite quand on clique son nom)
         if headshot:
+            pass
         try:
                 st.image(headshot, width=140)
         except Exception:
@@ -7055,6 +7089,7 @@ def nhl_player_stats_combo(player_id_raw: str, season_lbl: str) -> dict:
     def _get_num(d, keys):
         for k in keys:
             if k in d:
+                pass
                 try:
                     v = float(d.get(k) or 0)
                     if v != v:
@@ -7189,6 +7224,7 @@ def fantasy_points_timeseries(player_id_raw: str, position_raw: str, season_lbl:
             otl = 1 if dec in ('OTL','SOL','OT','SO') else 0
             # some payloads use 'overtimeLosses' or 'otLosses'
             if not otl:
+                pass
                 try:
                     otl = int(float(it.get('otLosses') or it.get('overtimeLosses') or it.get('ot') or 0))
                     otl = 1 if otl > 0 else 0
@@ -7490,6 +7526,7 @@ st.session_state["HISTORY_FILE"] = HISTORY_FILE
 pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
 pdb_mtime = 0.0
 if pdb_path and os.path.exists(pdb_path):
+    pass
     try:
         pdb_mtime = float(os.path.getmtime(pdb_path))
     except Exception:
@@ -7505,6 +7542,7 @@ if "data_season" not in st.session_state or st.session_state["data_season"] != s
     # Streamlit Cloud can reset local disk: restore roster file from Drive if missing.
     _ensure_local_csv_from_drive(DATA_FILE)
     if os.path.exists(DATA_FILE):
+        pass
         try:
             df_loaded = pd.read_csv(DATA_FILE)
         except Exception:
@@ -7529,6 +7567,7 @@ else:
     last_pdb_mtime = float(st.session_state.get('_last_pdb_mtime', 0.0) or 0.0)
     cur_pdb_mtime = float(pdb_mtime or 0.0)
     if cur_pdb_mtime != last_pdb_mtime:
+        pass
         try:
             d0 = clean_data(d0)
             d0 = enrich_level_from_players_db(d0)
@@ -7553,6 +7592,7 @@ else:
 # 3) PROCESS PENDING MOVES (APRÈS data + history)
 # -----------------------------------------------------
 if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
+    pass
     try:
         process_pending_moves()
     except Exception as e:
@@ -7601,6 +7641,7 @@ def _tx_pending_from_state() -> bool:
             if isinstance(v, (list, tuple, set)) and len(v) > 0:
                 return True
         if k.startswith(("tx_cash_", "tx_ret_")):
+            pass
         try:
                 if int(v or 0) > 0:
                     return True
@@ -7743,6 +7784,7 @@ if _has_data and _has_hist:
 
     # 1) Appliquer les déplacements programmés
     if "process_pending_moves" in globals() and callable(globals()["process_pending_moves"]):
+        pass
         try:
             process_pending_moves()
         except Exception as e:
@@ -7750,6 +7792,7 @@ if _has_data and _has_hist:
 
     # 2) Dialog preview GC (si présent)
     if "open_gc_preview_dialog" in globals() and callable(globals()["open_gc_preview_dialog"]):
+        pass
         try:
             open_gc_preview_dialog()
         except Exception as e:
@@ -7757,6 +7800,7 @@ if _has_data and _has_hist:
 
     # 3) Dialog MOVE (si présent)  ✅ IMPORTANT
     if "open_move_dialog" in globals() and callable(globals()["open_move_dialog"]):
+        pass
         try:
             open_move_dialog()
         except Exception as e:
@@ -8185,6 +8229,7 @@ def render_player_profile_page():
     # Players DB (pour playerId)
     pdb = st.session_state.get("players_db")
     if not isinstance(pdb, pd.DataFrame) or pdb.empty:
+        pass
         try:
             pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
             if not pdb_path:
@@ -8279,6 +8324,7 @@ def render_player_profile_page():
                 pts.append(float(pts_cache[key] or 0))
                 continue
             if pid:
+                pass
                 try:
                     val = float(_fantasy_points_for_player(pid, pos, season_lbl, rules) or 0)
                 except Exception:
@@ -8307,6 +8353,7 @@ def render_player_profile_page():
             pid = str(name_to_pid.get(k, "") or "").strip()
             # fallback from dfv
             if not pid:
+                pass
                 try:
                     pid = str(dfv[dfv["Joueur"].eq(pick)].iloc[0].get("playerId", "") or "").strip()
                 except Exception:
@@ -8597,6 +8644,7 @@ def render_player_profile_page():
                 except Exception:
                     pid = ""
                 if pid:
+                    pass
                     try:
                         st.session_state["profile_player_id"] = int(float(pid))
                     except Exception:
@@ -8632,6 +8680,7 @@ def render_player_profile_page():
     cols = st.columns([1, 2], vertical_alignment="top")
     with cols[0]:
         if headshot:
+            pass
         try:
                 st.image(headshot, width=200)
         except Exception:
@@ -8888,6 +8937,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         nums = re.findall(r"\d{4}", season)
         base_year = None
         if len(nums) >= 2:
+            pass
         try:
                 base_year = int(nums[-1])
         except Exception:
@@ -8931,6 +8981,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
 
         for ylbl in years:
             if ylbl not in cache:
+                pass
                 try:
                     cache[ylbl] = load_picks(ylbl, teams)
                 except Exception:
@@ -9324,6 +9375,7 @@ def _players_name_to_pid_map() -> dict:
 
     cap_min, cap_max = (0, 30_000_000)
     if cap_col and cap_col in df_db.columns:
+        pass
         try:
             vals = df_db[cap_col].apply(_cap_to_int)
             if vals.notna().any():
@@ -9687,6 +9739,7 @@ if active_tab == "🏠 Home":
     #   Affiche un encart s'il y a des joueurs "disponibles" sur le marché.
     # =====================================================
     if "load_trade_market" in globals() and callable(globals()["load_trade_market"]):
+        pass
         try:
             market = load_trade_market(season)
 
@@ -9706,6 +9759,7 @@ if active_tab == "🏠 Home":
                 # Dernière MAJ (best effort)
                 last_upd = ""
                 if "updated_at" in on.columns:
+                    pass
                     try:
                         dt = pd.to_datetime(on["updated_at"], errors="coerce")
                         if dt.notna().any():
@@ -10319,6 +10373,7 @@ elif active_tab == "⚖️ Transactions":
                 prefixes = ["tx_players_A","tx_players_B","tx_picks_A","tx_picks_B","tx_cash_A","tx_cash_B","tx_confirm_submit__"]
                 for kk in list(st.session_state.keys()):
                     if any(str(kk).startswith(pref) for pref in prefixes):
+                        pass
                         try:
                             del st.session_state[kk]
                         except Exception:
@@ -10326,6 +10381,7 @@ elif active_tab == "⚖️ Transactions":
                 # retenues
                 for k in list(st.session_state.keys()):
                     if k.startswith("tx_ret_A_") or k.startswith("tx_ret_B_"):
+                        pass
                         try:
                             del st.session_state[k]
                         except Exception:
@@ -10497,6 +10553,7 @@ if active_tab == "🛠️ Gestion Admin":
                 a1, a2, a3 = st.columns([1,1,2], vertical_alignment="center")
                 with a1:
                     if st.button("🛡️ Backup now", key=f"bk_one__{fn}", use_container_width=True, disabled=(not existing)):
+                        pass
                         try:
                             res = _backup_copy_both(s, folder_id, fn)
                             st.success(f"✅ Backups créés: {res['v_name']} + {res['ts_name']}")
@@ -10515,6 +10572,7 @@ if active_tab == "🛠️ Gestion Admin":
                     backups = _drive_list_backups(s, folder_id, fn)
                     latest = backups[0] if backups else None
                     if st.button("⏪ Restore latest", key=f"rst_latest__{fn}", use_container_width=True, disabled=(not existing or not latest)):
+                        pass
                         try:
                             _restore_from_backup(s, fn, latest["id"], folder_id=folder_id)
                             st.success(f"✅ Restored depuis: {latest['name']}")
@@ -10551,6 +10609,7 @@ if active_tab == "🛠️ Gestion Admin":
                     options = {f"{r['name']}  —  {r['modifiedTime']}": r["id"] for r in rows}
                     choice = st.selectbox("Restaurer un backup spécifique", list(options.keys()), key=f"pick_one__{fn}")
                     if st.button("✅ Restore selected", key=f"rst_sel_one__{fn}", use_container_width=True):
+                        pass
                         try:
                             _restore_from_backup(s, fn, options[choice], folder_id=folder_id)
                             st.success(f"✅ Restored depuis: {choice.split('  —  ')[0]}")
@@ -10574,6 +10633,7 @@ if active_tab == "🛠️ Gestion Admin":
 
                 confirm = st.checkbox("✅ Je confirme supprimer les anciens backups", key=f"confirm_clean_one__{fn}")
                 if st.button("🧹 Nettoyer maintenant", key=f"clean_one__{fn}", use_container_width=True, disabled=(not confirm)):
+                    pass
                     try:
                         res = _drive_cleanup_backups(s, folder_id, fn, keep_v=int(keep_v), keep_ts=int(keep_ts))
                         st.success(
@@ -10610,6 +10670,7 @@ if active_tab == "🛠️ Gestion Admin":
                 st.caption(f"Exécute au plus une fois par jour après {hour_mtl}:00 (America/Montreal) via un marker Drive.")
 
                 if st.button("🌙 Lancer maintenant (si éligible)", use_container_width=True, key="nightly_run_now"):
+                    pass
                     try:
                         res = nightly_backup_once_per_day(s, folder_id, CRITICAL_FILES, hour_mtl=hour_mtl)
                         st.write(res)
@@ -10647,6 +10708,7 @@ if active_tab == "🛠️ Gestion Admin":
                     st.session_state['admin_autoupdate_minutes'] = st.number_input("Intervalle (minutes)", min_value=5, max_value=180, value=int(st.session_state['admin_autoupdate_minutes']), step=5, key='admin_autoupdate_minutes_in')
                 with cA3:
                     if st.button("▶️ Exécuter maintenant", use_container_width=True, key='admin_autoupdate_run_now'):
+                        pass
                         try:
                             # met à jour points cache pour tous les owners présents
                             rules = load_scoring_rules()
@@ -10780,6 +10842,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             )
 
             if st.checkbox("🔎 Trouver les joueurs sans drapeau", value=False, key="admin_find_missing_flags"):
+                pass
                 try:
                     # petit fallback si _norm_name n'existe pas
                     def _nm(x: str) -> str:
@@ -10872,6 +10935,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                                 c_apply, c_export = st.columns([1, 1])
                                 with c_apply:
                                     if st.button("💾 Appliquer Country", use_container_width=True, key=f"admin_apply_country__{season_pick}"):
+                                        pass
                                         try:
                                             pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
                                             if not pdb_path:
@@ -11063,6 +11127,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             save_init_manifest(manifest)
 
             if init_hist is not None:
+                pass
                 try:
                     h0 = pd.read_csv(io.BytesIO(init_hist.getbuffer()))
                     if "Propriétaire" in h0.columns and "proprietaire" not in h0.columns:
@@ -11167,6 +11232,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
         dest_team = st.selectbox("Équipe (destination)", teams_add, index=teams_add.index(cur_sel), key='admin_addplayer_team')
         # On force le contexte d'équipe pour que l'ajout s'applique au bon owner
         if dest_team and dest_team != str(get_selected_team() or '').strip():
+            pass
         try:
                 pick_team(dest_team)
         except Exception:
@@ -11182,6 +11248,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
         # Source: Players DB (hockey.players.csv)
         pdb = st.session_state.get("players_db")
         if not isinstance(pdb, pd.DataFrame) or pdb.empty:
+            pass
         try:
                 pdb_path = _first_existing(PLAYERS_DB_FALLBACKS) if "PLAYERS_DB_FALLBACKS" in globals() else ""
                 if not pdb_path:
@@ -11221,6 +11288,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                     confirm = st.button("✅ Confirmer l'ajout", use_container_width=True, key="admin_addplayer_confirm")
 
                 if confirm:
+                    pass
                     try:
                         # roster current
                         df_cur = st.session_state.get("data", pd.DataFrame())
@@ -11306,6 +11374,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
     st.markdown("### ♻️ Classement — Recalcul points API")
     st.caption("Vide les caches du classement / points API (utile si tu veux forcer un refresh manuel).")
     if st.button("♻️ Rafraîchir points API (Classement)", use_container_width=True, key="admin_refresh_points_api"):
+        pass
         try:
             st.session_state["classement_cache"] = {}
         except Exception:
@@ -11509,6 +11578,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
         roster_df = st.session_state.get("nhl_free_roster_df")
 
         if fetch_btn:
+            pass
         try:
                 teams = nhl_get_teams()
                 if not teams:
@@ -11563,6 +11633,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             st.caption(f"Fichier cible: {players_path}")
 
             if st.button("🧠 Auto-mapper NHL IDs dans hockey.players.csv", use_container_width=True, key="nhl_free_map"):
+                pass
                 try:
                     if not os.path.exists(players_path):
                         st.error("hockey.players.csv introuvable.")
@@ -11654,6 +11725,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             out = {}
             for k, v in st.session_state.items():
                 if k.startswith(f"tx_ret_{side}_"):
+                    pass
                     try:
                         amt = int(v or 0)
                     except Exception:
@@ -11732,6 +11804,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                 if st.button("🗑️ Réinitialiser la transaction", use_container_width=True, key="admin_tx_reset"):
                     for k in list(st.session_state.keys()):
                         if k.startswith(("tx_players_", "tx_picks_", "tx_cash_", "tx_ret_")) or k in ("tx_owner_a", "tx_owner_b"):
+                            pass
                             try:
                                 del st.session_state[k]
                             except Exception:
