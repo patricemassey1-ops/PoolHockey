@@ -51,8 +51,8 @@ def lock_off():
 def is_locked() -> bool:
     return bool(st.session_state.get("pdb_lock", False))
 
-def render_players_db_admin(*, pdb_path: str, data_dir: str, update_players_db, season_lbl=None):
-    """UI renderer. update_players_db is injected from app.py to avoid circular imports."""
+def render_players_db_admin(*, pdb_path: str, data_dir: str, season_lbl=None):
+    """UI renderer for Players DB (standalone module)."""
     cache_path = nhl_cache_path_default(data_dir)
 
     st.markdown("""<style>
