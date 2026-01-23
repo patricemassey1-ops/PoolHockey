@@ -72,6 +72,303 @@ from players_db import render_players_db_admin
 st.set_page_config(page_title="PMS", layout="wide")
 
 # =====================================================
+# NHL Country fill — used by players_db module (split file)
+#   update_players_db(...) signature MUST match module expectations
+# =====================================================
+import requests
+
+_COUNTRYNAME_TO2 = {
+    "canada": "CA","united states": "US","usa":"US","sweden":"SE","finland":"FI","czechia":"CZ","czech republic":"CZ",
+    "slovakia":"SK","switzerland":"CH","germany":"DE","russia":"RU","latvia":"LV","norway":"NO","denmark":"DK",
+    "austria":"AT","france":"FR",
+}
+_COUNTRY3_TO2 = {
+    "CAN":"CA","USA":"US","SWE":"SE","FIN":"FI","CZE":"CZ","SVK":"SK","CHE":"CH","DEU":"DE","RUS":"RU",
+    "LVA":"LV","NOR":"NO","DNK":"DK","AUT":"AT","FRA":"FR",
+}
+
+def _to_iso2_country(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s or s.lower() in {"nan","none","null","0","-"}:
+        return ""
+    if len(s) == 2 and s.isalpha():
+        return s.upper()
+    if len(s) == 3 and s.isalpha():
+        return _COUNTRY3_TO2.get(s.upper(), "")
+    return _COUNTRYNAME_TO2.get(s.lower(), "")
+
+def _nhl_landing_country(pid: int) -> str:
+    try:
+        pid_i = int(pid)
+    except Exception:
+        return ""
+    url = f"https://api-web.nhle.com/v1/player/{pid_i}/landing"
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            return ""
+        js = r.json() if r.text else {}
+        if not isinstance(js, dict):
+            return ""
+        code = (js.get("birthCountryCode") or js.get("nationalityCode") or js.get("countryCode") or "")
+        code = str(code or "").strip().upper()
+        raw = (js.get("nationality") or js.get("birthCountry") or (js.get("birthPlace") or {}).get("country") or "")
+        raw = str(raw or "").strip()
+        if len(code) == 2 and code.isalpha():
+            return code
+        if len(code) == 3 and code.isalpha():
+            return _COUNTRY3_TO2.get(code, "")
+        return _to_iso2_country(raw)
+    except Exception:
+        return ""
+
+def _nhl_search_playerid(name: str) -> int | None:
+    q = str(name or "").strip()
+    if not q:
+        return None
+    nk = _soft_player_key(q) if "_soft_player_key" in globals() else q.lower()
+    url = "https://search.d3.nhle.com/api/v1/search/player"
+    try:
+        r = requests.get(url, params={"culture":"en-us","limit":"10","q":q}, timeout=15)
+        if r.status_code != 200:
+            return None
+        js = r.json()
+        items = js.get("docs") if isinstance(js, dict) else None
+        if not isinstance(items, list) or not items:
+            return None
+        for it in items:
+            try:
+                pid_i = int(it.get("playerId") or it.get("id") or 0)
+            except Exception:
+                continue
+            nm = str(it.get("name") or it.get("playerName") or "").strip()
+            if nm and ( (_soft_player_key(nm) if "_soft_player_key" in globals() else nm.lower()) == nk ):
+                return pid_i
+        return None
+    except Exception:
+        return None
+
+def _pdb_checkpoint_path(data_dir: str) -> str:
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "nhl_country_checkpoint.json")
+
+def _pdb_read_json(path: str) -> dict:
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                return d if isinstance(d, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _pdb_write_json(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data or {}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def update_players_db(
+    path: str,
+    season_lbl=None,
+    fill_country: bool = True,
+    resume_only: bool = False,
+    reset_progress: bool = False,
+    roster_only: bool = False,
+    save_every: int = 500,
+    cache_path: str | None = None,
+    progress_cb=None,
+    max_calls: int = 300,
+    **_ignored,
+) -> tuple[pd.DataFrame, dict]:
+    """Country fill (resume-safe) for hockey.players.csv used by players_db.py module.
+    - Uses NHL public landing endpoint for nationality/birth country.
+    - Persists cursor/phase in data/nhl_country_checkpoint.json for resume.
+    - Uses JSON cache at cache_path (data/nhl_country_cache.json by default).
+    """
+    path = str(path or "")
+    if not path:
+        path = os.path.join(DATA_DIR, "hockey.players.csv")
+    if not os.path.isabs(path):
+        path = os.path.join(DATA_DIR, path)
+
+    data_dir = str(DATA_DIR)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
+    if not cache_path:
+        cache_path = os.path.join(data_dir, "nhl_country_cache.json")
+    if not os.path.isabs(cache_path):
+        cache_path = os.path.join(data_dir, cache_path)
+
+    ckpt_path = _pdb_checkpoint_path(data_dir)
+    if reset_progress and os.path.exists(ckpt_path):
+        try: os.remove(ckpt_path)
+        except Exception: pass
+
+    try:
+        df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+    except Exception:
+        df = pd.DataFrame()
+
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df, {"error":"Players DB vide ou introuvable", "path":path}
+
+    if "Player" not in df.columns and "Joueur" in df.columns:
+        df["Player"] = df["Joueur"]
+    if "Player" not in df.columns:
+        return df, {"error":"Colonne 'Player' manquante", "path":path}
+    if "playerId" not in df.columns:
+        df["playerId"] = ""
+    if "Country" not in df.columns:
+        df["Country"] = ""
+
+    # roster_only filter (names from imported roster if present)
+    roster_set = None
+    if roster_only:
+        try:
+            roster_df = st.session_state.get("data")
+            if isinstance(roster_df, pd.DataFrame) and "Joueur" in roster_df.columns:
+                roster_set = set(roster_df["Joueur"].astype(str).map(lambda x: _soft_player_key(x) if "_soft_player_key" in globals() else x.strip().lower()))
+        except Exception:
+            roster_set = None
+
+    # candidates indices
+    def _is_missing_country(val) -> bool:
+        s = str(val or "").strip()
+        return (not s) or s.lower() in {"nan","none","null","0","-"}
+
+    cand_idx = []
+    for i, row in df.iterrows():
+        if not _is_missing_country(row.get("Country","")):
+            continue
+        if roster_set is not None:
+            nm = str(row.get("Player","") or "").strip()
+            key = _soft_player_key(nm) if "_soft_player_key" in globals() else nm.lower()
+            if key not in roster_set:
+                continue
+        cand_idx.append(i)
+
+    ck = _pdb_read_json(ckpt_path)
+    cursor = int(ck.get("cursor") or 0)
+    phase = str(ck.get("phase") or "Country")
+
+    if resume_only and cursor > 0:
+        start_at = min(cursor, len(cand_idx))
+    else:
+        start_at = 0
+        cursor = 0
+        phase = "Country"
+
+    cache = _pdb_read_json(cache_path)
+    processed = 0
+    updated = 0
+    skipped_cached = 0
+    errors = 0
+
+    total = len(cand_idx)
+    end_at = min(start_at + int(max_calls or 300), total)
+
+    for pos in range(start_at, end_at):
+        i = cand_idx[pos]
+        row = df.loc[i]
+        nm = str(row.get("Player","") or "").strip()
+        pid = row.get("playerId")
+        pid_i = None
+        try:
+            pid_i = int(pid) if str(pid).strip() else None
+        except Exception:
+            pid_i = None
+
+        # resolve pid if missing (best-effort)
+        if pid_i is None and nm:
+            pid_i = _nhl_search_playerid(nm)
+
+        if pid_i is None:
+            errors += 1
+            processed += 1
+            cursor = pos + 1
+            continue
+
+        k = str(pid_i)
+        cached = cache.get(k) if isinstance(cache, dict) else None
+        if isinstance(cached, dict) and cached.get("ok") is True and cached.get("country"):
+            df.at[i, "Country"] = str(cached.get("country")).strip().upper()
+            if not str(row.get("playerId") or "").strip():
+                df.at[i, "playerId"] = pid_i
+            skipped_cached += 1
+            processed += 1
+            cursor = pos + 1
+        else:
+            ctry = _nhl_landing_country(pid_i) if fill_country else ""
+            if ctry:
+                df.at[i, "Country"] = ctry
+                if not str(row.get("playerId") or "").strip():
+                    df.at[i, "playerId"] = pid_i
+                cache[k] = {"ok": True, "country": ctry}
+                updated += 1
+            else:
+                cache[k] = {"ok": False}
+                errors += 1
+            processed += 1
+            cursor = pos + 1
+
+        # progress callback
+        if callable(progress_cb):
+            try:
+                progress_cb({"phase":"Country", "index":cursor, "total": total, "updated": updated, "processed": processed})
+            except Exception:
+                pass
+
+        # periodic saves
+        if save_every and processed % int(save_every) == 0:
+            try:
+                df.to_csv(path, index=False)
+            except Exception:
+                pass
+            try:
+                _pdb_write_json(cache_path, cache if isinstance(cache, dict) else {})
+            except Exception:
+                pass
+            try:
+                _pdb_write_json(ckpt_path, {"phase":"Country","cursor":cursor,"roster_only":bool(roster_only)})
+            except Exception:
+                pass
+
+    # final save + checkpoint
+    done = (cursor >= total)
+    try:
+        df.to_csv(path, index=False)
+    except Exception:
+        pass
+    try:
+        _pdb_write_json(cache_path, cache if isinstance(cache, dict) else {})
+    except Exception:
+        pass
+    try:
+        if done:
+            # keep checkpoint for badge, but cursor == total
+            _pdb_write_json(ckpt_path, {"phase":"Country","cursor":total,"roster_only":bool(roster_only)})
+        else:
+            _pdb_write_json(ckpt_path, {"phase":"Country","cursor":cursor,"roster_only":bool(roster_only)})
+    except Exception:
+        pass
+
+    stats = {
+        "path": path,
+        "phase": "Country",
+        "cursor": cursor,
+        "total": total,
+        "processed": processed,
+        "updated": updated,
+        "cached": skipped_cached,
+        "errors": errors,
+        "done": bool(done),
+        "cache_path": cache_path,
+        "checkpoint_path": ckpt_path,
+    }
+    return df, stats
+
+# =====================================================
 # Players DB loader (cached) — used across app
 #   - 'mtime' is passed only to bust Streamlit cache when file changes
 # =====================================================
@@ -10099,6 +10396,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             pdb_path=pdb_path,
             data_dir=DATA_DIR,
             season_lbl=st.session_state.get("season_lbl") or st.session_state.get("season") or None,
+            update_fn=update_players_db,
         )
     except Exception as e:
         st.error(f"❌ Players DB module KO — {type(e).__name__}: {e}")
