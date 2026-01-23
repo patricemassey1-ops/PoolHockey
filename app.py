@@ -186,19 +186,29 @@ def update_players_db(
     - Persists cursor/phase in data/nhl_country_checkpoint.json for resume.
     - Uses JSON cache at cache_path (data/nhl_country_cache.json by default).
     """
-    path = str(path or "")
-    if not path:
-        path = os.path.join(DATA_DIR, "hockey.players.csv")
-    if not os.path.isabs(path):
-        path = os.path.join(DATA_DIR, path)
-
     data_dir = str(DATA_DIR)
+    path = str(path or "").strip()
+    if not path:
+        path = os.path.join(data_dir, "hockey.players.csv")
+    # Avoid double-prefix like data/data/...
+    if not os.path.isabs(path):
+        norm = os.path.normpath(path)
+        dd = os.path.normpath(data_dir)
+        if norm == dd or norm.startswith(dd + os.sep):
+            path = norm
+        else:
+            path = os.path.join(data_dir, norm)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     if not cache_path:
         cache_path = os.path.join(data_dir, "nhl_country_cache.json")
     if not os.path.isabs(cache_path):
-        cache_path = os.path.join(data_dir, cache_path)
+        normc = os.path.normpath(str(cache_path))
+        dd = os.path.normpath(data_dir)
+        if normc == dd or normc.startswith(dd + os.sep):
+            cache_path = normc
+        else:
+            cache_path = os.path.join(data_dir, normc)
 
     ckpt_path = _pdb_checkpoint_path(data_dir)
     if reset_progress and os.path.exists(ckpt_path):
