@@ -7,6 +7,8 @@ import re
 import unicodedata
 from datetime import datetime
 
+st.set_page_config(page_title="Pool Hockey", layout="wide")
+
 # =========================================================
 # CONFIG
 # =========================================================
@@ -415,7 +417,6 @@ def roster_click_list(df: pd.DataFrame, title: str):
 # =========================================================
 # UI
 # =========================================================
-st.set_page_config(page_title="Pool Hockey", layout="wide")
 TABS = ["🏠 Home", "🧾 Alignement", "🛠️ Gestion Admin"]
 active_tab = st.radio("Navigation", TABS, horizontal=True)
 
