@@ -618,7 +618,7 @@ elif active_tab == "🛠️ Gestion Admin":
 
     has_ckpt, ckpt_file, ckpt_ts = checkpoint_status()
     if has_ckpt:
-        st.warning(f"✅ **Checkpoint file detected** — {ckpt_ts}
+    st.warning(f"✅ Checkpoint file detected — {ckpt_ts}")
 
 `{ckpt_file}`")
     else:
