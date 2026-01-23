@@ -246,8 +246,8 @@ def _nhl_landing_country(pid: int) -> str:
 def _nhl_search_playerid(name: str) -> int | None:
     """Best-effort NHL playerId lookup.
     Strategy:
-      1) strict soft-key equality (fast + accurate)
-      2) relaxed match: same last name AND first name prefix/initial (handles 'Matt' vs 'Matthew')
+    1) strict soft-key equality (fast + accurate)
+    2) relaxed match: same last name AND first name prefix/initial (handles 'Matt' vs 'Matthew')
     """
     q = str(name or "").strip()
     if not q:
@@ -2018,8 +2018,8 @@ def _nhl_search_playerid(name: str) -> int | None:
     """Fallback search when playerId is missing (SECURE).
 
     Uses NHL public search endpoint and returns a playerId ONLY if:
-      - an exact (soft-normalized) name match exists, OR
-      - there is a single result whose last name matches and first initial matches.
+    - an exact (soft-normalized) name match exists, OR
+    - there is a single result whose last name matches and first initial matches.
 
     Otherwise returns None (prevents wrong IDs).
     """
@@ -2156,7 +2156,7 @@ def _unused_update_players_db(
     - Persists cursor/phase in data/nhl_country_checkpoint.json for true resume.
     - Uses persistent JSON cache data/nhl_country_cache.json.
     - Optional roster_only: restrict to players present in st.session_state['data'] when available,
-      otherwise falls back to full DB (never returns 0/0 just because roster isn't loaded).
+    otherwise falls back to full DB (never returns 0/0 just because roster isn't loaded).
     """
 
     # ---- paths
@@ -2591,9 +2591,9 @@ def _resolve_local_logo(candidates: list[str]) -> str:
     """Retourne le 1er fichier existant (recherche robuste).
 
     Ordre de recherche:
-      1) APP_DIR (dossier de app.py)
-      2) CWD (working dir Streamlit)
-      3) data/ (si présent)
+    1) APP_DIR (dossier de app.py)
+    2) CWD (working dir Streamlit)
+    3) data/ (si présent)
     """
     search_dirs = [APP_DIR, os.getcwd(), os.path.join(os.getcwd(), "data"), os.path.join(APP_DIR, "data")]
     for name in candidates:
@@ -2639,8 +2639,8 @@ def _gm_logo_data_uri() -> str | None:
 def render_gm_logo(active: bool, width: int = 40, tooltip: str = "Gestion d’équipe"):
     """
     GM logo with:
-      - grayscale when inactive
-      - small hover tooltip
+    - grayscale when inactive
+    - small hover tooltip
     (Same approach can be reused for Admin later.)
     """
     uri = _gm_logo_data_uri()
@@ -2687,28 +2687,28 @@ THEME_CSS = """<style>
 
 /* v35 Level badges */
 .levelBadge{
-  display:inline-block;
-  padding:2px 10px;
-  border-radius:999px;
-  font-weight:800;
-  font-size:0.82rem;
-  letter-spacing:0.4px;
-  border:1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
+display:inline-block;
+padding:2px 10px;
+border-radius:999px;
+font-weight:800;
+font-size:0.82rem;
+letter-spacing:0.4px;
+border:1px solid rgba(255,255,255,0.14);
+background: rgba(255,255,255,0.06);
 }
 .levelBadge.std{ }
 .levelBadge.elc{ }
 .levelBadge.unk{
-  opacity:0.85;
+opacity:0.85;
 }
 .levelWarn{
-  display:inline-block;
-  padding:2px 10px;
-  border-radius:999px;
-  font-weight:800;
-  font-size:0.82rem;
-  border:1px solid rgba(255,166,0,0.35);
-  background: rgba(255,166,0,0.10);
+display:inline-block;
+padding:2px 10px;
+border-radius:999px;
+font-weight:800;
+font-size:0.82rem;
+border:1px solid rgba(255,166,0,0.35);
+background: rgba(255,166,0,0.10);
 }
 
 
@@ -2717,22 +2717,22 @@ THEME_CSS = """<style>
 .pms-center-stack { padding: 18px 16px; }
 .pms-center-stack img { max-height: 260px; width: auto; }
 .pms-under{
-  text-align:center;
-  font-weight: 800;
-  font-size: 2.2rem;
-  letter-spacing: 2px;
-  margin-top: 6px;
-  text-shadow: 0 10px 28px rgba(0,0,0,0.35);
+text-align:center;
+font-weight: 800;
+font-size: 2.2rem;
+letter-spacing: 2px;
+margin-top: 6px;
+text-shadow: 0 10px 28px rgba(0,0,0,0.35);
 }
 .pms-side-emoji{
-  font-size: 2.2rem;
-  line-height: 1;
-  opacity: 0.95;
-  filter: drop-shadow(0 12px 24px rgba(0,0,0,0.35));
-  display:flex;
-  justify-content:flex-start;padding-left:4px;
-  align-items:center;
-  height: 100%;
+font-size: 2.2rem;
+line-height: 1;
+opacity: 0.95;
+filter: drop-shadow(0 12px 24px rgba(0,0,0,0.35));
+display:flex;
+justify-content:flex-start;padding-left:4px;
+align-items:center;
+height: 100%;
 }
 /* réduire l’espace au-dessus (blend avec toolbar streamlit) */
 section.main > div { padding-top: 0.25rem; }
@@ -2746,23 +2746,23 @@ section.main > div { padding-top: 0.5rem; }
 
 /* v26 broadcast header */
 .pms-broadcast-bar{
-  border-radius: 18px;
-  padding: 18px 16px;
-  margin-top: -6px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02), rgba(255,255,255,0.05));
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 14px 40px rgba(0,0,0,0.30);
+border-radius: 18px;
+padding: 18px 16px;
+margin-top: -6px;
+background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02), rgba(255,255,255,0.05));
+border: 1px solid rgba(255,255,255,0.10);
+box-shadow: 0 14px 40px rgba(0,0,0,0.30);
 
 }
 .pms-title{
-  text-shadow: 0 10px 28px rgba(0,0,0,0.35);
-  letter-spacing: 1px;
+text-shadow: 0 10px 28px rgba(0,0,0,0.35);
+letter-spacing: 1px;
 }
 
 
 /* =========================================
-       ✨ Micro animations (douces)
-       ========================================= */
+    ✨ Micro animations (douces)
+    ========================================= */
     .fade-in { animation: fadeIn 180ms ease-out both; }
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(2px); }
@@ -2791,8 +2791,8 @@ section.main > div { padding-top: 0.5rem; }
     }
 
     /* =========================================
-       🏷️ Pills / Badges (OK / Warning / Danger)
-       ========================================= */
+    🏷️ Pills / Badges (OK / Warning / Danger)
+    ========================================= */
     .pill {
         display: inline-flex;
         align-items: center;
@@ -2826,8 +2826,8 @@ section.main > div { padding-top: 0.5rem; }
     .pill-danger .dot { background: #ef4444; }
 
     /* =========================================
-       🧾 Carte d’alerte (bande à gauche)
-       ========================================= */
+    🧾 Carte d’alerte (bande à gauche)
+    ========================================= */
     .alert-card {
         border: 1px solid #1f2937;
         background: #111827;
@@ -2841,8 +2841,8 @@ section.main > div { padding-top: 0.5rem; }
     .muted { color: #9ca3af; font-size: 0.85rem; }
 
     /* =========================================
-       🔝 NAV (radio horizontale) — actif/inactif clair
-       ========================================= */
+    🔝 NAV (radio horizontale) — actif/inactif clair
+    ========================================= */
     div[role="radiogroup"] > label {
         background-color: transparent;
         padding: 0.4rem 0.8rem;
@@ -2862,8 +2862,8 @@ section.main > div { padding-top: 0.5rem; }
     }
 
     /* =========================================
-       🔘 Boutons uniformes (global)
-       ========================================= */
+    🔘 Boutons uniformes (global)
+    ========================================= */
     button {
         background-color: #1f2937 !important;
         color: #f9fafb !important;
@@ -2884,8 +2884,8 @@ section.main > div { padding-top: 0.5rem; }
     button[kind="primary"]:hover { background-color: #22c55e !important; }
 
     /* =========================================
-       📊 Dataframe (si applicable)
-       ========================================= */
+    📊 Dataframe (si applicable)
+    ========================================= */
     .stDataFrame tbody tr:hover { background-color: rgba(255,255,255,0.04); }
     .stDataFrame thead tr th {
         background-color: #020617 !important;
@@ -2896,8 +2896,8 @@ section.main > div { padding-top: 0.5rem; }
 
 
 .dlg-title{font-weight:1000;font-size:16px;line-height:1.1}
-      .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
-      .pill{display:inline-block;padding:2px 10px;border-radius:999px;
+    .dlg-sub{opacity:.75;font-weight:800;font-size:12px;margin-top:2px}
+    .pill{display:inline-block;padding:2px 10px;border-radius:999px;
             background:rgba(255,255,255,.08);
             border:1px solid rgba(255,255,255,.12);
             font-weight:900;font-size:12px}
@@ -2911,170 +2911,170 @@ div[data-testid="stButton"] > button{
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-              }
-              .rosterHdr{white-space:nowrap;display:inline-block;}
+            }
+            .rosterHdr{white-space:nowrap;display:inline-block;}
 .salaryCell{
                 white-space: nowrap;
                 word-break: keep-all;
                 text-align: right;
                 font-weight: 900;
                 display: block;
-              }
-              .levelCell{
+            }
+            .levelCell{
                 white-space: nowrap;
                 opacity: .85;
                 font-weight: 800;
-              }
-              .lvlSTD{ color:#60a5fa; font-weight:900; }
-              .lvlELC{ color:#a78bfa; font-weight:900; }
+            }
+            .lvlSTD{ color:#60a5fa; font-weight:900; }
+            .lvlELC{ color:#a78bfa; font-weight:900; }
 
-              /* Contract / Expiry pills */
-              .expiryPill{display:inline-block;padding:2px 8px;border-radius:999px;
+            /* Contract / Expiry pills */
+            .expiryPill{display:inline-block;padding:2px 8px;border-radius:999px;
                 border:1px solid rgba(255,255,255,.14);
                 background:rgba(255,255,255,.06);
                 font-weight:900;font-size:12px;white-space:nowrap;}
-              .expirySoon{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);}
-              .expiryMid{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);}
-              .expiryOk{border-color:rgba(34,197,94,.30);background:rgba(34,197,94,.08);}
+            .expirySoon{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);}
+            .expiryMid{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);}
+            .expiryOk{border-color:rgba(34,197,94,.30);background:rgba(34,197,94,.08);}
 
-              .contractWrap{display:flex;align-items:center;gap:8px;justify-content:flex-start;}
-              .contractBar{width:76px;height:8px;border-radius:999px;overflow:hidden;
+            .contractWrap{display:flex;align-items:center;gap:8px;justify-content:flex-start;}
+            .contractBar{width:76px;height:8px;border-radius:999px;overflow:hidden;
                 background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12)}
-              .contractFill{height:100%;border-radius:999px;background:rgba(96,165,250,.85)}
-              .contractFillELC{background:rgba(167,139,250,.85)}
-              .remainText{font-weight:900;font-size:12px;opacity:.85;white-space:nowrap}
+            .contractFill{height:100%;border-radius:999px;background:rgba(96,165,250,.85)}
+            .contractFillELC{background:rgba(167,139,250,.85)}
+            .remainText{font-weight:900;font-size:12px;opacity:.85;white-space:nowrap}
 
 
 .pms-mobile .block-container{padding-top:0.8rem !important; padding-left:0.8rem !important; padding-right:0.8rem !important;}
 /* =========================================
-   🔐 Login header (password page)
-   ========================================= */
+🔐 Login header (password page)
+========================================= */
 .pms-header-wrap{
-  display:flex;
-  align-items:center;
-  gap:12px;
+display:flex;
+align-items:center;
+gap:12px;
 }
 .pms-left{
-  display:flex;
-  align-items:center;
-  gap:10px;
+display:flex;
+align-items:center;
+gap:10px;
 }
 .pms-right{
-  display:flex;
-  justify-content:flex-end;
-  align-items:center;
+display:flex;
+justify-content:flex-end;
+align-items:center;
 }
 .pms-title{
-  font-weight:800;
-  letter-spacing:0.5px;
-  font-size:3.6rem;
-  line-height:1;
+font-weight:800;
+letter-spacing:0.5px;
+font-size:3.6rem;
+line-height:1;
 }
 .pms-emoji-big{
-  font-size:3.9rem; /* bigger sticks + net */
-  line-height:1;
+font-size:3.9rem; /* bigger sticks + net */
+line-height:1;
 }
 
 
 
 /* v13: pool logo sizing (pro) */
 /* =========================================
-   🧑‍💼 GM logo (sidebar): grayscale when inactive
-   ========================================= */
+🧑‍💼 GM logo (sidebar): grayscale when inactive
+========================================= */
 .gm-logo-wrap{
-  display:flex;
-  justify-content:flex-start;padding-left:4px;
-  margin: 2px 0 8px 0;
+display:flex;
+justify-content:flex-start;padding-left:4px;
+margin: 2px 0 8px 0;
 }
 .gm-logo{
-  border-radius:10px;
-  transition: filter 160ms ease, transform 160ms ease, opacity 160ms ease;
-  cursor: default;
+border-radius:10px;
+transition: filter 160ms ease, transform 160ms ease, opacity 160ms ease;
+cursor: default;
 }
 .gm-logo.inactive{
-  filter: grayscale(100%);
-  opacity: 0.72;
+filter: grayscale(100%);
+opacity: 0.72;
 }
 .gm-logo.active{
-  filter: none;
-  opacity: 1;
+filter: none;
+opacity: 1;
 }
 .gm-logo-wrap:hover .gm-logo{
-  transform: translateY(-1px);
+transform: translateY(-1px);
 }
 
 /* =========================
-   GM TAB UI TWEAKS
-   ========================= */
+GM TAB UI TWEAKS
+========================= */
 .gm-header { display:flex; align-items:center; gap:14px; margin: 0 0 8px 0; }
 .gm-header .gm-title { font-size: 18px; font-weight: 800; opacity: .9; }
 .gm-mass { font-size: 34px; font-weight: 900; line-height: 1.05; }
 .gm-sub { font-size: 12px; opacity: .75; margin-top: 2px; }
 
 .pick-mini {
-  display:inline-block;
-  width:100%;
-  padding:8px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  font-size: 12px;
-  line-height: 1.2;
-  text-align:center;
-  white-space: nowrap;
-  overflow:hidden;
-  text-overflow: ellipsis;
+display:inline-block;
+width:100%;
+padding:8px 10px;
+border-radius: 14px;
+border: 1px solid rgba(255,255,255,.10);
+background: rgba(255,255,255,.04);
+font-size: 12px;
+line-height: 1.2;
+text-align:center;
+white-space: nowrap;
+overflow:hidden;
+text-overflow: ellipsis;
 }
 .pick-mini b { font-size: 13px; }
 
 
 
 /* =====================================================
-   GM TAB (migré depuis st.markdown <style> inline)
-   ===================================================== */
+GM TAB (migré depuis st.markdown <style> inline)
+===================================================== */
 .gm-top { display:flex; align-items:center; gap:16px; margin-top:4px; }
 .gm-top img { width:132px; } /* 3x */
 
 .gm-team { font-weight:800; font-size:22px; opacity:0.92; }
 
 .gm-grid {
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:22px;
-  margin-top:10px;
+display:grid;
+grid-template-columns: 1fr 1fr;
+gap:22px;
+margin-top:10px;
 }
 
 .gm-card {
-  border:1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.04);
-  border-radius:14px;
-  padding:14px 14px;
+border:1px solid rgba(255,255,255,0.10);
+background: rgba(255,255,255,0.04);
+border-radius:14px;
+padding:14px 14px;
 }
 
 .gm-label { font-size:12px; opacity:0.75; margin-bottom:6px; }
 .gm-value { font-size:34px; font-weight:900; letter-spacing:0.2px; }
 
 .gm-sub {
-  font-size:12px;
-  opacity:0.75;
-  margin-top:4px;
-  display:flex;
-  justify-content:space-between;
+font-size:12px;
+opacity:0.75;
+margin-top:4px;
+display:flex;
+justify-content:space-between;
 }
 
 .pick-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 
 .pick-pill {
-  padding:6px 10px;
-  border-radius:999px;
-  font-weight:700;
-  border:1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.04);
+padding:6px 10px;
+border-radius:999px;
+font-weight:700;
+border:1px solid rgba(255,255,255,0.14);
+background: rgba(255,255,255,0.04);
 }
 
 .pick-pill.mine {
-  border-color: rgba(34,197,94,0.55);
-  background: rgba(34,197,94,0.10);
+border-color: rgba(34,197,94,0.55);
+background: rgba(34,197,94,0.10);
 }
 
 .pick-pill.other { opacity:0.75; }
@@ -3084,8 +3084,8 @@ div[data-testid="stButton"] > button{
 
 
 /* =====================================================
-   GM PICKS — lignes par année
-   ===================================================== */
+GM PICKS — lignes par année
+===================================================== */
 .pick-line { display:flex; align-items:flex-start; gap:12px; margin-top:10px; }
 .pick-year { width:88px; min-width:88px; display:flex; flex-direction:column; gap:6px; }
 .pick-year .pick-sub { font-size:12px; opacity:0.75; padding-left:4px; }
@@ -3094,50 +3094,50 @@ div[data-testid="stButton"] > button{
 
 
 /* ===============================
-   PICKS — layout fixe & responsive
-   =============================== */
+PICKS — layout fixe & responsive
+=============================== */
 .pick-line{
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 12px;
-  align-items: start;
-  margin: 10px 0;
+display: grid;
+grid-template-columns: 84px 1fr;
+gap: 12px;
+align-items: start;
+margin: 10px 0;
 }
 
 .pick-year{
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+display: flex;
+flex-direction: column;
+gap: 6px;
 }
 
 .pick-year-badge{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-weight: 800;
-  letter-spacing: .3px;
-  border: 1px solid rgba(34,197,94,.55);
-  background: rgba(34,197,94,.10);
+display: inline-flex;
+align-items: center;
+justify-content: center;
+padding: 8px 10px;
+border-radius: 999px;
+font-weight: 800;
+letter-spacing: .3px;
+border: 1px solid rgba(34,197,94,.55);
+background: rgba(34,197,94,.10);
 }
 
 .pick-sub{
-  font-size: 12px;
-  opacity: .8;
-  padding-left: 6px;
+font-size: 12px;
+opacity: .8;
+padding-left: 6px;
 }
 
 .pick-row{
-  display: flex;
-  gap: 10px;
-  flex-wrap: nowrap;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 6px;
+display: flex;
+gap: 10px;
+flex-wrap: nowrap;
+max-width: 100%;
+overflow-x: auto;
+overflow-y: hidden;
+white-space: nowrap;
+-webkit-overflow-scrolling: touch;
+padding-bottom: 6px;
 }
 
 .pick-row::-webkit-scrollbar{ height: 8px; }
@@ -3145,44 +3145,44 @@ div[data-testid="stButton"] > button{
 .pick-row::-webkit-scrollbar-track{ background: transparent; }
 
 .pick-pill{
-  font-size: 13px;
-  padding: 7px 10px;
+font-size: 13px;
+padding: 7px 10px;
 }
 
 /* Mobile */
 .mobile .pick-line{
-  grid-template-columns: 72px 1fr;
-  gap: 10px;
+grid-template-columns: 72px 1fr;
+gap: 10px;
 }
 .mobile .pick-pill{
-  font-size: 12px;
-  padding: 6px 8px;
+font-size: 12px;
+padding: 6px 8px;
 }
 .mobile .pick-year-badge{
-  padding: 7px 9px;
+padding: 7px 9px;
 }
 
 
 /* ===============================
-   GM — petits styles pro
-   =============================== */
+GM — petits styles pro
+=============================== */
 .gm-card-head{
-  margin: 2px 0 12px 0;
+margin: 2px 0 12px 0;
 }
 .gm-card-title{
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
+font-size: 18px;
+font-weight: 800;
+letter-spacing: 0.2px;
 }
 .gm-card-sub{
-  margin-top: 4px;
-  font-size: 13px;
-  opacity: 0.75;
+margin-top: 4px;
+font-size: 13px;
+opacity: 0.75;
 }
 .gm-metric{
-  font-size: 18px;
-  font-weight: 800;
-  margin-top: 2px;
+font-size: 18px;
+font-weight: 800;
+margin-top: 2px;
 }
 
 
@@ -3659,8 +3659,8 @@ def _cap_to_int(x) -> int:
     """Parse un salaire/cap hit en entier.
 
     Supporte:
-      - 1250000, "1,250,000", "$1 250 000"
-      - "1.25M", "950K"
+    - 1250000, "1,250,000", "$1 250 000"
+    - "1.25M", "950K"
     """
     if x is None:
         return 0
@@ -3749,16 +3749,16 @@ def cap_bar_html(used: int, cap: int, label: str) -> str:
     color = "#16a34a" if remain >= 0 else "#dc2626"
     return f"""
     <div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:900">
+    <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:900">
         <span>{html.escape(label)}</span>
         <span style="color:{color}">{money(remain)}</span>
-      </div>
-      <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
+    </div>
+    <div style="background:#e5e7eb;height:10px;border-radius:6px;overflow:hidden">
         <div style="width:{int(pct*100)}%;background:{color};height:100%"></div>
-      </div>
-      <div style="font-size:11px;opacity:.75">
+    </div>
+    <div style="font-size:11px;opacity:.75">
         Utilisé : {money(used)} / {money(cap)}
-      </div>
+    </div>
     </div>
     """
 
@@ -3798,8 +3798,8 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
     """Complète df (roster) à partir de st.session_state['players_db'] (hockey.players.csv).
 
     Priorité de matching:
-      1) playerId (si disponible / résolu)
-      2) nom normalisé (avec variantes)
+    1) playerId (si disponible / résolu)
+    2) nom normalisé (avec variantes)
 
     Ne remplace PAS des valeurs déjà présentes (Level, Salaire/Cap Hit) sauf si vides/0.
     """
@@ -4609,8 +4609,8 @@ def update_points_periods_from_roster(season_lbl: str) -> pd.DataFrame:
     """Crée/ferme des périodes ACTIF selon le roster courant.
 
     IMPORTANT: on ne fait des appels API que pour:
-      - ouvrir une période (points_start)
-      - fermer une période (points_end)
+    - ouvrir une période (points_start)
+    - fermer une période (points_end)
 
     Les périodes ouvertes sont calculées à l'affichage via current - points_start.
     """
@@ -5660,8 +5660,8 @@ def _player_flag(player_id: int, landing: dict | None = None, player_name: str |
     """Return flag emoji for a player.
 
     Priority:
-      1) api-web landing payload (fast)
-      2) statsapi people endpoint (nationality / birthCountry) fallback
+    1) api-web landing payload (fast)
+    2) statsapi people endpoint (nationality / birthCountry) fallback
     """
     try:
         pid = int(player_id or 0)
@@ -5995,16 +5995,16 @@ def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
     """Charge puckpedia.contracts.csv (si présent) et prépare une clé de jointure.
 
     Supporte plusieurs formats:
-      A) Colonnes explicites: first_name/last_name + contract_end + contract_level
-      B) Colonnes 'Player'/'Name'/'Joueur' + contract_end + contract_level
-      C) Format sans en-têtes fiable (comme ton screenshot): prenoms/nom en colonnes 0/1,
-         contract_end en avant-dernière colonne, contract_level en dernière colonne.
+    A) Colonnes explicites: first_name/last_name + contract_end + contract_level
+    B) Colonnes 'Player'/'Name'/'Joueur' + contract_end + contract_level
+    C) Format sans en-têtes fiable (comme ton screenshot): prenoms/nom en colonnes 0/1,
+        contract_end en avant-dernière colonne, contract_level en dernière colonne.
 
     Retourne un DF avec:
-      - _name_key (clé normalisée du nom complet)
-      - contract_level (ELC/STD ou "")
-      - contract_end (texte)
-      - contract_end_year (Int or NA)
+    - _name_key (clé normalisée du nom complet)
+    - contract_level (ELC/STD ou "")
+    - contract_end (texte)
+    - contract_end_year (Int or NA)
     """
     if not path or not os.path.exists(path):
         return pd.DataFrame(columns=["_name_key","contract_level","contract_end","contract_end_year"])
@@ -6116,8 +6116,8 @@ def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_players_db_enriched(pdb_path: str, mtime_pdb: float = 0.0, mtime_contracts: float = 0.0) -> pd.DataFrame:
     """Lit hockey.players.csv et applique automatiquement:
-      - merge puckpedia.contracts.csv (override Level + Expiry Year quand dispo)
-      - colonnes Flags (FlagISO2 + Flag) depuis Country
+    - merge puckpedia.contracts.csv (override Level + Expiry Year quand dispo)
+    - colonnes Flags (FlagISO2 + Flag) depuis Country
     """
     if not pdb_path or not os.path.exists(pdb_path):
         return pd.DataFrame()
@@ -6859,8 +6859,8 @@ def rebuild_plafonds(df: pd.DataFrame) -> pd.DataFrame:
 def build_tableau_ui(plafonds: pd.DataFrame):
     """
     Tableau des masses salariales (cliquable):
-      - clic sur le nom d'équipe => sélectionne l'équipe (comme l'ancien selectbox sidebar)
-      - aucun dédoublement: on affiche une seule fois les valeurs
+    - clic sur le nom d'équipe => sélectionne l'équipe (comme l'ancien selectbox sidebar)
+    - aucun dédoublement: on affiche une seule fois les valeurs
     """
     selected = str(get_selected_team() or "").strip()
 
@@ -7068,8 +7068,8 @@ def _extract_from_nhle_landing(j: dict) -> dict:
 def nhl_player_stats_combo(player_id_raw: str, season_lbl: str) -> dict:
     """
     Combine 2 sources:
-      1) api-web.nhle.com (landing) — primary
-      2) statsapi.web.nhl.com (statsSingleSeason) — fallback / fill
+    1) api-web.nhle.com (landing) — primary
+    2) statsapi.web.nhl.com (statsSingleSeason) — fallback / fill
     Returns normalized keys: goals, assists, wins, otLosses
     """
     try:
@@ -7118,9 +7118,9 @@ def nhle_player_game_log_cached(player_id: int, season_lbl: str) -> list:
     """Game log régulier via api-web.nhle.com.
 
     Retourne une liste de dicts (un par match) avec au minimum:
-      - gameDate (YYYY-MM-DD)
-      - goals, assists (patineurs)
-      - decision (G) : 'W', 'L', 'OTL', 'SOL', etc.
+    - gameDate (YYYY-MM-DD)
+    - goals, assists (patineurs)
+    - decision (G) : 'W', 'L', 'OTL', 'SOL', etc.
 
     Note: les payloads peuvent varier; on garde le parsing tolérant.
     """
@@ -8757,12 +8757,12 @@ def render_tab_gm():
             st.markdown(
                 f"""
                 <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.05)">
-                  <div style="font-size:13px;opacity:.8">Masse Grand Club</div>
-                  <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_gc)}</div>
-                  <div style="font-size:13px;opacity:.75">Plafond {money(cap_gc)}</div>
-                  <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_gc < 0 else '#22c55e'}">
+                <div style="font-size:13px;opacity:.8">Masse Grand Club</div>
+                <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_gc)}</div>
+                <div style="font-size:13px;opacity:.75">Plafond {money(cap_gc)}</div>
+                <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_gc < 0 else '#22c55e'}">
                     Reste {money(r_gc)}
-                  </div>
+                </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -8771,12 +8771,12 @@ def render_tab_gm():
             st.markdown(
                 f"""
                 <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.05)">
-                  <div style="font-size:13px;opacity:.8">Masse Club École</div>
-                  <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_ce)}</div>
-                  <div style="font-size:13px;opacity:.75">Plafond {money(cap_ce)}</div>
-                  <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_ce < 0 else '#22c55e'}">
+                <div style="font-size:13px;opacity:.8">Masse Club École</div>
+                <div style="font-size:26px;font-weight:900;margin:4px 0">{money(used_ce)}</div>
+                <div style="font-size:13px;opacity:.75">Plafond {money(cap_ce)}</div>
+                <div style="font-size:14px;font-weight:700;color:{'#ef4444' if r_ce < 0 else '#22c55e'}">
                     Reste {money(r_ce)}
-                  </div>
+                </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -8797,9 +8797,9 @@ def render_tab_gm():
         st.markdown(
             f"""
             <div style=\"padding:14px;border-radius:14px;background:rgba(255,255,255,.05);margin-top:10px\">
-              <div style=\"font-size:13px;opacity:.8\">🏆 Points (cumul Actifs)</div>
-              <div style=\"font-size:26px;font-weight:900;margin:4px 0\">{pts_total:.0f}</div>
-              <div style=\"font-size:12px;opacity:.75\">Seuls les points gagnés pendant les périodes ACTIF comptent.</div>
+            <div style=\"font-size:13px;opacity:.8\">🏆 Points (cumul Actifs)</div>
+            <div style=\"font-size:26px;font-weight:900;margin:4px 0\">{pts_total:.0f}</div>
+            <div style=\"font-size:12px;opacity:.75\">Seuls les points gagnés pendant les périodes ACTIF comptent.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -8822,7 +8822,7 @@ def render_tab_gm():
         pass
 
 
-    
+
     # =====================================================
     # 🎛️ Filtres Alignement (rapide) — déplacés ici (GM)
     #   - contrôle l'affichage dans Alignement (roster_click_list)
@@ -9991,11 +9991,11 @@ elif active_tab == "🧾 Alignement":
         st.markdown(
             f"""
             <div style='text-align:right;'>
-              <div style='font-size:0.95rem;opacity:0.9;'>💰 Cap CE (maint.)</div>
-              <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(used_ce))}</div>
-              <div style='height:10px'></div>
-              <div style='font-size:0.95rem;opacity:0.9;'>✅ Cap CE (restant)</div>
-              <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(remain_ce))}</div>
+            <div style='font-size:0.95rem;opacity:0.9;'>💰 Cap CE (maint.)</div>
+            <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(used_ce))}</div>
+            <div style='height:10px'></div>
+            <div style='font-size:0.95rem;opacity:0.9;'>✅ Cap CE (restant)</div>
+            <div style='font-size:2.2rem;font-weight:700;line-height:1.1;'>{money(int(remain_ce))}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -10804,7 +10804,7 @@ if active_tab == "🛠️ Gestion Admin":
     # 🗃️ Players DB (hockey.players.csv) — Admin
     #   - sert de source pour Country (drapeaux) et parfois Level/Expiry
     # -----------------------------
-    
+
 # -----------------------------
 # 🗃️ Players DB (hockey.players.csv) — Admin (MODULE)
 #   - Source de vérité pour Country (drapeaux)
@@ -11486,7 +11486,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             return uniq
 
         def _nhl_get_json_with_retry(url: str, *, session: requests.Session | None = None, timeout: int = 20,
-                                     max_tries: int = 6, base_sleep: float = 0.6):
+                                    max_tries: int = 6, base_sleep: float = 0.6):
             """GET JSON avec retry/backoff (gère 429 Too Many Requests).
 
             NHL api-web peut rate-limit (429), surtout sur Streamlit Cloud (IP partagée).
@@ -11575,7 +11575,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
             cutoff = st.slider("Seuil fuzzy (plus haut = plus strict)", 0.80, 0.99, 0.92, 0.01, key="nhl_free_cutoff")
         with colC:
             max_teams = st.slider("Max équipes par run", 5, 32, 12, 1, key="nhl_free_max_teams",
-                                  help="Évite les 429 (rate limit). Re-clique pour compléter si besoin.")
+                                help="Évite les 429 (rate limit). Re-clique pour compléter si besoin.")
 
         roster_df = st.session_state.get("nhl_free_roster_df")
 
