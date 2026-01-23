@@ -51,9 +51,13 @@ def lock_off():
 def is_locked() -> bool:
     return bool(st.session_state.get("pdb_lock", False))
 
-def render_players_db_admin(*, pdb_path: str, data_dir: str, season_lbl=None):
+def render_players_db_admin(*, pdb_path: str, data_dir: str, season_lbl=None, update_fn=None):
     """UI renderer for Players DB (standalone module)."""
     cache_path = nhl_cache_path_default(data_dir)
+
+    # update function must be provided by app.py
+    if update_fn is None:
+        update_fn = globals().get('update_players_db')
 
     st.markdown("""<style>
     .pdb-sticky {position:sticky; top:0.5rem; z-index:999; padding:6px 10px; border-radius:999px;
@@ -130,7 +134,9 @@ def render_players_db_admin(*, pdb_path: str, data_dir: str, season_lbl=None):
     if st.button("⬆️ Mettre à jour Players DB", use_container_width=True):
         try:
             lock_on()
-            _, stats = update_players_db(
+            if not callable(update_fn):
+                raise NameError("update_players_db is not provided (update_fn)")
+            _, stats = update_fn(
                 path=pdb_path,
                 season_lbl=season_lbl,
                 fill_country=True,
@@ -149,7 +155,9 @@ def render_players_db_admin(*, pdb_path: str, data_dir: str, season_lbl=None):
     if st.button("▶️ Resume Country fill", use_container_width=True):
         try:
             lock_on()
-            _, stats = update_players_db(
+            if not callable(update_fn):
+                raise NameError("update_players_db is not provided (update_fn)")
+            _, stats = update_fn(
                 path=pdb_path,
                 season_lbl=season_lbl,
                 fill_country=True,
