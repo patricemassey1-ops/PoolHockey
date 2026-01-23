@@ -731,5 +731,4 @@ elif active_tab == "🛠️ Gestion Admin":
 
     st.divider()
     st.caption("Files used:")
-    st.code("
-".join([PLAYERS_DB_PATH_DEFAULT, NHL_COUNTRY_CACHE_DEFAULT, CLUB_COUNTRY_CACHE_DEFAULT, NHL_COUNTRY_CHECKPOINT_DEFAULT, TRANSACTIONS_PATH_DEFAULT]))
+    st.code("Files listed above")
