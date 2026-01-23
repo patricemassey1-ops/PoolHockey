@@ -97,6 +97,127 @@ def _to_iso2_country(raw: str) -> str:
         return _COUNTRY3_TO2.get(s.upper(), "")
     return _COUNTRYNAME_TO2.get(s.lower(), "")
 
+
+# --- Country inference fallback (high-confidence leagues) -----------------------
+# --- Country inference fallback (high-confidence leagues) -----------------------
+# Dict order matters (more specific tokens first).
+_FALLBACK_LEAGUE_TO_COUNTRY = {
+    # North America
+    "NCAA": "US",
+    "USHL": "US",
+    "AHL": "US",
+    "ECHL": "US",
+
+    # Major junior (Canada)
+    "QMJHL": "CA",
+    "OHL": "CA",
+    "WHL": "CA",
+    "CHL": "CA",
+
+    # Sweden
+    "HockeyAllsvenskan".upper(): "SE",
+    "ALLSVENSKAN": "SE",
+    "SHL": "SE",
+    "SUPERELIT": "SE",
+    "J20 NATIONELL": "SE",
+    "J18 REGION": "SE",
+
+    # Finland
+    "SM-LIIGA": "FI",
+    "LIIGA": "FI",
+    "MESTIS": "FI",
+    "SUOMI-SARJA": "FI",
+    "U20 SM-SARJA": "FI",
+
+    # Russia / CIS (best-effort; national leagues)
+    "KHL": "RU",
+    "VHL": "RU",
+    "MHL": "RU",
+    "BELARUS EXTRALIGA".upper(): "BY",
+
+    # Switzerland
+    "SWISS LEAGUE": "CH",
+    "NLA": "CH",
+    "NL": "CH",
+
+    # Germany
+    "DEL2": "DE",
+    "DEL": "DE",
+
+    # Czech / Slovakia (be careful: both use 'Extraliga' token)
+    "SLOVAK EXTRALIGA": "SK",
+    "TIPOS EXTRALIGA": "SK",
+    "TIPSPORT LIGA": "SK",
+    "SLOVAKIA".upper(): "SK",
+    "CZECH EXTRALIGA": "CZ",
+    "TIPSPORT EXTRALIGA": "CZ",
+    "EXTRALIGA (CZ)": "CZ",
+    "EXTRALIGA": "CZ",
+
+    # France
+    "LIGUE MAGNUS": "FR",
+
+    # Norway / Denmark
+    "FJORDKRAFTLIGAEN": "NO",
+    "ELITESERIEN (NO)": "NO",
+    "METAL LIGAEN": "DK",
+
+    # UK
+    "EIHL": "GB",
+
+    # Austria (NOTE: ICEHL is multinational -> we don't map it)
+    "ALPSHL": "AT",
+}
+
+def _infer_country_from_row(row: dict) -> str:
+    """Best-effort fallback when NHL API can't resolve a player.
+    Only returns a country when we have high confidence (league-based).
+    """
+    if not isinstance(row, dict):
+        return ""
+
+    # Look for any league-ish field
+    cand_fields = [
+        "League", "Ligue", "league", "ligue",
+        "Team League", "Pro League", "Minor League",
+        "Jr League", "Junior League", "NHL League", "League Name", "Competition", "Competition Name",
+    ]
+    league_val = ""
+    for k in cand_fields:
+        v = row.get(k, "")
+        if v:
+            league_val = str(v).strip()
+            break
+
+    # Some datasets embed league in a team string
+    if not league_val:
+        for k in ["Team", "Équipe", "Equipe", "Pro Team", "NHL Team", "Club"]:
+            v = row.get(k, "")
+            if v:
+                vv = str(v)
+                # crude detect of common league tokens
+                for token in _FALLBACK_LEAGUE_TO_COUNTRY.keys():
+                    if token in vv.upper():
+                        league_val = token
+                        break
+            if league_val:
+                break
+
+    if not league_val:
+        return ""
+
+    up = league_val.upper()
+
+    # skip multinational leagues (avoid false flags)
+    if "ICEHL" in up or "EBEL" in up:
+        return ""
+
+    # direct token match
+    for token, cc in _FALLBACK_LEAGUE_TO_COUNTRY.items():
+        if token in up:
+            return cc
+
+    return ""
 def _nhl_landing_country(pid: int) -> str:
     try:
         pid_i = int(pid)
@@ -123,10 +244,30 @@ def _nhl_landing_country(pid: int) -> str:
         return ""
 
 def _nhl_search_playerid(name: str) -> int | None:
+    """Best-effort NHL playerId lookup.
+    Strategy:
+      1) strict soft-key equality (fast + accurate)
+      2) relaxed match: same last name AND first name prefix/initial (handles 'Matt' vs 'Matthew')
+    """
     q = str(name or "").strip()
     if not q:
         return None
-    nk = _soft_player_key(q) if "_soft_player_key" in globals() else q.lower()
+
+    def _soft(s: str) -> str:
+        if "_soft_player_key" in globals():
+            try:
+                return _soft_player_key(s)
+            except Exception:
+                pass
+        return str(s or "").strip().lower()
+
+    nk = _soft(q)
+    parts = [p for p in re.split(r"\s+", q.strip()) if p]
+    first = parts[0] if parts else ""
+    last = parts[-1] if parts else ""
+    first_soft = _soft(first)
+    last_soft = _soft(last)
+
     url = "https://search.d3.nhle.com/api/v1/search/player"
     try:
         r = requests.get(url, params={"culture":"en-us","limit":"10","q":q}, timeout=15)
@@ -136,14 +277,45 @@ def _nhl_search_playerid(name: str) -> int | None:
         items = js.get("docs") if isinstance(js, dict) else None
         if not isinstance(items, list) or not items:
             return None
+
+        # 1) strict match on full name
         for it in items:
             try:
                 pid_i = int(it.get("playerId") or it.get("id") or 0)
             except Exception:
                 continue
             nm = str(it.get("name") or it.get("playerName") or "").strip()
-            if nm and ( (_soft_player_key(nm) if "_soft_player_key" in globals() else nm.lower()) == nk ):
+            if nm and _soft(nm) == nk:
                 return pid_i
+
+        # 2) relaxed match: same last name + first name prefix/initial (unique)
+        cand = []
+        for it in items:
+            nm = str(it.get("name") or it.get("playerName") or "").strip()
+            if not nm:
+                continue
+            nm_parts = [p for p in re.split(r"\s+", nm) if p]
+            if not nm_parts:
+                continue
+            nm_first = nm_parts[0]
+            nm_last = nm_parts[-1]
+            if _soft(nm_last) != last_soft:
+                continue
+            # accept if first matches prefix either way (Matt/Mathew) or initial
+            a = _soft(nm_first)
+            b = first_soft
+            if not a or not b:
+                continue
+            ok = (a.startswith(b) or b.startswith(a) or a[:1] == b[:1])
+            if ok:
+                try:
+                    pid_i = int(it.get("playerId") or it.get("id") or 0)
+                except Exception:
+                    continue
+                cand.append(pid_i)
+
+        if len(cand) == 1:
+            return cand[0]
         return None
     except Exception:
         return None
@@ -167,6 +339,147 @@ def _pdb_write_json(path: str, data: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data or {}, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
+
+
+# --- Club/team fallback (learned over time; conservative) -----------------------
+# Stored as { "CLUB NAME": "CC" } where CC is 2-letter (CA/US/SE/FI/...)
+def _pdb_club_cache_path_default(data_dir: str) -> str:
+    return os.path.join(data_dir, "club_country_cache.json")
+
+# Very small seed token map to reduce misses (only obvious cases).
+_SEED_CLUB_TOKENS = {
+    # Sweden (SHL / Allsvenskan)
+    "FRÖLUNDA": "SE", "FROLUNDA": "SE",
+    "SKELLEFTEÅ": "SE", "SKELLEFTEA": "SE",
+    "LULEÅ": "SE", "LULEA": "SE",
+    "FÄRJESTAD": "SE", "FARJESTAD": "SE",
+    "DJURGÅRDEN": "SE", "DJURGARDEN": "SE",
+
+    # Finland (Liiga)
+    "KÄRPÄT": "FI", "KARPAT": "FI",
+    "HIFK": "FI",
+    "TPS": "FI",
+    "ILVES": "FI",
+    "TAPPARA": "FI",
+    "JYP": "FI",
+    "LUKKO": "FI",
+
+    # Switzerland (NL)
+    "DAVOS": "CH",
+    "LUGANO": "CH",
+
+    # Germany (DEL)
+    "EISBÄREN": "DE", "EISBAEREN": "DE", "EISBAREN": "DE",
+}
+
+def _strip_accents(txt: str) -> str:
+    try:
+        return "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+    except Exception:
+        return txt
+
+def _club_slug(x: str) -> str:
+    """Aggressive but safe-ish normalization for club matching."""
+    x = (x or "").strip()
+    if not x:
+        return ""
+    x = _strip_accents(x).upper()
+    # replace separators with space
+    x = re.sub(r"[\-/_,\.\(\)\[\]\{\}]+", " ", x)
+    x = re.sub(r"\s+", " ", x).strip()
+
+    # remove very common hockey suffixes / noise words
+    noise = {
+        "HC","IF","IK","BK","HK","SK","HIFK","U20","U18","U17","J20","J18","J17",
+        "JR","JUNIOR","JUNIORS","TEAM","HOCKEY","HOCKEY CLUB","CLUB",
+        "II","2","B","A"  # keep conservative; removes reserve markers sometimes
+    }
+    parts = [p for p in x.split(" ") if p and p not in noise]
+    x = " ".join(parts).strip()
+    # collapse single-letter tokens
+    x = " ".join([p for p in x.split(" ") if len(p) > 1]).strip()
+    return x
+
+def _norm_club_name(x: str) -> str:
+    # keep original upper (less destructive) for caching, but also keep slug for lookup
+    x = (x or "").strip()
+    if not x:
+        return ""
+    x = re.sub(r"\s+", " ", x).upper()
+    return x
+
+def _club_candidates_from_row(row: dict) -> list[str]:
+    if not isinstance(row, dict):
+        return []
+    cols = [
+        "Club","Team","Club Team","Team Name","Current Team","Prospect Team",
+        "Junior Team","Jr Team","European Team"
+    ]
+    out = []
+    for c in cols:
+        v = row.get(c)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+    return out
+
+def _infer_country_from_club(row: dict, club_map: dict) -> str:
+    # skip multinational leagues to avoid wrong guesses
+    league_val = ""
+    for col in ["League","League Name","Competition","Competition Name","Jr League","Junior League","NHL League"]:
+        v = row.get(col) if isinstance(row, dict) else ""
+        if isinstance(v, str) and v.strip():
+            league_val = v.strip()
+            break
+    up_league = league_val.upper() if isinstance(league_val, str) else ""
+    if "ICEHL" in up_league or "EBEL" in up_league:
+        return ""
+
+    club_map = club_map if isinstance(club_map, dict) else {}
+
+    for raw in _club_candidates_from_row(row):
+        key = _norm_club_name(raw)
+        slug = _club_slug(raw)
+
+        # exact
+        if key and key in club_map:
+            return str(club_map.get(key) or "").strip().upper()
+
+        # slug match (learned)
+        if slug:
+            v = club_map.get(f"SLUG::{slug}")
+            if v:
+                return str(v or "").strip().upper()
+
+        # seed tokens (contains)
+        if key:
+            for token, cc in _SEED_CLUB_TOKENS.items():
+                if token in key:
+                    return cc
+        if slug:
+            for token, cc in _SEED_CLUB_TOKENS.items():
+                if token in slug:
+                    return cc
+
+    return ""
+
+def _learn_club_country(row: dict, club_map: dict, country: str) -> None:
+    if not isinstance(club_map, dict):
+        return
+    cc = str(country or "").strip().upper()
+    if len(cc) != 2:
+        return
+    for raw in _club_candidates_from_row(row):
+        key = _norm_club_name(raw)
+        slug = _club_slug(raw)
+
+        if key and len(key) >= 3 and key not in club_map:
+            club_map[key] = cc
+
+        # also store slug for robust matching
+        if slug and len(slug) >= 3:
+            sk = f"SLUG::{slug}"
+            if sk not in club_map:
+                club_map[sk] = cc
 
 def update_players_db(
     path: str,
@@ -270,6 +583,10 @@ def update_players_db(
         phase = "Country"
 
     cache = _pdb_read_json(cache_path)
+    club_cache_path = _pdb_club_cache_path_default(data_dir)
+    club_map = _pdb_read_json(club_cache_path)
+    if not isinstance(club_map, dict):
+        club_map = {}
     processed = 0
     updated = 0
     skipped_cached = 0
@@ -294,6 +611,20 @@ def update_players_db(
             pid_i = _nhl_search_playerid(nm)
 
         if pid_i is None:
+            rowd = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+            # Fallback: infer from league/team signals when no NHL match (prospects/juniors)
+            fb = _infer_country_from_row(rowd)
+            if not fb:
+                fb = _infer_country_from_club(rowd, club_map)
+            if fb:
+                ctry_fb = str(fb).strip().upper()
+                df.at[i, "Country"] = ctry_fb
+                updated += 1
+                # learn club mapping from this (medium confidence)
+                _learn_club_country(rowd, club_map, ctry_fb)
+                processed += 1
+                cursor = pos + 1
+                continue
             errors += 1
             processed += 1
             cursor = pos + 1
@@ -316,9 +647,31 @@ def update_players_db(
                     df.at[i, "playerId"] = pid_i
                 cache[k] = {"ok": True, "country": ctry}
                 updated += 1
+                try:
+                    rowd = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+                    _learn_club_country(rowd, club_map, ctry)
+                except Exception:
+                    pass
             else:
-                cache[k] = {"ok": False}
-                errors += 1
+                # Fallback inference when NHL landing lacks country (or player is non-NHL)
+                rowd = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+                fb = _infer_country_from_row(rowd)
+                if not fb:
+                    fb = _infer_country_from_club(rowd, club_map)
+                if fb:
+                    ctry2 = str(fb).strip().upper()
+                    df.at[i, "Country"] = ctry2
+                    if not str(row.get("playerId") or "").strip():
+                        df.at[i, "playerId"] = pid_i
+                    cache[k] = {"ok": True, "country": ctry2, "source": "fallback"}
+                    updated += 1
+                    try:
+                        _learn_club_country(row.to_dict() if hasattr(row,"to_dict") else dict(row), club_map, ctry2)
+                    except Exception:
+                        pass
+                else:
+                    cache[k] = {"ok": False}
+                    errors += 1
             processed += 1
             cursor = pos + 1
 
@@ -337,6 +690,14 @@ def update_players_db(
                 pass
             try:
                 _pdb_write_json(cache_path, cache if isinstance(cache, dict) else {})
+            except Exception:
+                pass
+    try:
+        _pdb_write_json(club_cache_path, club_map if isinstance(club_map, dict) else {})
+    except Exception:
+        pass
+            try:
+                _pdb_write_json(club_cache_path, club_map if isinstance(club_map, dict) else {})
             except Exception:
                 pass
             try:
