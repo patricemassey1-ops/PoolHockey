@@ -29,7 +29,7 @@ def _unused_call_update_players_db(**kwargs):
         try:
                 if roster_df is not None and hasattr(roster_df, "__len__"):
                     kwargs["max_calls"] = min(int(kwargs.get("max_calls") or 5000), max(50, int(len(roster_df) * 2)))
-            except Exception:
+        except Exception:
                 pass
 
     if sig is not None:
@@ -257,7 +257,7 @@ def _nhl_search_playerid(name: str) -> int | None:
         if "_soft_player_key" in globals():
         try:
                 return _soft_player_key(s)
-            except Exception:
+        except Exception:
                 pass
         return str(s or "").strip().lower()
 
@@ -282,7 +282,7 @@ def _nhl_search_playerid(name: str) -> int | None:
         for it in items:
         try:
                 pid_i = int(it.get("playerId") or it.get("id") or 0)
-            except Exception:
+        except Exception:
                 continue
             nm = str(it.get("name") or it.get("playerName") or "").strip()
             if nm and _soft(nm) == nk:
@@ -317,7 +317,7 @@ def _nhl_search_playerid(name: str) -> int | None:
         if len(cand) == 1:
             return cand[0]
         return None
-    except Exception:
+                except Exception:
         return None
 
 def _pdb_checkpoint_path(data_dir: str) -> str:
@@ -679,18 +679,18 @@ def update_players_db(
         if callable(progress_cb):
         try:
                 progress_cb({"phase":"Country", "index":cursor, "total": total, "updated": updated, "processed": processed})
-            except Exception:
+        except Exception:
                 pass
 
         # periodic saves
         if save_every and processed % int(save_every) == 0:
         try:
                 df.to_csv(path, index=False)
-            except Exception:
+        except Exception:
                 pass
         try:
                 _pdb_write_json(cache_path, cache if isinstance(cache, dict) else {})
-            except Exception:
+        except Exception:
                 pass
     try:
         _pdb_write_json(club_cache_path, club_map if isinstance(club_map, dict) else {})
@@ -698,11 +698,11 @@ def update_players_db(
         pass
         try:
                 _pdb_write_json(club_cache_path, club_map if isinstance(club_map, dict) else {})
-            except Exception:
+        except Exception:
                 pass
         try:
                 _pdb_write_json(ckpt_path, {"phase":"Country","cursor":cursor,"roster_only":bool(roster_only)})
-            except Exception:
+        except Exception:
                 pass
 
     # final save + checkpoint
@@ -767,7 +767,7 @@ def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
                     head = f.readline()
                 if "\t" in head:
                     df = pd.read_csv(csv_path, sep="\t")
-            except Exception:
+        except Exception:
                 pass
 
         # 2) Auto-detect delimiter if still single column
@@ -776,7 +776,7 @@ def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
                 df2 = pd.read_csv(csv_path, sep=None, engine="python")
                 if isinstance(df2, pd.DataFrame) and df2.shape[1] > df.shape[1]:
                     df = df2
-            except Exception:
+        except Exception:
                 pass
 
         # Light column cleanup
@@ -784,7 +784,7 @@ def load_players_db(csv_path: str, mtime: float | None = None) -> pd.DataFrame:
             df.columns = [str(c).strip() for c in df.columns]
 
         return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
-    except Exception:
+        except Exception:
         return pd.DataFrame()
 
 
@@ -816,7 +816,7 @@ try:
             st.stop()
         st.write('ok')
         st.stop()
-except Exception:
+        except Exception:
     pass
 
 
@@ -904,7 +904,7 @@ try:
         AuthorizedHttp = None
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaInMemoryUpload
-except Exception:
+    except Exception:
     Credentials = None
     Request = None
     httplib2 = None
@@ -1350,7 +1350,7 @@ def _apiweb_roster_current(abbrev: str) -> list[int]:
                                 ids.add(int(pid))
                         except Exception:
                             pass
-    except Exception:
+                        except Exception:
         pass
     return sorted(ids)
 
@@ -1368,9 +1368,9 @@ def _statsapi_roster(team_id: int) -> list[int]:
         try:
                 if pid is not None:
                     ids.add(int(pid))
-            except Exception:
+        except Exception:
                 pass
-    except Exception:
+        except Exception:
         pass
     return sorted(ids)
 
@@ -1442,7 +1442,7 @@ def nhl_statsrest_all_players_cached(season_lbl: str | None) -> list[dict]:
             pos = str(r.get("positionCode") or r.get("position") or ("G" if kind=="goalie" else "") or "").strip()
         try:
                 out.append({"playerId": int(pid), "fullName": full, "teamAbbrev": team, "position": pos})
-            except Exception:
+        except Exception:
                 continue
         return out
 
@@ -1471,7 +1471,7 @@ def nhl_find_playerid_by_name_cached(full_name: str, season_lbl: str | None = No
                     return int(p.get("playerId") or 0)
                 except Exception:
                     return 0
-    except Exception:
+                except Exception:
         return 0
     return 0
     try:
@@ -1498,7 +1498,7 @@ def nhl_find_playerid_by_name_cached(full_name: str, season_lbl: str | None = No
                         return int(pid)
                     except Exception:
                         return 0
-    except Exception:
+                    except Exception:
         return 0
     return 0
 
@@ -2029,7 +2029,7 @@ def _nhl_search_playerid(name: str) -> int | None:
         for it in items:
         try:
                 pid_i = int(it.get("playerId") or it.get("id") or 0)
-            except Exception:
+        except Exception:
                 continue
             nm = str(it.get("name") or it.get("playerName") or "").strip()
             if nm and _soft_player_key(nm) == nk:
@@ -2062,7 +2062,7 @@ def _nhl_search_playerid(name: str) -> int | None:
                     return None
 
         return None
-    except Exception:
+                except Exception:
         return None
 
 
@@ -2329,7 +2329,7 @@ def _unused_update_players_db(
         if progress_cb:
         try:
                 progress_cb(min(cursor, total), max(total, 1), phase)
-            except Exception:
+        except Exception:
                 pass
 
         if cursor >= total:
@@ -2406,14 +2406,14 @@ def _unused_update_players_db(
                 _save_json_atomic(cache_path, cache)
                 _save_json_atomic(ckpt_path, {"phase": phase, "cursor": cursor, "roster_only": bool(roster_only)})
                 stats["saved_increments"] += 1
-            except Exception as e:
+        except Exception as e:
                 stats["save_error"] = f"{type(e).__name__}: {e}"
             save_counter = 0
 
         if processed % 50 == 0:
         try:
                 time.sleep(0.05)
-            except Exception:
+        except Exception:
                 pass
 
     try:
@@ -3374,7 +3374,7 @@ def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 
                 continue
         try:
                 pid = _nhl_search_playerid(nm)
-            except Exception:
+        except Exception:
                 pid = 0
             if pid:
                 df.at[i, 'playerId'] = int(pid)
@@ -3394,13 +3394,13 @@ def auto_enrich_players_db(max_fill_playerid: int = 50, max_fill_country: int = 
             pid = df.at[i, 'playerId']
         try:
                 pid_i = int(pid)
-            except Exception:
+        except Exception:
                 continue
             if pid_i <= 0:
                 continue
         try:
                 iso2 = _nhl_landing_country(pid_i)
-            except Exception:
+        except Exception:
                 iso2 = ''
             if iso2:
                 df.at[i, 'Country'] = str(iso2).strip().upper()
@@ -3922,7 +3922,7 @@ def enrich_level_from_players_db(df: pd.DataFrame) -> pd.DataFrame:
                 continue
         try:
                 expv = str(int(float(exp)))
-            except Exception:
+        except Exception:
                 continue
             n0 = _n(nm)
             n1 = _n(_swap_last_first(nm))
@@ -4711,11 +4711,11 @@ def update_points_periods_from_roster(season_lbl: str) -> pd.DataFrame:
             pts_end = 0.0
         try:
                 pts_end = _fantasy_points_for_player(pid, pos, season_lbl, rules) if pid else 0.0
-            except Exception:
+        except Exception:
                 pts_end = 0.0
         try:
                 pts_start = float(periods.at[i,'points_start'] or 0)
-            except Exception:
+        except Exception:
                 pts_start = 0.0
             delta = float(pts_end - pts_start)
             periods.at[i,'end_ts'] = now
@@ -4778,7 +4778,7 @@ def team_points_snapshot(owner: str, season_lbl: str) -> tuple[float, pd.DataFra
         if pid:
         try:
                 cur = _fantasy_points_for_player(pid, pos, season_lbl, rules)
-            except Exception:
+        except Exception:
                 cur = start
         cur_earned.append(float(cur - start))
     if len(openp):
@@ -5243,7 +5243,7 @@ def tx_execute_trade(season_lbl: str, trade_row: dict) -> bool:
             pass
 
         return True
-    except Exception:
+        except Exception:
         return False
 
 
@@ -5877,7 +5877,7 @@ def _country_from_wikidata_entity(qid: str) -> str:
                         if lab:
                             labs.append(str(lab))
                 return labs
-            except Exception:
+        except Exception:
                 return []
 
         # Country of citizenship labels
@@ -5917,7 +5917,7 @@ def _country_from_wikidata_entity(qid: str) -> str:
                             return iso2
                 except Exception:
                     continue
-    except Exception:
+                except Exception:
         pass
     return ''
 
@@ -6023,7 +6023,7 @@ def load_puckpedia_contracts(path: str, mtime: float = 0.0) -> pd.DataFrame:
             # C) fallback: assume first two columns are first/last
         try:
                 name_series = dfc.iloc[:, 0].astype(str).str.strip() + " " + dfc.iloc[:, 1].astype(str).str.strip()
-            except Exception:
+        except Exception:
                 name_series = dfc.iloc[:, 0].astype(str).str.strip()
 
     # --- 2) contract_level + contract_end detection
@@ -6497,7 +6497,7 @@ def open_move_dialog():
                     hit = pdb2[pdb2["_k"] == nm]
                     if not hit.empty:
                         cur_pid = int(hit.iloc[0].get("playerId", 0) or 0)
-            except Exception:
+        except Exception:
                 pass
 
         # -------------------------------------------------
@@ -6525,14 +6525,14 @@ def open_move_dialog():
                 landing = nhl_player_landing_cached(cur_pid)
                 if isinstance(landing, dict):
                     headshot = str(landing.get("headshot") or _landing_field(landing, ["headshot", "default"], "") or "").strip()
-            except Exception:
+        except Exception:
                 landing = None
 
         # Photo du joueur (affichée tout de suite quand on clique son nom)
         if headshot:
         try:
                 st.image(headshot, width=140)
-            except Exception:
+        except Exception:
                 st.caption(headshot)
 
         # Infos NHL (toujours expanded)
@@ -7175,11 +7175,11 @@ def fantasy_points_timeseries(player_id_raw: str, position_raw: str, season_lbl:
             a = it.get('assists', 0) or 0
         try:
                 g = float(g)
-            except Exception:
+        except Exception:
                 g = 0
         try:
                 a = float(a)
-            except Exception:
+        except Exception:
                 a = 0
             pts = g*pts_goal + a*pts_ast
         else:
@@ -7329,7 +7329,7 @@ def render_tab_classement():
         try:
                 prog_pid.empty()
                 prog_cty.empty()
-            except Exception:
+        except Exception:
                 pass
 
             out = pd.DataFrame(rows)
@@ -7604,7 +7604,7 @@ def _tx_pending_from_state() -> bool:
         try:
                 if int(v or 0) > 0:
                     return True
-            except Exception:
+        except Exception:
                 pass
     return False
 
@@ -8221,7 +8221,7 @@ def render_player_profile_page():
             sal = r.get("Salaire", r.get("Cap Hit", r.get("CapHit", "")))
         try:
                 sal_i = int(float(sal)) if str(sal).strip() else 0
-            except Exception:
+        except Exception:
                 sal_i = 0
             pid = str(r.get("playerId", "") or "").strip() or str(name_to_pid.get(k, "") or "").strip()
             rows.append({
@@ -8476,7 +8476,7 @@ def render_player_profile_page():
                 pts = _fantasy_points_for_player(pid, pos, season_lbl, rules)
                 pts_cache[pid] = float(pts or 0)
                 pts_vals.append(float(pts or 0))
-            except Exception:
+        except Exception:
                 pts_vals.append(0.0)
 
         st.session_state[pts_cache_key] = pts_cache
@@ -8634,7 +8634,7 @@ def render_player_profile_page():
         if headshot:
         try:
                 st.image(headshot, width=200)
-            except Exception:
+        except Exception:
                 pass
     with cols[1]:
         title = (flag + " " + full).strip() if flag else full
@@ -8890,12 +8890,12 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
         if len(nums) >= 2:
         try:
                 base_year = int(nums[-1])
-            except Exception:
+        except Exception:
                 base_year = None
         elif len(nums) == 1:
         try:
                 base_year = int(nums[0])
-            except Exception:
+        except Exception:
                 base_year = None
 
         years = [str(base_year + i) for i in range(0, 3)] if base_year else ([season] if season else [])
@@ -9042,20 +9042,20 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                 data_file = str(st.session_state.get("DATA_FILE", "") or "").strip()
                 if data_file:
                     df_new.to_csv(data_file, index=False)
-            except Exception:
+        except Exception:
                 pass
 
             # Rebuild plafonds
         try:
                 st.session_state["plafonds"] = rebuild_plafonds(df_new)
-            except Exception:
+        except Exception:
                 pass
 
             # Marché: joueur devient autonome
         try:
                 season_lbl = str(st.session_state.get("season","") or "").strip()
                 push_buyout_to_market(season_lbl, player_name)
-            except Exception:
+        except Exception:
                 pass
 
             # Historique
@@ -9076,7 +9076,7 @@ def render_tab_gm_picks_buyout(owner: str, dprop: "pd.DataFrame") -> None:
                 hf = str(st.session_state.get("HISTORY_FILE","") or "").strip()
                 if hf:
                     h.to_csv(hf, index=False)
-            except Exception:
+        except Exception:
                 pass
 
             st.success(f"Rachat appliqué ✅ — {player_name} devient **Autonome** (pénalité {money(int(penalite_calc or 0))} sur {bucket})")
@@ -9463,7 +9463,7 @@ def _players_name_to_pid_map() -> dict:
                         return ["border: 2px solid rgba(239,68,68,0.95);"] * len(row)
                     return [""] * len(row)
                 st.dataframe(sel_df.style.apply(_style_row, axis=1), use_container_width=True, hide_index=True)
-            except Exception:
+        except Exception:
                 st.dataframe(sel_df, use_container_width=True, hide_index=True)
 
         # Retirer un joueur
@@ -10416,7 +10416,7 @@ if active_tab == "🛠️ Gestion Admin":
             drive_backups_disabled = False
         try:
                 s = _drive()
-            except Exception as e:
+        except Exception as e:
                 st.error(f"❌ Impossible d'initialiser Drive — {type(e).__name__}: {e}")
                 st.info("Backups indisponibles pour le moment. Réessaie plus tard.")
                 s = None
@@ -10665,7 +10665,7 @@ if active_tab == "🛠️ Gestion Admin":
                                 except Exception:
                                     pass
                             st.success(f"✅ Auto-update exécuté — équipes mises à jour: {ok_ct}")
-                        except Exception as e:
+                                except Exception as e:
                             st.error(f"❌ Auto-update KO — {type(e).__name__}: {e}")
 
                 # Run periodically within app sessions (best-effort, not a real cron)
@@ -10692,7 +10692,7 @@ if active_tab == "🛠️ Gestion Admin":
                                     requests.get(ping_url, timeout=5)
                             except Exception:
                                 pass
-                except Exception:
+                            except Exception:
                     pass
 
                 st.markdown("#### 🩺 Pinger externe")
@@ -10920,12 +10920,12 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                                                     pass
                                                 mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
                                                 st.session_state["players_db"] = load_players_db(pdb_path, mtime)
-                                            except Exception:
+                                                except Exception:
                                                 pass
 
                                             st.success(f"✅ Country appliqué pour {applied} joueur(s).")
                                             do_rerun()
-                                        except Exception as _e:
+                                                except Exception as _e:
                                             st.error(f"Erreur écriture hockey.players.csv: {type(_e).__name__}: {_e}")
 
                                 with c_export:
@@ -10943,11 +10943,11 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                                         pass
 
                                 st.caption("Astuce: tu peux aussi éditer directement hockey.players.csv. Valeurs acceptées: CA/US/SE/FI…")
-                except Exception as e:
+                                    except Exception as e:
                     st.error(f"Erreur diagnostic drapeaux: {type(e).__name__}: {e}")
 
             st.divider()
-        except Exception as e:
+                                    except Exception as e:
             st.error(f"Erreur outil drapeaux: {type(e).__name__}: {e}")
 
 
@@ -11169,7 +11169,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
         if dest_team and dest_team != str(get_selected_team() or '').strip():
         try:
                 pick_team(dest_team)
-            except Exception:
+        except Exception:
                 st.session_state['selected_team'] = dest_team
                 st.session_state['align_owner'] = dest_team
 
@@ -11189,7 +11189,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                 mtime = os.path.getmtime(pdb_path) if os.path.exists(pdb_path) else 0.0
                 pdb = load_players_db(pdb_path, mtime) if mtime else pd.DataFrame()
                 st.session_state["players_db"] = pdb
-            except Exception:
+        except Exception:
                 pdb = pd.DataFrame()
 
         if pdb is None or pdb.empty or ("Player" not in pdb.columns and "Joueur" not in pdb.columns):
@@ -11392,7 +11392,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
 
                         if tri:
                             teams.append({"triCode": tri.upper(), "name": nm or tri.upper()})
-            except Exception:
+        except Exception:
                 teams = []
 
             # 2) Fallback: liste hardcodée (au cas où NHL change la réponse)
@@ -11439,7 +11439,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                         continue
                     r.raise_for_status()
                     return r.json()
-                except Exception as e:
+                        except Exception as e:
                     last_exc = e
                     # Backoff léger sur erreurs transitoires
                     time.sleep(min(base_sleep * (2 ** (attempt - 1)), 10.0))
@@ -11540,7 +11540,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                             f"✅ Rosters: {roster_df['team'].nunique()} équipes | {len(roster_df)} joueurs uniques "
                             f"(run: {len(teams_run)}/{len(teams)} équipes — re-clique pour compléter)"
                         )
-            except Exception as e:
+        except Exception as e:
                 st.error(f"❌ NHL API KO — {type(e).__name__}: {e}")
 
         if isinstance(roster_df, pd.DataFrame) and not roster_df.empty:
@@ -11634,7 +11634,7 @@ if active_tab == "🛠️ Gestion Admin" and is_admin:
                                 key="nhl_free_dl",
                             )
 
-                except Exception as e:
+                            except Exception as e:
                     st.error(f"❌ Auto-mapping KO — {type(e).__name__}: {e}")
 
     if active_tab == "🛠️ Gestion Admin" and is_admin:
@@ -11803,7 +11803,7 @@ def _call_update_players_db(**kwargs):
         try:
                 if roster_df is not None and hasattr(roster_df, "__len__"):
                     kwargs["max_calls"] = min(int(kwargs.get("max_calls") or 5000), max(50, int(len(roster_df) * 2)))
-            except Exception:
+        except Exception:
                 pass
 
     # Filter kwargs to supported parameters unless fn accepts **kwargs
