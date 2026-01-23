@@ -8,7 +8,7 @@ import unicodedata
 import time
 import zipfile
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 # =========================================================
 # MUST BE FIRST STREAMLIT COMMAND
@@ -22,6 +22,7 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 PLAYERS_DB_PATH_DEFAULT = os.path.join(DATA_DIR, "hockey.players.csv")
+BACKUP_HISTORY_PATH_DEFAULT = os.path.join(DATA_DIR, "backup_history.csv")
 
 NHL_COUNTRY_CACHE_DEFAULT = os.path.join(DATA_DIR, "nhl_country_cache.json")
 NHL_COUNTRY_CHECKPOINT_DEFAULT = os.path.join(DATA_DIR, "nhl_country_checkpoint.json")
@@ -35,6 +36,11 @@ def _season_lbl_default() -> str:
     y = datetime.now().year
     m = datetime.now().month
     return f"{y}-{y+1}" if m >= 8 else f"{y-1}-{y}"
+
+
+def _roster_path(season: str) -> str:
+    season = (season or "").strip() or _season_lbl_default()
+    return os.path.join(DATA_DIR, f"equipes_joueurs_{season}.csv")
 
 
 def _transactions_path(season: str) -> str:
@@ -58,7 +64,7 @@ div.stButton > button { padding: 0.35rem 0.6rem; border-radius: 10px; }
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 # =========================================================
-# Helpers
+# Helpers (robustness)
 # =========================================================
 def _read_json(path: str) -> dict:
     try:
@@ -80,7 +86,7 @@ def _write_json(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def checkpoint_status(path: str) -> tuple[bool, str]:
+def checkpoint_status(path: str) -> Tuple[bool, str]:
     if path and os.path.exists(path):
         try:
             ts = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
@@ -100,6 +106,23 @@ def _anti_double_run_guard(tag: str, min_seconds: float = 0.8) -> bool:
     return True
 
 
+# =========================================================
+# Normalization + flags
+# =========================================================
+def _strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def _norm_player_key(name: str) -> str:
+    s = _strip_accents(str(name or "")).lower().strip()
+    s = re.sub(r"[^a-z0-9\s\-']", " ", s)
+    s = s.replace("’", "'")
+    s = re.sub(r"\s+", " ", s).strip()
+    # common Fantrax/DB quirks
+    s = s.replace("matthew ", "matt ")
+    return s
+
+
 def _country_to_flag_emoji(cc: str) -> str:
     cc = (cc or "").strip().upper()
     if len(cc) != 2 or not cc.isalpha():
@@ -116,7 +139,47 @@ def _fmt_money(x) -> str:
 
 
 # =========================================================
-# NHL API (free)
+# Players DB mapping (for flags + optional salary/pos)
+# =========================================================
+@st.cache_data(show_spinner=False)
+def load_players_db_map(path: str) -> Dict[str, dict]:
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return {}
+
+    # Guess columns
+    col_name = None
+    for c in ["Player", "Joueur", "Name", "Nom"]:
+        if c in df.columns:
+            col_name = c
+            break
+
+    col_country = "Country" if "Country" in df.columns else None
+    col_pos = "Pos" if "Pos" in df.columns else ("Position" if "Position" in df.columns else None)
+    col_salary = "Salary" if "Salary" in df.columns else ("Salaire" if "Salaire" in df.columns else None)
+
+    if not col_name:
+        return {}
+
+    out: Dict[str, dict] = {}
+    for _, r in df.iterrows():
+        k = _norm_player_key(r.get(col_name))
+        if not k:
+            continue
+        if k not in out:
+            out[k] = {
+                "country": str(r.get(col_country) or "").strip().upper() if col_country else "",
+                "pos": str(r.get(col_pos) or "").strip() if col_pos else "",
+                "salary": r.get(col_salary) if col_salary else "",
+            }
+    return out
+
+
+# =========================================================
+# NHL API (free) + fallback caches
 # =========================================================
 def _http_get_json(url: str, params=None, timeout: int = 12):
     r = requests.get(url, params=params or {}, timeout=timeout)
@@ -172,9 +235,6 @@ def _nhl_landing_country(player_id: int) -> str:
     return ""
 
 
-# =========================================================
-# Fallbacks (League + Club)
-# =========================================================
 FALLBACK_LEAGUE_TO_COUNTRY = {
     "NCAA": "US",
     "USHL": "US",
@@ -203,10 +263,6 @@ SEED_CLUB_TOKENS = {
     "DAVOS": "CH",
     "LUGANO": "CH",
 }
-
-
-def _strip_accents(s: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
 def _club_slug(s: str) -> str:
@@ -253,9 +309,6 @@ def _learn_club(row: dict, cc: str, club_cache: dict) -> None:
                 club_cache[slug] = cc
 
 
-# =========================================================
-# Players DB update (resume/checkpoint + cache + fallback)
-# =========================================================
 def update_players_db(
     path: str,
     *,
@@ -405,24 +458,52 @@ def update_players_db(
 
 
 # =========================================================
-# Alignement UI (demo)
+# Roster (equipes_joueurs) helpers
 # =========================================================
-def _guess_cols(df: pd.DataFrame):
-    col_player = "Player" if "Player" in df.columns else ("Joueur" if "Joueur" in df.columns else None)
-    col_pos = "Pos" if "Pos" in df.columns else ("Position" if "Position" in df.columns else None)
-    col_salary = "Salary" if "Salary" in df.columns else ("Salaire" if "Salaire" in df.columns else None)
-    col_owner = "Propriétaire" if "Propriétaire" in df.columns else ("Owner" if "Owner" in df.columns else None)
-    col_status = "Status" if "Status" in df.columns else ("Statut" if "Statut" in df.columns else None)
-    return col_player, col_pos, col_salary, col_owner, col_status
+def _guess_roster_cols(df: pd.DataFrame) -> dict:
+    cols = set(df.columns)
+
+    def pick(options):
+        for c in options:
+            if c in cols:
+                return c
+        return None
+
+    return {
+        "player": pick(["Joueur", "Player", "Nom", "Name"]),
+        "owner": pick(["Propriétaire", "Owner", "Equipe", "Équipe", "Team", "GM"]),
+        "slot": pick(["Slot", "Slot Name", "Statut", "Status", "Poste", "Roster", "Positionnement"]),
+        "pos": pick(["Pos", "Position"]),
+        "salary": pick(["Salaire", "Salary", "Cap Hit", "CapHit"]),
+        "country": pick(["Country", "Pays"]),
+    }
 
 
-def roster_click_list(df: pd.DataFrame, title: str):
+def _slot_bucket(slot_val: str) -> str:
+    s = str(slot_val or "").strip().lower()
+    # common aliases
+    if any(x in s for x in ["actif", "active", "starter", "lineup"]):
+        return "ACTIFS"
+    if any(x in s for x in ["banc", "bench"]):
+        return "BANC"
+    if any(x in s for x in ["ir", "inj", "bless"]):
+        return "IR"
+    if any(x in s for x in ["mineur", "minor", "ahl", "farm"]):
+        return "MINEUR"
+    # fallback: if empty treat as actifs
+    return "ACTIFS" if not s else "OTHER"
+
+
+def roster_click_list(df: pd.DataFrame, title: str, *, players_map: Dict[str, dict], cols: dict):
     st.markdown(f"### {title}")
     if df is None or df.empty:
         st.caption("Aucun joueur.")
         return None
 
-    col_player, col_pos, col_salary, _, _ = _guess_cols(df)
+    col_player = cols.get("player")
+    col_pos = cols.get("pos")
+    col_salary = cols.get("salary")
+    col_country = cols.get("country")
 
     h1, h2, h3 = st.columns([7, 2, 2])
     with h1:
@@ -434,11 +515,27 @@ def roster_click_list(df: pd.DataFrame, title: str):
 
     chosen = None
     for idx, row in df.iterrows():
-        name = str(row.get(col_player) or "").strip()
-        pos = str(row.get(col_pos) or "").strip() if col_pos else ""
-        sal = row.get(col_salary) if col_salary else ""
-        cc = str(row.get("Country") or "").strip().upper()
+        name = str(row.get(col_player) or "").strip() if col_player else ""
+        k = _norm_player_key(name)
+
+        # country priority: roster Country -> players_db map -> ""
+        cc = ""
+        if col_country:
+            cc = str(row.get(col_country) or "").strip().upper()
+        if not cc and k and k in players_map:
+            cc = str(players_map[k].get("country") or "").strip().upper()
+
         flag = _country_to_flag_emoji(cc)
+
+        # pos priority: roster pos -> players_db pos
+        pos = str(row.get(col_pos) or "").strip() if col_pos else ""
+        if not pos and k and k in players_map:
+            pos = str(players_map[k].get("pos") or "").strip()
+
+        # salary priority: roster salary -> players_db salary
+        sal = row.get(col_salary) if col_salary else ""
+        if (sal is None or str(sal).strip() == "") and k and k in players_map:
+            sal = players_map[k].get("salary", "")
 
         c1, c2, c3 = st.columns([7, 2, 2])
         with c1:
@@ -526,52 +623,65 @@ def _drive_available() -> bool:
 # =========================================================
 # UI
 # =========================================================
-st.title("Pool Hockey — Full 4 (Stable)")
+st.title("Pool Hockey — Full 4 (Roster réel)")
+
+# Season selector (affects roster + transactions)
+season = st.text_input("Saison active", value="2025-2026")
+roster_file = _roster_path(season)
 
 TABS = ["🏠 Home", "🧾 Alignement", "⚖️ Transactions", "🛠️ Gestion Admin"]
 active_tab = st.radio("Navigation", TABS, horizontal=True)
 
 if active_tab == "🏠 Home":
-    st.info("Home clean. (No Players DB here.)")
+    st.info("Home clean. (Players DB est seulement dans Gestion Admin.)")
+    st.caption(f"Roster attendu: {roster_file}")
 
 elif active_tab == "🧾 Alignement":
-    st.subheader("🧾 Alignement")
-    if not os.path.exists(PLAYERS_DB_PATH_DEFAULT):
-        st.error(f"Missing: {PLAYERS_DB_PATH_DEFAULT}")
+    st.subheader("🧾 Alignement (equipes_joueurs)")
+
+    if not os.path.exists(roster_file):
+        st.error(f"Missing roster file: {roster_file}")
         st.stop()
 
-    df = pd.read_csv(PLAYERS_DB_PATH_DEFAULT)
-    col_player, col_pos, col_salary, col_owner, col_status = _guess_cols(df)
+    # Load roster
+    df_r = pd.read_csv(roster_file)
+    cols = _guess_roster_cols(df_r)
+    if not cols.get("player") or not cols.get("owner"):
+        st.error("Colonnes requises manquantes dans equipes_joueurs: il faut au minimum une colonne joueur + propriétaire.")
+        st.caption(f"Colonnes détectées: {list(df_r.columns)}")
+        st.stop()
 
-    if col_owner:
-        owners = sorted([x for x in df[col_owner].dropna().astype(str).unique() if x.strip()])
-        owner = st.selectbox("Équipe", owners) if owners else ""
-        view = df[df[col_owner].astype(str).eq(owner)].copy() if owner else df.copy()
-    else:
-        st.caption("Colonne Propriétaire absente — affichage global (démo).")
-        view = df.copy()
+    # Players DB map for flags fallback
+    players_map = load_players_db_map(PLAYERS_DB_PATH_DEFAULT)
 
-    if col_status:
-        actifs = view[view[col_status].astype(str).str.contains("Actif|Active", case=False, na=False)].copy()
-        banc = view[view[col_status].astype(str).str.contains("Banc|Bench", case=False, na=False)].copy()
-        ir = view[view[col_status].astype(str).str.contains("IR|Inj", case=False, na=False)].copy()
-        mineur = view[view[col_status].astype(str).str.contains("Mineur|Minor|AHL", case=False, na=False)].copy()
+    owners = sorted([x for x in df_r[cols["owner"]].dropna().astype(str).unique() if x.strip()])
+    owner = st.selectbox("Équipe", owners) if owners else ""
+    view = df_r[df_r[cols["owner"]].astype(str).eq(owner)].copy() if owner else df_r.copy()
+
+    # Bucketize by slot/status
+    slot_col = cols.get("slot")
+    if slot_col:
+        view["_bucket"] = view[slot_col].apply(_slot_bucket)
     else:
-        actifs, banc, ir, mineur = view.copy(), view.iloc[0:0].copy(), view.iloc[0:0].copy(), view.iloc[0:0].copy()
+        view["_bucket"] = "ACTIFS"
+
+    actifs = view[view["_bucket"].eq("ACTIFS")].copy()
+    banc = view[view["_bucket"].eq("BANC")].copy()
+    ir = view[view["_bucket"].eq("IR")].copy()
+    mineur = view[view["_bucket"].eq("MINEUR")].copy()
 
     left, center, right = st.columns([1.1, 1.1, 1.1])
     with left:
-        roster_click_list(actifs, "⭐ Actifs")
+        roster_click_list(actifs, "⭐ Actifs", players_map=players_map, cols=cols)
     with center:
-        roster_click_list(banc, "🪑 Banc")
+        roster_click_list(banc, "🪑 Banc", players_map=players_map, cols=cols)
         st.divider()
-        roster_click_list(ir, "🩹 IR")
+        roster_click_list(ir, "🩹 IR", players_map=players_map, cols=cols)
     with right:
-        roster_click_list(mineur, "🧊 Mineur")
+        roster_click_list(mineur, "🧊 Mineur", players_map=players_map, cols=cols)
 
 elif active_tab == "⚖️ Transactions":
     st.subheader("⚖️ Transactions")
-    season = st.text_input("Saison", value=_season_lbl_default())
     tx_path = _transactions_path(season)
     df_tx = _tx_read(tx_path)
 
@@ -690,7 +800,9 @@ elif active_tab == "🛠️ Gestion Admin":
     backup_dir = st.text_input("Backup folder", value=BACKUP_DIR_DEFAULT)
 
     critical_files = [
+        roster_file,
         PLAYERS_DB_PATH_DEFAULT,
+        BACKUP_HISTORY_PATH_DEFAULT,
         NHL_COUNTRY_CACHE_DEFAULT,
         CLUB_COUNTRY_CACHE_DEFAULT,
         NHL_COUNTRY_CHECKPOINT_DEFAULT,
@@ -735,7 +847,9 @@ elif active_tab == "🛠️ Gestion Admin":
     st.divider()
     st.caption("Debug paths:")
     st.code("\\n".join([
+        roster_file,
         PLAYERS_DB_PATH_DEFAULT,
+        BACKUP_HISTORY_PATH_DEFAULT,
         NHL_COUNTRY_CACHE_DEFAULT,
         CLUB_COUNTRY_CACHE_DEFAULT,
         NHL_COUNTRY_CHECKPOINT_DEFAULT,
